@@ -6,7 +6,22 @@ import { ResetPassword } from "@/pages/ResetPassword";
 import { AppShell } from "@/components/layout/AppShell";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { Dashboard } from "@/pages/Dashboard";
-import { Placeholder } from "@/pages/Placeholder";
+import { Platform } from "@/pages/superadmin/Platform";
+import { Businesses } from "@/pages/superadmin/Businesses";
+import { BusinessDetail } from "@/pages/superadmin/BusinessDetail";
+import { PlatformUsers } from "@/pages/superadmin/PlatformUsers";
+import { Users } from "@/pages/Users";
+import { Settings } from "@/pages/Settings";
+import { Shifts } from "@/pages/Shifts";
+import { Faults } from "@/pages/Faults";
+import { Tasks } from "@/pages/Tasks";
+import { Attendance } from "@/pages/Attendance";
+import { Payroll } from "@/pages/Payroll";
+import { Inventory } from "@/pages/Inventory";
+import { Agreements } from "@/pages/Agreements";
+import { Form101 } from "@/pages/Form101";
+import { Events } from "@/pages/Events";
+import { FeatureGate } from "@/components/FeatureGate";
 
 export function App() {
   const { loading, session } = useAuth();
@@ -27,20 +42,21 @@ export function App() {
       >
         <Route index element={<Dashboard />} />
         <Route path="dashboard" element={<Dashboard />} />
-        <Route path="platform" element={<Placeholder title="סקירת פלטפורמה" feature={null} />} />
-        <Route path="businesses" element={<Placeholder title="עסקים" feature={null} />} />
-        <Route path="platform-users" element={<Placeholder title="משתמשים" feature={null} />} />
-        <Route path="users" element={<Placeholder title="משתמשים וצוות" feature={null} />} />
-        <Route path="shifts" element={<Placeholder title="משמרות" feature="shifts" />} />
-        <Route path="tasks" element={<Placeholder title="משימות" feature="tasks" />} />
-        <Route path="attendance" element={<Placeholder title="שעון נוכחות" feature="attendance" />} />
-        <Route path="payroll" element={<Placeholder title="חישוב שכר" feature="payroll" />} />
-        <Route path="inventory" element={<Placeholder title="סחורות ומלאי" feature="inventory" />} />
-        <Route path="faults" element={<Placeholder title="דיווח תקלות" feature="faults" />} />
-        <Route path="agreements" element={<Placeholder title="הסכמים וחתימות" feature="agreements" />} />
-        <Route path="form101" element={<Placeholder title="טופס 101" feature="forms" />} />
-        <Route path="events" element={<Placeholder title="אירועים" feature="events" />} />
-        <Route path="settings" element={<Placeholder title="הגדרות עסק" feature={null} />} />
+        <Route path="platform" element={<Platform />} />
+        <Route path="businesses" element={<Businesses />} />
+        <Route path="businesses/:id" element={<BusinessDetail />} />
+        <Route path="platform-users" element={<PlatformUsers />} />
+        <Route path="users" element={<Users />} />
+        <Route path="shifts" element={<FeatureGate feature="shifts"><Shifts /></FeatureGate>} />
+        <Route path="tasks" element={<FeatureGate feature="tasks"><Tasks /></FeatureGate>} />
+        <Route path="attendance" element={<FeatureGate feature="attendance"><Attendance /></FeatureGate>} />
+        <Route path="payroll" element={<FeatureGate feature="payroll"><Payroll /></FeatureGate>} />
+        <Route path="inventory" element={<FeatureGate feature="inventory"><Inventory /></FeatureGate>} />
+        <Route path="faults" element={<FeatureGate feature="faults"><Faults /></FeatureGate>} />
+        <Route path="agreements" element={<FeatureGate feature="agreements"><Agreements /></FeatureGate>} />
+        <Route path="form101" element={<FeatureGate feature="forms"><Form101 /></FeatureGate>} />
+        <Route path="events" element={<FeatureGate feature="events"><Events /></FeatureGate>} />
+        <Route path="settings" element={<Settings />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

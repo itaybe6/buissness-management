@@ -140,6 +140,46 @@ export function Badge({
   );
 }
 
+/* ----------------------------- PageHeader ----------------------------- */
+export function PageHeader({
+  title,
+  subtitle,
+  actions,
+}: {
+  title: string;
+  subtitle?: string;
+  actions?: ReactNode;
+}) {
+  return (
+    <div className="mb-5 flex flex-wrap items-end justify-between gap-3.5">
+      <div>
+        <div className="text-[24px] font-extrabold tracking-tight">{title}</div>
+        {subtitle && <div className="mt-1 text-[14.5px] text-text-2">{subtitle}</div>}
+      </div>
+      {actions && <div className="flex flex-wrap gap-2.5">{actions}</div>}
+    </div>
+  );
+}
+
+/* ----------------------------- Switch ----------------------------- */
+export function Switch({ checked, onChange }: { checked: boolean; onChange?: (v: boolean) => void }) {
+  return (
+    <span
+      onClick={(e) => {
+        e.stopPropagation();
+        onChange?.(!checked);
+      }}
+      className="relative inline-block h-6 w-[42px] flex-none cursor-pointer rounded-full transition"
+      style={{ background: checked ? "var(--accent-2)" : "var(--border)" }}
+    >
+      <span
+        className="absolute top-[3px] h-[18px] w-[18px] rounded-full bg-white shadow transition-all"
+        style={{ right: checked ? 21 : 3 }}
+      />
+    </span>
+  );
+}
+
 /* ----------------------------- EmptyState ----------------------------- */
 export function EmptyState({
   icon = "inbox",

@@ -1,0 +1,156 @@
+import { useMemo, useState } from "react";
+import { Button, Card, Field, Icon, Input, PageHeader, PageLoader, ErrorState, Select } from "@/components/ui";
+import { Modal } from "@/components/ui/Modal";
+import { useAuth } from "@/lib/auth";
+import { useBusinessId, formatCurrency, initialsOf, colorFor, todayISO } from "@/lib/db";
+import { useProfiles } from "@/api/users";
+import { useAttendanceMonth } from "@/api/attendance";
+import { useTips, useAddTip } from "@/api/payroll";
+import { useShiftTemplates } from "@/api/shifts";
+
+function monthNow() {
+  return new Date().toISOString().slice(0, 7);
+}
+
+export function Payroll() {
+  const businessId = useBusinessId();
+  const { profile } = useAuth();
+  const [month, setMonth] = useState(monthNow());
+  const { data: users, isLoading, isError, refetch } = useProfiles(businessId);
+  const { data: attendance } = useAttendanceMonth(businessId, month);
+  const { data: tips } = useTips(businessId, month);
+  const { data: templates } = useShiftTemplates(businessId);
+  const addTip = useAddTip(businessId);
+  const [tipOpen, setTipOpen] = useState(false);
+
+  const isPayrollManager = profile && ["manager", "office_manager"].includes(profile.role);
+
+  const rows = useMemo(() => {
+    const employees = (users ?? []).filter((u) => isPayrollManager || u.id === profile?.id);
+    return employees.map((u) => {
+      const hours = (attendance ?? [])
+        .filter((a) => a.employee_id === u.id && a.clock_in && a.clock_out)
+        .reduce((sum, a) => sum + (new Date(a.clock_out!).getTime() - new Date(a.clock_in!).getTime()) / 3.6e6, 0);
+      const tipSum = (tips ?? []).filter((t) => t.employee_id === u.id).reduce((s, t) => s + Number(t.amount), 0);
+      const rate = Number(u.hourly_rate ?? 0);
+      const base = hours * rate;
+      return { id: u.id, name: u.full_name, hours, rate, base, tips: tipSum, total: base + tipSum };
+    });
+  }, [users, attendance, tips, isPayrollManager, profile?.id]);
+
+  if (isLoading) return <PageLoader />;
+  if (isError) return <ErrorState onRetry={refetch} />;
+
+  const totals = rows.reduce((acc, r) => ({ hours: acc.hours + r.hours, base: acc.base + r.base, tips: acc.tips + r.tips, total: acc.total + r.total }), { hours: 0, base: 0, tips: 0, total: 0 });
+
+  return (
+    <div className="mx-auto max-w-[1100px] animate-fadeUp">
+      <PageHeader
+        title="שכר וטיפים"
+        subtitle="חישוב לפי שעות נוכחות + טיפים"
+        actions={
+          <div className="flex items-center gap-2.5">
+            <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="!w-[150px]" />
+            {isPayrollManager && <Button icon="add" onClick={() => setTipOpen(true)}>הזנת טיפ</Button>}
+          </div>
+        }
+      />
+
+      <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {[
+          { label: "סה״כ שעות", value: Math.round(totals.hours).toLocaleString("he-IL"), icon: "schedule" },
+          { label: "שכר בסיס", value: formatCurrency(totals.base), icon: "payments" },
+          { label: "טיפים", value: formatCurrency(totals.tips), icon: "savings" },
+          { label: "סה״כ לתשלום", value: formatCurrency(totals.total), icon: "account_balance_wallet" },
+        ].map((k) => (
+          <Card key={k.label} className="p-[18px]">
+            <span className="grid h-10 w-10 place-items-center rounded-[11px] [background:var(--surface-2)]"><Icon name={k.icon} size={21} className="text-ink" /></span>
+            <div className="mt-3 text-[22px] font-extrabold tracking-tight">{k.value}</div>
+            <div className="text-[12.5px] text-text-2">{k.label}</div>
+          </Card>
+        ))}
+      </div>
+
+      <Card className="overflow-hidden">
+        <div className="overflow-auto">
+          <div className="min-w-[640px]">
+            <div className="grid grid-cols-[2fr_1fr_1fr_1.2fr_1fr_1.2fr] gap-2 border-b border-border bg-surface-2 px-5 py-3 text-[12px] font-bold text-text-3">
+              <span>עובד</span><span>שעות</span><span>תעריף</span><span>בסיס</span><span>טיפים</span><span>סה״כ</span>
+            </div>
+            {rows.map((r) => (
+              <div key={r.id} className="grid grid-cols-[2fr_1fr_1fr_1.2fr_1fr_1.2fr] items-center gap-2 border-b border-border-2 px-5 py-3 text-[13.5px]">
+                <span className="flex min-w-0 items-center gap-2.5">
+                  <span className="grid h-8 w-8 flex-none place-items-center rounded-[9px] text-[12px] font-bold text-white" style={{ background: colorFor(r.id) }}>{initialsOf(r.name)}</span>
+                  <span className="truncate font-bold">{r.name}</span>
+                </span>
+                <span>{r.hours.toFixed(1)}</span>
+                <span>{formatCurrency(r.rate)}</span>
+                <span>{formatCurrency(r.base)}</span>
+                <span className="text-accent-2">{formatCurrency(r.tips)}</span>
+                <span className="font-extrabold">{formatCurrency(r.total)}</span>
+              </div>
+            ))}
+            {rows.length === 0 && <div className="px-5 py-10 text-center text-text-2">אין נתונים לחודש זה.</div>}
+          </div>
+        </div>
+      </Card>
+
+      {tipOpen && (
+        <TipModal
+          users={users ?? []}
+          templates={(templates ?? []).map((t) => ({ id: t.id, name: t.name }))}
+          saving={addTip.isPending}
+          onClose={() => setTipOpen(false)}
+          onSave={async (input) => { await addTip.mutateAsync({ business_id: businessId!, ...input }); setTipOpen(false); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function TipModal({
+  users,
+  templates,
+  onClose,
+  onSave,
+  saving,
+}: {
+  users: { id: string; full_name: string | null }[];
+  templates: { id: string; name: string }[];
+  onClose: () => void;
+  onSave: (input: { employee_id: string; shift_date: string; shift_template_id: string | null; amount: number; hours: number }) => Promise<void>;
+  saving: boolean;
+}) {
+  const [employeeId, setEmployeeId] = useState(users[0]?.id ?? "");
+  const [date, setDate] = useState(todayISO());
+  const [templateId, setTemplateId] = useState("");
+  const [amount, setAmount] = useState("");
+  const [hours, setHours] = useState("");
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="הזנת טיפ"
+      icon="savings"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>ביטול</Button>
+          <Button className="flex-1" loading={saving} onClick={() => employeeId && onSave({ employee_id: employeeId, shift_date: date, shift_template_id: templateId || null, amount: Number(amount) || 0, hours: Number(hours) || 0 })}>שמירה</Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3.5">
+        <Field label="עובד"><Select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>{users.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}</Select></Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="תאריך"><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+          <Field label="משמרת"><Select value={templateId} onChange={(e) => setTemplateId(e.target.value)}><option value="">— כללי —</option>{templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</Select></Field>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="סכום טיפ (₪)"><Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+          <Field label="שעות במשמרת"><Input type="number" value={hours} onChange={(e) => setHours(e.target.value)} /></Field>
+        </div>
+      </div>
+    </Modal>
+  );
+}

@@ -37,17 +37,25 @@ export function Dashboard() {
       </div>
 
       {role === "super_admin" ? (
-        <Card className="p-6">
-          <div className="flex items-center gap-3">
-            <span className="grid h-12 w-12 place-items-center rounded-[12px] [background:var(--accent-tint)]">
-              <Icon name="apps" size={26} className="text-accent-2" />
-            </span>
-            <div>
-              <div className="text-[17px] font-bold">ברוך הבא, סופר אדמין</div>
-              <div className="text-[13.5px] text-text-2">ניהול עסקים, מודולים ומשתמשים — בקרוב במסך הפלטפורמה.</div>
-            </div>
-          </div>
-        </Card>
+        <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
+          {[
+            { to: "/platform", icon: "space_dashboard", label: "סקירת פלטפורמה", desc: "מבט על כל העסקים" },
+            { to: "/businesses", icon: "store", label: "ניהול עסקים", desc: "יצירה והפעלת מודולים" },
+            { to: "/platform-users", icon: "group", label: "משתמשים", desc: "כל המשתמשים בפלטפורמה" },
+          ].map((c) => (
+            <Link key={c.to} to={c.to}>
+              <Card className="flex flex-col gap-3 p-5 transition hover:border-accent-2 hover:shadow">
+                <span className="grid h-11 w-11 place-items-center rounded-[12px] [background:var(--accent-tint)]">
+                  <Icon name={c.icon} size={24} className="text-accent-2" />
+                </span>
+                <div>
+                  <div className="text-[14.5px] font-bold">{c.label}</div>
+                  <div className="text-[12.5px] text-text-2">{c.desc}</div>
+                </div>
+              </Card>
+            </Link>
+          ))}
+        </div>
       ) : (
         <>
           <div className="mb-4 text-[13px] font-bold uppercase tracking-wide text-text-3">גישה מהירה</div>
