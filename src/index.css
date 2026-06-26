@@ -50,6 +50,8 @@
   --radius-sm: 11px;
   --sw: 264px;
   --icon: "Material Symbols Rounded";
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
 }
 
 [data-theme="dark"] {
@@ -252,6 +254,133 @@ select {
     transform: translateY(-4px);
   }
   to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Inventory page — catalog-style layout */
+.inventory-summary {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+@media (min-width: 640px) {
+  .inventory-summary {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.inventory-summary-cell {
+  padding: 1rem 1.125rem;
+  border-left: 1px solid var(--border-2);
+}
+
+.inventory-summary-cell:first-child {
+  border-left: none;
+}
+
+.inventory-tab {
+  position: relative;
+  padding: 0.625rem 0.25rem;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-3);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: color 160ms var(--ease-out);
+}
+
+.inventory-tab[data-active="true"] {
+  color: var(--text);
+}
+
+.inventory-tab-indicator {
+  position: absolute;
+  bottom: -1px;
+  right: 0;
+  left: 0;
+  height: 2px;
+  background: var(--ink);
+  border-radius: 999px;
+  transform: scaleX(0.95);
+  opacity: 0;
+  transition:
+    transform 200ms var(--ease-out),
+    opacity 200ms var(--ease-out);
+}
+
+.inventory-tab[data-active="true"] .inventory-tab-indicator {
+  transform: scaleX(1);
+  opacity: 1;
+}
+
+.inventory-item-enter {
+  opacity: 0;
+  transform: translateY(8px);
+  animation: inventoryItemIn 260ms var(--ease-out) forwards;
+}
+
+@keyframes inventoryItemIn {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.inventory-qty-bump {
+  animation: inventoryQtyBump 280ms var(--ease-out);
+}
+
+@keyframes inventoryQtyBump {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inventory-item-enter,
+  .inventory-qty-bump {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+
+  .inventory-tab-indicator {
+    transition: none;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .inventory-card:hover {
+    border-color: color-mix(in srgb, var(--border) 60%, var(--text-3));
+    box-shadow: var(--shadow);
+  }
+
+  .inventory-card:hover .inventory-card-image img {
+    transform: scale(1.03);
+  }
+
+  .inventory-card-actions {
+    opacity: 0;
+    transform: translateY(4px);
+    transition:
+      opacity 180ms var(--ease-out),
+      transform 180ms var(--ease-out);
+  }
+
+  .inventory-card:hover .inventory-card-actions {
     opacity: 1;
     transform: translateY(0);
   }
