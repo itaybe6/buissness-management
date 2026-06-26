@@ -1,21 +1,153 @@
-*,
-*::before,
-*::after {
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   Design tokens — ported from the Claude Design source,
+   refined toward a clean, modern Monday.com style.
+   ============================================================ */
+:root {
+  --ink: #16141d;
+  --ink-2: #231f2f;
+  --bar: #2a1f44;
+  --accent: #7c3aed;
+  --accent-2: #6d28d9;
+  --accent-tint: #ede9fe;
+  --brand: #7c3aed;
+  --brand-600: #6d28d9;
+  --brand-700: #16141d;
+  --brand-800: #000000;
+  --brand-50: #f3f0fe;
+  --brand-100: #e5dbfd;
+  --brand-200: #c4b5fd;
+  --primary-bg: #7c3aed;
+  --primary-fg: #ffffff;
+  --primary-hover: #6d28d9;
+  --link: #6d28d9;
+  --bg: #e7e9ed;
+  --surface: #ffffff;
+  --surface-2: #f5f6f8;
+  --sidebar: #16181d;
+  --border: #e3e5ea;
+  --border-2: #edeff2;
+  --text: #14181c;
+  --text-2: #5a636e;
+  --text-3: #949ca6;
+  --success: #00c875;
+  --success-bg: #d4f5e5;
+  --warning: #fdab3d;
+  --warning-bg: #fdeccc;
+  --danger: #e2445c;
+  --danger-bg: #fbdde2;
+  --info: #579bfc;
+  --info-bg: #e1edff;
+  --violet: #7c3aed;
+  --violet-bg: #f1ecfe;
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow: 0 6px 24px -8px rgba(16, 24, 40, 0.14);
+  --shadow-lg: 0 24px 60px -18px rgba(16, 24, 40, 0.28);
+  --radius: 16px;
+  --radius-sm: 11px;
+  --sw: 264px;
+  --icon: "Material Symbols Rounded";
+}
+
+[data-theme="dark"] {
+  --ink: #0f0b16;
+  --bar: #4c3a7a;
+  --bg: #0c0a12;
+  --surface: #16131d;
+  --surface-2: #1d1928;
+  --sidebar: #0d0a14;
+  --border: #2a2438;
+  --border-2: #221d2e;
+  --text: #e8e6f1;
+  --text-2: #a39db2;
+  --text-3: #6f6880;
+  --accent: #8b5cf6;
+  --accent-2: #7c3aed;
+  --accent-tint: #241a3a;
+  --brand-50: #241a3a;
+  --brand-100: #2f2348;
+  --brand-200: #7c3aed;
+  --brand-700: #a78bfa;
+  --brand-800: #c4b5fd;
+  --primary-bg: #8b5cf6;
+  --primary-fg: #ffffff;
+  --primary-hover: #7c3aed;
+  --link: #a78bfa;
+  --success-bg: #0e2c1c;
+  --warning-bg: #2e2410;
+  --danger-bg: #321616;
+  --info-bg: #16233f;
+  --violet-bg: #221a3a;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow: 0 8px 28px -8px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 24px 60px -18px rgba(0, 0, 0, 0.6);
+}
+
+* {
   box-sizing: border-box;
 }
 
-body {
+html,
+body,
+#root {
   margin: 0;
+  padding: 0;
   min-height: 100vh;
-  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-  background: #f5f7fb;
-  color: #1a1a2e;
+  background: var(--bg);
 }
 
-.app-shell {
-  min-height: 100vh;
-  display: grid;
-  place-content: center;
-  text-align: center;
-  padding: 2rem;
+body {
+  font-family: "Heebo", system-ui, sans-serif;
+  color: var(--text);
+  direction: rtl;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.material-symbols-rounded {
+  font-family: "Material Symbols Rounded";
+  font-weight: normal;
+  font-style: normal;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  font-variation-settings: "FILL" 1, "wght" 400, "GRAD" 0, "opsz" 24;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 8px;
+  border: 3px solid var(--surface);
+}
+
+input,
+button,
+textarea,
+select {
+  font-family: inherit;
+}
+
+@layer components {
+  /* Form field used across the app */
+  .field {
+    @apply w-full rounded-[11px] border border-border bg-surface-2 px-3.5 py-3 text-[14.5px] text-text outline-none transition;
+  }
+  .field:focus {
+    border-color: var(--accent-2);
+    box-shadow: 0 0 0 3px var(--accent-tint);
+  }
+  .label-text {
+    @apply block text-[13px] font-semibold text-text-2;
+  }
 }

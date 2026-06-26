@@ -19,6 +19,7 @@ drop table if exists
   public.tasks, public.events, public.faults, public.inventory_orders,
   public.inventory_counts, public.inventory_items, public.payroll_records,
   public.tips, public.attendance, public.shift_assignments, public.shift_preferences,
+  public.shift_templates, public.departments,
   public.form_101, public.agreement_signatures, public.agreement_templates,
   public.business_features, public.profiles, public.businesses cascade;
 
@@ -47,12 +48,13 @@ create extension if not exists "pgcrypto";
 
 -- תפקידי משתמש
 create type public.user_role as enum (
-  'super_admin',    -- שולט על כל הפלטפורמה, מוסיף עסקים
-  'manager',        -- מנהל - רואה הכל בעסק שלו
-  'shift_manager',  -- מנהל משמרת - סידורי עבודה, חשבוניות
-  'office_manager', -- מנהלת משרד / מזכירה - שכר ומלאי
-  'employee',       -- עובד
-  'maintenance'     -- איש אחזקה - רואה רק תקלות
+  'super_admin',       -- שולט על כל הפלטפורמה, מוסיף עסקים
+  'manager',           -- מנהל - רואה הכל בעסק שלו
+  'department_manager',-- מנהל מחלקה - בונה סידור עבודה, רואה את כל הסידורים
+  'shift_manager',     -- מנהל משמרת - סידורי עבודה, חשבוניות
+  'office_manager',    -- מנהלת משרד / מזכירה - שכר ומלאי
+  'employee',          -- עובד
+  'maintenance'        -- איש אחזקה - רואה רק תקלות
 );
 
 -- חלקי משמרת
@@ -136,12 +138,27 @@ create table public.business_features (
 
 
 -- ----------------------------------------------------------------------------
+-- 3.1 מחלקות (Departments) — מטבח / בר / מלצרות / אירוח ...
+--     כל עובד משויך למחלקה, וסידור העבודה נבנה לכל מחלקה בנפרד.
+-- ----------------------------------------------------------------------------
+create table public.departments (
+  id          uuid primary key default gen_random_uuid(),
+  business_id uuid not null references public.businesses(id) on delete cascade,
+  name        text not null,
+  color       text default '#7c3aed',
+  sort_order  integer not null default 0,
+  active      boolean not null default true,
+  created_at  timestamptz not null default now()
+);
+
+-- ----------------------------------------------------------------------------
 -- 4. פרופילים (משתמשים) — מקושר ל-Supabase Auth
 -- ----------------------------------------------------------------------------
 
 create table public.profiles (
   id          uuid primary key references auth.users(id) on delete cascade,
   business_id uuid references public.businesses(id) on delete cascade, -- null עבור super_admin
+  department_id uuid references public.departments(id) on delete set null, -- שיוך למחלקה
   full_name   text,
   email       text,
   phone       text,
@@ -156,13 +173,16 @@ create table public.profiles (
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
-  insert into public.profiles (id, email, full_name, business_id, role)
+  insert into public.profiles (id, email, full_name, business_id, role, department_id, phone, hourly_rate)
   values (
     new.id,
     new.email,
     coalesce(new.raw_user_meta_data->>'full_name', new.email),
     (new.raw_user_meta_data->>'business_id')::uuid,
-    coalesce((new.raw_user_meta_data->>'role')::public.user_role, 'employee')
+    coalesce((new.raw_user_meta_data->>'role')::public.user_role, 'employee'),
+    (new.raw_user_meta_data->>'department_id')::uuid,
+    new.raw_user_meta_data->>'phone',
+    coalesce((new.raw_user_meta_data->>'hourly_rate')::numeric, 0)
   );
   return new;
 end; $$;
@@ -223,6 +243,20 @@ create table public.form_101 (
 -- 7. מודול: הגשת משמרות + סידור עבודה
 -- ----------------------------------------------------------------------------
 
+-- שעות משמרת דינמיות לכל עסק. המנהל מגדיר/עורך/מוחק משמרות, וכל מקום
+-- שמתייחס למשמרת שולף מכאן במקום מערכים קבועים.
+create table public.shift_templates (
+  id          uuid primary key default gen_random_uuid(),
+  business_id uuid not null references public.businesses(id) on delete cascade,
+  name        text not null,                 -- לדוגמה: בוקר / ערב / מיוחד
+  start_time  time not null,
+  end_time    time not null,
+  color       text default '#7c3aed',
+  active      boolean not null default true,
+  sort_order  integer not null default 0,
+  created_at  timestamptz not null default now()
+);
+
 -- אילוצים שהעובד מגיש
 create table public.shift_preferences (
   id          uuid primary key default gen_random_uuid(),
@@ -230,21 +264,24 @@ create table public.shift_preferences (
   employee_id uuid not null references public.profiles(id) on delete cascade,
   week_start  date not null,                 -- תחילת השבוע
   shift_date  date not null,
-  period      public.shift_period not null,  -- בוקר/צהריים/ערב
+  shift_template_id uuid not null references public.shift_templates(id) on delete cascade,
   preference  public.availability not null,  -- מעדיף/יכול/לא יכול
   note        text,
-  created_at  timestamptz not null default now()
+  created_at  timestamptz not null default now(),
+  unique (employee_id, shift_date, shift_template_id)
 );
 
 -- סידור עבודה שמנהל המשמרת בונה
 create table public.shift_assignments (
   id          uuid primary key default gen_random_uuid(),
   business_id uuid not null references public.businesses(id) on delete cascade,
+  department_id uuid references public.departments(id) on delete cascade,
   employee_id uuid not null references public.profiles(id) on delete cascade,
   shift_date  date not null,
-  period      public.shift_period not null,
+  shift_template_id uuid not null references public.shift_templates(id) on delete cascade,
   assigned_by uuid references public.profiles(id),
-  created_at  timestamptz not null default now()
+  created_at  timestamptz not null default now(),
+  unique (employee_id, shift_date, shift_template_id)
 );
 
 
@@ -274,7 +311,7 @@ create table public.tips (
   business_id uuid not null references public.businesses(id) on delete cascade,
   employee_id uuid not null references public.profiles(id) on delete cascade,
   shift_date  date not null,
-  period      public.shift_period,
+  shift_template_id uuid references public.shift_templates(id) on delete set null,
   amount      numeric(10,2) not null default 0,
   hours       numeric(6,2),                    -- שעות באותה משמרת
   hourly_from_tips numeric(10,2),              -- ממוצע שעתי מהטיפים
@@ -401,6 +438,9 @@ create trigger trg_tasks_updated         before update on public.tasks          
 -- 15. אינדקסים על business_id (לביצועים)
 -- ----------------------------------------------------------------------------
 create index idx_profiles_business        on public.profiles(business_id);
+create index idx_profiles_department       on public.profiles(department_id);
+create index idx_departments_business       on public.departments(business_id);
+create index idx_shift_templates_business  on public.shift_templates(business_id);
 create index idx_features_business         on public.business_features(business_id);
 create index idx_agr_templates_business    on public.agreement_templates(business_id);
 create index idx_agr_signatures_business   on public.agreement_signatures(business_id);
@@ -427,6 +467,8 @@ create index idx_tasks_business             on public.tasks(business_id);
 alter table public.businesses          enable row level security;
 alter table public.business_features    enable row level security;
 alter table public.profiles             enable row level security;
+alter table public.departments          enable row level security;
+alter table public.shift_templates      enable row level security;
 alter table public.agreement_templates  enable row level security;
 alter table public.agreement_signatures enable row level security;
 alter table public.form_101             enable row level security;
@@ -457,6 +499,13 @@ create policy "profiles_self_update" on public.profiles
 -- חברי אותו עסק נראים זה לזה
 create policy "profiles_same_business" on public.profiles
   for select using (business_id = public.auth_business_id());
+-- מנהל העסק יכול לעדכן פרופילים של עובדי העסק שלו (תפקיד, מחלקה, שכר, השבתה)
+create policy "profiles_manager_update" on public.profiles
+  for update using (
+    business_id = public.auth_business_id() and public.auth_role() = 'manager'
+  ) with check (
+    business_id = public.auth_business_id()
+  );
 -- סופר אדמין - הכל
 create policy "profiles_super_admin_all" on public.profiles
   for all using (public.is_super_admin()) with check (public.is_super_admin());
@@ -478,6 +527,12 @@ returns boolean language sql stable as $$
   select public.is_super_admin() or b = public.auth_business_id()
 $$;
 
+-- departments
+create policy "departments_tenant" on public.departments
+  for all using (public.can_access(business_id)) with check (public.can_access(business_id));
+-- shift_templates
+create policy "shift_templates_tenant" on public.shift_templates
+  for all using (public.can_access(business_id)) with check (public.can_access(business_id));
 -- agreement_templates
 create policy "agr_templates_tenant" on public.agreement_templates
   for all using (public.can_access(business_id)) with check (public.can_access(business_id));
