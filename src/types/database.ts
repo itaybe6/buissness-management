@@ -34,6 +34,7 @@ export interface Business {
   active: boolean;
   location_lat: number | null;
   location_lng: number | null;
+  location_address: string | null;
   location_radius_m: number | null;
   created_by: string | null;
   created_at: string;

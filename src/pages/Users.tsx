@@ -36,6 +36,16 @@ export function Users() {
   const [add, setAdd] = useState(false);
   const [edit, setEdit] = useState<Profile | null>(null);
 
+  if (!businessId) {
+    return (
+      <EmptyState
+        icon="store"
+        title="לא משויך לעסק"
+        description="המשתמש שלך עדיין לא משויך לעסק. פנו לסופר אדמין כדי לשייך אתכם לעסק."
+      />
+    );
+  }
+
   if (isLoading) return <PageLoader />;
   if (isError) return <ErrorState onRetry={refetch} />;
 

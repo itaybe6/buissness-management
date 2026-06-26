@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { Badge, Button, Card, Icon, Input, PageHeader, PageLoader, ErrorState } from "@/components/ui";
+import { Badge, Button, Card, EmptyState, Icon, Input, PageHeader, PageLoader, ErrorState } from "@/components/ui";
+import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { useBusiness, useUpdateBusiness } from "@/api/businesses";
+import { ATTENDANCE_RADIUS_M } from "@/lib/constants";
 import {
   useDepartments,
   useCreateDepartment,
@@ -21,12 +23,22 @@ export function Settings() {
   const businessId = useBusinessId();
   const { data: biz, isLoading, isError, refetch } = useBusiness(businessId);
 
+  if (!businessId) {
+    return (
+      <EmptyState
+        icon="store"
+        title="לא משויך לעסק"
+        description="המשתמש שלך עדיין לא משויך לעסק. פנו לסופר אדמין כדי לשייך אתכם לעסק."
+      />
+    );
+  }
+
   if (isLoading) return <PageLoader />;
   if (isError || !biz) return <ErrorState onRetry={refetch} />;
 
   return (
     <div className="mx-auto max-w-[1000px] animate-fadeUp">
-      <PageHeader title="הגדרות עסק" subtitle="מיקום ורדיוס נוכחות, מחלקות ושעות משמרת" />
+      <PageHeader title="הגדרות עסק" subtitle="כתובת העסק, מחלקות ושעות משמרת" />
       <div className="flex flex-col gap-5">
         <LocationCard businessId={businessId!} />
         <DepartmentsCard businessId={businessId!} />
@@ -39,60 +51,91 @@ export function Settings() {
 function LocationCard({ businessId }: { businessId: string }) {
   const { data: biz } = useBusiness(businessId);
   const update = useUpdateBusiness();
-  const [lat, setLat] = useState<string | null>(null);
-  const [lng, setLng] = useState<string | null>(null);
-  const [radius, setRadius] = useState<string | null>(null);
+  const [address, setAddress] = useState<string | null>(null);
+  const [lat, setLat] = useState<number | null>(null);
+  const [lng, setLng] = useState<number | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
 
   if (!biz) return null;
-  const latV = lat ?? (biz.location_lat?.toString() ?? "");
-  const lngV = lng ?? (biz.location_lng?.toString() ?? "");
-  const radV = radius ?? (biz.location_radius_m?.toString() ?? "150");
 
-  function useMyLocation() {
+  const addressV = address ?? biz.location_address ?? "";
+  const latV = lat ?? biz.location_lat;
+  const lngV = lng ?? biz.location_lng;
+  const hasCoords = latV != null && lngV != null;
+
+  function handleSave() {
     setMsg(null);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setLat(pos.coords.latitude.toFixed(6));
-        setLng(pos.coords.longitude.toFixed(6));
+    if (!addressV.trim()) {
+      setMsg("יש לבחור כתובת מהרשימה");
+      return;
+    }
+    if (latV == null || lngV == null) {
+      setMsg("יש לבחור כתובת מההשלמה האוטומטית של Google");
+      return;
+    }
+    update.mutate(
+      {
+        id: businessId,
+        location_address: addressV.trim(),
+        location_lat: latV,
+        location_lng: lngV,
+        location_radius_m: ATTENDANCE_RADIUS_M,
       },
-      () => setMsg("לא ניתן לקבל מיקום מהדפדפן")
+      {
+        onSuccess: () => {
+          setMsg(null);
+          setSaved(true);
+        },
+        onError: () => setMsg("שמירה נכשלה"),
+      }
     );
   }
 
   return (
     <Card className="p-5">
-      <div className="mb-4 flex items-center gap-2 text-[16px] font-bold">
-        <Icon name="location_on" size={22} className="text-accent-2" /> מיקום לשעון נוכחות
+      <div className="mb-1 flex items-center gap-2 text-[16px] font-bold">
+        <Icon name="location_on" size={22} className="text-accent-2" /> כתובת העסק לשעון נוכחות
       </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <label className="block"><span className="label-text">קו רוחב (lat)</span>
-          <Input className="mt-1.5" value={latV} onChange={(e) => setLat(e.target.value)} style={{ direction: "ltr", textAlign: "right" }} />
-        </label>
-        <label className="block"><span className="label-text">קו אורך (lng)</span>
-          <Input className="mt-1.5" value={lngV} onChange={(e) => setLng(e.target.value)} style={{ direction: "ltr", textAlign: "right" }} />
-        </label>
-        <label className="block"><span className="label-text">רדיוס (מטרים)</span>
-          <Input className="mt-1.5" type="number" value={radV} onChange={(e) => setRadius(e.target.value)} />
-        </label>
-      </div>
+      <p className="mb-4 text-[13px] text-text-2">
+        העובדים יוכלו להחתים נוכחות רק כשהם במרחק של עד {ATTENDANCE_RADIUS_M} מטר מהכתובת.
+      </p>
+      <label className="block">
+        <span className="label-text">כתובת העסק</span>
+        <div className="mt-1.5">
+          <AddressAutocomplete
+            value={addressV}
+            onChange={(v) => {
+              setAddress(v);
+              setMsg(null);
+              setSaved(false);
+            }}
+            onPlaceSelect={(place) => {
+              setAddress(place.address);
+              setLat(place.lat);
+              setLng(place.lng);
+              setMsg(null);
+              setSaved(false);
+            }}
+          />
+        </div>
+      </label>
+      {hasCoords && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-[12.5px] text-text-3">
+          <Badge tone="violet">רדיוס: {ATTENDANCE_RADIUS_M} מ׳</Badge>
+          <span style={{ direction: "ltr" }}>
+            {latV!.toFixed(6)}, {lngV!.toFixed(6)}
+          </span>
+        </div>
+      )}
       <div className="mt-4 flex items-center gap-2.5">
-        <Button variant="secondary" icon="my_location" onClick={useMyLocation}>השתמש במיקום הנוכחי</Button>
-        <Button
-          icon="save"
-          loading={update.isPending}
-          onClick={() =>
-            update.mutate({
-              id: businessId,
-              location_lat: latV ? Number(latV) : null,
-              location_lng: lngV ? Number(lngV) : null,
-              location_radius_m: radV ? Number(radV) : 150,
-            })
-          }
-        >
-          שמירה
+        <Button icon="save" loading={update.isPending} onClick={handleSave}>
+          שמירת כתובת
         </Button>
         {msg && <span className="text-[13px] font-semibold text-danger">{msg}</span>}
+        {saved && !msg && !update.isPending && (
+          <span className="text-[13px] font-semibold text-success">נשמר בהצלחה</span>
+        )}
       </div>
     </Card>
   );

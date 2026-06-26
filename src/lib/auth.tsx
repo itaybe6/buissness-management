@@ -31,7 +31,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [features, setFeatures] = useState<Set<FeatureKey>>(new Set());
   const [loading, setLoading] = useState(true);
 
-  async function loadProfile(userId: string) {
+  async function loadProfile(userId: string | undefined) {
+    if (!userId) {
+      setProfile(null);
+      setFeatures(new Set());
+      return;
+    }
+
     const { data: prof } = await supabase
       .from("profiles")
       .select("*")
@@ -79,12 +85,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<AuthContextValue>(() => {
     const isSuperAdmin = profile?.role === "super_admin";
+    const isBusinessManager = profile?.role === "manager" && !!profile.business_id;
     return {
       session,
       profile,
       features,
       loading,
-      hasFeature: (key: FeatureKey) => isSuperAdmin || features.has(key),
+      hasFeature: (key: FeatureKey) => isSuperAdmin || isBusinessManager || features.has(key),
       signIn: async (email, password) => {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         return { error: error ? translateAuthError(error.message) : null };

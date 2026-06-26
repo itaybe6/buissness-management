@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Card, Icon, PageHeader, PageLoader, ErrorState } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
+import { ATTENDANCE_RADIUS_M } from "@/lib/constants";
 import { useBusinessId, initialsOf, colorFor } from "@/lib/db";
 import { useBusiness } from "@/api/businesses";
 import { useProfiles } from "@/api/users";
@@ -52,9 +53,10 @@ export function Attendance() {
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const d = distanceM(pos.coords.latitude, pos.coords.longitude, biz.location_lat!, biz.location_lng!);
-        const within = d <= (biz.location_radius_m ?? 150);
+        const radius = ATTENDANCE_RADIUS_M;
+        const within = d <= radius;
         if (!within) {
-          setStatus({ ok: false, text: `אתם במרחק ${Math.round(d)} מ׳ — מחוץ לרדיוס המותר (${biz.location_radius_m ?? 150} מ׳)` });
+          setStatus({ ok: false, text: `אתם במרחק ${Math.round(d)} מ׳ — מחוץ לרדיוס המותר (${radius} מ׳)` });
           setBusy(false);
           return;
         }

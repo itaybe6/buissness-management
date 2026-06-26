@@ -1,6 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+const rawUrl = import.meta.env.VITE_SUPABASE_URL as string;
+// Auth calls must use the project root URL, not /rest/v1/
+const supabaseUrl = rawUrl?.replace(/\/rest\/v1\/?$/, "") ?? rawUrl;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
 if (!supabaseUrl || !supabaseAnonKey) {

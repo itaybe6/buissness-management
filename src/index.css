@@ -151,3 +151,22 @@ select {
     @apply block text-[13px] font-semibold text-text-2;
   }
 }
+
+/* Google Places Autocomplete dropdown */
+.pac-container {
+  z-index: 10000;
+  border-radius: 11px;
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  font-family: "Heebo", sans-serif;
+  margin-top: 4px;
+}
+
+.pac-item {
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.pac-item:hover {
+  background: var(--surface-2);
+}

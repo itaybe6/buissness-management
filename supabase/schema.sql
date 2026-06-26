@@ -119,9 +119,10 @@ create table public.businesses (
   name        text not null,
   active      boolean not null default true,
   -- הגדרות מיקום לשעון נוכחות (Geofence)
+  location_address text,
   location_lat   double precision,
   location_lng   double precision,
-  location_radius_m integer default 150,
+  location_radius_m integer default 100,
   created_by  uuid references auth.users(id),
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
@@ -489,6 +490,10 @@ create policy "businesses_super_admin_all" on public.businesses
   for all using (public.is_super_admin()) with check (public.is_super_admin());
 create policy "businesses_member_read" on public.businesses
   for select using (id = public.auth_business_id());
+create policy "businesses_manager_update" on public.businesses
+  for update using (
+    id = public.auth_business_id() and public.auth_role() = 'manager'
+  ) with check (id = public.auth_business_id());
 
 -- ---- profiles ----
 -- כל משתמש רואה את עצמו

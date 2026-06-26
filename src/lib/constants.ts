@@ -1,5 +1,8 @@
 import type { FeatureKey, UserRole } from "@/types/database";
 
+/** Fixed geofence radius for attendance clock-in (meters). */
+export const ATTENDANCE_RADIUS_M = 100;
+
 export const ROLE_LABELS: Record<UserRole, string> = {
   super_admin: "סופר אדמין",
   manager: "מנהל",
