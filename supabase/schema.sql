@@ -380,7 +380,7 @@ create table public.faults (
   id          uuid primary key default gen_random_uuid(),
   business_id uuid not null references public.businesses(id) on delete cascade,
   reported_by uuid references public.profiles(id),
-  photo_url   text,                                  -- קישור לתמונה ב-Storage
+  photo_urls  text[] not null default '{}',          -- קישורים לתמונות ב-Storage
   description text not null,
   status      public.fault_status not null default 'needs_handling',
   assigned_to uuid references public.profiles(id),   -- איש אחזקה

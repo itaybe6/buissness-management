@@ -216,7 +216,7 @@ export interface Fault {
   id: string;
   business_id: string;
   reported_by: string | null;
-  photo_url: string | null;
+  photo_urls: string[];
   description: string;
   status: FaultStatus;
   assigned_to: string | null;

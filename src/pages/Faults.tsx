@@ -3,7 +3,7 @@ import { Button, Card, EmptyState, Icon, PageHeader, PageLoader, ErrorState, Fie
 import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId } from "@/lib/db";
-import { useFaults, useCreateFault, useUpdateFault, uploadFaultPhoto } from "@/api/faults";
+import { useFaults, useCreateFault, useUpdateFault, uploadFaultPhotos } from "@/api/faults";
 import type { FaultStatus } from "@/types/database";
 
 const STATUS_META: Record<FaultStatus, { label: string; tone: "danger" | "warning" | "success"; icon: string; color: string }> = {
@@ -13,6 +13,20 @@ const STATUS_META: Record<FaultStatus, { label: string; tone: "danger" | "warnin
 };
 const NEXT: Record<FaultStatus, FaultStatus> = { needs_handling: "in_progress", in_progress: "handled", handled: "needs_handling" };
 
+function FaultPhotos({ urls }: { urls: string[] }) {
+  if (urls.length === 0) return null;
+  if (urls.length === 1) {
+    return <img src={urls[0]} alt="תקלה" className="h-36 w-full object-cover" />;
+  }
+  return (
+    <div className="flex h-36 snap-x snap-mandatory gap-1 overflow-x-auto bg-surface-2">
+      {urls.map((url, i) => (
+        <img key={url} src={url} alt={`תקלה ${i + 1}`} className="h-full w-full min-w-full snap-center object-cover" />
+      ))}
+    </div>
+  );
+}
+
 export function Faults() {
   const businessId = useBusinessId();
   const { profile } = useAuth();
@@ -21,21 +35,17 @@ export function Faults() {
   const updateFault = useUpdateFault(businessId);
   const [open, setOpen] = useState(false);
   const [desc, setDesc] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [previews, setPreviews] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!file) {
-      setPreviewUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(file);
-    setPreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [file]);
+    const urls = files.map((f) => URL.createObjectURL(f));
+    setPreviews(urls);
+    return () => urls.forEach((url) => URL.revokeObjectURL(url));
+  }, [files]);
 
   const canReport = profile?.role !== "maintenance";
 
@@ -45,15 +55,35 @@ export function Faults() {
   const counts = { needs_handling: 0, in_progress: 0, handled: 0 } as Record<FaultStatus, number>;
   (faults ?? []).forEach((f) => (counts[f.status] += 1));
 
+  function resetForm() {
+    setDesc("");
+    setFiles([]);
+    setError(null);
+  }
+
+  function addFiles(next: FileList | null) {
+    if (!next?.length) return;
+    setFiles((prev) => [...prev, ...Array.from(next)]);
+  }
+
+  function removeFile(index: number) {
+    setFiles((prev) => prev.filter((_, i) => i !== index));
+  }
+
   async function submit() {
     setError(null);
     if (!desc.trim()) return setError("נא לתאר את התקלה");
     setBusy(true);
     try {
-      let photo_url: string | null = null;
-      if (file) photo_url = await uploadFaultPhoto(businessId!, file);
-      await createFault.mutateAsync({ business_id: businessId!, description: desc.trim(), photo_url, reported_by: profile?.id });
-      setOpen(false); setDesc(""); setFile(null); setPreviewUrl(null);
+      const photo_urls = files.length ? await uploadFaultPhotos(businessId!, files) : [];
+      await createFault.mutateAsync({
+        business_id: businessId!,
+        description: desc.trim(),
+        photo_urls,
+        reported_by: profile?.id,
+      });
+      setOpen(false);
+      resetForm();
     } catch (e) {
       setError(e instanceof Error ? e.message : "שגיאה. ודאו שקיים Bucket בשם faults ב-Storage.");
     } finally {
@@ -89,10 +119,18 @@ export function Faults() {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {(faults ?? []).map((f) => {
             const meta = STATUS_META[f.status];
+            const photos = f.photo_urls ?? [];
             return (
               <Card key={f.id} className="flex flex-col overflow-hidden p-0">
                 <div className="h-1.5" style={{ background: meta.color }} />
-                {f.photo_url && <img src={f.photo_url} alt="תקלה" className="h-36 w-full object-cover" />}
+                <div className="relative">
+                  <FaultPhotos urls={photos} />
+                  {photos.length > 1 && (
+                    <span className="absolute bottom-2 left-2 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-bold text-white">
+                      {photos.length} תמונות
+                    </span>
+                  )}
+                </div>
                 <div className="flex flex-1 flex-col p-4">
                   <div className="flex items-start justify-between">
                     <span className="grid h-11 w-11 place-items-center rounded-[12px]" style={{ background: `var(--${meta.tone}-bg)` }}>
@@ -117,7 +155,7 @@ export function Faults() {
 
       <Modal
         open={open}
-        onClose={() => { setOpen(false); setFile(null); setDesc(""); setError(null); }}
+        onClose={() => { setOpen(false); resetForm(); }}
         title="דיווח תקלה"
         icon="build"
         footer={
@@ -128,24 +166,55 @@ export function Faults() {
         }
       >
         <div className="flex flex-col gap-3.5">
-          <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-          <button
-            type="button"
-            onClick={() => fileRef.current?.click()}
-            className="relative flex h-36 flex-col items-center justify-center gap-2 overflow-hidden rounded-[13px] border border-dashed border-border bg-surface-2 text-text-3 hover:border-accent-2 hover:text-ink"
-          >
-            {previewUrl ? (
-              <>
-                <img src={previewUrl} alt="תמונת תקלה" className="absolute inset-0 h-full w-full object-cover" />
-                <span className="relative rounded-full bg-black/50 px-3 py-1 text-[12px] font-semibold text-white">החלפת תמונה</span>
-              </>
-            ) : (
-              <>
-                <Icon name="add_a_photo" size={34} />
-                <span className="text-[13.5px] font-semibold">צילום או העלאת תמונה</span>
-              </>
-            )}
-          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            multiple
+            capture="environment"
+            className="hidden"
+            onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }}
+          />
+
+          {previews.length === 0 ? (
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              className="flex h-36 flex-col items-center justify-center gap-2 rounded-[13px] border border-dashed border-border bg-surface-2 text-text-3 hover:border-accent-2 hover:text-ink"
+            >
+              <Icon name="add_a_photo" size={34} />
+              <span className="text-[13.5px] font-semibold">צילום או העלאת תמונות</span>
+              <span className="text-[12px]">ניתן לבחור כמה תמונות</span>
+            </button>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <div className="grid grid-cols-3 gap-2">
+                {previews.map((url, i) => (
+                  <div key={url} className="relative aspect-square overflow-hidden rounded-[11px] bg-surface-2">
+                    <img src={url} alt={`תמונה ${i + 1}`} className="h-full w-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => removeFile(i)}
+                      className="absolute left-1.5 top-1.5 grid h-6 w-6 place-items-center rounded-full bg-black/60 text-white"
+                      aria-label="הסרת תמונה"
+                    >
+                      <Icon name="close" size={14} />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  className="flex aspect-square flex-col items-center justify-center gap-1 rounded-[11px] border border-dashed border-border bg-surface-2 text-text-3 hover:border-accent-2"
+                >
+                  <Icon name="add" size={24} />
+                  <span className="text-[11px] font-semibold">הוספה</span>
+                </button>
+              </div>
+              <div className="text-[12px] text-text-3">{files.length} תמונות נבחרו</div>
+            </div>
+          )}
+
           <Field label="תיאור התקלה">
             <Textarea value={desc} onChange={(e) => setDesc(e.target.value)} className="h-24" placeholder="תארו את התקלה..." />
           </Field>

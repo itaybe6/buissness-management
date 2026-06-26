@@ -31,16 +31,23 @@ export async function uploadFaultPhoto(businessId: string, file: File): Promise<
   return data.publicUrl;
 }
 
+export async function uploadFaultPhotos(businessId: string, files: File[]): Promise<string[]> {
+  return Promise.all(files.map((file) => uploadFaultPhoto(businessId, file)));
+}
+
 export function useCreateFault() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: {
       business_id: string;
       description: string;
-      photo_url?: string | null;
+      photo_urls?: string[];
       reported_by?: string | null;
     }) => {
-      const { error } = await supabase.from("faults").insert(input);
+      const { error } = await supabase.from("faults").insert({
+        ...input,
+        photo_urls: input.photo_urls ?? [],
+      });
       if (error) throw error;
     },
     onSuccess: (_d, v) => qc.invalidateQueries({ queryKey: ["faults", v.business_id] }),
