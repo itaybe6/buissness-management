@@ -49,8 +49,9 @@ export function useUpdateProfile() {
   return useMutation({
     mutationFn: async (input: Partial<Profile> & { id: string }) => {
       const { id, ...rest } = input;
-      const { error } = await supabase.from("profiles").update(rest).eq("id", id);
+      const { data, error } = await supabase.from("profiles").update(rest).eq("id", id).select("id");
       if (error) throw error;
+      if (!data?.length) throw new Error("לא ניתן לעדכן את המשתמש — אין הרשאה או שהמשתמש לא נמצא");
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["profiles"] }),
   });

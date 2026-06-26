@@ -1,11 +1,11 @@
 import { useMemo, useState } from "react";
-import { Badge, Card, EmptyState, Icon, PageLoader } from "@/components/ui";
+import { Badge, Card, EmptyState, ErrorState, Icon, PageLoader } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId, HE_DAYS, addDays, formatDateShort, weekStart, colorFor, initialsOf } from "@/lib/db";
 import { useDepartments } from "@/api/departments";
 import { useProfiles } from "@/api/users";
 import {
-  useShiftTemplates,
+  useActiveShiftTemplates,
   useShiftPreferences,
   useSetPreference,
   useClearPreference,
@@ -16,18 +16,20 @@ import {
 import { SCHEDULER_ROLES } from "@/lib/constants";
 import type { Availability, Profile } from "@/types/database";
 
-const PREF_ORDER: (Availability | null)[] = [null, "prefer", "available", "cannot"];
-const PREF_META: Record<string, { label: string; bg: string; color: string; border: string }> = {
-  none: { label: "—", bg: "var(--surface-2)", color: "var(--text-3)", border: "var(--border)" },
-  prefer: { label: "מעדיף", bg: "var(--accent)", color: "#fff", border: "var(--accent-2)" },
-  available: { label: "יכול", bg: "var(--info-bg)", color: "var(--info)", border: "#bcd0ff" },
-  cannot: { label: "לא יכול", bg: "var(--danger-bg)", color: "var(--danger)", border: "#f6caca" },
+const AVAIL_META: Record<"available" | "cannot", { label: string; short: string; bg: string; color: string; border: string }> = {
+  available: { label: "יכול", short: "יכול", bg: "var(--info-bg)", color: "var(--info)", border: "#bcd0ff" },
+  cannot: { label: "לא יכול", short: "לא", bg: "var(--danger-bg)", color: "var(--danger)", border: "#f6caca" },
 };
+
+function normalizeAvailability(pref: Availability | undefined): Availability | null {
+  if (!pref || pref === "prefer") return pref === "prefer" ? "available" : null;
+  return pref;
+}
 
 export function Shifts() {
   const { profile } = useAuth();
   const isScheduler = profile && SCHEDULER_ROLES.includes(profile.role);
-  return isScheduler ? <SchedulerView /> : <EmployeeConstraints />;
+  return isScheduler ? <SchedulerView /> : <EmployeeView />;
 }
 
 function WeekNav({ wkStart, onShift }: { wkStart: string; onShift: (d: number) => void }) {
@@ -42,65 +44,50 @@ function WeekNav({ wkStart, onShift }: { wkStart: string; onShift: (d: number) =
 }
 
 /* ------------------------------- Employee ------------------------------- */
-function EmployeeConstraints() {
+function EmployeeView() {
   const businessId = useBusinessId();
-  const { profile } = useAuth();
-  const [wk, setWk] = useState(weekStart());
-  const { data: templates, isLoading } = useShiftTemplates(businessId);
-  const { data: prefs } = useShiftPreferences(businessId, wk, profile?.id);
-  const setPref = useSetPreference(businessId);
-  const clearPref = useClearPreference(businessId);
-
-  const prefMap = useMemo(() => {
-    const m = new Map<string, Availability>();
-    (prefs ?? []).forEach((p) => m.set(`${p.shift_template_id}_${p.shift_date}`, p.preference));
-    return m;
-  }, [prefs]);
+  const { data: templates, isLoading } = useActiveShiftTemplates(businessId);
 
   if (isLoading) return <PageLoader />;
   if (!templates || templates.length === 0) {
     return (
       <div className="mx-auto max-w-[900px] animate-fadeUp">
-        <EmptyState icon="schedule" title="טרם הוגדרו משמרות" description="מנהל העסק צריך להגדיר שעות משמרת בהגדרות העסק." />
+        <EmptyState icon="schedule" title="אין משמרות פעילות" description="מנהל העסק צריך להפעיל משמרות בהגדרות העסק." />
       </div>
     );
   }
 
-  function cycle(templateId: string, date: string) {
-    const key = `${templateId}_${date}`;
-    const cur = prefMap.get(key) ?? null;
-    const next = PREF_ORDER[(PREF_ORDER.indexOf(cur) + 1) % PREF_ORDER.length];
-    if (next === null) {
-      clearPref.mutate({ employee_id: profile!.id, shift_date: date, shift_template_id: templateId });
-    } else {
-      setPref.mutate({
-        business_id: businessId!,
-        employee_id: profile!.id,
-        week_start: wk,
-        shift_date: date,
-        shift_template_id: templateId,
-        preference: next,
-      });
-    }
-  }
-
   return (
     <div className="mx-auto max-w-[1100px] animate-fadeUp">
+      <EmployeeSchedule templates={templates} />
+      <div className="my-8 border-t border-border" />
+      <EmployeeConstraints templates={templates} />
+    </div>
+  );
+}
+
+function EmployeeSchedule({ templates }: { templates: NonNullable<ReturnType<typeof useActiveShiftTemplates>["data"]> }) {
+  const businessId = useBusinessId();
+  const { profile } = useAuth();
+  const [wk, setWk] = useState(weekStart());
+  const { data: assignments, isLoading } = useShiftAssignments(businessId, wk, addDays(wk, 6), profile?.id);
+
+  const assignMap = useMemo(() => {
+    const m = new Set<string>();
+    (assignments ?? []).forEach((a) => m.add(`${a.shift_template_id}_${a.shift_date}`));
+    return m;
+  }, [assignments]);
+
+  if (isLoading) return <PageLoader />;
+
+  return (
+    <div>
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3.5">
         <div>
-          <div className="text-[24px] font-extrabold tracking-tight">הגשת אילוצי משמרות</div>
-          <div className="mt-1 text-[14.5px] text-text-2">לחצו על תא כדי לסמן: מעדיף / יכול / לא יכול</div>
+          <div className="text-[24px] font-extrabold tracking-tight">סידור עבודה</div>
+          <div className="mt-1 text-[14.5px] text-text-2">המשמרות ששובצו לך לשבוע הנוכחי</div>
         </div>
         <WeekNav wkStart={wk} onShift={(d) => setWk((w) => addDays(w, d))} />
-      </div>
-
-      <div className="mb-3 flex flex-wrap gap-3.5">
-        {["prefer", "available", "cannot"].map((k) => (
-          <span key={k} className="flex items-center gap-1.5 text-[12.5px] text-text-2">
-            <span className="h-4 w-4 rounded" style={{ background: PREF_META[k].bg, border: `1.5px solid ${PREF_META[k].border}` }} />
-            {PREF_META[k].label}
-          </span>
-        ))}
       </div>
 
       <Card className="p-4">
@@ -119,29 +106,268 @@ function EmployeeConstraints() {
               <div key={t.id} className="mb-2 grid grid-cols-[90px_repeat(7,1fr)] items-center gap-2">
                 <span className="text-[13px] font-bold text-text-2">
                   {t.name}
-                  <span className="block text-[10.5px] font-normal text-text-3" style={{ direction: "ltr" }}>{t.start_time?.slice(0,5)}–{t.end_time?.slice(0,5)}</span>
+                  <span className="block text-[10.5px] font-normal text-text-3" style={{ direction: "ltr" }}>
+                    {t.start_time?.slice(0, 5)}–{t.end_time?.slice(0, 5)}
+                  </span>
                 </span>
                 {HE_DAYS.map((_, i) => {
                   const date = addDays(wk, i);
-                  const cur = prefMap.get(`${t.id}_${date}`) ?? "none";
-                  const meta = PREF_META[cur];
+                  const assigned = assignMap.has(`${t.id}_${date}`);
                   return (
-                    <button
+                    <div
                       key={i}
-                      onClick={() => cycle(t.id, date)}
-                      className="rounded-[10px] px-1 py-2.5 text-center text-[12.5px] font-bold transition"
-                      style={{ background: meta.bg, color: meta.color, border: `1.5px solid ${meta.border}` }}
+                      className="rounded-[10px] px-1 py-2.5 text-center text-[12.5px] font-bold"
+                      style={
+                        assigned
+                          ? { background: "var(--accent)", color: "#fff", border: "1.5px solid var(--accent-2)" }
+                          : { background: "var(--surface-2)", color: "var(--text-3)", border: "1.5px solid var(--border)" }
+                      }
                     >
-                      {meta.label}
-                    </button>
+                      {assigned ? "משובץ" : "—"}
+                    </div>
                   );
                 })}
               </div>
             ))}
           </div>
         </div>
-        <div className="mt-4 text-[12.5px] text-text-3">האילוצים נשמרים אוטומטית.</div>
+        {(assignments ?? []).length === 0 && (
+          <div className="mt-4 text-[12.5px] text-text-3">אין משמרות משובצות לשבוע זה.</div>
+        )}
       </Card>
+    </div>
+  );
+}
+
+function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<typeof useActiveShiftTemplates>["data"]> }) {
+  const businessId = useBusinessId();
+  const { profile } = useAuth();
+  const nextWk = addDays(weekStart(), 7);
+  const [wk, setWk] = useState(nextWk);
+  const { data: prefs, isLoading, error, refetch } = useShiftPreferences(businessId, wk, profile?.id);
+  const setPref = useSetPreference(businessId);
+  const clearPref = useClearPreference(businessId);
+  const [pending, setPending] = useState<Set<string>>(new Set());
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const prefMap = useMemo(() => {
+    const m = new Map<string, "available" | "cannot">();
+    (prefs ?? []).forEach((p) => {
+      const norm = normalizeAvailability(p.preference);
+      if (norm === "available" || norm === "cannot") m.set(`${p.shift_template_id}_${p.shift_date}`, norm);
+    });
+    return m;
+  }, [prefs]);
+
+  const totalCells = templates.length * 7;
+  const filledCells = useMemo(() => {
+    let n = 0;
+    templates.forEach((t) => {
+      for (let i = 0; i < 7; i++) {
+        if (prefMap.has(`${t.id}_${addDays(wk, i)}`)) n++;
+      }
+    });
+    return n;
+  }, [templates, prefMap, wk]);
+
+  async function setAvailability(templateId: string, date: string, value: Availability | null) {
+    if (!profile?.id || !businessId) return;
+    const key = `${templateId}_${date}`;
+    setPending((s) => new Set(s).add(key));
+    setSaveError(null);
+    try {
+      if (value === null) {
+        await clearPref.mutateAsync({ employee_id: profile.id, shift_date: date, shift_template_id: templateId });
+      } else {
+        await setPref.mutateAsync({
+          business_id: businessId,
+          employee_id: profile.id,
+          week_start: wk,
+          shift_date: date,
+          shift_template_id: templateId,
+          preference: value,
+        });
+      }
+    } catch {
+      setSaveError("לא ניתן לשמור את האילוץ. נסו שוב.");
+    } finally {
+      setPending((s) => {
+        const n = new Set(s);
+        n.delete(key);
+        return n;
+      });
+    }
+  }
+
+  async function fillDay(dayIndex: number, value: Availability) {
+    await Promise.all(templates.map((t) => setAvailability(t.id, addDays(wk, dayIndex), value)));
+  }
+
+  async function clearDay(dayIndex: number) {
+    await Promise.all(templates.map((t) => setAvailability(t.id, addDays(wk, dayIndex), null)));
+  }
+
+  if (isLoading) return <PageLoader label="טוען אילוצים..." />;
+  if (error) return <ErrorState message="לא ניתן לטעון את האילוצים" onRetry={() => refetch()} />;
+
+  return (
+    <div>
+      <div className="mb-5 flex flex-wrap items-end justify-between gap-3.5">
+        <div>
+          <div className="text-[24px] font-extrabold tracking-tight">הגשת אילוצי משמרות</div>
+          <div className="mt-1 text-[14.5px] text-text-2">
+            סמנו מתי אתם יכולים או לא יכולים לעבוד · השבוע הבא נפתח כברירת מחדל
+          </div>
+        </div>
+        <WeekNav wkStart={wk} onShift={(d) => setWk((w) => addDays(w, d))} />
+      </div>
+
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <span className="flex items-center gap-1.5 text-[12.5px] text-text-2">
+          <span className="h-4 w-4 rounded" style={{ background: AVAIL_META.available.bg, border: `1.5px solid ${AVAIL_META.available.border}` }} />
+          {AVAIL_META.available.label}
+        </span>
+        <span className="flex items-center gap-1.5 text-[12.5px] text-text-2">
+          <span className="h-4 w-4 rounded" style={{ background: AVAIL_META.cannot.bg, border: `1.5px solid ${AVAIL_META.cannot.border}` }} />
+          {AVAIL_META.cannot.label}
+        </span>
+        <span className="mr-auto text-[12.5px] text-text-3">
+          {filledCells} מתוך {totalCells} משמרות מסומנות
+        </span>
+      </div>
+
+      {saveError && (
+        <div className="mb-3 flex items-center gap-2 rounded-[11px] border border-danger/30 [background:var(--danger-bg)] px-3.5 py-2.5 text-[13px] font-semibold text-danger">
+          <Icon name="error" size={18} />
+          {saveError}
+        </div>
+      )}
+
+      <Card className="p-4">
+        <div className="overflow-auto">
+          <div className="min-w-[720px]">
+            <div className="mb-2 grid grid-cols-[100px_repeat(7,1fr)] gap-2">
+              <span />
+              {HE_DAYS.map((d, i) => (
+                <div key={i} className="text-center">
+                  <span className="block text-[13px] font-bold">{d}</span>
+                  <span className="block text-[11px] text-text-3">{formatDateShort(addDays(wk, i))}</span>
+                  <div className="mt-1.5 flex justify-center gap-1">
+                    <button
+                      type="button"
+                      title="כל המשמרות ביום זה — יכול"
+                      onClick={() => fillDay(i, "available")}
+                      className="rounded-md px-1.5 py-0.5 text-[10px] font-bold text-info transition hover:[background:var(--info-bg)]"
+                    >
+                      הכל יכול
+                    </button>
+                    <button
+                      type="button"
+                      title="נקה יום"
+                      onClick={() => clearDay(i)}
+                      className="rounded-md px-1.5 py-0.5 text-[10px] font-bold text-text-3 transition hover:bg-surface-2"
+                    >
+                      נקה
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {templates.map((t) => (
+              <div key={t.id} className="mb-2 grid grid-cols-[100px_repeat(7,1fr)] items-stretch gap-2">
+                <div className="flex flex-col justify-center py-1">
+                  <span className="text-[13px] font-bold text-text-2">{t.name}</span>
+                  <span className="text-[10.5px] text-text-3" style={{ direction: "ltr" }}>
+                    {t.start_time?.slice(0, 5)}–{t.end_time?.slice(0, 5)}
+                  </span>
+                </div>
+
+                {HE_DAYS.map((_, i) => {
+                  const date = addDays(wk, i);
+                  const key = `${t.id}_${date}`;
+                  const cur = prefMap.get(key) ?? null;
+                  const isSaving = pending.has(key);
+                  return (
+                    <AvailabilityCell
+                      key={i}
+                      value={cur}
+                      saving={isSaving}
+                      onSet={(v) => setAvailability(t.id, date, v)}
+                    />
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-2 text-[12.5px] text-text-3">
+          {setPref.isPending || clearPref.isPending ? (
+            <>
+              <Icon name="sync" size={16} className="animate-spin" />
+              שומר...
+            </>
+          ) : (
+            <>
+              <Icon name="cloud_done" size={16} />
+              האילוצים נשמרים אוטומטית
+            </>
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function AvailabilityCell({
+  value,
+  saving,
+  onSet,
+}: {
+  value: "available" | "cannot" | null;
+  saving?: boolean;
+  onSet: (v: Availability | null) => void;
+}) {
+  const isAvail = value === "available";
+  const isCannot = value === "cannot";
+
+  return (
+    <div
+      className={`flex min-h-[52px] flex-col gap-1 rounded-[10px] border p-1 transition ${saving ? "opacity-60" : ""}`}
+      style={{
+        background: isAvail ? AVAIL_META.available.bg : isCannot ? AVAIL_META.cannot.bg : "var(--surface-2)",
+        borderColor: isAvail ? AVAIL_META.available.border : isCannot ? AVAIL_META.cannot.border : "var(--border)",
+      }}
+    >
+      <button
+        type="button"
+        disabled={saving}
+        onClick={() => onSet(isAvail ? null : "available")}
+        className="flex flex-1 items-center justify-center gap-1 rounded-[7px] py-1.5 text-[11.5px] font-bold transition"
+        style={
+          isAvail
+            ? { background: "var(--info)", color: "#fff" }
+            : { background: "transparent", color: "var(--text-3)" }
+        }
+      >
+        <Icon name="check" size={15} />
+        {AVAIL_META.available.short}
+      </button>
+      <button
+        type="button"
+        disabled={saving}
+        onClick={() => onSet(isCannot ? null : "cannot")}
+        className="flex flex-1 items-center justify-center gap-1 rounded-[7px] py-1.5 text-[11.5px] font-bold transition"
+        style={
+          isCannot
+            ? { background: "var(--danger)", color: "#fff" }
+            : { background: "transparent", color: "var(--text-3)" }
+        }
+      >
+        <Icon name="close" size={15} />
+        {AVAIL_META.cannot.short}
+      </button>
     </div>
   );
 }
@@ -151,7 +377,7 @@ function SchedulerView() {
   const businessId = useBusinessId();
   const { profile } = useAuth();
   const [wk, setWk] = useState(weekStart());
-  const { data: templates, isLoading: lt } = useShiftTemplates(businessId);
+  const { data: templates, isLoading: lt } = useActiveShiftTemplates(businessId);
   const { data: departments, isLoading: ld } = useDepartments(businessId);
   const { data: employees } = useProfiles(businessId);
   const { data: prefs } = useShiftPreferences(businessId, wk);
@@ -161,8 +387,11 @@ function SchedulerView() {
   const [picker, setPicker] = useState<{ dept: string | null; templateId: string; date: string } | null>(null);
 
   const prefMap = useMemo(() => {
-    const m = new Map<string, Availability>();
-    (prefs ?? []).forEach((p) => m.set(`${p.employee_id}_${p.shift_template_id}_${p.shift_date}`, p.preference));
+    const m = new Map<string, "available" | "cannot">();
+    (prefs ?? []).forEach((p) => {
+      const norm = normalizeAvailability(p.preference);
+      if (norm === "available" || norm === "cannot") m.set(`${p.employee_id}_${p.shift_template_id}_${p.shift_date}`, norm);
+    });
     return m;
   }, [prefs]);
 
@@ -180,7 +409,7 @@ function SchedulerView() {
         <EmptyState
           icon="calendar_month"
           title="חסרה הגדרה לסידור"
-          description="כדי לבנות סידור עבודה צריך להגדיר מחלקות ושעות משמרת בהגדרות העסק."
+          description="כדי לבנות סידור עבודה צריך להגדיר מחלקות ולהפעיל לפחות משמרת אחת בהגדרות העסק."
         />
       </div>
     );
@@ -202,7 +431,6 @@ function SchedulerView() {
       </div>
 
       <div className="mb-3 flex flex-wrap gap-3.5">
-        <span className="flex items-center gap-1.5 text-[12.5px] text-text-2"><span className="h-2.5 w-2.5 rounded-full bg-accent" />מעדיף</span>
         <span className="flex items-center gap-1.5 text-[12.5px] text-text-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: "var(--info)" }} />יכול</span>
         <span className="flex items-center gap-1.5 text-[12.5px] text-text-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: "var(--danger)" }} />לא יכול</span>
       </div>
@@ -282,7 +510,7 @@ function SchedulerView() {
                 .filter((e) => e.department_id === picker.dept && e.active)
                 .map((e) => {
                   const pref = prefMap.get(`${e.id}_${picker.templateId}_${picker.date}`);
-                  const meta = pref ? PREF_META[pref] : null;
+                  const meta = pref ? AVAIL_META[pref] : null;
                   const already = (assignments ?? []).some((a) => a.employee_id === e.id && a.shift_template_id === picker.templateId && a.shift_date === picker.date);
                   return (
                     <button
@@ -303,7 +531,7 @@ function SchedulerView() {
                     >
                       <span className="grid h-9 w-9 flex-none place-items-center rounded-[10px] text-[12.5px] font-bold text-white" style={{ background: colorFor(e.id) }}>{initialsOf(e.full_name)}</span>
                       <span className="flex-1 text-[13.5px] font-semibold">{e.full_name}</span>
-                      {already ? <Badge tone="neutral">משובץ</Badge> : meta ? <Badge tone={pref === "prefer" ? "violet" : pref === "available" ? "info" : "danger"}>{meta.label}</Badge> : null}
+                      {already ? <Badge tone="neutral">משובץ</Badge> : meta ? <Badge tone={pref === "available" ? "info" : "danger"}>{meta.label}</Badge> : null}
                     </button>
                   );
                 })}

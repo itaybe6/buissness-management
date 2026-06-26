@@ -152,21 +152,107 @@ select {
   }
 }
 
-/* Google Places Autocomplete dropdown */
-.pac-container {
+/* Address autocomplete suggestions (React-controlled) */
+.address-suggestions {
+  position: absolute;
   z-index: 10000;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
   border-radius: 11px;
   border: 1px solid var(--border);
+  background: var(--surface);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
   font-family: "Heebo", sans-serif;
-  margin-top: 4px;
+  max-height: 240px;
+  overflow-y: auto;
 }
 
-.pac-item {
+.address-suggestion-btn {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
   padding: 10px 12px;
+  text-align: right;
+  font-size: 13.5px;
+  color: var(--text);
+  background: transparent;
+  border: none;
   cursor: pointer;
 }
 
-.pac-item:hover {
+.address-suggestion-btn:hover {
   background: var(--surface-2);
+}
+
+.address-suggestion-icon {
+  flex: none;
+  font-size: 18px;
+  color: var(--text-3);
+}
+
+/* Custom select dropdown (replaces native <select> list) */
+.select-dropdown {
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  border-radius: 11px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  font-family: "Heebo", sans-serif;
+  max-height: 240px;
+  overflow-y: auto;
+  animation: selectFadeIn 120ms ease-out;
+}
+
+.select-option {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  text-align: right;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.select-option:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.select-option-active {
+  background: var(--accent-tint);
+  color: var(--accent-2);
+  font-weight: 600;
+}
+
+.select-option-active:hover:not(:disabled) {
+  background: var(--accent-tint);
+}
+
+.select-option:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+@keyframes selectFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

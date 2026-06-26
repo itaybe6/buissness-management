@@ -62,10 +62,8 @@ insert into public.departments (business_id, name, color, sort_order) values
   ('044389b9-62b4-4f8b-ab05-6b069b9a2d3e', 'בר', '#2563eb', 1),
   ('044389b9-62b4-4f8b-ab05-6b069b9a2d3e', 'מלצרות', '#7c3aed', 2);
 
--- משמרות לדוגמה
-insert into public.shift_templates (business_id, name, start_time, end_time, color, sort_order) values
-  ('044389b9-62b4-4f8b-ab05-6b069b9a2d3e', 'בוקר', '08:00', '16:00', '#eab308', 0),
-  ('044389b9-62b4-4f8b-ab05-6b069b9a2d3e', 'ערב', '16:00', '23:30', '#7c3aed', 1);
+-- משמרות ברירת מחדל (נוצרות אוטומטית גם בטריגר; כאן לעסק Itay)
+select public.seed_default_shift_templates('044389b9-62b4-4f8b-ab05-6b069b9a2d3e'::uuid);
 
 -- RLS: מנהל יכול לעדכן הגדרות עסק (מיקום)
 drop policy if exists "businesses_manager_update" on public.businesses;

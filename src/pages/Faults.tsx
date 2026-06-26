@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, Card, EmptyState, Icon, PageHeader, PageLoader, ErrorState, Field, Textarea } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/lib/auth";
@@ -22,9 +22,20 @@ export function Faults() {
   const [open, setOpen] = useState(false);
   const [desc, setDesc] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!file) {
+      setPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
 
   const canReport = profile?.role !== "maintenance";
 
@@ -42,7 +53,7 @@ export function Faults() {
       let photo_url: string | null = null;
       if (file) photo_url = await uploadFaultPhoto(businessId!, file);
       await createFault.mutateAsync({ business_id: businessId!, description: desc.trim(), photo_url, reported_by: profile?.id });
-      setOpen(false); setDesc(""); setFile(null);
+      setOpen(false); setDesc(""); setFile(null); setPreviewUrl(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "שגיאה. ודאו שקיים Bucket בשם faults ב-Storage.");
     } finally {
@@ -106,7 +117,7 @@ export function Faults() {
 
       <Modal
         open={open}
-        onClose={() => setOpen(false)}
+        onClose={() => { setOpen(false); setFile(null); setDesc(""); setError(null); }}
         title="דיווח תקלה"
         icon="build"
         footer={
@@ -119,13 +130,14 @@ export function Faults() {
         <div className="flex flex-col gap-3.5">
           <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
           <button
+            type="button"
             onClick={() => fileRef.current?.click()}
-            className="flex h-32 flex-col items-center justify-center gap-2 rounded-[13px] border border-dashed border-border bg-surface-2 text-text-3 hover:border-accent-2 hover:text-ink"
+            className="relative flex h-36 flex-col items-center justify-center gap-2 overflow-hidden rounded-[13px] border border-dashed border-border bg-surface-2 text-text-3 hover:border-accent-2 hover:text-ink"
           >
-            {file ? (
+            {previewUrl ? (
               <>
-                <Icon name="check_circle" size={30} className="text-success" />
-                <span className="text-[13px] font-semibold">{file.name}</span>
+                <img src={previewUrl} alt="תמונת תקלה" className="absolute inset-0 h-full w-full object-cover" />
+                <span className="relative rounded-full bg-black/50 px-3 py-1 text-[12px] font-semibold text-white">החלפת תמונה</span>
               </>
             ) : (
               <>

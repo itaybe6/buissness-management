@@ -6,7 +6,7 @@ import { useBusinessId, formatCurrency, initialsOf, colorFor, todayISO } from "@
 import { useProfiles } from "@/api/users";
 import { useAttendanceMonth } from "@/api/attendance";
 import { useTips, useAddTip } from "@/api/payroll";
-import { useShiftTemplates } from "@/api/shifts";
+import { useActiveShiftTemplates } from "@/api/shifts";
 
 function monthNow() {
   return new Date().toISOString().slice(0, 7);
@@ -19,7 +19,7 @@ export function Payroll() {
   const { data: users, isLoading, isError, refetch } = useProfiles(businessId);
   const { data: attendance } = useAttendanceMonth(businessId, month);
   const { data: tips } = useTips(businessId, month);
-  const { data: templates } = useShiftTemplates(businessId);
+  const { data: templates } = useActiveShiftTemplates(businessId);
   const addTip = useAddTip(businessId);
   const [tipOpen, setTipOpen] = useState(false);
 

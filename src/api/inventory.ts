@@ -6,6 +6,22 @@ export interface ItemWithQty extends InventoryItem {
   current_qty: number;
 }
 
+export const INVENTORY_UNITS = [
+  { value: "יחידות", label: "יחידות" },
+  { value: "ארגז", label: "ארגז" },
+  { value: "ק״ג", label: "ק״ג" },
+  { value: "ליטר", label: "ליטר" },
+] as const;
+
+export async function uploadItemImage(businessId: string, file: File): Promise<string> {
+  const ext = file.name.split(".").pop() || "jpg";
+  const path = `${businessId}/${crypto.randomUUID()}.${ext}`;
+  const { error } = await supabase.storage.from("inventory").upload(path, file, { upsert: false });
+  if (error) throw error;
+  const { data } = supabase.storage.from("inventory").getPublicUrl(path);
+  return data.publicUrl;
+}
+
 export function useInventory(businessId: string | null) {
   return useQuery({
     queryKey: ["inventory", businessId],
@@ -25,14 +41,31 @@ export function useInventory(businessId: string | null) {
   });
 }
 
-export function useCreateItem() {
+export function useCreateItem(businessId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { business_id: string; name: string; unit?: string; min_quantity?: number }) => {
-      const { error } = await supabase.from("inventory_items").insert(input);
+    mutationFn: async (input: {
+      business_id: string;
+      name: string;
+      unit?: string;
+      image_url?: string | null;
+      quantity?: number;
+      employee_id?: string | null;
+    }) => {
+      const { quantity, employee_id, ...itemInput } = input;
+      const { data, error } = await supabase.from("inventory_items").insert(itemInput).select("id").single();
       if (error) throw error;
+      if (quantity != null && quantity >= 0) {
+        const { error: countError } = await supabase.from("inventory_counts").insert({
+          business_id: input.business_id,
+          item_id: data.id,
+          employee_id: employee_id ?? null,
+          quantity,
+        });
+        if (countError) throw countError;
+      }
     },
-    onSuccess: (_d, v) => qc.invalidateQueries({ queryKey: ["inventory", v.business_id] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["inventory", businessId] }),
   });
 }
 

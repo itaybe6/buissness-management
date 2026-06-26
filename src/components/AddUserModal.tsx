@@ -42,7 +42,7 @@ export function AddUserModal({ open, onClose, businessId, businesses, roles }: P
         full_name: fullName.trim(),
         role,
         business_id: effectiveBiz || null,
-        department_id: departmentId || null,
+        department_id: role === "employee" ? departmentId || null : null,
         phone: phone || undefined,
         hourly_rate: hourlyRate ? Number(hourlyRate) : 0,
       });
@@ -84,22 +84,31 @@ export function AddUserModal({ open, onClose, businessId, businesses, roles }: P
             </Select>
           </Field>
         )}
-        <div className="grid grid-cols-2 gap-3">
+        <div className={role === "employee" ? "grid grid-cols-2 gap-3" : undefined}>
           <Field label="הרשאה">
-            <Select value={role} onChange={(e) => setRole(e.target.value as UserRole)}>
+            <Select
+              value={role}
+              onChange={(e) => {
+                const next = e.target.value as UserRole;
+                setRole(next);
+                if (next !== "employee") setDepartmentId("");
+              }}
+            >
               {roles.map((r) => (
                 <option key={r} value={r}>{ROLE_LABELS[r]}</option>
               ))}
             </Select>
           </Field>
-          <Field label="מחלקה">
-            <Select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
-              <option value="">— ללא —</option>
-              {(departments ?? []).map((d) => (
-                <option key={d.id} value={d.id}>{d.name}</option>
-              ))}
-            </Select>
-          </Field>
+          {role === "employee" && (
+            <Field label="מחלקה">
+              <Select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
+                <option value="">— ללא —</option>
+                {(departments ?? []).map((d) => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
+              </Select>
+            </Field>
+          )}
         </div>
         <Field label="אימייל">
           <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} style={{ direction: "ltr", textAlign: "right" }} placeholder="name@business.co.il" />

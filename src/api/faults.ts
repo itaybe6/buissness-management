@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { compressImage } from "@/lib/compressImage";
 import { supabase } from "@/lib/supabase";
 import type { Fault, FaultStatus } from "@/types/database";
 
@@ -19,9 +20,12 @@ export function useFaults(businessId: string | null) {
 }
 
 export async function uploadFaultPhoto(businessId: string, file: File): Promise<string> {
-  const ext = file.name.split(".").pop() || "jpg";
-  const path = `${businessId}/${crypto.randomUUID()}.${ext}`;
-  const { error } = await supabase.storage.from("faults").upload(path, file, { upsert: false });
+  const compressed = await compressImage(file);
+  const path = `${businessId}/${crypto.randomUUID()}.jpg`;
+  const { error } = await supabase.storage.from("faults").upload(path, compressed, {
+    upsert: false,
+    contentType: "image/jpeg",
+  });
   if (error) throw error;
   const { data } = supabase.storage.from("faults").getPublicUrl(path);
   return data.publicUrl;

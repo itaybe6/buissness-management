@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { useBusiness } from "@/api/businesses";
 import { useAuth } from "@/lib/auth";
+import { useBusinessId } from "@/lib/db";
 import { useTheme } from "@/lib/theme";
 import { Icon } from "@/components/ui";
 import { NAV_ITEMS, ROLE_LABELS } from "@/lib/constants";
@@ -14,6 +16,8 @@ function initialsOf(name: string | null | undefined) {
 
 export function AppShell() {
   const { profile, hasFeature, signOut } = useAuth();
+  const businessId = useBusinessId();
+  const { data: business } = useBusiness(businessId);
   const { theme, toggle } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
@@ -59,7 +63,9 @@ export function AppShell() {
             <Icon name="hub" size={22} className="text-white" />
           </div>
           <div className="min-w-0">
-            <div className="text-[16px] font-extrabold tracking-tight text-white">אופק</div>
+            <div className="truncate text-[16px] font-extrabold tracking-tight text-white">
+              {isSuperAdmin ? "אופק" : business?.name ?? "—"}
+            </div>
             <div className="text-[11.5px] text-[#8b919c]">ניהול עסקים</div>
           </div>
         </div>
@@ -71,7 +77,7 @@ export function AppShell() {
             </span>
             <div className="min-w-0 flex-1">
               <div className="truncate text-[13.5px] font-bold text-white">
-                {isSuperAdmin ? "מסך פלטפורמה" : profile?.full_name ? "העסק שלי" : "—"}
+                {profile?.full_name ?? "משתמש"}
               </div>
               <div className="text-[11px] text-[#8b919c]">{ROLE_LABELS[role]}</div>
             </div>
@@ -102,10 +108,6 @@ export function AppShell() {
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Topbar */}
         <header className="sticky top-0 z-30 flex h-[66px] flex-none items-center gap-4 border-b border-border bg-surface px-4 md:px-[26px]">
-          <div className="relative hidden max-w-[420px] flex-1 sm:block">
-            <Icon name="search" size={20} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-3" />
-            <input placeholder="חיפוש עובדים, תקלות, משימות..." className="field pr-11 text-[13.5px]" />
-          </div>
           <div className="flex-1" />
 
           <button onClick={toggle} title="מצב תצוגה" className="grid h-10 w-10 place-items-center rounded-[11px] border border-border bg-surface text-text-2 hover:bg-surface-2">

@@ -26,6 +26,7 @@ export function useCreateTask() {
       title: string;
       description?: string | null;
       type: TaskType;
+      template_id?: string | null;
       assigned_to?: string | null;
       assigned_by?: string | null;
       due_date?: string | null;

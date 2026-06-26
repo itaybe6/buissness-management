@@ -16,7 +16,7 @@ drop trigger if exists on_auth_user_created on auth.users;
 
 -- מחיקת טבלאות (אם קיימות) בסדר תלות
 drop table if exists
-  public.tasks, public.events, public.faults, public.inventory_orders,
+  public.tasks, public.task_templates, public.events, public.faults, public.inventory_orders,
   public.inventory_counts, public.inventory_items, public.payroll_records,
   public.tips, public.attendance, public.shift_assignments, public.shift_preferences,
   public.shift_templates, public.departments,
@@ -249,7 +249,8 @@ create table public.form_101 (
 create table public.shift_templates (
   id          uuid primary key default gen_random_uuid(),
   business_id uuid not null references public.businesses(id) on delete cascade,
-  name        text not null,                 -- לדוגמה: בוקר / ערב / מיוחד
+  shift_key   text,                          -- morning / afternoon / evening / night
+  name        text not null,                 -- לדוגמה: בוקר / ערב
   start_time  time not null,
   end_time    time not null,
   color       text default '#7c3aed',
@@ -343,8 +344,8 @@ create table public.inventory_items (
   id          uuid primary key default gen_random_uuid(),
   business_id uuid not null references public.businesses(id) on delete cascade,
   name        text not null,
-  unit        text,                 -- יחידה (ק"ג, יח', ארגז)
-  min_quantity numeric(12,2) default 0,
+  unit        text,                 -- יחידה (יחידות, ארגז, ק"ג, ליטר)
+  image_url   text,                 -- תמונת המוצר ב-Storage
   active      boolean not null default true,
   created_at  timestamptz not null default now()
 );
@@ -404,12 +405,24 @@ create table public.events (
 
 
 -- ----------------------------------------------------------------------------
--- 13. מודול: משימות (חד-פעמיות + קבועות)
+-- 13. מודול: משימות (משימות קבועות + שיוך חד-פעמי)
 -- ----------------------------------------------------------------------------
+
+create table public.task_templates (
+  id                 uuid primary key default gen_random_uuid(),
+  business_id        uuid not null references public.businesses(id) on delete cascade,
+  title              text not null,
+  description        text,
+  recurrence_weekday smallint check (recurrence_weekday is null or (recurrence_weekday >= 0 and recurrence_weekday <= 6)),
+  active             boolean not null default true,
+  sort_order         integer not null default 0,
+  created_at         timestamptz not null default now()
+);
 
 create table public.tasks (
   id            uuid primary key default gen_random_uuid(),
   business_id   uuid not null references public.businesses(id) on delete cascade,
+  template_id   uuid references public.task_templates(id) on delete set null,
   title         text not null,
   description   text,
   type          public.task_type not null default 'one_time',
@@ -434,6 +447,45 @@ create trigger trg_form101_updated       before update on public.form_101       
 create trigger trg_faults_updated        before update on public.faults              for each row execute function public.set_updated_at();
 create trigger trg_tasks_updated         before update on public.tasks               for each row execute function public.set_updated_at();
 
+-- משמרות ברירת מחדל לכל עסק חדש (בוקר / צהריים / ערב / לילה)
+create or replace function public.seed_default_shift_templates(p_business_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.shift_templates (business_id, shift_key, name, start_time, end_time, color, active, sort_order)
+  select p_business_id, v.shift_key, v.name, v.start_time::time, v.end_time::time, v.color, v.active, v.sort_order
+  from (values
+    ('morning',   'בוקר',   '06:00', '14:00', '#eab308', true,  0),
+    ('afternoon', 'צהריים', '11:00', '19:00', '#fdab3d', true,  1),
+    ('evening',   'ערב',    '16:00', '23:30', '#7c3aed', true,  2),
+    ('night',     'לילה',   '22:00', '06:00', '#2563eb', false, 3)
+  ) as v(shift_key, name, start_time, end_time, color, active, sort_order)
+  where not exists (
+    select 1 from public.shift_templates st
+    where st.business_id = p_business_id and st.shift_key = v.shift_key
+  );
+end;
+$$;
+
+create or replace function public.trg_business_seed_shifts()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  perform public.seed_default_shift_templates(new.id);
+  return new;
+end;
+$$;
+
+create trigger trg_business_seed_shifts
+  after insert on public.businesses
+  for each row execute function public.trg_business_seed_shifts();
+
 
 -- ----------------------------------------------------------------------------
 -- 15. אינדקסים על business_id (לביצועים)
@@ -442,6 +494,9 @@ create index idx_profiles_business        on public.profiles(business_id);
 create index idx_profiles_department       on public.profiles(department_id);
 create index idx_departments_business       on public.departments(business_id);
 create index idx_shift_templates_business  on public.shift_templates(business_id);
+create unique index idx_shift_templates_business_key
+  on public.shift_templates (business_id, shift_key)
+  where shift_key is not null;
 create index idx_features_business         on public.business_features(business_id);
 create index idx_agr_templates_business    on public.agreement_templates(business_id);
 create index idx_agr_signatures_business   on public.agreement_signatures(business_id);
@@ -456,7 +511,9 @@ create index idx_inv_counts_business        on public.inventory_counts(business_
 create index idx_inv_orders_business        on public.inventory_orders(business_id);
 create index idx_faults_business            on public.faults(business_id);
 create index idx_events_business            on public.events(business_id);
+create index idx_task_templates_business    on public.task_templates(business_id);
 create index idx_tasks_business             on public.tasks(business_id);
+create index idx_tasks_template             on public.tasks(template_id);
 
 
 -- ============================================================================
@@ -483,6 +540,7 @@ alter table public.inventory_counts     enable row level security;
 alter table public.inventory_orders     enable row level security;
 alter table public.faults               enable row level security;
 alter table public.events               enable row level security;
+alter table public.task_templates       enable row level security;
 alter table public.tasks                enable row level security;
 
 -- ---- businesses ----
@@ -576,6 +634,9 @@ create policy "faults_tenant" on public.faults
   for all using (public.can_access(business_id)) with check (public.can_access(business_id));
 -- events
 create policy "events_tenant" on public.events
+  for all using (public.can_access(business_id)) with check (public.can_access(business_id));
+-- task_templates
+create policy "task_templates_tenant" on public.task_templates
   for all using (public.can_access(business_id)) with check (public.can_access(business_id));
 -- tasks
 create policy "tasks_tenant" on public.tasks

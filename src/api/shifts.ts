@@ -1,25 +1,49 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { ensureDefaultShiftTemplates, sortShiftTemplates } from "@/lib/shiftTemplates";
 import type { Availability, ShiftAssignment, ShiftPreference, ShiftTemplate } from "@/types/database";
+
+async function fetchShiftTemplates(businessId: string, activeOnly: boolean): Promise<ShiftTemplate[]> {
+  await ensureDefaultShiftTemplates(businessId);
+  let q = supabase.from("shift_templates").select("*").eq("business_id", businessId);
+  if (activeOnly) q = q.eq("active", true);
+  const { data, error } = await q.order("sort_order", { ascending: true });
+  if (error) throw error;
+  return sortShiftTemplates((data ?? []) as ShiftTemplate[]);
+}
 
 /* ----------------------------- shift templates ----------------------------- */
 export function useShiftTemplates(businessId: string | null) {
   return useQuery({
     queryKey: ["shift_templates", businessId],
     enabled: !!businessId,
-    queryFn: async (): Promise<ShiftTemplate[]> => {
-      const { data, error } = await supabase
-        .from("shift_templates")
-        .select("*")
-        .eq("business_id", businessId)
-        .order("sort_order", { ascending: true });
+    queryFn: () => fetchShiftTemplates(businessId!, false),
+  });
+}
+
+export function useActiveShiftTemplates(businessId: string | null) {
+  return useQuery({
+    queryKey: ["shift_templates", businessId, "active"],
+    enabled: !!businessId,
+    queryFn: () => fetchShiftTemplates(businessId!, true),
+  });
+}
+
+export function useUpdateShiftTemplate(businessId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: Partial<ShiftTemplate> & { id: string }) => {
+      const { id, ...rest } = input;
+      const { error } = await supabase.from("shift_templates").update(rest).eq("id", id);
       if (error) throw error;
-      return (data ?? []) as ShiftTemplate[];
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["shift_templates", businessId] });
     },
   });
 }
 
-export function useCreateShiftTemplate() {
+export function useCreateShiftTemplate(businessId: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: {
@@ -30,19 +54,11 @@ export function useCreateShiftTemplate() {
       color?: string;
       sort_order?: number;
     }) => {
-      const { error } = await supabase.from("shift_templates").insert(input);
-      if (error) throw error;
-    },
-    onSuccess: (_d, v) => qc.invalidateQueries({ queryKey: ["shift_templates", v.business_id] }),
-  });
-}
-
-export function useUpdateShiftTemplate(businessId: string | null) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (input: Partial<ShiftTemplate> & { id: string }) => {
-      const { id, ...rest } = input;
-      const { error } = await supabase.from("shift_templates").update(rest).eq("id", id);
+      const { error } = await supabase.from("shift_templates").insert({
+        ...input,
+        shift_key: null,
+        active: true,
+      });
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["shift_templates", businessId] }),
@@ -117,17 +133,24 @@ export function useClearPreference(businessId: string | null) {
 }
 
 /* ----------------------------- assignments ----------------------------- */
-export function useShiftAssignments(businessId: string | null, weekStartISO: string, weekEndISO: string) {
+export function useShiftAssignments(
+  businessId: string | null,
+  weekStartISO: string,
+  weekEndISO: string,
+  employeeId?: string
+) {
   return useQuery({
-    queryKey: ["shift_assignments", businessId, weekStartISO],
+    queryKey: ["shift_assignments", businessId, weekStartISO, employeeId ?? "all"],
     enabled: !!businessId,
     queryFn: async (): Promise<ShiftAssignment[]> => {
-      const { data, error } = await supabase
+      let q = supabase
         .from("shift_assignments")
         .select("*")
         .eq("business_id", businessId)
         .gte("shift_date", weekStartISO)
         .lte("shift_date", weekEndISO);
+      if (employeeId) q = q.eq("employee_id", employeeId);
+      const { data, error } = await q;
       if (error) throw error;
       return (data ?? []) as ShiftAssignment[];
     },

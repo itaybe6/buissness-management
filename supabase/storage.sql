@@ -24,3 +24,24 @@ create policy "faults_read" on storage.objects
 drop policy if exists "faults_modify" on storage.objects;
 create policy "faults_modify" on storage.objects
   for update to authenticated using (bucket_id = 'faults');
+
+-- ============================================================================
+-- Storage: bucket לתמונות מוצרים (מודול סחורות / מלאי)
+-- ============================================================================
+
+insert into storage.buckets (id, name, public)
+values ('inventory', 'inventory', true)
+on conflict (id) do update set public = true;
+
+drop policy if exists "inventory_upload" on storage.objects;
+create policy "inventory_upload" on storage.objects
+  for insert to authenticated
+  with check (bucket_id = 'inventory');
+
+drop policy if exists "inventory_read" on storage.objects;
+create policy "inventory_read" on storage.objects
+  for select using (bucket_id = 'inventory');
+
+drop policy if exists "inventory_modify" on storage.objects;
+create policy "inventory_modify" on storage.objects
+  for update to authenticated using (bucket_id = 'inventory');

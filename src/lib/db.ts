@@ -18,18 +18,25 @@ export function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** Local calendar date as ISO yyyy-mm-dd (avoids UTC shift from toISOString). */
+export function toISODate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 /** Start of the week (Sunday) for a given date, as ISO yyyy-mm-dd. */
 export function weekStart(date = new Date()): string {
   const d = new Date(date);
   d.setDate(d.getDate() - d.getDay());
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString().slice(0, 10);
+  return toISODate(d);
 }
 
 export function addDays(iso: string, days: number): string {
-  const d = new Date(iso + "T00:00:00");
+  const d = new Date(iso + "T12:00:00");
   d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  return toISODate(d);
 }
 
 export const HE_DAYS = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];

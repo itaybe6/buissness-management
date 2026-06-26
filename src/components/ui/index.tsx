@@ -3,12 +3,12 @@ import {
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
-  type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from "react";
 import { Icon } from "./Icon";
 
 export { Icon };
+export { Select } from "./Select";
 
 /* ----------------------------- Button ----------------------------- */
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
@@ -86,15 +86,6 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<H
   )
 );
 Textarea.displayName = "Textarea";
-
-export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement>>(
-  ({ className = "", children, ...rest }, ref) => (
-    <select ref={ref} className={`field ${className}`} {...rest}>
-      {children}
-    </select>
-  )
-);
-Select.displayName = "Select";
 
 /* ----------------------------- Card ----------------------------- */
 export function Card({

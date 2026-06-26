@@ -55,7 +55,7 @@ export interface NavItem {
  * business's enabled features (business_features).
  */
 export const NAV_ITEMS: NavItem[] = [
-  { key: "dashboard", label: "דשבורד", icon: "space_dashboard", roles: ["manager", "department_manager", "shift_manager", "office_manager", "employee"] },
+  { key: "dashboard", label: "דשבורד", icon: "space_dashboard", roles: ["manager", "department_manager", "shift_manager", "office_manager"] },
   { key: "dashboard", label: "תקלות", icon: "build", roles: ["maintenance"] },
   { key: "platform", label: "סקירת פלטפורמה", icon: "space_dashboard", roles: ["super_admin"] },
   { key: "businesses", label: "עסקים", icon: "store", roles: ["super_admin"] },
@@ -73,6 +73,13 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "events", label: "אירועים", icon: "celebration", roles: ["manager"], feature: "events" },
   { key: "settings", label: "הגדרות עסק", icon: "settings", roles: ["manager"] },
 ];
+
+/** Default landing route after login, per role. */
+export function getHomePath(role: UserRole): string {
+  if (role === "employee") return "/tasks";
+  if (role === "super_admin") return "/platform";
+  return "/dashboard";
+}
 
 /** Default feature set when creating a new business. */
 export const DEFAULT_FEATURE_STATE: Record<FeatureKey, boolean> = {

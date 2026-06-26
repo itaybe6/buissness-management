@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
+import { getHomePath } from "@/lib/constants";
 import { PageLoader } from "@/components/ui";
 import { Login } from "@/pages/Login";
 import { ResetPassword } from "@/pages/ResetPassword";
@@ -23,6 +24,17 @@ import { Form101 } from "@/pages/Form101";
 import { Events } from "@/pages/Events";
 import { FeatureGate } from "@/components/FeatureGate";
 
+function HomeRedirect() {
+  const { profile } = useAuth();
+  return <Navigate to={getHomePath(profile?.role ?? "employee")} replace />;
+}
+
+function DashboardRoute() {
+  const { profile } = useAuth();
+  if (profile?.role === "employee") return <Navigate to="/tasks" replace />;
+  return <Dashboard />;
+}
+
 export function App() {
   const { loading, session } = useAuth();
 
@@ -40,8 +52,8 @@ export function App() {
           </ProtectedRoute>
         }
       >
-        <Route index element={<Dashboard />} />
-        <Route path="dashboard" element={<Dashboard />} />
+        <Route index element={<HomeRedirect />} />
+        <Route path="dashboard" element={<DashboardRoute />} />
         <Route path="platform" element={<Platform />} />
         <Route path="businesses" element={<Businesses />} />
         <Route path="businesses/:id" element={<BusinessDetail />} />

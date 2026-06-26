@@ -73,9 +73,12 @@ export interface Profile {
 }
 
 /** Dynamic shift definitions per business (added in the updated schema). */
+export type ShiftKey = "morning" | "afternoon" | "evening" | "night";
+
 export interface ShiftTemplate {
   id: string;
   business_id: string;
+  shift_key: ShiftKey | null;
   name: string;
   start_time: string; // "HH:MM"
   end_time: string; // "HH:MM"
@@ -185,7 +188,7 @@ export interface InventoryItem {
   business_id: string;
   name: string;
   unit: string | null;
-  min_quantity: number;
+  image_url: string | null;
   active: boolean;
   created_at: string;
 }
@@ -231,9 +234,21 @@ export interface EventRecord {
   created_at: string;
 }
 
+export interface TaskTemplate {
+  id: string;
+  business_id: string;
+  title: string;
+  description: string | null;
+  recurrence_weekday: number | null;
+  active: boolean;
+  sort_order: number;
+  created_at: string;
+}
+
 export interface Task {
   id: string;
   business_id: string;
+  template_id: string | null;
   title: string;
   description: string | null;
   type: TaskType;
