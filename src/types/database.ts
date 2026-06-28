@@ -133,6 +133,25 @@ export interface Form101 {
   updated_at: string;
 }
 
+/** סוג מסמך פיננסי שהועלה ע״י מנהלת המשרד */
+export type ReceiptType = "tax_invoice" | "tax_invoice_receipt" | "receipt";
+
+/** חשבונית / קבלה שהועלתה למערכת */
+export interface OfficeReceipt {
+  id: string;
+  business_id: string;
+  type: ReceiptType;
+  amount: number;
+  vendor_name: string;
+  vendor_details: string | null;
+  document_date: string | null;
+  file_url: string;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ShiftPreference {
   id: string;
   business_id: string;

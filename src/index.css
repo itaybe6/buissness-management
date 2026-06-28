@@ -2186,6 +2186,219 @@ select {
   min-width: 0;
 }
 
+/* Shift hours panel (settings) — purple-only palette */
+.shift-hours-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.shift-hours-item {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border));
+  background: var(--surface);
+  transition:
+    border-color 200ms var(--ease-out),
+    opacity 200ms var(--ease-out),
+    box-shadow 200ms var(--ease-out);
+}
+
+.shift-hours-item[data-active="true"] {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+  box-shadow: 0 6px 22px -14px color-mix(in srgb, var(--accent) 38%, transparent);
+}
+
+.shift-hours-item[data-active="false"] {
+  opacity: 0.72;
+  background: color-mix(in srgb, var(--accent-tint) 35%, var(--surface-2));
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+.shift-hours-icon {
+  display: grid;
+  place-items: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  flex: none;
+  border-radius: 11px;
+  color: #fff;
+  background: linear-gradient(145deg, var(--accent), var(--accent-2));
+  box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.shift-hours-item[data-active="false"] .shift-hours-icon {
+  color: var(--accent-2);
+  background: color-mix(in srgb, var(--accent-tint) 80%, var(--surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, var(--border));
+}
+
+.shift-hours-name {
+  flex: 1 1 8rem;
+  min-width: 0;
+}
+
+.shift-hours-times {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: none;
+}
+
+.shift-hours-time-field {
+  width: 5.25rem;
+  padding: 0.5rem 0.4rem !important;
+  font-size: 13.5px !important;
+  font-weight: 700 !important;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  border-color: color-mix(in srgb, var(--accent) 18%, var(--border)) !important;
+  background: color-mix(in srgb, var(--accent-tint) 40%, var(--surface)) !important;
+}
+
+.shift-hours-time-field:focus {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border)) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.shift-hours-time-field:disabled {
+  opacity: 0.55;
+}
+
+.shift-hours-dash {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--accent-2);
+  padding-inline: 0.1rem;
+}
+
+.shift-hours-off {
+  flex: none;
+  padding: 0.28rem 0.6rem;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--accent-2);
+  background: color-mix(in srgb, var(--accent-tint) 70%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+}
+
+.shift-hours-delete {
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: none;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  transition:
+    background 160ms var(--ease-out),
+    color 160ms var(--ease-out),
+    transform 140ms var(--ease-out);
+}
+
+.shift-hours-delete:hover {
+  color: var(--accent-2);
+  background: var(--accent-tint);
+}
+
+.shift-hours-delete:active {
+  transform: scale(0.94);
+}
+
+.shift-hours-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.85rem;
+  margin-top: 0.25rem;
+  border-radius: 14px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent-tint) 25%, var(--surface));
+}
+
+.shift-hours-add-icon {
+  display: grid;
+  place-items: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  flex: none;
+  border-radius: 11px;
+  color: var(--accent-2);
+  background: color-mix(in srgb, var(--accent-tint) 65%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+}
+
+.shift-hours-add-fields {
+  display: flex;
+  flex: 1 1 12rem;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.shift-hours-add-name {
+  flex: 1 1 9rem;
+  min-width: 0;
+}
+
+.shift-hours-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid color-mix(in srgb, var(--accent) 10%, var(--border));
+}
+
+.shift-hours-hint {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+
+@media (max-width: 640px) {
+  .shift-hours-item {
+    flex-wrap: wrap;
+  }
+
+  .shift-hours-name {
+    flex: 1 1 calc(100% - 5.5rem);
+    order: 2;
+  }
+
+  .shift-hours-times {
+    flex: 1 1 100%;
+    order: 4;
+    justify-content: stretch;
+  }
+
+  .shift-hours-time-field {
+    flex: 1;
+    width: auto;
+    min-width: 0;
+  }
+
+  .shift-hours-off,
+  .shift-hours-delete {
+    order: 3;
+  }
+
+  .shift-hours-add-fields {
+    flex: 1 1 100%;
+  }
+}
+
 .settings-add-row {
   border-style: dashed;
   background: transparent;
@@ -2215,4 +2428,30 @@ select {
   color: #fff;
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
   box-shadow: 0 4px 14px -6px color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+/* ── Office receipts panel ── */
+.receipt-stat,
+.receipt-row {
+  animation: fadeUp 0.42s var(--ease-out) both;
+}
+
+.receipt-type-btn:active {
+  transform: scale(0.97);
+}
+
+.receipt-dropzone {
+  transition: border-color 0.2s var(--ease-out), background 0.2s var(--ease-out), transform 0.15s var(--ease-out);
+}
+
+.receipt-dropzone:active {
+  transform: scale(0.995);
+}
+
+.receipt-upload {
+  background: linear-gradient(180deg, var(--surface) 0%, color-mix(in srgb, var(--surface) 92%, var(--accent-tint)) 100%);
+}
+
+[data-theme="dark"] .receipt-upload {
+  background: linear-gradient(180deg, var(--surface) 0%, color-mix(in srgb, var(--surface) 88%, var(--accent-tint)) 100%);
 }

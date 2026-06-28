@@ -365,7 +365,7 @@ function ShiftTemplatesCard({ businessId }: { businessId: string }) {
         name: newName.trim(),
         start_time: newStart,
         end_time: newEnd,
-        color: SHIFT_COLORS[(templates?.length ?? 0) % SHIFT_COLORS.length],
+        color: "#7c3aed",
         sort_order: templates?.length ?? 0,
       },
       {
@@ -384,14 +384,17 @@ function ShiftTemplatesCard({ businessId }: { businessId: string }) {
       title="שעות משמרת"
       desc="ארבע משמרות בסיס (בוקר, צהריים, ערב, לילה). כבו משמרות שלא רלוונטיות, ערכו שעות או הוסיפו משמרות מותאמות."
     >
-      <div className="flex flex-col gap-2">
+      <div className="shift-hours-panel">
         {(templates ?? []).map((t) => {
           const isCustom = t.shift_key == null;
           return (
-            <div key={t.id} className="settings-shift-row" style={{ opacity: t.active ? 1 : 0.55 }}>
+            <div key={t.id} className="shift-hours-item" data-active={t.active}>
               <Switch checked={t.active} onChange={(v) => update.mutate({ id: t.id, active: v })} />
+              <span className="shift-hours-icon" aria-hidden="true">
+                <Icon name="schedule" size={18} />
+              </span>
               <Input
-                className="!bg-surface"
+                className="shift-hours-name !bg-surface"
                 defaultValue={t.name}
                 onBlur={(e) => {
                   const n = e.target.value.trim();
@@ -399,7 +402,7 @@ function ShiftTemplatesCard({ businessId }: { businessId: string }) {
                 }}
                 disabled={!t.active}
               />
-              <div className="settings-shift-times">
+              <div className="shift-hours-times">
                 <input
                   type="time"
                   defaultValue={t.start_time?.slice(0, 5)}
@@ -407,10 +410,11 @@ function ShiftTemplatesCard({ businessId }: { businessId: string }) {
                     const v = e.target.value;
                     if (v && v !== t.start_time?.slice(0, 5)) update.mutate({ id: t.id, start_time: v });
                   }}
-                  className="field !w-full !bg-surface"
-                  style={{ direction: "ltr", textAlign: "center" }}
+                  className="field shift-hours-time-field"
+                  style={{ direction: "ltr" }}
                   disabled={!t.active}
                 />
+                <span className="shift-hours-dash">–</span>
                 <input
                   type="time"
                   defaultValue={t.end_time?.slice(0, 5)}
@@ -418,64 +422,68 @@ function ShiftTemplatesCard({ businessId }: { businessId: string }) {
                     const v = e.target.value;
                     if (v && v !== t.end_time?.slice(0, 5)) update.mutate({ id: t.id, end_time: v });
                   }}
-                  className="field !w-full !bg-surface"
-                  style={{ direction: "ltr", textAlign: "center" }}
+                  className="field shift-hours-time-field"
+                  style={{ direction: "ltr" }}
                   disabled={!t.active}
                 />
               </div>
-              {!t.active ? (
-                <Badge tone="neutral">כבויה</Badge>
-              ) : (
-                <span
-                  className="settings-dept-dot hidden sm:block"
-                  style={{ background: t.color ?? "#7c3aed", color: t.color ?? "#7c3aed" }}
-                />
-              )}
+              {!t.active && <span className="shift-hours-off">כבויה</span>}
               {isCustom ? (
                 <button
                   type="button"
                   onClick={() => del.mutate(t.id)}
-                  className="grid h-9 w-9 place-items-center rounded-lg text-text-3 transition hover:[background:var(--danger-bg)] hover:text-danger"
+                  className="shift-hours-delete"
                   aria-label="מחק משמרת"
                 >
-                  <Icon name="delete" size={20} />
+                  <Icon name="delete" size={19} />
                 </button>
               ) : (
-                <span className="h-9 w-9" />
+                <span className="w-9 flex-none" />
               )}
             </div>
           );
         })}
       </div>
 
-      <div className="settings-shift-row settings-add-row mt-2">
-        <span className="h-9 w-9" />
-        <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="שם משמרת חדשה" />
-        <div className="settings-shift-times">
-          <input
-            type="time"
-            value={newStart}
-            onChange={(e) => setNewStart(e.target.value)}
-            className="field !w-full"
-            style={{ direction: "ltr", textAlign: "center" }}
+      <div className="shift-hours-add">
+        <span className="shift-hours-add-icon" aria-hidden="true">
+          <Icon name="add" size={20} />
+        </span>
+        <div className="shift-hours-add-fields">
+          <Input
+            className="shift-hours-add-name"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            placeholder="שם משמרת חדשה"
           />
-          <input
-            type="time"
-            value={newEnd}
-            onChange={(e) => setNewEnd(e.target.value)}
-            className="field !w-full"
-            style={{ direction: "ltr", textAlign: "center" }}
-          />
+          <div className="shift-hours-times">
+            <input
+              type="time"
+              value={newStart}
+              onChange={(e) => setNewStart(e.target.value)}
+              className="field shift-hours-time-field"
+              style={{ direction: "ltr" }}
+            />
+            <span className="shift-hours-dash">–</span>
+            <input
+              type="time"
+              value={newEnd}
+              onChange={(e) => setNewEnd(e.target.value)}
+              className="field shift-hours-time-field"
+              style={{ direction: "ltr" }}
+            />
+          </div>
         </div>
-        <span />
-        <Button icon="add" loading={create.isPending} onClick={handleAddShift} className="!px-3">
+        <Button icon="add" loading={create.isPending} onClick={handleAddShift} className="!px-4">
           הוספה
         </Button>
       </div>
 
-      <div className="settings-active-count">
-        <Icon name="schedule" size={15} />
-        {activeCount} משמרות פעילות
+      <div className="shift-hours-footer">
+        <div className="settings-active-count">
+          <Icon name="schedule" size={15} />
+          {activeCount} משמרות פעילות
+        </div>
       </div>
     </SettingsSection>
   );

@@ -15,6 +15,7 @@ import type { AgreementTemplate, Profile } from "@/types/database";
 import { AgreementEditorModal, ReadSignModal } from "./AgreementModals";
 import { Form101Modal } from "./Form101Modal";
 import { DocumentStatusTable, Form101OverviewTable } from "./StatusTables";
+import { OfficeReceiptsPanel } from "./OfficeReceiptsPanel";
 import { TYPE_LABELS, TAX_YEAR, type ManagerTab } from "./types";
 
 export function TemplatesPanel({
@@ -94,14 +95,16 @@ export function ManagerDocumentsView({
   businessId,
   agreements,
   canEdit,
+  canReceipts,
   profileId,
 }: {
   businessId: string;
   agreements: AgreementTemplate[];
   canEdit: boolean;
+  canReceipts: boolean;
   profileId: string;
 }) {
-  const [tab, setTab] = useState<ManagerTab>("status");
+  const [tab, setTab] = useState<ManagerTab>(canReceipts && !canEdit ? "receipts" : "status");
   const { data: employees } = useProfiles(businessId);
   const { data: signatures } = useSignatures(businessId);
   const { data: forms101 } = useAllForm101(businessId, TAX_YEAR);
@@ -114,6 +117,7 @@ export function ManagerDocumentsView({
   const globalWork = useMemo(() => globalAgreements(agreements).find((a) => a.type === "work"), [agreements]);
 
   const tabs: { key: ManagerTab; label: string }[] = [
+    ...(canReceipts ? [{ key: "receipts" as const, label: "חשבוניות וקבלות" }] : []),
     { key: "status", label: "מצב מסמכים" },
     { key: "form101", label: "טפסי 101" },
     { key: "templates", label: "תבניות הסכמים" },
@@ -134,6 +138,9 @@ export function ManagerDocumentsView({
           </button>
         ))}
       </div>
+      {tab === "receipts" && canReceipts && (
+        <OfficeReceiptsPanel businessId={businessId} profileId={profileId} canManage={canReceipts} />
+      )}
       {tab === "status" && (
         <DocumentStatusTable staff={staff} signatures={signatures ?? []} forms101={forms101 ?? []} globalFixed={globalFixed} globalWork={globalWork} agreements={agreements} taxYear={TAX_YEAR} />
       )}

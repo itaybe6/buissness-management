@@ -16,7 +16,7 @@ export const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
   super_admin: "ניהול כל הפלטפורמה",
   manager: "סקירה מלאה של העסק",
   shift_manager: "סידור עבודה, אילוצים, חשבוניות ודוח סגירת קופה",
-  office_manager: "שכר ומלאי",
+  office_manager: "שכר, מלאי וחשבוניות",
   employee: "משמרות, טפסים, נוכחות",
   maintenance: "תקלות בלבד",
 };
@@ -26,6 +26,9 @@ export const DOCUMENTS_OVERVIEW_ROLES: UserRole[] = ["manager", "office_manager"
 
 /** Roles that can create/edit agreement templates. */
 export const DOCUMENTS_EDIT_ROLES: UserRole[] = ["manager", "shift_manager"];
+
+/** Roles that can upload and manage office receipts/invoices. */
+export const OFFICE_RECEIPTS_ROLES: UserRole[] = ["manager", "office_manager"];
 
 /** Roles that can build/edit the work schedule and view all departments' schedules. */
 export const SCHEDULER_ROLES: UserRole[] = ["manager", "shift_manager"];

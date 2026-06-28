@@ -378,13 +378,16 @@ function EmployeeTaskRow({
         </div>
       </div>
 
-      <div className="mt-3 flex items-center gap-2">
+      <div className="mt-3">
         <StatusSegmented value={task.status} onChange={(s) => onStatus(task.id, s)} />
+      </div>
 
+      <div className="mt-2.5">
         <input
           ref={fileRef}
           type="file"
-          accept="image/*,video/*"
+          accept="image/*"
+          capture="environment"
           multiple
           className="hidden"
           onChange={(e) => {
@@ -396,19 +399,19 @@ function EmployeeTaskRow({
           type="button"
           onClick={() => fileRef.current?.click()}
           disabled={uploading}
-          title="צירוף תמונות או סרטון"
-          className="press grid h-[42px] w-[42px] flex-none place-items-center rounded-[11px] border border-border text-text-2 hover:bg-surface-2 hover:text-text disabled:opacity-60"
+          className="press inline-flex items-center gap-1.5 rounded-[9px] border border-dashed border-border px-2.5 py-1.5 text-[12px] font-semibold text-text-3 hover:border-accent-2/40 hover:bg-surface-2 hover:text-text-2 disabled:opacity-60"
         >
           <Icon
             name={uploading ? "hourglass_empty" : media.length ? "add_photo_alternate" : "photo_camera"}
-            size={20}
+            size={17}
             className={uploading ? "animate-pulse" : ""}
           />
+          {uploading ? "מעלה…" : media.length ? "הוספת תמונת תיעוד" : "צירוף תמונת תיעוד (אופציונלי)"}
         </button>
       </div>
 
       {media.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="mt-2.5 flex flex-wrap gap-2">
           {media.map((url) => (
             <MediaThumb
               key={url}
