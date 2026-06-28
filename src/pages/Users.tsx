@@ -21,7 +21,6 @@ import { colorFor, initialsOf } from "@/lib/db";
 import type { Profile, UserRole } from "@/types/database";
 
 const ASSIGNABLE_ROLES: UserRole[] = [
-  "department_manager",
   "shift_manager",
   "office_manager",
   "employee",

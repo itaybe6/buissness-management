@@ -21,7 +21,7 @@ export function Agreements() {
   const [open, setOpen] = useState(false);
   const [reading, setReading] = useState<AgreementTemplate | null>(null);
 
-  const isManager = profile && ["manager", "department_manager", "shift_manager"].includes(profile.role);
+  const isManager = profile && ["manager", "shift_manager"].includes(profile.role);
   const signedSet = new Set((signatures ?? []).filter((s) => s.agreed).map((s) => s.agreement_id));
 
   if (isLoading) return <PageLoader />;

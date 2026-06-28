@@ -42,6 +42,7 @@ export function Settings() {
       <div className="flex flex-col gap-5">
         <BusinessNameCard businessId={businessId!} />
         <LocationCard businessId={businessId!} />
+        <MaintenanceApprovalCard businessId={businessId!} />
         <DepartmentsCard businessId={businessId!} />
         <ShiftTemplatesCard businessId={businessId!} />
       </div>
@@ -204,6 +205,36 @@ function LocationCard({ businessId }: { businessId: string }) {
         {saved && !msg && !update.isPending && (
           <span className="text-[13px] font-semibold text-success">נשמר בהצלחה</span>
         )}
+      </div>
+    </Card>
+  );
+}
+
+function MaintenanceApprovalCard({ businessId }: { businessId: string }) {
+  const { data: biz } = useBusiness(businessId);
+  const update = useUpdateBusiness();
+
+  if (!biz) return null;
+
+  const enabled = biz.maintenance_task_approval;
+
+  return (
+    <Card className="p-5">
+      <div className="mb-1 flex items-center gap-2 text-[16px] font-bold">
+        <Icon name="verified_user" size={22} className="text-accent-2" /> אישור משימות לאיש אחזקה
+      </div>
+      <p className="mb-4 text-[13px] text-text-2">
+        כשהמתג דלוק — משימה שאחראי משמרת מוריד לאיש אחזקה לא נשלחת אליו ישירות, אלא ממתינה לאישור
+        מנהל. רק לאחר שהמנהל מאשר אותה היא מופיעה אצל איש האחזקה. משימות שמנהל מוריד בעצמו נשלחות מיד.
+      </p>
+      <div className="flex items-center justify-between gap-3 rounded-[12px] border border-border bg-surface-2 px-3.5 py-3">
+        <div className="text-[14px] font-semibold">
+          דרישת אישור מנהל למשימות שאחראי משמרת מוריד לאיש אחזקה
+        </div>
+        <Switch
+          checked={enabled}
+          onChange={(v) => update.mutate({ id: businessId, maintenance_task_approval: v })}
+        />
       </div>
     </Card>
   );

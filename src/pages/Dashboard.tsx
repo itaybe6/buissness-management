@@ -1,22 +1,11 @@
 import { Link } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import { Card, Icon } from "@/components/ui";
-import { NAV_ITEMS, ROLE_LABELS } from "@/lib/constants";
-
-function greeting() {
-  const h = new Date().getHours();
-  if (h < 12) return "בוקר טוב";
-  if (h < 17) return "צהריים טובים";
-  if (h < 21) return "ערב טוב";
-  return "לילה טוב";
-}
+import { NAV_ITEMS } from "@/lib/constants";
 
 export function Dashboard() {
   const { profile, hasFeature, features } = useAuth();
   const role = profile?.role ?? "employee";
-  const firstName = (profile?.full_name ?? "").split(/\s+/)[0];
-
-  const today = new Date().toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long" });
 
   const quickLinks = NAV_ITEMS.filter(
     (i) =>
@@ -27,15 +16,6 @@ export function Dashboard() {
 
   return (
     <div className="mx-auto max-w-[1220px] animate-fadeUp">
-      <div className="mb-6">
-        <div className="text-[24px] font-extrabold tracking-tight">
-          {greeting()}{firstName ? `, ${firstName}` : ""}
-        </div>
-        <div className="mt-1 text-[14.5px] text-text-2">
-          {today} · {ROLE_LABELS[role]}
-        </div>
-      </div>
-
       {role === "super_admin" ? (
         <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
           {[

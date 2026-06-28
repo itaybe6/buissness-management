@@ -56,7 +56,7 @@ export function AppShell() {
       {/* Sidebar */}
       <aside
         className="sticky top-0 hidden h-screen w-[var(--sw)] flex-none flex-col border-l border-border md:flex"
-        style={{ background: "linear-gradient(178deg,#1d1432,#0f0a1a)" }}
+        style={{ background: "linear-gradient(178deg, var(--sidebar-plum), var(--sidebar-plum-deep))" }}
       >
         <div className="flex items-center gap-3 px-[18px] pb-4 pt-5">
           <div className="grid h-[38px] w-[38px] flex-none place-items-center rounded-[11px] [background:var(--accent)]">

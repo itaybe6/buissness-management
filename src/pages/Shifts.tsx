@@ -82,11 +82,7 @@ function EmployeeSchedule({ templates }: { templates: NonNullable<ReturnType<typ
 
   return (
     <div>
-      <div className="mb-5 flex flex-wrap items-end justify-between gap-3.5">
-        <div>
-          <div className="text-[24px] font-extrabold tracking-tight">סידור עבודה</div>
-          <div className="mt-1 text-[14.5px] text-text-2">המשמרות ששובצו לך לשבוע הנוכחי</div>
-        </div>
+      <div className="mb-5 flex flex-wrap items-center justify-end gap-3.5">
         <WeekNav wkStart={wk} onShift={(d) => setWk((w) => addDays(w, d))} />
       </div>
 
@@ -212,13 +208,7 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
 
   return (
     <div>
-      <div className="mb-5 flex flex-wrap items-end justify-between gap-3.5">
-        <div>
-          <div className="text-[24px] font-extrabold tracking-tight">הגשת אילוצי משמרות</div>
-          <div className="mt-1 text-[14.5px] text-text-2">
-            סמנו מתי אתם יכולים או לא יכולים לעבוד · השבוע הבא נפתח כברירת מחדל
-          </div>
-        </div>
+      <div className="mb-5 flex flex-wrap items-center justify-end gap-3.5">
         <WeekNav wkStart={wk} onShift={(d) => setWk((w) => addDays(w, d))} />
       </div>
 
@@ -401,9 +391,27 @@ function SchedulerView() {
     return m;
   }, [employees]);
 
+  const activeDepartments = useMemo(
+    () => (departments ?? []).filter((d) => d.active),
+    [departments]
+  );
+
+  const scheduleSections = useMemo(() => {
+    const sections: { id: string | null; name: string; color: string }[] = activeDepartments.map((d) => ({
+      id: d.id,
+      name: d.name,
+      color: d.color ?? "#7c3aed",
+    }));
+    const unassigned = (employees ?? []).filter((e) => e.active && !e.department_id);
+    if (unassigned.length > 0) {
+      sections.push({ id: null, name: "כללי", color: "#94a3b8" });
+    }
+    return sections;
+  }, [activeDepartments, employees]);
+
   if (lt || ld) return <PageLoader />;
 
-  if (!templates?.length || !departments?.length) {
+  if (!templates?.length || scheduleSections.length === 0) {
     return (
       <div className="mx-auto max-w-[900px] animate-fadeUp">
         <EmptyState
@@ -415,18 +423,22 @@ function SchedulerView() {
     );
   }
 
-  const assignmentsFor = (deptId: string, templateId: string, date: string) =>
-    (assignments ?? []).filter(
-      (a) => a.shift_template_id === templateId && a.shift_date === date && (a.department_id === deptId || (!a.department_id && empById.get(a.employee_id)?.department_id === deptId))
+  const employeesInSection = (deptId: string | null) =>
+    (employees ?? []).filter(
+      (e) => e.active && (deptId ? e.department_id === deptId : !e.department_id)
     );
+
+  const assignmentsFor = (deptId: string | null, templateId: string, date: string) =>
+    (assignments ?? []).filter((a) => {
+      if (a.shift_template_id !== templateId || a.shift_date !== date) return false;
+      const empDept = empById.get(a.employee_id)?.department_id ?? null;
+      if (deptId === null) return empDept === null;
+      return a.department_id === deptId || (!a.department_id && empDept === deptId);
+    });
 
   return (
     <div className="animate-fadeUp">
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-3.5">
-        <div>
-          <div className="text-[24px] font-extrabold tracking-tight">סידור עבודה</div>
-          <div className="mt-1 text-[14.5px] text-text-2">נבנה מתוך אילוצי העובדים · לכל מחלקה הסידור שלה</div>
-        </div>
+      <div className="mb-4 flex flex-wrap items-center justify-end gap-3.5">
         <WeekNav wkStart={wk} onShift={(d) => setWk((w) => addDays(w, d))} />
       </div>
 
@@ -436,12 +448,12 @@ function SchedulerView() {
       </div>
 
       <div className="flex flex-col gap-5">
-        {departments.map((dept) => (
-          <Card key={dept.id} className="overflow-hidden">
+        {scheduleSections.map((section) => (
+          <Card key={section.id ?? "general"} className="overflow-hidden">
             <div className="flex items-center gap-2.5 border-b border-border bg-surface-2 px-5 py-3">
-              <span className="h-3 w-3 rounded-full" style={{ background: dept.color ?? "#7c3aed" }} />
-              <span className="text-[15px] font-extrabold">{dept.name}</span>
-              <Badge tone="neutral">{(employees ?? []).filter((e) => e.department_id === dept.id).length} עובדים</Badge>
+              <span className="h-3 w-3 rounded-full" style={{ background: section.color }} />
+              <span className="text-[15px] font-extrabold">{section.name}</span>
+              <Badge tone="neutral">{employeesInSection(section.id).length} עובדים</Badge>
             </div>
             <div className="overflow-auto">
               <div className="min-w-[920px]">
@@ -464,7 +476,7 @@ function SchedulerView() {
                     </div>
                     {HE_DAYS.map((_, i) => {
                       const date = addDays(wk, i);
-                      const cellAssignments = assignmentsFor(dept.id, t.id, date);
+                      const cellAssignments = assignmentsFor(section.id, t.id, date);
                       return (
                         <div key={i} className="flex min-h-[58px] flex-col gap-1.5 border-l border-border-2 p-1.5">
                           {cellAssignments.map((a) => {
@@ -478,7 +490,7 @@ function SchedulerView() {
                             );
                           })}
                           <button
-                            onClick={() => setPicker({ dept: dept.id, templateId: t.id, date })}
+                            onClick={() => setPicker({ dept: section.id, templateId: t.id, date })}
                             className="grid place-items-center rounded-[9px] bg-surface-2 py-1.5 text-text-3 transition hover:[background:var(--accent-tint)] hover:text-ink"
                           >
                             <Icon name="add" size={18} />
@@ -503,11 +515,14 @@ function SchedulerView() {
               <button onClick={() => setPicker(null)} className="grid h-8 w-8 place-items-center rounded-lg bg-surface-2 text-text-2"><Icon name="close" size={18} /></button>
             </div>
             <div className="max-h-[60vh] overflow-auto p-3">
-              {(employees ?? []).filter((e) => e.department_id === picker.dept && e.active).length === 0 && (
-                <div className="px-3 py-6 text-center text-[13px] text-text-3">אין עובדים במחלקה זו. שייכו עובדים בעמוד המשתמשים.</div>
+              {employeesInSection(picker.dept).length === 0 && (
+                <div className="px-3 py-6 text-center text-[13px] text-text-3">
+                  {picker.dept
+                    ? "אין עובדים במחלקה זו. שייכו עובדים בעמוד המשתמשים."
+                    : "אין עובדים ללא מחלקה."}
+                </div>
               )}
-              {(employees ?? [])
-                .filter((e) => e.department_id === picker.dept && e.active)
+              {employeesInSection(picker.dept)
                 .map((e) => {
                   const pref = prefMap.get(`${e.id}_${picker.templateId}_${picker.date}`);
                   const meta = pref ? AVAIL_META[pref] : null;

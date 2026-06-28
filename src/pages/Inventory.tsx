@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Badge, Button, Card, EmptyState, Field, Icon, Input, ErrorState, Select } from "@/components/ui";
+import { Badge, Button, Card, EmptyState, Field, Icon, Input, ErrorState, Select, Spinner } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId } from "@/lib/db";
@@ -11,11 +11,13 @@ import {
   useOrders,
   useCreateOrder,
   useUpdateOrder,
+  useItemLogs,
   uploadItemImage,
   INVENTORY_UNITS,
   type ItemWithQty,
+  type ItemLog,
 } from "@/api/inventory";
-import type { OrderStatus } from "@/types/database";
+import type { InventoryAction, OrderStatus } from "@/types/database";
 
 const ORDER_META: Record<OrderStatus, { label: string; tone: "warning" | "info" | "success" }> = {
   requested: { label: "ממתין", tone: "warning" },
@@ -27,17 +29,19 @@ type ItemForm = {
   name: string;
   unit: string;
   qty: string;
+  minQty: string;
   imageUrl: string | null;
   file: File | null;
 };
 
-const EMPTY_FORM: ItemForm = { name: "", unit: "יחידות", qty: "0", imageUrl: null, file: null };
+const EMPTY_FORM: ItemForm = { name: "", unit: "יחידות", qty: "0", minQty: "0", imageUrl: null, file: null };
 
 type StockStatus = "empty" | "low" | "ok";
 
 function stockStatus(item: ItemWithQty): StockStatus {
   if (item.current_qty === 0) return "empty";
-  if (item.current_qty <= 3) return "low";
+  const threshold = item.min_quantity > 0 ? item.min_quantity : 3;
+  if (item.current_qty <= threshold) return "low";
   return "ok";
 }
 
@@ -196,6 +200,7 @@ function ItemCard({
   index,
   isManager,
   onEdit,
+  onHistory,
   onOrder,
   onSetQty,
 }: {
@@ -203,6 +208,7 @@ function ItemCard({
   index: number;
   isManager: boolean;
   onEdit: () => void;
+  onHistory: () => void;
   onOrder: () => void;
   onSetQty: (qty: number) => void;
 }) {
@@ -226,13 +232,29 @@ function ItemCard({
       </div>
 
       <div className="flex flex-1 flex-col p-4">
-        <h3 className="text-[15px] font-bold leading-snug tracking-tight">{item.name}</h3>
+        <div className="flex items-start justify-between gap-2">
+          <h3 className="text-[15px] font-bold leading-snug tracking-tight">{item.name}</h3>
+          {isManager && (
+            <button
+              type="button"
+              onClick={onHistory}
+              aria-label="היסטוריית עדכונים"
+              title="היסטוריית עדכונים"
+              className="-mt-0.5 -ml-1 grid h-7 w-7 flex-none place-items-center rounded-md text-text-3 transition-[background-color,color] duration-[160ms] [transition-timing-function:var(--ease-out)] hover:bg-surface-2 hover:text-text active:scale-[0.97]"
+            >
+              <Icon name="history" size={17} />
+            </button>
+          )}
+        </div>
         <StockBar item={item} />
 
         <div className="mt-4 flex items-end justify-between gap-3">
           <div>
             <div className="text-[10px] font-semibold uppercase tracking-wide text-text-3">כמות</div>
             <div className="mt-1 text-[22px] font-extrabold tabular-nums leading-none">{item.current_qty}</div>
+            {item.min_quantity > 0 && (
+              <div className="mt-1 text-[11px] text-text-3">מינימום: {item.min_quantity}{item.unit ? ` ${item.unit}` : ""}</div>
+            )}
           </div>
           <QtyStepper value={item.current_qty} unit={item.unit} disabled={!isManager} onCommit={onSetQty} />
         </div>
@@ -328,6 +350,100 @@ function SkeletonCard() {
   );
 }
 
+const LOG_META: Record<InventoryAction, { label: string; icon: string; color: string }> = {
+  created: { label: "נוצר פריט", icon: "add_circle", color: "var(--success)" },
+  count: { label: "עדכון כמות", icon: "inventory_2", color: "var(--info)" },
+  edited: { label: "עריכת פרטים", icon: "edit", color: "var(--accent-2)" },
+  waste: { label: "דיווח בלאי", icon: "delete", color: "var(--danger)" },
+  order: { label: "הזמנה", icon: "local_shipping", color: "var(--warning)" },
+};
+
+function formatLogTime(iso: string) {
+  return new Date(iso).toLocaleString("he-IL", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function HistoryModal({
+  businessId,
+  item,
+  onClose,
+}: {
+  businessId: string | null;
+  item: ItemWithQty | null;
+  onClose: () => void;
+}) {
+  const { data: logs, isLoading, isError } = useItemLogs(businessId, item?.id ?? null);
+  const unit = item?.unit ? ` ${item.unit}` : "";
+
+  function detail(log: ItemLog): string {
+    switch (log.action) {
+      case "count":
+        return log.previous_qty != null
+          ? `כמות: ${log.previous_qty}${unit} ← ${log.new_qty}${unit}`
+          : `הכמות עודכנה ל-${log.new_qty}${unit}`;
+      case "created":
+        return log.new_qty != null ? `כמות התחלתית: ${log.new_qty}${unit}` : "הפריט נוצר";
+      case "edited":
+        return log.note ?? "עודכנו פרטי הפריט";
+      case "waste":
+        return `בלאי: ${log.new_qty}${unit}${log.note ? ` · ${log.note}` : ""}`;
+      case "order":
+        return `הוזמנו ${log.new_qty}${unit}`;
+      default:
+        return "";
+    }
+  }
+
+  return (
+    <Modal open={!!item} onClose={onClose} title="היסטוריית עדכונים" subtitle={item?.name} icon="history" maxWidth={520}>
+      {isLoading ? (
+        <div className="grid place-items-center py-12">
+          <Spinner size={28} />
+        </div>
+      ) : isError ? (
+        <p className="py-10 text-center text-[13px] text-text-3">שגיאה בטעינת ההיסטוריה</p>
+      ) : !logs || logs.length === 0 ? (
+        <EmptyState
+          icon="history"
+          title="אין עדכונים עדיין"
+          description="כל שינוי בכמות, עריכת פרטים או דיווח בלאי יתועד כאן עם שם העובד והשעה."
+        />
+      ) : (
+        <ol className="flex flex-col">
+          {logs.map((log) => {
+            const meta = LOG_META[log.action];
+            return (
+              <li key={log.id} className="flex gap-3 border-b border-border-2 py-3 last:border-0">
+                <span
+                  className="mt-0.5 grid h-8 w-8 flex-none place-items-center rounded-full"
+                  style={{ background: `color-mix(in srgb, ${meta.color} 14%, transparent)`, color: meta.color }}
+                >
+                  <Icon name={meta.icon} size={17} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[13.5px] font-bold">{meta.label}</span>
+                    <span className="flex-none text-[11.5px] text-text-3">{formatLogTime(log.created_at)}</span>
+                  </div>
+                  <p className="mt-0.5 text-[13px] text-text-2">{detail(log)}</p>
+                  <p className="mt-1 flex items-center gap-1 text-[12px] font-medium text-text-3">
+                    <Icon name="person" size={13} />
+                    {log.employee_name ?? "לא ידוע"}
+                  </p>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </Modal>
+  );
+}
+
 export function Inventory() {
   const businessId = useBusinessId();
   const { profile } = useAuth();
@@ -341,12 +457,13 @@ export function Inventory() {
   const [tab, setTab] = useState<"items" | "orders">("items");
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<ItemWithQty | null>(null);
+  const [historyItem, setHistoryItem] = useState<ItemWithQty | null>(null);
   const [form, setForm] = useState<ItemForm>(EMPTY_FORM);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const isManager = !!(profile && ["manager", "department_manager", "shift_manager", "office_manager"].includes(profile.role));
+  const isManager = !!(profile && ["manager", "shift_manager", "office_manager"].includes(profile.role));
 
   if (isLoading) {
     return (
@@ -379,6 +496,7 @@ export function Inventory() {
       name: item.name,
       unit: item.unit ?? "יחידות",
       qty: String(item.current_qty),
+      minQty: String(item.min_quantity),
       imageUrl: item.image_url,
       file: null,
     });
@@ -401,13 +519,25 @@ export function Inventory() {
       let image_url = form.imageUrl;
       if (form.file) image_url = await uploadItemImage(businessId!, form.file);
       const quantity = Number(form.qty) || 0;
+      const min_quantity = Math.max(0, Number(form.minQty) || 0);
 
       if (editing) {
+        const changed: string[] = [];
+        if (form.name.trim() !== editing.name) changed.push("שם");
+        if (form.unit !== (editing.unit ?? "יחידות")) changed.push("יחידת מידה");
+        if (min_quantity !== editing.min_quantity) changed.push("כמות מינימום");
+        if (image_url !== editing.image_url) changed.push("תמונה");
         await updateItem.mutateAsync({
           id: editing.id,
-          name: form.name.trim(),
-          unit: form.unit,
-          image_url,
+          business_id: businessId!,
+          employee_id: profile?.id ?? null,
+          changes: {
+            name: form.name.trim(),
+            unit: form.unit,
+            image_url,
+            min_quantity,
+          },
+          note: changed.length ? `עודכן: ${changed.join(", ")}` : null,
         });
         if (quantity !== editing.current_qty) {
           await setCount.mutateAsync({
@@ -415,6 +545,7 @@ export function Inventory() {
             item_id: editing.id,
             employee_id: profile?.id ?? null,
             quantity,
+            previous_qty: editing.current_qty,
           });
         }
       } else {
@@ -423,6 +554,7 @@ export function Inventory() {
           name: form.name.trim(),
           unit: form.unit,
           image_url,
+          min_quantity,
           quantity,
           employee_id: profile?.id ?? null,
         });
@@ -443,16 +575,8 @@ export function Inventory() {
 
   return (
     <div className="mx-auto max-w-[1080px] animate-fadeUp">
-      <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-3">מלאי ורכש</p>
-          <h1 className="mt-1 text-[26px] font-extrabold tracking-tight">ניהול סחורות</h1>
-          <p className="mt-1.5 text-[13.5px] text-text-2">
-            {list.length} פריטים · {inStock} במלאי
-            {pending > 0 && ` · ${pending} הזמנות ממתינות`}
-          </p>
-        </div>
-        {isManager && (
+      {isManager && (
+        <header className="mb-6 flex flex-wrap items-center justify-end gap-4">
           <Button
             icon="add"
             onClick={openCreate}
@@ -460,8 +584,8 @@ export function Inventory() {
           >
             פריט חדש
           </Button>
-        )}
-      </header>
+        </header>
+      )}
 
       <SummaryStrip total={list.length} inStock={inStock} outOfStock={outOfStock} pending={pending} />
 
@@ -484,6 +608,7 @@ export function Inventory() {
                 index={idx}
                 isManager={isManager}
                 onEdit={() => openEdit(it)}
+                onHistory={() => setHistoryItem(it)}
                 onOrder={() =>
                   createOrder.mutate({
                     business_id: businessId!,
@@ -498,6 +623,7 @@ export function Inventory() {
                     item_id: it.id,
                     employee_id: profile?.id ?? null,
                     quantity,
+                    previous_qty: it.current_qty,
                   })
                 }
               />
@@ -587,10 +713,15 @@ export function Inventory() {
                 ))}
               </Select>
             </Field>
-            <Field label="כמות">
-              <Input type="number" value={form.qty} onChange={(e) => setForm((f) => ({ ...f, qty: e.target.value }))} />
+            <Field label="כמות נוכחית">
+              <Input type="number" min={0} value={form.qty} onChange={(e) => setForm((f) => ({ ...f, qty: e.target.value }))} />
             </Field>
           </div>
+
+          <Field label="כמות מינימום">
+            <Input type="number" min={0} value={form.minQty} onChange={(e) => setForm((f) => ({ ...f, minQty: e.target.value }))} placeholder="0" />
+            <p className="mt-1 text-[12px] text-text-3">מתחת לסף זה הפריט יסומן כמלאי נמוך</p>
+          </Field>
 
           {error && (
             <div className="flex items-start gap-2 rounded-[11px] [background:var(--danger-bg)] px-3 py-2.5 text-[13px] font-semibold text-danger">
@@ -599,6 +730,8 @@ export function Inventory() {
           )}
         </div>
       </Modal>
+
+      <HistoryModal businessId={businessId} item={historyItem} onClose={() => setHistoryItem(null)} />
     </div>
   );
 }

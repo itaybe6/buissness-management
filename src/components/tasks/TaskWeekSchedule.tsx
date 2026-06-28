@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Badge, Card, Icon } from "@/components/ui";
 import { HE_DAYS, addDays, formatDateShort, weekStart } from "@/lib/db";
-import type { Department, Profile, Task } from "@/types/database";
+import type { Department, Profile, Task, TaskTemplate } from "@/types/database";
 
 function dayIndex(iso: string): number {
   return new Date(iso + "T12:00:00").getDay();
@@ -19,6 +19,26 @@ function tasksForCell(tasks: Task[], employeeId: string, date: string): Task[] {
     }
     return false;
   });
+}
+
+/**
+ * משימות קבועות (מתבניות) החלות על העובד ביום נתון — לפי המחלקה שלו או כלליות לכל העסק.
+ * מדלגים על תבנית שכבר הומרה למשימה אמיתית של העובד (כדי לא להציג כפול).
+ */
+function templatesForCell(
+  templates: TaskTemplate[],
+  emp: Profile,
+  date: string,
+  materialized: Set<string>,
+): TaskTemplate[] {
+  const weekday = dayIndex(date);
+  return templates.filter(
+    (t) =>
+      t.active &&
+      t.recurrence_weekday === weekday &&
+      (t.department_id == null || t.department_id === emp.department_id) &&
+      !materialized.has(`${emp.id}:${t.id}`),
+  );
 }
 
 function WeekNav({ wkStart, onShift }: { wkStart: string; onShift: (d: number) => void }) {
@@ -75,8 +95,21 @@ function TaskChip({ task, onToggle }: { task: Task; onToggle?: (id: string, done
   );
 }
 
+/** תצוגה בלבד — משימה קבועה אינה משויכת לעובד בודד, ולכן אינה ניתנת לסימון מכאן. */
+function TemplateChip({ template }: { template: TaskTemplate }) {
+  return (
+    <div className="group flex w-full items-start gap-1 rounded-[9px] border border-accent-2/30 [background:var(--violet-bg)] px-1.5 py-1 text-right">
+      <Icon name="event_repeat" size={14} className="mt-0.5 flex-none text-accent-2" />
+      <span className="min-w-0 flex-1 truncate text-[11px] font-bold leading-tight text-text">
+        {template.title}
+      </span>
+    </div>
+  );
+}
+
 interface TaskWeekScheduleProps {
   tasks: Task[];
+  templates?: TaskTemplate[];
   employees: Profile[];
   departments: Department[];
   /** When set, only this employee's row is shown (within their department). */
@@ -86,6 +119,7 @@ interface TaskWeekScheduleProps {
 
 export function TaskWeekSchedule({
   tasks,
+  templates = [],
   employees,
   departments,
   employeeFilter,
@@ -116,15 +150,25 @@ export function TaskWeekSchedule({
 
   const weekDates = useMemo(() => HE_DAYS.map((_, i) => addDays(wk, i)), [wk]);
 
+  // תבניות שכבר הומרו למשימה אמיתית של עובד — לפי "${employeeId}:${templateId}"
+  const materialized = useMemo(() => {
+    const s = new Set<string>();
+    tasks.forEach((t) => {
+      if (t.template_id && t.assigned_to) s.add(`${t.assigned_to}:${t.template_id}`);
+    });
+    return s;
+  }, [tasks]);
+
   const totalTasks = useMemo(() => {
     let n = 0;
     activeEmployees.forEach((emp) => {
       weekDates.forEach((date) => {
         n += tasksForCell(tasks, emp.id, date).length;
+        n += templatesForCell(templates, emp, date, materialized).length;
       });
     });
     return n;
-  }, [tasks, activeEmployees, weekDates]);
+  }, [tasks, templates, materialized, activeEmployees, weekDates]);
 
   if (departments.length === 0 && activeEmployees.length === 0) {
     return null;
@@ -197,17 +241,24 @@ export function TaskWeekSchedule({
                       </div>
                       {weekDates.map((date) => {
                         const cellTasks = tasksForCell(tasks, emp.id, date);
+                        const cellTemplates = templatesForCell(templates, emp, date, materialized);
+                        const isEmpty = cellTasks.length === 0 && cellTemplates.length === 0;
                         return (
                           <div
                             key={date}
                             className="flex min-h-[58px] flex-col gap-1 border-l border-border-2 p-1.5"
                           >
-                            {cellTasks.length === 0 ? (
+                            {isEmpty ? (
                               <span className="grid flex-1 place-items-center text-[11px] text-text-3">—</span>
                             ) : (
-                              cellTasks.map((task) => (
-                                <TaskChip key={task.id} task={task} onToggle={onToggle} />
-                              ))
+                              <>
+                                {cellTemplates.map((tpl) => (
+                                  <TemplateChip key={`tpl-${tpl.id}`} template={tpl} />
+                                ))}
+                                {cellTasks.map((task) => (
+                                  <TaskChip key={task.id} task={task} onToggle={onToggle} />
+                                ))}
+                              </>
                             )}
                           </div>
                         );
