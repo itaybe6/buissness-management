@@ -211,7 +211,9 @@ create table public.agreement_templates (
   business_id uuid not null references public.businesses(id) on delete cascade,
   type        public.agreement_type not null default 'work',
   title       text not null,
-  content     text not null,          -- ניתן לעריכה ע"י המנהל
+  content     text not null default '',  -- ניתן לעריכה ע"י המנהל
+  file_url    text,                      -- קובץ PDF/DOC מצורף (אופציונלי)
+  employee_id uuid references public.profiles(id) on delete cascade, -- null = קבוע לכל העובדים
   is_editable boolean not null default true,
   created_by  uuid references public.profiles(id),
   created_at  timestamptz not null default now(),
@@ -570,6 +572,7 @@ create unique index idx_shift_templates_business_key
   where shift_key is not null;
 create index idx_features_business         on public.business_features(business_id);
 create index idx_agr_templates_business    on public.agreement_templates(business_id);
+create index idx_agr_templates_employee    on public.agreement_templates(employee_id);
 create index idx_agr_signatures_business   on public.agreement_signatures(business_id);
 create index idx_form101_business          on public.form_101(business_id);
 create index idx_shift_pref_business        on public.shift_preferences(business_id);

@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Badge, Card, EmptyState, ErrorState, Icon, PageLoader } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
-import { useBusinessId, HE_DAYS, addDays, formatDateShort, weekStart, colorFor, initialsOf } from "@/lib/db";
+import { useBusinessId, HE_DAYS, addDays, formatDateShort, weekStart, todayISO, colorFor, initialsOf } from "@/lib/db";
 import { useDepartments } from "@/api/departments";
 import { useProfiles } from "@/api/users";
 import {
@@ -32,15 +33,74 @@ export function Shifts() {
   return isScheduler ? <SchedulerView /> : <EmployeeView />;
 }
 
-function WeekNav({ wkStart, onShift }: { wkStart: string; onShift: (d: number) => void }) {
+function colorDotStyle(color: string | null | undefined, ring = 3): CSSProperties {
+  const c = color ?? "#fdab3d";
+  return {
+    background: c,
+    boxShadow: `0 0 0 ${ring}px color-mix(in srgb, ${c} 28%, transparent)`,
+  };
+}
+
+function WeekNav({ wkStart, onShift, onToday }: { wkStart: string; onShift: (d: number) => void; onToday?: () => void }) {
   const end = addDays(wkStart, 6);
+  const isCurrentWeek = wkStart === weekStart();
   return (
-    <div className="flex items-center gap-1 rounded-[11px] border border-border bg-surface p-1">
-      <button onClick={() => onShift(7)} className="grid h-8 w-8 place-items-center rounded-lg text-text-2 hover:bg-surface-2"><Icon name="chevron_right" size={20} /></button>
-      <span className="whitespace-nowrap px-2 text-[13.5px] font-bold">{formatDateShort(wkStart)} – {formatDateShort(end)}</span>
-      <button onClick={() => onShift(-7)} className="grid h-8 w-8 place-items-center rounded-lg text-text-2 hover:bg-surface-2"><Icon name="chevron_left" size={20} /></button>
+    <div className="shift-week-nav">
+      <button type="button" onClick={() => onShift(7)} className="shift-week-nav-btn" aria-label="שבוע קודם">
+        <Icon name="chevron_right" size={20} />
+      </button>
+      <span className="shift-week-nav-label">{formatDateShort(wkStart)} – {formatDateShort(end)}</span>
+      <button type="button" onClick={() => onShift(-7)} className="shift-week-nav-btn" aria-label="שבוע הבא">
+        <Icon name="chevron_left" size={20} />
+      </button>
+      {onToday && !isCurrentWeek && (
+        <button type="button" onClick={onToday} className="shift-week-today">
+          היום
+        </button>
+      )}
     </div>
   );
+}
+
+function ShiftLegend() {
+  return (
+    <div className="shift-toolbar-meta">
+      <span className="shift-legend-chip" data-tone="available">{AVAIL_META.available.label}</span>
+      <span className="shift-legend-chip" data-tone="cannot">{AVAIL_META.cannot.label}</span>
+    </div>
+  );
+}
+
+function ShiftPageHero({
+  title,
+  subtitle,
+  stats,
+}: {
+  title: string;
+  subtitle: string;
+  stats?: ReactNode;
+}) {
+  return (
+    <header className="page-hero">
+      <div className="page-hero-inner">
+        <div>
+          <h1 className="page-hero-title">{title}</h1>
+          <p className="page-hero-sub">{subtitle}</p>
+        </div>
+        {stats && <div className="page-hero-stats">{stats}</div>}
+      </div>
+    </header>
+  );
+}
+
+function dayMeta(wk: string, index: number) {
+  const date = addDays(wk, index);
+  const today = todayISO();
+  return {
+    date,
+    isToday: date === today,
+    isWeekend: index >= 5,
+  };
 }
 
 /* ------------------------------- Employee ------------------------------- */
@@ -58,9 +118,15 @@ function EmployeeView() {
   }
 
   return (
-    <div className="mx-auto max-w-[1100px] animate-fadeUp">
+    <div className="mx-auto max-w-[1240px] animate-fadeUp">
+      <ShiftPageHero
+        title="משמרות"
+        subtitle="צפייה בשיבוצים שלך ועדכון זמינות לשבוע הבא."
+      />
       <EmployeeSchedule templates={templates} />
-      <div className="my-8 border-t border-border" />
+      <div className="page-section-label mt-8">
+        העדפות זמינות <span>לשבוע הבא</span>
+      </div>
       <EmployeeConstraints templates={templates} />
     </div>
   );
@@ -82,44 +148,60 @@ function EmployeeSchedule({ templates }: { templates: NonNullable<ReturnType<typ
 
   return (
     <div>
-      <div className="mb-5 flex flex-wrap items-center justify-end gap-3.5">
-        <WeekNav wkStart={wk} onShift={(d) => setWk((w) => addDays(w, d))} />
+      <div className="page-section-label">
+        משמרותי לשבוע <span>{formatDateShort(wk)} – {formatDateShort(addDays(wk, 6))}</span>
+      </div>
+      <div className="shift-toolbar">
+        <ShiftLegend />
+        <WeekNav wkStart={wk} onShift={(d) => setWk((w) => addDays(w, d))} onToday={() => setWk(weekStart())} />
       </div>
 
-      <Card className="p-4">
-        <div className="overflow-auto">
-          <div className="min-w-[680px]">
-            <div className="mb-2 grid grid-cols-[90px_repeat(7,1fr)] gap-2">
-              <span />
-              {HE_DAYS.map((d, i) => (
-                <span key={i} className="text-center">
-                  <span className="block text-[13px] font-bold">{d}</span>
-                  <span className="block text-[11px] text-text-3">{formatDateShort(addDays(wk, i))}</span>
-                </span>
-              ))}
+      <Card className="overflow-hidden !p-0 shadow-sm">
+        <div className="shift-grid-wrap">
+          <div className="shift-grid min-w-[680px]">
+            <div className="shift-grid-head">
+              <div className="shift-grid-corner">משמרת</div>
+              {HE_DAYS.map((d, i) => {
+                const meta = dayMeta(wk, i);
+                return (
+                  <div key={i} className="shift-grid-day" data-today={meta.isToday} data-weekend={meta.isWeekend}>
+                    <span className="shift-grid-day-name">{d}</span>
+                    <span className="shift-grid-day-date">{formatDateShort(meta.date)}</span>
+                    {meta.isToday && <span className="shift-grid-day-today">היום</span>}
+                  </div>
+                );
+              })}
             </div>
             {templates.map((t) => (
-              <div key={t.id} className="mb-2 grid grid-cols-[90px_repeat(7,1fr)] items-center gap-2">
-                <span className="text-[13px] font-bold text-text-2">
-                  {t.name}
-                  <span className="block text-[10.5px] font-normal text-text-3" style={{ direction: "ltr" }}>
+              <div key={t.id} className="shift-grid-row">
+                <div className="shift-grid-row-label">
+                  <div className="shift-shift-name">
+                    <span className="shift-shift-dot" style={colorDotStyle(t.color, 2)} />
+                    {t.name}
+                  </div>
+                  <span className="shift-shift-time">
                     {t.start_time?.slice(0, 5)}–{t.end_time?.slice(0, 5)}
                   </span>
-                </span>
+                </div>
                 {HE_DAYS.map((_, i) => {
-                  const date = addDays(wk, i);
+                  const { date } = dayMeta(wk, i);
                   const assigned = assignMap.has(`${t.id}_${date}`);
+                  const meta = dayMeta(wk, i);
                   return (
                     <div
                       key={i}
-                      className="rounded-[10px] px-1 py-2.5 text-center text-[12.5px] font-bold"
-                      style={
-                        assigned
-                          ? { background: "var(--accent)", color: "#fff", border: "1.5px solid var(--accent-2)" }
-                          : { background: "var(--surface-2)", color: "var(--text-3)", border: "1.5px solid var(--border)" }
-                      }
+                      className="shift-grid-cell flex items-center justify-center !min-h-[3.25rem]"
+                      data-today={meta.isToday}
+                      data-weekend={meta.isWeekend}
                     >
-                      {assigned ? "משובץ" : "—"}
+                      {assigned ? (
+                        <span className="shift-assigned-badge">
+                          <Icon name="check_circle" size={15} />
+                          משובץ
+                        </span>
+                      ) : (
+                        <span className="text-[12px] font-semibold text-text-3">—</span>
+                      )}
                     </div>
                   );
                 })}
@@ -128,7 +210,9 @@ function EmployeeSchedule({ templates }: { templates: NonNullable<ReturnType<typ
           </div>
         </div>
         {(assignments ?? []).length === 0 && (
-          <div className="mt-4 text-[12.5px] text-text-3">אין משמרות משובצות לשבוע זה.</div>
+          <div className="border-t border-border px-5 py-4 text-[13px] text-text-3">
+            אין משמרות משובצות לשבוע זה.
+          </div>
         )}
       </Card>
     </div>
@@ -208,22 +292,17 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
 
   return (
     <div>
-      <div className="mb-5 flex flex-wrap items-center justify-end gap-3.5">
-        <WeekNav wkStart={wk} onShift={(d) => setWk((w) => addDays(w, d))} />
-      </div>
-
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <span className="flex items-center gap-1.5 text-[12.5px] text-text-2">
-          <span className="h-4 w-4 rounded" style={{ background: AVAIL_META.available.bg, border: `1.5px solid ${AVAIL_META.available.border}` }} />
-          {AVAIL_META.available.label}
-        </span>
-        <span className="flex items-center gap-1.5 text-[12.5px] text-text-2">
-          <span className="h-4 w-4 rounded" style={{ background: AVAIL_META.cannot.bg, border: `1.5px solid ${AVAIL_META.cannot.border}` }} />
-          {AVAIL_META.cannot.label}
-        </span>
-        <span className="mr-auto text-[12.5px] text-text-3">
-          {filledCells} מתוך {totalCells} משמרות מסומנות
-        </span>
+      <div className="shift-toolbar">
+        <div className="shift-toolbar-meta">
+          <ShiftLegend />
+          <span className="shift-stat">{filledCells} מתוך {totalCells} משמרות מסומנות</span>
+          <div className="hidden w-28 sm:block">
+            <div className="shift-progress-bar">
+              <div className="shift-progress-fill" style={{ width: `${totalCells ? (filledCells / totalCells) * 100 : 0}%` }} />
+            </div>
+          </div>
+        </div>
+        <WeekNav wkStart={wk} onShift={(d) => setWk((w) => addDays(w, d))} onToday={() => setWk(addDays(weekStart(), 7))} />
       </div>
 
       {saveError && (
@@ -233,42 +312,49 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
         </div>
       )}
 
-      <Card className="p-4">
-        <div className="overflow-auto">
-          <div className="min-w-[720px]">
-            <div className="mb-2 grid grid-cols-[100px_repeat(7,1fr)] gap-2">
-              <span />
-              {HE_DAYS.map((d, i) => (
-                <div key={i} className="text-center">
-                  <span className="block text-[13px] font-bold">{d}</span>
-                  <span className="block text-[11px] text-text-3">{formatDateShort(addDays(wk, i))}</span>
-                  <div className="mt-1.5 flex justify-center gap-1">
-                    <button
-                      type="button"
-                      title="כל המשמרות ביום זה — יכול"
-                      onClick={() => fillDay(i, "available")}
-                      className="rounded-md px-1.5 py-0.5 text-[10px] font-bold text-info transition hover:[background:var(--info-bg)]"
-                    >
-                      הכל יכול
-                    </button>
-                    <button
-                      type="button"
-                      title="נקה יום"
-                      onClick={() => clearDay(i)}
-                      className="rounded-md px-1.5 py-0.5 text-[10px] font-bold text-text-3 transition hover:bg-surface-2"
-                    >
-                      נקה
-                    </button>
+      <Card className="overflow-hidden !p-0 shadow-sm">
+        <div className="shift-grid-wrap">
+          <div className="shift-grid min-w-[720px]">
+            <div className="shift-grid-head">
+              <div className="shift-grid-corner">משמרת</div>
+              {HE_DAYS.map((d, i) => {
+                const meta = dayMeta(wk, i);
+                return (
+                  <div key={i} className="shift-grid-day" data-today={meta.isToday} data-weekend={meta.isWeekend}>
+                    <span className="shift-grid-day-name">{d}</span>
+                    <span className="shift-grid-day-date">{formatDateShort(meta.date)}</span>
+                    {meta.isToday && <span className="shift-grid-day-today">היום</span>}
+                    <div className="mt-1.5 flex justify-center gap-1">
+                      <button
+                        type="button"
+                        title="כל המשמרות ביום זה — יכול"
+                        onClick={() => fillDay(i, "available")}
+                        className="rounded-md px-1.5 py-0.5 text-[10px] font-bold text-info transition hover:[background:var(--info-bg)]"
+                      >
+                        הכל יכול
+                      </button>
+                      <button
+                        type="button"
+                        title="נקה יום"
+                        onClick={() => clearDay(i)}
+                        className="rounded-md px-1.5 py-0.5 text-[10px] font-bold text-text-3 transition hover:bg-surface-2"
+                      >
+                        נקה
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {templates.map((t) => (
-              <div key={t.id} className="mb-2 grid grid-cols-[100px_repeat(7,1fr)] items-stretch gap-2">
-                <div className="flex flex-col justify-center py-1">
-                  <span className="text-[13px] font-bold text-text-2">{t.name}</span>
-                  <span className="text-[10.5px] text-text-3" style={{ direction: "ltr" }}>
+              <div key={t.id} className="shift-grid-row">
+                <div className="shift-grid-row-label">
+                  <div className="shift-shift-name">
+                    <span className="shift-shift-dot" style={colorDotStyle(t.color, 2)} />
+                    {t.name}
+                  </div>
+                  <span className="shift-shift-time">
                     {t.start_time?.slice(0, 5)}–{t.end_time?.slice(0, 5)}
                   </span>
                 </div>
@@ -278,13 +364,15 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
                   const key = `${t.id}_${date}`;
                   const cur = prefMap.get(key) ?? null;
                   const isSaving = pending.has(key);
+                  const meta = dayMeta(wk, i);
                   return (
-                    <AvailabilityCell
-                      key={i}
-                      value={cur}
-                      saving={isSaving}
-                      onSet={(v) => setAvailability(t.id, date, v)}
-                    />
+                    <div key={i} className="shift-grid-cell" data-today={meta.isToday} data-weekend={meta.isWeekend}>
+                      <AvailabilityCell
+                        value={cur}
+                        saving={isSaving}
+                        onSet={(v) => setAvailability(t.id, date, v)}
+                      />
+                    </div>
                   );
                 })}
               </div>
@@ -292,7 +380,7 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
           </div>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center gap-2 text-[12.5px] text-text-3">
+        <div className="flex flex-wrap items-center gap-2 border-t border-border px-5 py-3.5 text-[12.5px] text-text-3">
           {setPref.isPending || clearPref.isPending ? (
             <>
               <Icon name="sync" size={16} className="animate-spin" />
@@ -326,7 +414,7 @@ function AvailabilityCell({
     <div
       className={`flex min-h-[52px] flex-col gap-1 rounded-[10px] border p-1 transition ${saving ? "opacity-60" : ""}`}
       style={{
-        background: isAvail ? AVAIL_META.available.bg : isCannot ? AVAIL_META.cannot.bg : "var(--surface-2)",
+        background: isAvail ? AVAIL_META.available.bg : isCannot ? AVAIL_META.cannot.bg : "var(--surface)",
         borderColor: isAvail ? AVAIL_META.available.border : isCannot ? AVAIL_META.cannot.border : "var(--border)",
       }}
     >
@@ -334,10 +422,10 @@ function AvailabilityCell({
         type="button"
         disabled={saving}
         onClick={() => onSet(isAvail ? null : "available")}
-        className="flex flex-1 items-center justify-center gap-1 rounded-[7px] py-1.5 text-[11.5px] font-bold transition"
+        className="seg-btn flex flex-1 items-center justify-center gap-1 rounded-[7px] py-1.5 text-[11.5px] font-bold transition"
         style={
           isAvail
-            ? { background: "var(--info)", color: "#fff" }
+            ? { background: "var(--info)", color: "#fff", boxShadow: "var(--shadow-sm)" }
             : { background: "transparent", color: "var(--text-3)" }
         }
       >
@@ -348,10 +436,10 @@ function AvailabilityCell({
         type="button"
         disabled={saving}
         onClick={() => onSet(isCannot ? null : "cannot")}
-        className="flex flex-1 items-center justify-center gap-1 rounded-[7px] py-1.5 text-[11.5px] font-bold transition"
+        className="seg-btn flex flex-1 items-center justify-center gap-1 rounded-[7px] py-1.5 text-[11.5px] font-bold transition"
         style={
           isCannot
-            ? { background: "var(--danger)", color: "#fff" }
+            ? { background: "var(--danger)", color: "#fff", boxShadow: "var(--shadow-sm)" }
             : { background: "transparent", color: "var(--text-3)" }
         }
       >
@@ -366,6 +454,7 @@ function AvailabilityCell({
 function SchedulerView() {
   const businessId = useBusinessId();
   const { profile } = useAuth();
+  const reduceMotion = useReducedMotion();
   const [wk, setWk] = useState(weekStart());
   const { data: templates, isLoading: lt } = useActiveShiftTemplates(businessId);
   const { data: departments, isLoading: ld } = useDepartments(businessId);
@@ -436,62 +525,103 @@ function SchedulerView() {
       return a.department_id === deptId || (!a.department_id && empDept === deptId);
     });
 
-  return (
-    <div className="animate-fadeUp">
-      <div className="mb-4 flex flex-wrap items-center justify-end gap-3.5">
-        <WeekNav wkStart={wk} onShift={(d) => setWk((w) => addDays(w, d))} />
-      </div>
+  const totalAssignments = (assignments ?? []).length;
 
-      <div className="mb-3 flex flex-wrap gap-3.5">
-        <span className="flex items-center gap-1.5 text-[12.5px] text-text-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: "var(--info)" }} />יכול</span>
-        <span className="flex items-center gap-1.5 text-[12.5px] text-text-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: "var(--danger)" }} />לא יכול</span>
+  return (
+    <div className="mx-auto max-w-[1240px] animate-fadeUp">
+      <ShiftPageHero
+        title="סידור עבודה"
+        subtitle="שיבוץ עובדים לפי מחלקות, משמרות ואילוצי זמינות."
+        stats={
+          <>
+            <div className="page-hero-stat">
+              <Icon name="event_available" size={18} style={{ color: "var(--accent-2)" }} />
+              <span><strong>{totalAssignments}</strong> שיבוצים</span>
+            </div>
+            <div className="page-hero-stat">
+              <Icon name="category" size={18} style={{ color: "var(--info)" }} />
+              <span><strong>{scheduleSections.length}</strong> מחלקות</span>
+            </div>
+          </>
+        }
+      />
+
+      <div className="shift-toolbar">
+        <div className="shift-toolbar-meta">
+          <ShiftLegend />
+        </div>
+        <WeekNav wkStart={wk} onShift={(d) => setWk((w) => addDays(w, d))} onToday={() => setWk(weekStart())} />
       </div>
 
       <div className="flex flex-col gap-5">
-        {scheduleSections.map((section) => (
-          <Card key={section.id ?? "general"} className="overflow-hidden">
-            <div className="flex items-center gap-2.5 border-b border-border bg-surface-2 px-5 py-3">
-              <span className="h-3 w-3 rounded-full" style={{ background: section.color }} />
-              <span className="text-[15px] font-extrabold">{section.name}</span>
+        {scheduleSections.map((section, sectionIndex) => (
+          <div
+            key={section.id ?? "general"}
+            className="shift-dept-card shift-section-enter"
+            style={{ "--dept-color": section.color, "--enter-delay": `${sectionIndex * 70}ms` } as CSSProperties}
+          >
+            <div className="shift-dept-accent-bar" style={{ background: section.color }} />
+            <div className="shift-dept-header">
+              <span className="shift-dept-dot" style={colorDotStyle(section.color)} />
+              <span className="shift-dept-name">{section.name}</span>
               <Badge tone="neutral">{employeesInSection(section.id).length} עובדים</Badge>
             </div>
-            <div className="overflow-auto">
-              <div className="min-w-[920px]">
-                <div className="grid grid-cols-[120px_repeat(7,1fr)] border-b border-border bg-surface-2/50">
-                  <div className="border-l border-border px-3 py-2.5 text-[12px] font-bold text-text-3">משמרת</div>
-                  {HE_DAYS.map((d, i) => (
-                    <div key={i} className="border-l border-border-2 px-2 py-2.5">
-                      <div className="text-[12.5px] font-bold">{d}</div>
-                      <div className="text-[11px] text-text-3">{formatDateShort(addDays(wk, i))}</div>
-                    </div>
-                  ))}
+            <div className="shift-grid-wrap">
+              <div className="shift-grid">
+                <div className="shift-grid-head">
+                  <div className="shift-grid-corner">משמרת</div>
+                  {HE_DAYS.map((d, i) => {
+                    const meta = dayMeta(wk, i);
+                    return (
+                      <div key={i} className="shift-grid-day" data-today={meta.isToday} data-weekend={meta.isWeekend}>
+                        <span className="shift-grid-day-name">{d}</span>
+                        <span className="shift-grid-day-date">{formatDateShort(meta.date)}</span>
+                        {meta.isToday && <span className="shift-grid-day-today">היום</span>}
+                      </div>
+                    );
+                  })}
                 </div>
                 {templates.map((t) => (
-                  <div key={t.id} className="grid grid-cols-[120px_repeat(7,1fr)] border-b border-border-2 last:border-0">
-                    <div className="border-l border-border-2 px-3 py-2.5">
-                      <div className="flex items-center gap-1.5 text-[13px] font-bold">
-                        <span className="h-2 w-2 rounded-full" style={{ background: t.color ?? "#7c3aed" }} />{t.name}
+                  <div key={t.id} className="shift-grid-row">
+                    <div className="shift-grid-row-label">
+                      <div className="shift-shift-name">
+                        <span className="shift-shift-dot" style={colorDotStyle(t.color, 2)} />
+                        {t.name}
                       </div>
-                      <div className="text-[10.5px] text-text-3" style={{ direction: "ltr" }}>{t.start_time?.slice(0,5)}–{t.end_time?.slice(0,5)}</div>
+                      <span className="shift-shift-time">
+                        {t.start_time?.slice(0, 5)}–{t.end_time?.slice(0, 5)}
+                      </span>
                     </div>
                     {HE_DAYS.map((_, i) => {
                       const date = addDays(wk, i);
                       const cellAssignments = assignmentsFor(section.id, t.id, date);
+                      const meta = dayMeta(wk, i);
                       return (
-                        <div key={i} className="flex min-h-[58px] flex-col gap-1.5 border-l border-border-2 p-1.5">
+                        <div key={i} className="shift-grid-cell" data-today={meta.isToday} data-weekend={meta.isWeekend}>
                           {cellAssignments.map((a) => {
                             const e = empById.get(a.employee_id);
                             return (
-                              <div key={a.id} className="group flex items-center gap-1.5 rounded-full border border-border-2 bg-surface-2 py-0.5 pl-1 pr-1.5">
-                                <span className="grid h-5 w-5 flex-none place-items-center rounded-full text-[9.5px] font-bold text-white" style={{ background: colorFor(a.employee_id) }}>{initialsOf(e?.full_name)}</span>
-                                <span className="truncate text-[11.5px] font-semibold">{e?.full_name?.split(" ")[0]}</span>
-                                <button onClick={() => removeAssign.mutate(a.id)} className="opacity-0 transition group-hover:opacity-100"><Icon name="close" size={14} className="text-text-3" /></button>
+                              <div key={a.id} className="shift-assign-chip group">
+                                <span className="shift-assign-avatar" style={{ background: colorFor(a.employee_id) }}>
+                                  {initialsOf(e?.full_name)}
+                                </span>
+                                <span className="shift-assign-name">{e?.full_name?.split(" ")[0]}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => removeAssign.mutate(a.id)}
+                                  className="shift-assign-remove"
+                                  aria-label="הסר שיבוץ"
+                                >
+                                  <Icon name="close" size={14} />
+                                </button>
                               </div>
                             );
                           })}
                           <button
+                            type="button"
                             onClick={() => setPicker({ dept: section.id, templateId: t.id, date })}
-                            className="grid place-items-center rounded-[9px] bg-surface-2 py-1.5 text-text-3 transition hover:[background:var(--accent-tint)] hover:text-ink"
+                            className="shift-add-btn"
+                            aria-label="הוסף עובד"
                           >
                             <Icon name="add" size={18} />
                           </button>
@@ -502,34 +632,57 @@ function SchedulerView() {
                 ))}
               </div>
             </div>
-          </Card>
+          </div>
         ))}
       </div>
 
-      {/* employee picker */}
-      {picker && (
-        <div onClick={() => setPicker(null)} className="fixed inset-0 z-[100] grid animate-fadeIn place-items-center bg-black/55 p-5">
-          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-[420px] animate-pop overflow-hidden rounded-[18px] bg-surface shadow-lg">
-            <div className="flex items-center justify-between border-b border-border px-5 py-4">
-              <div className="text-[16px] font-bold">שיבוץ עובד</div>
-              <button onClick={() => setPicker(null)} className="grid h-8 w-8 place-items-center rounded-lg bg-surface-2 text-text-2"><Icon name="close" size={18} /></button>
-            </div>
-            <div className="max-h-[60vh] overflow-auto p-3">
-              {employeesInSection(picker.dept).length === 0 && (
-                <div className="px-3 py-6 text-center text-[13px] text-text-3">
-                  {picker.dept
-                    ? "אין עובדים במחלקה זו. שייכו עובדים בעמוד המשתמשים."
-                    : "אין עובדים ללא מחלקה."}
-                </div>
-              )}
-              {employeesInSection(picker.dept)
-                .map((e) => {
+      <AnimatePresence>
+        {picker && (
+          <motion.div
+            key="picker-backdrop"
+            className="shift-picker-backdrop"
+            initial={reduceMotion ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            onClick={() => setPicker(null)}
+          >
+            <motion.div
+              className="shift-picker-panel"
+              initial={reduceMotion ? false : { opacity: 0, y: 16, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.98 }}
+              transition={{ type: "spring", stiffness: 380, damping: 32 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="shift-picker-head">
+                <div className="shift-picker-title">שיבוץ עובד</div>
+                <button
+                  type="button"
+                  onClick={() => setPicker(null)}
+                  className="grid h-8 w-8 place-items-center rounded-lg bg-surface-2 text-text-2 transition hover:bg-surface"
+                >
+                  <Icon name="close" size={18} />
+                </button>
+              </div>
+              <div className="shift-picker-list">
+                {employeesInSection(picker.dept).length === 0 && (
+                  <div className="px-3 py-6 text-center text-[13px] text-text-3">
+                    {picker.dept
+                      ? "אין עובדים במחלקה זו. שייכו עובדים בעמוד המשתמשים."
+                      : "אין עובדים ללא מחלקה."}
+                  </div>
+                )}
+                {employeesInSection(picker.dept).map((e) => {
                   const pref = prefMap.get(`${e.id}_${picker.templateId}_${picker.date}`);
                   const meta = pref ? AVAIL_META[pref] : null;
-                  const already = (assignments ?? []).some((a) => a.employee_id === e.id && a.shift_template_id === picker.templateId && a.shift_date === picker.date);
+                  const already = (assignments ?? []).some(
+                    (a) => a.employee_id === e.id && a.shift_template_id === picker.templateId && a.shift_date === picker.date
+                  );
                   return (
                     <button
                       key={e.id}
+                      type="button"
                       disabled={already}
                       onClick={() => {
                         addAssign.mutate({
@@ -542,18 +695,28 @@ function SchedulerView() {
                         });
                         setPicker(null);
                       }}
-                      className="flex w-full items-center gap-3 rounded-[11px] px-3 py-2.5 text-right transition hover:bg-surface-2 disabled:opacity-40"
+                      className="shift-picker-item"
                     >
-                      <span className="grid h-9 w-9 flex-none place-items-center rounded-[10px] text-[12.5px] font-bold text-white" style={{ background: colorFor(e.id) }}>{initialsOf(e.full_name)}</span>
+                      <span
+                        className="grid h-9 w-9 flex-none place-items-center rounded-[10px] text-[12.5px] font-bold text-white"
+                        style={{ background: colorFor(e.id) }}
+                      >
+                        {initialsOf(e.full_name)}
+                      </span>
                       <span className="flex-1 text-[13.5px] font-semibold">{e.full_name}</span>
-                      {already ? <Badge tone="neutral">משובץ</Badge> : meta ? <Badge tone={pref === "available" ? "info" : "danger"}>{meta.label}</Badge> : null}
+                      {already ? (
+                        <Badge tone="neutral">משובץ</Badge>
+                      ) : meta ? (
+                        <Badge tone={pref === "available" ? "info" : "danger"}>{meta.label}</Badge>
+                      ) : null}
                     </button>
                   );
                 })}
-            </div>
-          </div>
-        </div>
-      )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

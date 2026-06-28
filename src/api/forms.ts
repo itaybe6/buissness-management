@@ -38,6 +38,26 @@ export function useSaveForm101(businessId: string | null) {
       );
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["form101", businessId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["form101", businessId] });
+      qc.invalidateQueries({ queryKey: ["form101_all", businessId] });
+    },
+  });
+}
+
+/** All Form 101 records for a business (manager overview). */
+export function useAllForm101(businessId: string | null, taxYear: number) {
+  return useQuery({
+    queryKey: ["form101_all", businessId, taxYear],
+    enabled: !!businessId,
+    queryFn: async (): Promise<Form101[]> => {
+      const { data, error } = await supabase
+        .from("form_101")
+        .select("*")
+        .eq("business_id", businessId)
+        .eq("tax_year", taxYear);
+      if (error) throw error;
+      return (data ?? []) as Form101[];
+    },
   });
 }

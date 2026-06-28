@@ -101,6 +101,9 @@ export interface AgreementTemplate {
   type: AgreementType;
   title: string;
   content: string;
+  file_url: string | null;
+  /** null = fixed template for all employees; set = dynamic per-employee agreement */
+  employee_id: string | null;
   is_editable: boolean;
   created_by: string | null;
   created_at: string;

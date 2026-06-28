@@ -21,6 +21,12 @@ export const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
   maintenance: "תקלות בלבד",
 };
 
+/** Roles that can see the employee documents compliance overview. */
+export const DOCUMENTS_OVERVIEW_ROLES: UserRole[] = ["manager", "office_manager"];
+
+/** Roles that can create/edit agreement templates. */
+export const DOCUMENTS_EDIT_ROLES: UserRole[] = ["manager", "shift_manager"];
+
 /** Roles that can build/edit the work schedule and view all departments' schedules. */
 export const SCHEDULER_ROLES: UserRole[] = ["manager", "shift_manager"];
 
@@ -70,7 +76,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "inventory", label: "סחורות", icon: "inventory_2", roles: ["manager", "shift_manager", "office_manager", "employee"], feature: "inventory" },
   { key: "waste", label: "בלאי", icon: "delete_sweep", roles: ["manager", "shift_manager", "office_manager", "employee", "maintenance"], feature: "waste" },
   { key: "faults", label: "תקלות", icon: "build", roles: ["manager", "shift_manager", "employee"], feature: "faults" },
-  { key: "agreements", label: "הסכמים", icon: "draw", roles: ["manager", "shift_manager", "office_manager", "employee"], feature: "agreements" },
+  { key: "agreements", label: "מסמכי עובדים", icon: "draw", roles: ["manager", "shift_manager", "office_manager", "employee"], feature: "agreements" },
   { key: "form101", label: "טפסים", icon: "description", roles: ["manager", "shift_manager", "office_manager", "employee"], feature: "forms" },
   { key: "events", label: "אירועים", icon: "celebration", roles: ["manager"], feature: "events" },
   { key: "settings", label: "הגדרות עסק", icon: "settings", roles: ["manager"] },
