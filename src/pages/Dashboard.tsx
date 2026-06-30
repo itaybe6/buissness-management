@@ -14,6 +14,7 @@ import {
   RadialGauge,
   SparkLine,
 } from "@/components/dashboard/dashboard-charts";
+import { DashboardPresenceCard } from "@/components/dashboard/DashboardPresenceCard";
 import { ManagerDashboard } from "@/components/dashboard/ManagerDashboard";
 import { Icon, PageLoader, ErrorState } from "@/components/ui";
 import { PageEnter, PressableCard, StaggerGrid, StaggerItem } from "@/components/motion/shared-motion";
@@ -341,6 +342,8 @@ function BusinessDashboard() {
           </motion.div>
         </div>
       </header>
+
+      {role === "shift_manager" && <DashboardPresenceCard />}
 
       {/* KPI Grid */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">

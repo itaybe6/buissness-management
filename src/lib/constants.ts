@@ -38,6 +38,9 @@ export const OFFICE_RECEIPTS_ROLES: UserRole[] = ["manager", "office_manager"];
 /** Roles that can build/edit the work schedule and view all departments' schedules. */
 export const SCHEDULER_ROLES: UserRole[] = ["manager", "shift_manager"];
 
+/** Roles that see the manager tasks UI (fixed templates + assignment). */
+export const MANAGER_ROLES: UserRole[] = ["manager", "shift_manager"];
+
 export const ALL_FEATURES: { key: FeatureKey; label: string; icon: string; desc: string }[] = [
   { key: "agreements", label: "הסכמים וחתימה דיגיטלית", icon: "draw", desc: "העלאת הסכמים לחתימה דיגיטלית של העובדים" },
   { key: "shifts", label: "הגשת משמרות וסידור", icon: "calendar_month", desc: "אילוצים שבועיים ובניית סידור עבודה" },

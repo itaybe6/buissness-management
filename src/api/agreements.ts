@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
-import type { AgreementSignature, AgreementTemplate, AgreementType } from "@/types/database";
+import type { AgreementSignature, AgreementTemplate, AgreementType, SignatureField } from "@/types/database";
 
 export function useAgreements(businessId: string | null) {
   return useQuery({
@@ -34,10 +34,20 @@ export function useSignatures(businessId: string | null, employeeId?: string) {
 
 export async function uploadAgreementFile(businessId: string, file: File): Promise<string> {
   const ext = file.name.split(".").pop()?.toLowerCase() ?? "pdf";
+  return uploadAgreementBlob(businessId, file, ext, file.type || "application/octet-stream");
+}
+
+/** Upload an arbitrary blob (e.g. a flattened signed PDF) to the agreements bucket. */
+export async function uploadAgreementBlob(
+  businessId: string,
+  blob: Blob,
+  ext = "pdf",
+  contentType = "application/pdf"
+): Promise<string> {
   const path = `${businessId}/${crypto.randomUUID()}.${ext}`;
-  const { error } = await supabase.storage.from("agreements").upload(path, file, {
+  const { error } = await supabase.storage.from("agreements").upload(path, blob, {
     upsert: false,
-    contentType: file.type || "application/octet-stream",
+    contentType,
   });
   if (error) throw error;
   const { data } = supabase.storage.from("agreements").getPublicUrl(path);
@@ -53,6 +63,7 @@ export function useCreateAgreement() {
       title: string;
       content: string;
       file_url?: string | null;
+      signature_fields?: SignatureField[];
       employee_id?: string | null;
       created_by?: string | null;
     }) => {
@@ -72,6 +83,7 @@ export function useUpdateAgreement(businessId: string | null) {
       type?: AgreementType;
       content?: string;
       file_url?: string | null;
+      signature_fields?: SignatureField[];
       employee_id?: string | null;
     }) => {
       const { id, ...rest } = input;
@@ -106,6 +118,8 @@ export function useSignAgreement(businessId: string | null) {
       agreement_id: string;
       employee_id: string;
       signature_data: string;
+      field_signatures?: Record<string, string>;
+      signed_file_url?: string | null;
     }) => {
       const { error } = await supabase.from("agreement_signatures").upsert(
         {

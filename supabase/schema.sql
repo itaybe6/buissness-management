@@ -68,7 +68,7 @@ create type public.availability as enum ('prefer', 'available', 'cannot');
 create type public.fault_status as enum ('needs_handling', 'in_progress', 'handled');
 
 -- סוג הסכם
-create type public.agreement_type as enum ('work', 'sexual_harassment', 'other');
+create type public.agreement_type as enum ('work', 'sexual_harassment', 'other', 'form_101');
 
 -- סוג משימה
 create type public.task_type as enum ('one_time', 'recurring');
@@ -220,6 +220,7 @@ create table public.agreement_templates (
   title       text not null,
   content     text not null default '',  -- ניתן לעריכה ע"י המנהל
   file_url    text,                      -- קובץ PDF/DOC מצורף (אופציונלי)
+  signature_fields jsonb not null default '[]'::jsonb, -- תיבות חתימה לכל עמוד: [{id,page,x,y,w,h} מנורמל 0..1]
   employee_id uuid references public.profiles(id) on delete cascade, -- null = קבוע לכל העובדים
   is_editable boolean not null default true,
   created_by  uuid references public.profiles(id),
@@ -233,7 +234,9 @@ create table public.agreement_signatures (
   agreement_id  uuid not null references public.agreement_templates(id) on delete cascade,
   employee_id   uuid not null references public.profiles(id) on delete cascade,
   agreed        boolean not null default false,  -- "קראתי והסכמתי"
-  signature_data text,                           -- חתימה דיגיטלית (base64)
+  signature_data text,                           -- חתימה דיגיטלית (base64) — תאימות לאחור
+  field_signatures jsonb not null default '{}'::jsonb, -- מיפוי fieldId -> תמונת חתימה (dataURL)
+  signed_file_url text,                          -- ה-PDF הסופי החתום (חתימות מוטבעות)
   signed_at     timestamptz,
   created_at    timestamptz not null default now(),
   unique (agreement_id, employee_id)
@@ -690,12 +693,31 @@ create policy "departments_tenant" on public.departments
 -- shift_templates
 create policy "shift_templates_tenant" on public.shift_templates
   for all using (public.can_access(business_id)) with check (public.can_access(business_id));
--- agreement_templates
-create policy "agr_templates_tenant" on public.agreement_templates
-  for all using (public.can_access(business_id)) with check (public.can_access(business_id));
--- agreement_signatures
+-- agreement_templates — הסכם אישי חשוף רק לעובד המשויך (ולמנהלים)
+create policy "agr_templates_read" on public.agreement_templates
+  for select using (
+    public.can_access(business_id)
+    and (
+      public.auth_role() in ('manager', 'office_manager', 'shift_manager')
+      or employee_id is null
+      or employee_id = auth.uid()
+    )
+  );
+create policy "agr_templates_write" on public.agreement_templates
+  for all using (
+    public.can_access(business_id) and public.auth_role() in ('manager', 'shift_manager')
+  ) with check (
+    public.can_access(business_id) and public.auth_role() in ('manager', 'shift_manager')
+  );
+-- agreement_signatures — עובד רואה/חותם רק על שלו, מנהלים רואים הכל
 create policy "agr_signatures_tenant" on public.agreement_signatures
-  for all using (public.can_access(business_id)) with check (public.can_access(business_id));
+  for all using (
+    public.can_access(business_id)
+    and (public.auth_role() in ('manager', 'office_manager', 'shift_manager') or employee_id = auth.uid())
+  ) with check (
+    public.can_access(business_id)
+    and (public.auth_role() in ('manager', 'office_manager', 'shift_manager') or employee_id = auth.uid())
+  );
 -- form_101
 create policy "form101_tenant" on public.form_101
   for all using (public.can_access(business_id)) with check (public.can_access(business_id));

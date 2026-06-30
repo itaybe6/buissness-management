@@ -34,55 +34,93 @@ export function TemplatesPanel({
   const create = useCreateAgreement();
   const update = useUpdateAgreement(businessId);
   const del = useDeleteAgreement(businessId);
-  const [modal, setModal] = useState<AgreementTemplate | "new" | null>(null);
+  const [modal, setModal] = useState<{ template: AgreementTemplate | null; harassment: boolean } | null>(null);
+
+  const harassment = useMemo(() => agreements.filter((a) => a.type === "sexual_harassment"), [agreements]);
+  const personal = useMemo(() => agreements.filter((a) => a.type !== "sexual_harassment"), [agreements]);
+
+  function card(a: AgreementTemplate) {
+    return (
+      <Card key={a.id} className="flex flex-col p-4">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <div className="text-[15px] font-bold">{a.title}</div>
+            <div className="mt-0.5 text-[12px] text-text-3">
+              {TYPE_LABELS[a.type]}
+              {a.employee_id
+                ? ` · אישי: ${employees.find((e) => e.id === a.employee_id)?.full_name ?? "—"}`
+                : " · לכל העובדים"}
+              {(a.signature_fields?.length ?? 0) > 0 && ` · ${a.signature_fields.length} תיבות חתימה`}
+            </div>
+          </div>
+          {a.file_url && <Icon name="attach_file" size={20} className="text-text-3" />}
+        </div>
+        {canEdit && (
+          <div className="mt-3 flex gap-2">
+            <Button variant="secondary" icon="edit" className="flex-1" onClick={() => setModal({ template: a, harassment: a.type === "sexual_harassment" })}>עריכה</Button>
+            <Button variant="ghost" icon="delete" className="text-danger" loading={del.isPending} onClick={() => confirm("למחוק את ההסכם?") && del.mutate(a.id)} />
+          </div>
+        )}
+      </Card>
+    );
+  }
 
   return (
     <>
-      {canEdit && (
-        <div className="mb-4 flex justify-end">
-          <Button icon="add" onClick={() => setModal("new")}>תבנית חדשה</Button>
+      {/* מניעת הטרדה מינית — הסכם גלובלי אחד לכל העובדים */}
+      <section className="mb-8">
+        <div className="mb-3 flex items-end justify-between gap-3">
+          <div>
+            <h3 className="text-[15px] font-extrabold">מניעת הטרדה מינית</h3>
+            <p className="mt-0.5 text-[12.5px] text-text-3">הסכם אחד שמועלה פעם אחת — כל עובד חותם עליו בנפרד.</p>
+          </div>
+          {canEdit && (
+            <Button icon="add" variant="secondary" className="shrink-0" onClick={() => setModal({ template: null, harassment: true })}>
+              העלאת הסכם
+            </Button>
+          )}
         </div>
-      )}
-      {agreements.length === 0 ? (
-        <EmptyState
-          icon="draw"
-          title="אין תבניות הסכמים"
-          description="צרו הסכם קבוע (לכל העובדים) או הסכם אישי לעובד."
-          action={canEdit ? <Button icon="add" onClick={() => setModal("new")}>תבנית חדשה</Button> : undefined}
-        />
-      ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {agreements.map((a) => (
-            <Card key={a.id} className="flex flex-col p-4">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <div className="text-[15px] font-bold">{a.title}</div>
-                  <div className="mt-0.5 text-[12px] text-text-3">
-                    {TYPE_LABELS[a.type]}
-                    {a.employee_id ? ` · אישי: ${employees.find((e) => e.id === a.employee_id)?.full_name ?? "—"}` : " · קבוע לכל העובדים"}
-                  </div>
-                </div>
-                {a.file_url && <Icon name="attach_file" size={20} className="text-text-3" />}
-              </div>
-              {canEdit && (
-                <div className="mt-3 flex gap-2">
-                  <Button variant="secondary" icon="edit" className="flex-1" onClick={() => setModal(a)}>עריכה</Button>
-                  <Button variant="ghost" icon="delete" className="text-danger" loading={del.isPending} onClick={() => confirm("למחוק את התבנית?") && del.mutate(a.id)} />
-                </div>
-              )}
-            </Card>
-          ))}
+        {harassment.length === 0 ? (
+          <div className="rounded-[12px] border border-dashed border-border bg-surface-2 px-4 py-6 text-center text-[13px] text-text-3">
+            טרם הועלה הסכם מניעת הטרדה מינית.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">{harassment.map(card)}</div>
+        )}
+      </section>
+
+      {/* הסכמים אישיים — לעובד ספציפי */}
+      <section>
+        <div className="mb-3 flex items-end justify-between gap-3">
+          <div>
+            <h3 className="text-[15px] font-extrabold">הסכמים אישיים</h3>
+            <p className="mt-0.5 text-[12.5px] text-text-3">הסכם פרטני לעובד ספציפי — חשוף רק לו.</p>
+          </div>
+          {canEdit && (
+            <Button icon="add" className="shrink-0" onClick={() => setModal({ template: null, harassment: false })}>
+              הסכם חדש
+            </Button>
+          )}
         </div>
-      )}
+        {personal.length === 0 ? (
+          <div className="rounded-[12px] border border-dashed border-border bg-surface-2 px-4 py-6 text-center text-[13px] text-text-3">
+            אין עדיין הסכמים אישיים.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">{personal.map(card)}</div>
+        )}
+      </section>
+
       {modal && (
         <AgreementEditorModal
-          template={modal === "new" ? null : modal}
+          template={modal.template}
           employees={employees}
+          harassment={modal.harassment}
           saving={create.isPending || update.isPending}
           onClose={() => setModal(null)}
           onSave={async (input) => {
-            if (modal === "new") await create.mutateAsync({ business_id: businessId, created_by: profileId, ...input });
-            else await update.mutateAsync({ id: modal.id, ...input });
+            if (!modal.template) await create.mutateAsync({ business_id: businessId, created_by: profileId, ...input });
+            else await update.mutateAsync({ id: modal.template.id, ...input });
             setModal(null);
           }}
         />
@@ -120,7 +158,7 @@ export function ManagerDocumentsView({
     ...(canReceipts ? [{ key: "receipts" as const, label: "חשבוניות וקבלות" }] : []),
     { key: "status", label: "מצב מסמכים" },
     { key: "form101", label: "טפסי 101" },
-    { key: "templates", label: "תבניות הסכמים" },
+    { key: "templates", label: "הסכמים" },
   ];
 
   return (
@@ -220,7 +258,7 @@ export function EmployeeDocumentsView({
 
       {canEditTemplates && profileId && (
         <section className="mt-10 border-t border-border pt-8">
-          <h2 className="mb-4 text-[17px] font-extrabold">ניהול תבניות הסכמים</h2>
+          <h2 className="mb-4 text-[17px] font-extrabold">ניהול הסכמים</h2>
           <TemplatesPanel businessId={businessId} agreements={agreements} employees={staff} canEdit profileId={profileId} />
         </section>
       )}

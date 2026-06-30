@@ -4,6 +4,7 @@ export const TYPE_LABELS: Record<AgreementType, string> = {
   work: "הסכם עבודה",
   sexual_harassment: "מניעת הטרדה",
   other: "אחר",
+  form_101: "טופס 101",
 };
 
 export const TAX_YEAR = new Date().getFullYear();
