@@ -1,5 +1,17 @@
-import { useMemo, useState } from "react";
-import { Card, Icon, PageHeader, PageLoader, ErrorState } from "@/components/ui";
+import { useEffect, useMemo, useState } from "react";
+import { Icon, PageLoader, ErrorState } from "@/components/ui";
+import {
+  AttendanceFeedEmpty,
+  AttendanceFeedRow,
+  AttendancePanel,
+  AttendanceStatusToast,
+  AttendanceSummaryCell,
+  GeofenceRadar,
+  LiveClockDigits,
+  PunchButton,
+  ShiftPulse,
+  StatusBanner,
+} from "@/components/attendance/attendance-motion";
 import { useAuth } from "@/lib/auth";
 import { ATTENDANCE_RADIUS_M } from "@/lib/constants";
 import { useBusinessId, initialsOf, colorFor } from "@/lib/db";
@@ -16,6 +28,25 @@ function distanceM(lat1: number, lng1: number, lat2: number, lng2: number) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function formatElapsed(ms: number) {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function useLiveClock() {
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  return now;
+}
+
 export function Attendance() {
   const businessId = useBusinessId();
   const { profile } = useAuth();
@@ -26,6 +57,7 @@ export function Attendance() {
   const clockOut = useClockOut(businessId);
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const now = useLiveClock();
 
   const userById = useMemo(() => {
     const m = new Map<string, { name: string | null; role: string }>();
@@ -33,16 +65,26 @@ export function Attendance() {
     return m;
   }, [users]);
 
+  const list = records ?? [];
+  const onShiftCount = list.filter((r) => r.clock_in && !r.clock_out).length;
+  const completedCount = list.filter((r) => r.clock_out).length;
+
   if (isLoading) return <PageLoader />;
   if (isError || !biz) return <ErrorState onRetry={refetch} />;
 
-  const myOpen = (records ?? []).find((r) => r.employee_id === profile?.id && r.clock_in && !r.clock_out);
+  const myOpen = list.find((r) => r.employee_id === profile?.id && r.clock_in && !r.clock_out);
+  const onShift = Boolean(myOpen);
+  const shiftElapsed = myOpen?.clock_in ? formatElapsed(now.getTime() - new Date(myOpen.clock_in).getTime()) : null;
+  const locationReady = biz.location_lat != null && biz.location_lng != null;
+  const timeStr = now.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const dateStr = now.toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long" });
 
   async function handleClock() {
     setStatus(null);
     if (!biz) return;
     if (myOpen) {
       await clockOut.mutateAsync(myOpen.id);
+      setStatus({ ok: true, text: "הוחתמה יציאה · יום עבודה נעים" });
       return;
     }
     if (biz.location_lat == null || biz.location_lng == null) {
@@ -79,55 +121,126 @@ export function Attendance() {
   }
 
   return (
-    <div className="mx-auto max-w-[1100px] animate-fadeUp">
-      <PageHeader title="שעון נוכחות" subtitle="החתמה מותנית במיקום ליד מקום העבודה" />
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_1.2fr]">
-        <Card className="p-6 text-center">
-          <div className="relative mx-auto mt-1.5 grid h-[200px] w-[200px] place-items-center rounded-full" style={{ background: "radial-gradient(circle,var(--accent-tint),transparent 70%)" }}>
-            <div className="absolute inset-[30px] rounded-full border-2 border-dashed border-accent-2" />
-            <div className="grid h-[84px] w-[84px] place-items-center rounded-full [background:var(--ink)] shadow-lg">
-              <Icon name="location_on" size={40} className="text-accent" />
-            </div>
-          </div>
-          {status && (
-            <div className={`mt-4 inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[13px] font-bold ${status.ok ? "text-success [background:var(--success-bg)]" : "text-danger [background:var(--danger-bg)]"}`}>
-              <Icon name={status.ok ? "check_circle" : "error"} size={17} /> {status.text}
-            </div>
-          )}
-          <div className="mt-2.5 text-[13px] text-text-3">{new Date().toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long" })}</div>
-          <button
-            onClick={handleClock}
-            disabled={busy}
-            className="mt-4 flex w-full items-center justify-center gap-2 rounded-[13px] py-4 text-[16px] font-extrabold text-white shadow-sm transition active:scale-[0.99] disabled:opacity-60"
-            style={{ background: myOpen ? "var(--danger)" : "var(--accent)" }}
-          >
-            <Icon name={myOpen ? "logout" : "login"} size={22} /> {myOpen ? "החתמת יציאה" : "החתמת כניסה"}
-          </button>
-        </Card>
+    <div className="mx-auto max-w-[1200px] animate-fadeUp px-1">
+      <header className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div className="max-w-xl">
+          <p className="text-[12px] font-bold uppercase tracking-[0.14em] text-text-3">נוכחות · היום</p>
+          <h1 className="mt-1 text-[clamp(1.75rem,4vw,2.35rem)] font-extrabold tracking-tight leading-none text-text">
+            שעון נוכחות
+          </h1>
+          <p className="mt-2 max-w-[52ch] text-[14.5px] leading-relaxed text-text-2">
+            החתמה מותנית במיקום GPS בתוך רדיוס של {ATTENDANCE_RADIUS_M} מטרים ממקום העבודה.
+          </p>
+        </div>
+        <div className="attendance-summary shrink-0">
+          <AttendanceSummaryCell value={onShiftCount} label="במשמרת עכשיו" accent="var(--success)" index={0} />
+          <AttendanceSummaryCell value={completedCount} label="סיימו היום" index={1} />
+          <AttendanceSummaryCell value={list.length} label="סה״כ רשומות" index={2} />
+        </div>
+      </header>
 
-        <Card className="p-5">
-          <div className="mb-3.5 text-[16px] font-bold">נוכחות היום</div>
-          <div className="flex flex-col gap-2.5">
-            {(records ?? []).length === 0 && <div className="py-6 text-center text-[13px] text-text-3">אין החתמות היום.</div>}
-            {(records ?? []).map((r) => {
-              const u = userById.get(r.employee_id);
-              const open = r.clock_in && !r.clock_out;
-              return (
-                <div key={r.id} className="flex items-center gap-3 rounded-[12px] border border-border p-2.5">
-                  <span className="grid h-9 w-9 flex-none place-items-center rounded-[10px] text-[13px] font-bold text-white" style={{ background: colorFor(r.employee_id) }}>{initialsOf(u?.name)}</span>
-                  <div className="min-w-0 flex-1"><div className="text-[13.5px] font-bold">{u?.name}</div></div>
-                  <div className="text-left">
-                    <div className="text-[13px] font-bold">
-                      {r.clock_in ? new Date(r.clock_in).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) : "—"}
-                      <span className="font-normal text-text-3"> → {r.clock_out ? new Date(r.clock_out).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }) : "…"}</span>
-                    </div>
-                    <div className="mt-0.5 text-[11px] font-bold" style={{ color: open ? "var(--success)" : "var(--text-3)" }}>{open ? "● במשמרת" : "יצא/ה"}</div>
-                  </div>
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.05fr_0.95fr] lg:gap-6">
+        <AttendancePanel>
+          <div className="grid gap-0 lg:grid-cols-[1fr_auto] lg:items-center">
+            <div className="border-b border-border-2 p-6 lg:border-b-0 lg:border-l lg:pl-8 lg:pr-6">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <LiveClockDigits time={timeStr} />
+                  <div className="mt-2 text-[14px] font-medium capitalize text-text-2">{dateStr}</div>
                 </div>
-              );
-            })}
+                {onShift && shiftElapsed && <ShiftPulse label={`במשמרת · ${shiftElapsed}`} />}
+              </div>
+
+              <div className="mt-5 min-h-[44px]">
+                <StatusBanner>
+                  {status ? (
+                    <AttendanceStatusToast key={status.text} ok={status.ok} text={status.text} />
+                  ) : null}
+                </StatusBanner>
+              </div>
+
+              <div className="mt-6 space-y-3">
+                <PunchButton onShift={onShift} busy={busy} onClick={handleClock} />
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[12.5px] text-text-3">
+                  <span className="inline-flex items-center gap-1.5">
+                    <Icon name="radar" size={16} />
+                    רדיוס מאושר: {ATTENDANCE_RADIUS_M} מ׳
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <Icon name={locationReady ? "location_on" : "location_off"} size={16} />
+                    {locationReady ? "מיקום העסק מוגדר" : "מיקום העסק חסר"}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-center px-6 py-8 lg:py-10">
+              <GeofenceRadar active={onShift} />
+            </div>
           </div>
-        </Card>
+        </AttendancePanel>
+
+        <AttendancePanel>
+          <div className="border-b border-border-2 px-5 py-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-[16px] font-bold text-text">נוכחות היום</h2>
+                <p className="mt-0.5 text-[12.5px] text-text-3">עדכון לפי החתמות בזמן אמת</p>
+              </div>
+              <span className="rounded-full bg-surface-2 px-3 py-1 font-mono text-[12px] font-bold tabular-nums text-text-2">
+                {list.length}
+              </span>
+            </div>
+          </div>
+
+          <div className="max-h-[min(520px,58vh)] overflow-y-auto">
+            {list.length === 0 ? (
+              <AttendanceFeedEmpty />
+            ) : (
+              <div>
+                {list.map((r, index) => {
+                  const u = userById.get(r.employee_id);
+                  const open = Boolean(r.clock_in && !r.clock_out);
+                  const inTime = r.clock_in
+                    ? new Date(r.clock_in).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })
+                    : "—";
+                  const outTime = r.clock_out
+                    ? new Date(r.clock_out).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })
+                    : null;
+
+                  return (
+                    <AttendanceFeedRow key={r.id} index={index}>
+                      <span
+                        className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] text-[13px] font-bold text-white"
+                        style={{ background: colorFor(r.employee_id) }}
+                      >
+                        {initialsOf(u?.name)}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[14px] font-bold text-text">{u?.name ?? "עובד/ת"}</div>
+                        <div className="mt-0.5 font-mono text-[12px] tabular-nums text-text-3">
+                          {inTime}
+                          <span className="mx-1 text-text-3">←</span>
+                          {outTime ?? "…"}
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-left">
+                        {open ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-success-bg px-2.5 py-1 text-[11px] font-bold text-success">
+                            <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse2" />
+                            במשמרת
+                          </span>
+                        ) : (
+                          <span className="text-[11px] font-semibold text-text-3">יצא/ה</span>
+                        )}
+                      </div>
+                    </AttendanceFeedRow>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </AttendancePanel>
       </div>
     </div>
   );
