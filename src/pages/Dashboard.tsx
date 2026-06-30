@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { memo, useEffect, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { useAuth } from "@/lib/auth";
+<<<<<<< HEAD
 import { useBusinessId } from "@/lib/db";
 import { useBusiness } from "@/api/businesses";
 import { useDashboardStats, usePlatformDashboardStats, type ActivityItem } from "@/api/dashboard";
@@ -42,6 +43,19 @@ function DeltaBadge({ current, previous, suffix = "" }: { current: number; previ
   const diff = current - previous;
   const pct = previous > 0 ? Math.round((diff / previous) * 100) : current > 0 ? 100 : 0;
   const up = diff >= 0;
+=======
+import { Card, Icon } from "@/components/ui";
+import { NAV_ITEMS } from "@/lib/constants";
+import { ManagerDashboard } from "@/components/dashboard/ManagerDashboard";
+
+export function Dashboard() {
+  const { profile, hasFeature, features } = useAuth();
+  const role = profile?.role ?? "employee";
+
+  if (role === "manager" && profile?.business_id) {
+    return <ManagerDashboard />;
+  }
+>>>>>>> a037aa1474cf6694a900794a50193c5055ceb385
 
   return (
     <span
@@ -193,6 +207,7 @@ function QuickLinks({ role, hasFeature }: { role: string; hasFeature: (k: Featur
   if (links.length === 0) return null;
 
   return (
+<<<<<<< HEAD
     <section className="mt-6 md:mt-8">
       <div className="mb-3 text-[12px] font-bold uppercase tracking-wide text-text-3">גישה מהירה</div>
       <StaggerGrid className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6 lg:gap-3">
@@ -436,6 +451,54 @@ function BusinessDashboard() {
 
       {profile?.business_id && features.size === 0 && role !== "manager" && (
         <p className="mt-4 text-[12px] text-text-3">* התפריט נבנה דינמית לפי המודולים שהופעלו לעסק.</p>
+=======
+    <div className="mx-auto max-w-[1220px] animate-fadeUp">
+      {role === "super_admin" ? (
+        <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
+          {[
+            { to: "/platform", icon: "space_dashboard", label: "סקירת פלטפורמה", desc: "מבט על כל העסקים" },
+            { to: "/businesses", icon: "store", label: "ניהול עסקים", desc: "יצירה והפעלת מודולים" },
+            { to: "/platform-users", icon: "group", label: "משתמשים", desc: "כל המשתמשים בפלטפורמה" },
+          ].map((c) => (
+            <Link key={c.to} to={c.to}>
+              <Card className="flex flex-col gap-3 p-5 transition hover:shadow">
+                <span className="grid h-11 w-11 place-items-center rounded-[12px] [background:var(--accent-tint)]">
+                  <Icon name={c.icon} size={24} className="text-accent-2" />
+                </span>
+                <div>
+                  <div className="text-[14.5px] font-bold">{c.label}</div>
+                  <div className="text-[12.5px] text-text-2">{c.desc}</div>
+                </div>
+              </Card>
+            </Link>
+          ))}
+        </div>
+      ) : (
+        <>
+          <div className="mb-4 text-[13px] font-bold uppercase tracking-wide text-text-3">גישה מהירה</div>
+          {quickLinks.length === 0 ? (
+            <Card className="p-6 text-center text-text-2">
+              לא הופעלו מודולים עבור העסק שלך עדיין. פנו למנהל המערכת.
+            </Card>
+          ) : (
+            <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 lg:grid-cols-4">
+              {quickLinks.map((item) => (
+                <Link key={item.key} to={`/${item.key}`}>
+                  <Card className="flex flex-col gap-3 p-5 transition hover:shadow">
+                    <span className="grid h-11 w-11 place-items-center rounded-[12px] [background:var(--accent-tint)]">
+                      <Icon name={item.icon} size={24} className="text-accent-2" />
+                    </span>
+                    <div className="text-[14.5px] font-bold">{item.label}</div>
+                  </Card>
+                </Link>
+              ))}
+            </div>
+          )}
+          {profile?.business_id && features.size === 0 && role !== "manager" && (
+            <div className="mt-4 text-[12.5px] text-text-3">* התפריט נבנה דינמית לפי המודולים שהופעלו לעסק.</div>
+          )}
+        </>
+>>>>>>> a037aa1474cf6694a900794a50193c5055ceb385
       )}
     </PageEnter>
   );

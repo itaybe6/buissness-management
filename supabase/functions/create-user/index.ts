@@ -47,7 +47,7 @@ Deno.serve(async (req) => {
     if (!callerProfile) return json({ error: "no profile" }, 403);
 
     const body = await req.json();
-    const { email, password, full_name, role, department_id, phone, hourly_rate } = body;
+    const { email, password, full_name, role, department_id, phone, hourly_rate, wage_type } = body;
     let business_id = body.business_id as string | null;
 
     if (!email || !password || !role) return json({ error: "missing fields" }, 400);
@@ -65,7 +65,7 @@ Deno.serve(async (req) => {
       email,
       password,
       email_confirm: true,
-      user_metadata: { full_name, role, business_id, department_id, phone, hourly_rate },
+      user_metadata: { full_name, role, business_id, department_id, phone, hourly_rate, wage_type },
     });
 
     if (error) return json({ error: error.message }, 400);

@@ -44,6 +44,7 @@ export function useCreateTaskTemplate(businessId: string | null) {
       business_id: string;
       title: string;
       description?: string | null;
+      department_id?: string | null;
       recurrence_weekday?: number | null;
       sort_order?: number;
     }) => {
@@ -61,6 +62,7 @@ export function useUpdateTaskTemplate(businessId: string | null) {
       id: string;
       title?: string;
       description?: string | null;
+      department_id?: string | null;
       recurrence_weekday?: number | null;
       active?: boolean;
       sort_order?: number;

@@ -16,9 +16,10 @@ drop trigger if exists on_auth_user_created on auth.users;
 
 -- מחיקת טבלאות (אם קיימות) בסדר תלות
 drop table if exists
-  public.tasks, public.task_templates, public.events, public.faults, public.inventory_orders,
-  public.inventory_counts, public.inventory_items, public.payroll_records,
-  public.tips, public.attendance, public.shift_assignments, public.shift_preferences,
+  public.tasks, public.task_templates, public.events, public.faults, public.inventory_logs,
+  public.inventory_waste, public.inventory_orders, public.inventory_counts, public.inventory_items,
+  public.payroll_records,
+  public.tips, public.shift_reports, public.attendance, public.shift_assignments, public.shift_preferences,
   public.shift_templates, public.departments,
   public.form_101, public.agreement_signatures, public.agreement_templates,
   public.business_features, public.profiles, public.businesses cascade;
@@ -35,7 +36,8 @@ drop function if exists public.set_updated_at cascade;
 drop type if exists
   public.user_role, public.shift_period, public.availability,
   public.fault_status, public.agreement_type, public.task_type,
-  public.task_status, public.order_status cascade;
+  public.task_status, public.task_approval, public.order_status,
+  public.inventory_action cascade;
 
 -- ----------------------------------------------------------------------------
 -- 0.1 הרחבות (Extensions)
@@ -50,8 +52,7 @@ create extension if not exists "pgcrypto";
 create type public.user_role as enum (
   'super_admin',       -- שולט על כל הפלטפורמה, מוסיף עסקים
   'manager',           -- מנהל - רואה הכל בעסק שלו
-  'department_manager',-- מנהל מחלקה - בונה סידור עבודה, רואה את כל הסידורים
-  'shift_manager',     -- מנהל משמרת - סידורי עבודה, חשבוניות
+  'shift_manager',     -- אחראי משמרת - סידור עבודה, אילוצים, חשבוניות ודוח סגירת קופה
   'office_manager',    -- מנהלת משרד / מזכירה - שכר ומלאי
   'employee',          -- עובד
   'maintenance'        -- איש אחזקה - רואה רק תקלות
@@ -75,8 +76,14 @@ create type public.task_type as enum ('one_time', 'recurring');
 -- סטטוס משימה
 create type public.task_status as enum ('open', 'in_progress', 'done');
 
+-- סטטוס אישור משימה (null = לא דורש אישור; pending = ממתין לאישור מנהל; approved = אושר)
+create type public.task_approval as enum ('pending', 'approved');
+
 -- סטטוס הזמנת סחורה
 create type public.order_status as enum ('requested', 'ordered', 'received');
+
+-- סוג פעולה ביומן עדכוני המלאי
+create type public.inventory_action as enum ('created', 'count', 'edited', 'waste', 'order');
 
 
 -- ----------------------------------------------------------------------------
@@ -123,6 +130,8 @@ create table public.businesses (
   location_lat   double precision,
   location_lng   double precision,
   location_radius_m integer default 100,
+  -- מתג: לדרוש אישור מנהל למשימות שאחראי משמרת מוריד לאיש אחזקה
+  maintenance_task_approval boolean not null default false,
   created_by  uuid references auth.users(id),
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
@@ -164,7 +173,8 @@ create table public.profiles (
   email       text,
   phone       text,
   role        public.user_role not null default 'employee',
-  hourly_rate numeric(10,2) default 0,  -- שכר שעתי
+  hourly_rate numeric(10,2) default 0,  -- שכר שעתי (לעובד טיפים זהו מינימום/רצפה)
+  wage_type   text not null default 'hourly' check (wage_type in ('hourly', 'tips')), -- שעתי / טיפים
   active      boolean not null default true,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
@@ -174,7 +184,7 @@ create table public.profiles (
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
-  insert into public.profiles (id, email, full_name, business_id, role, department_id, phone, hourly_rate)
+  insert into public.profiles (id, email, full_name, business_id, role, department_id, phone, hourly_rate, wage_type)
   values (
     new.id,
     new.email,
@@ -183,7 +193,8 @@ begin
     coalesce((new.raw_user_meta_data->>'role')::public.user_role, 'employee'),
     (new.raw_user_meta_data->>'department_id')::uuid,
     new.raw_user_meta_data->>'phone',
-    coalesce((new.raw_user_meta_data->>'hourly_rate')::numeric, 0)
+    coalesce((new.raw_user_meta_data->>'hourly_rate')::numeric, 0),
+    coalesce(new.raw_user_meta_data->>'wage_type', 'hourly')
   );
   return new;
 end; $$;
@@ -202,7 +213,9 @@ create table public.agreement_templates (
   business_id uuid not null references public.businesses(id) on delete cascade,
   type        public.agreement_type not null default 'work',
   title       text not null,
-  content     text not null,          -- ניתן לעריכה ע"י המנהל
+  content     text not null default '',  -- ניתן לעריכה ע"י המנהל
+  file_url    text,                      -- קובץ PDF/DOC מצורף (אופציונלי)
+  employee_id uuid references public.profiles(id) on delete cascade, -- null = קבוע לכל העובדים
   is_editable boolean not null default true,
   created_by  uuid references public.profiles(id),
   created_at  timestamptz not null default now(),
@@ -305,8 +318,38 @@ create table public.attendance (
 
 
 -- ----------------------------------------------------------------------------
--- 9. מודול: חישוב שכר (טיפים + שעות)
+-- 9. מודול: חישוב שכר (טיפים + שעות) + דוח סגירת משמרת
 -- ----------------------------------------------------------------------------
+
+-- דוח סיכום משמרת / סגירת קופה שממלא אחראי המשמרת.
+-- השדות הכספיים מזינים את הטיפים בשכר; השדות החופשיים מתעדים את תחקיר הצוות.
+create table public.shift_reports (
+  id              uuid primary key default gen_random_uuid(),
+  business_id     uuid not null references public.businesses(id) on delete cascade,
+  report_date     date not null,
+  shift_template_id uuid references public.shift_templates(id) on delete set null,
+  manager_names   text,                        -- אחמ"ש: ים וגד
+  total_sales     numeric(12,2) not null default 0,
+  delivery_sales  numeric(12,2) not null default 0,   -- משלוחים (וולט)
+  avg_per_diner   numeric(10,2) not null default 0,
+  total_tips      numeric(12,2) not null default 0,
+  service_pct     numeric(6,2)  not null default 0,
+  tips_hourly     numeric(10,2) not null default 0,    -- שכר שעתי מטיפים (מחושב)
+  first_release   text,                        -- מתי שוחרר עובד ראשון
+  energy_level    smallint check (energy_level is null or (energy_level >= 1 and energy_level <= 10)),
+  unusual_events  text,                         -- אירועים חריגים
+  team_talks      text,                         -- שיחות/פידבק שנעשו במשמרת
+  team_voice      text,                         -- הקול של הצוות
+  daily_tasks_done boolean not null default false,
+  urgent_inventory text,                        -- מלאי שנגמר וחייב הזמנה דחופה
+  faults_maintenance text,                      -- תקלות ותחזוקה
+  extra           jsonb not null default '{}'::jsonb,  -- מוני מכירות דינמיים + משתתפי טיפים
+  invoice_urls    text[] not null default '{}', -- חשבוניות שהועלו ל-Storage
+  created_by      uuid references public.profiles(id),
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+  unique (business_id, report_date, shift_template_id)
+);
 
 create table public.tips (
   id          uuid primary key default gen_random_uuid(),
@@ -314,6 +357,7 @@ create table public.tips (
   employee_id uuid not null references public.profiles(id) on delete cascade,
   shift_date  date not null,
   shift_template_id uuid references public.shift_templates(id) on delete set null,
+  shift_report_id uuid references public.shift_reports(id) on delete cascade, -- מקור הטיפ (דוח משמרת)
   amount      numeric(10,2) not null default 0,
   hours       numeric(6,2),                    -- שעות באותה משמרת
   hourly_from_tips numeric(10,2),              -- ממוצע שעתי מהטיפים
@@ -341,13 +385,15 @@ create table public.payroll_records (
 -- ----------------------------------------------------------------------------
 
 create table public.inventory_items (
-  id          uuid primary key default gen_random_uuid(),
-  business_id uuid not null references public.businesses(id) on delete cascade,
-  name        text not null,
-  unit        text,                 -- יחידה (יחידות, ארגז, ק"ג, ליטר)
-  image_url   text,                 -- תמונת המוצר ב-Storage
-  active      boolean not null default true,
-  created_at  timestamptz not null default now()
+  id            uuid primary key default gen_random_uuid(),
+  business_id   uuid not null references public.businesses(id) on delete cascade,
+  name          text not null,
+  unit          text,                 -- יחידה (יחידות, ארגז, ק"ג, ליטר)
+  image_url     text,                 -- תמונת המוצר ב-Storage
+  min_quantity  numeric(12,2) not null default 0,  -- סף מלאי נמוך
+  supplier_delivery_day smallint check (supplier_delivery_day between 0 and 6),  -- יום אספקה מהספק
+  active        boolean not null default true,
+  created_at    timestamptz not null default now()
 );
 
 -- ספירת מלאי בסוף משמרת (העובד מעדכן)
@@ -368,7 +414,33 @@ create table public.inventory_orders (
   quantity    numeric(12,2) not null,
   status      public.order_status not null default 'requested',
   ordered_by  uuid references public.profiles(id),
+  batch_id    uuid,                 -- קיבוץ שורות מאותה הזמנה
   created_at  timestamptz not null default now()
+);
+
+-- דיווחי בלאי (כל משתמש) — מוצרים שנפסלו/התבזבזו, עם אפשרות להפחית מהמלאי
+create table public.inventory_waste (
+  id          uuid primary key default gen_random_uuid(),
+  business_id uuid not null references public.businesses(id) on delete cascade,
+  item_id     uuid not null references public.inventory_items(id) on delete cascade,
+  employee_id uuid references public.profiles(id),
+  quantity    numeric(12,2) not null default 0,
+  note        text,
+  deducted    boolean not null default false,
+  created_at  timestamptz not null default now()
+);
+
+-- יומן עדכוני מלאי — תיעוד מי עידכן מה ומתי (בקרת מנהל)
+create table public.inventory_logs (
+  id            uuid primary key default gen_random_uuid(),
+  business_id   uuid not null references public.businesses(id) on delete cascade,
+  item_id       uuid not null references public.inventory_items(id) on delete cascade,
+  employee_id   uuid references public.profiles(id),       -- מי ביצע את העדכון
+  action        public.inventory_action not null,
+  previous_qty  numeric(12,2),                             -- כמות לפני
+  new_qty       numeric(12,2),                             -- כמות אחרי / כמות הפעולה
+  note          text,                                      -- פירוט הפעולה
+  created_at    timestamptz not null default now()
 );
 
 
@@ -411,9 +483,10 @@ create table public.events (
 create table public.task_templates (
   id                 uuid primary key default gen_random_uuid(),
   business_id        uuid not null references public.businesses(id) on delete cascade,
+  department_id      uuid references public.departments(id) on delete set null, -- שיוך למחלקה; null = כללי לכל העסק
   title              text not null,
   description        text,
-  recurrence_weekday smallint check (recurrence_weekday is null or (recurrence_weekday >= 0 and recurrence_weekday <= 6)),
+  recurrence_weekday smallint check (recurrence_weekday is null or (recurrence_weekday >= -1 and recurrence_weekday <= 6)), -- -1 = כל יום
   active             boolean not null default true,
   sort_order         integer not null default 0,
   created_at         timestamptz not null default now()
@@ -431,6 +504,9 @@ create table public.tasks (
   due_date      date,                                  -- למשימה חד-פעמית
   recurrence_weekday smallint,                         -- 0-6 למשימה קבועה
   status        public.task_status not null default 'open',
+  approval_status public.task_approval,                -- null = לא דורש אישור; pending = ממתין לאישור מנהל; approved = אושר
+  photo_url     text,                                  -- (לא בשימוש) תמונת ביצוע בודדת — נשמר לתאימות לאחור
+  media_urls    text[] not null default '{}',          -- תמונות/סרטונים שהעובד צירף בעת הטיפול
   completed_at  timestamptz,
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now()
@@ -444,6 +520,7 @@ create trigger trg_businesses_updated   before update on public.businesses      
 create trigger trg_profiles_updated      before update on public.profiles            for each row execute function public.set_updated_at();
 create trigger trg_agreements_updated    before update on public.agreement_templates for each row execute function public.set_updated_at();
 create trigger trg_form101_updated       before update on public.form_101            for each row execute function public.set_updated_at();
+create trigger trg_shift_reports_updated before update on public.shift_reports        for each row execute function public.set_updated_at();
 create trigger trg_faults_updated        before update on public.faults              for each row execute function public.set_updated_at();
 create trigger trg_tasks_updated         before update on public.tasks               for each row execute function public.set_updated_at();
 
@@ -499,21 +576,30 @@ create unique index idx_shift_templates_business_key
   where shift_key is not null;
 create index idx_features_business         on public.business_features(business_id);
 create index idx_agr_templates_business    on public.agreement_templates(business_id);
+create index idx_agr_templates_employee    on public.agreement_templates(employee_id);
 create index idx_agr_signatures_business   on public.agreement_signatures(business_id);
 create index idx_form101_business          on public.form_101(business_id);
 create index idx_shift_pref_business        on public.shift_preferences(business_id);
 create index idx_shift_assign_business      on public.shift_assignments(business_id);
 create index idx_attendance_business        on public.attendance(business_id);
+create index idx_shift_reports_business      on public.shift_reports(business_id);
+create index idx_shift_reports_date          on public.shift_reports(business_id, report_date);
 create index idx_tips_business              on public.tips(business_id);
+create index idx_tips_shift_report           on public.tips(shift_report_id);
 create index idx_payroll_business           on public.payroll_records(business_id);
 create index idx_inv_items_business         on public.inventory_items(business_id);
 create index idx_inv_counts_business        on public.inventory_counts(business_id);
 create index idx_inv_orders_business        on public.inventory_orders(business_id);
+create index idx_inv_waste_business         on public.inventory_waste(business_id);
+create index idx_inv_logs_business          on public.inventory_logs(business_id);
+create index idx_inv_logs_item              on public.inventory_logs(item_id, created_at desc);
 create index idx_faults_business            on public.faults(business_id);
 create index idx_events_business            on public.events(business_id);
 create index idx_task_templates_business    on public.task_templates(business_id);
+create index idx_task_templates_department  on public.task_templates(department_id);
 create index idx_tasks_business             on public.tasks(business_id);
 create index idx_tasks_template             on public.tasks(template_id);
+create index idx_tasks_approval             on public.tasks(business_id, approval_status) where approval_status is not null;
 
 
 -- ============================================================================
@@ -533,11 +619,14 @@ alter table public.form_101             enable row level security;
 alter table public.shift_preferences    enable row level security;
 alter table public.shift_assignments    enable row level security;
 alter table public.attendance           enable row level security;
+alter table public.shift_reports        enable row level security;
 alter table public.tips                 enable row level security;
 alter table public.payroll_records      enable row level security;
 alter table public.inventory_items      enable row level security;
 alter table public.inventory_counts     enable row level security;
 alter table public.inventory_orders     enable row level security;
+alter table public.inventory_waste      enable row level security;
+alter table public.inventory_logs       enable row level security;
 alter table public.faults               enable row level security;
 alter table public.events               enable row level security;
 alter table public.task_templates       enable row level security;
@@ -614,6 +703,9 @@ create policy "shift_assign_tenant" on public.shift_assignments
 -- attendance
 create policy "attendance_tenant" on public.attendance
   for all using (public.can_access(business_id)) with check (public.can_access(business_id));
+-- shift_reports
+create policy "shift_reports_tenant" on public.shift_reports
+  for all using (public.can_access(business_id)) with check (public.can_access(business_id));
 -- tips
 create policy "tips_tenant" on public.tips
   for all using (public.can_access(business_id)) with check (public.can_access(business_id));
@@ -628,6 +720,12 @@ create policy "inv_counts_tenant" on public.inventory_counts
   for all using (public.can_access(business_id)) with check (public.can_access(business_id));
 -- inventory_orders
 create policy "inv_orders_tenant" on public.inventory_orders
+  for all using (public.can_access(business_id)) with check (public.can_access(business_id));
+-- inventory_waste
+create policy "inv_waste_tenant" on public.inventory_waste
+  for all using (public.can_access(business_id)) with check (public.can_access(business_id));
+-- inventory_logs
+create policy "inv_logs_tenant" on public.inventory_logs
   for all using (public.can_access(business_id)) with check (public.can_access(business_id));
 -- faults
 create policy "faults_tenant" on public.faults

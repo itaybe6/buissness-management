@@ -5,12 +5,14 @@ const EASE_OUT: [number, number, number, number] = [0.23, 1, 0.32, 1];
 
 export function InventoryTabBar({
   tab,
+<<<<<<< HEAD
   pending: _pending,
+=======
+>>>>>>> a037aa1474cf6694a900794a50193c5055ceb385
   onChange,
   tabs,
 }: {
   tab: "items" | "orders";
-  pending: number;
   onChange: (tab: "items" | "orders") => void;
   tabs: { key: "items" | "orders"; label: string; icon: ReactNode; count?: number }[];
 }) {
@@ -97,7 +99,7 @@ export function InventoryCardShell({
         delay: reduce ? 0 : Math.min(index, 8) * 0.045,
         ease: EASE_OUT,
       }}
-      className={`inventory-card group flex flex-col overflow-hidden rounded-card border border-border bg-surface ${className}`}
+      className={`inventory-card group flex flex-col overflow-hidden rounded-card border-0 bg-surface ${className}`}
     >
       <div className="h-[3px] w-full shrink-0" style={{ background: accent }} />
       {children}

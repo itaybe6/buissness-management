@@ -1,43 +1,128 @@
 import { useEffect, useRef, useState } from "react";
-import { Badge, Button, Card, EmptyState, Field, Icon, Input, ErrorState, Select } from "@/components/ui";
+import { useSearchParams } from "react-router-dom";
+import { Badge, Button, EmptyState, Field, Icon, Input, ErrorState, Select, Spinner } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
+import { WastePanel } from "@/components/waste/WastePanel";
 import { useAuth } from "@/lib/auth";
-import { useBusinessId } from "@/lib/db";
+import { useBusinessId, HE_DAYS } from "@/lib/db";
 import {
   useInventory,
   useCreateItem,
   useUpdateItem,
   useSetCount,
   useOrders,
-  useCreateOrder,
-  useUpdateOrder,
+  useCreateOrdersBatch,
+  useUpdateOrdersBatch,
+  useDeleteOrdersBatch,
+  useReceiveOrder,
+  type InventoryOrderWithUser,
+  useItemLogs,
   uploadItemImage,
   INVENTORY_UNITS,
+  inventorySaveError,
   type ItemWithQty,
+  type ItemLog,
 } from "@/api/inventory";
-import type { OrderStatus } from "@/types/database";
+import { useWaste } from "@/api/waste";
+import type { InventoryAction } from "@/types/database";
 
-const ORDER_META: Record<OrderStatus, { label: string; tone: "warning" | "info" | "success" }> = {
-  requested: { label: "ממתין", tone: "warning" },
-  ordered: { label: "הוזמן", tone: "info" },
-  received: { label: "התקבל", tone: "success" },
+type InventoryTab = "items" | "orders" | "waste";
+
+type OrderLine = InventoryOrderWithUser & { item?: ItemWithQty };
+
+type OrderBatch = {
+  id: string;
+  batch_id: string | null;
+  created_at: string;
+  ordered_by: string | null;
+  ordered_by_name: string | null;
+  lines: OrderLine[];
 };
+
+function groupOpenOrders(orders: InventoryOrderWithUser[], items: ItemWithQty[]): OrderBatch[] {
+  const map = new Map<string, OrderBatch>();
+  for (const o of orders) {
+    if (o.status === "received") continue;
+    const key = o.batch_id ?? o.id;
+    const line: OrderLine = { ...o, item: items.find((i) => i.id === o.item_id) };
+    if (!map.has(key)) {
+      map.set(key, {
+        id: key,
+        batch_id: o.batch_id,
+        created_at: o.created_at,
+        ordered_by: o.ordered_by,
+        ordered_by_name: o.ordered_by_name,
+        lines: [],
+      });
+    }
+    map.get(key)!.lines.push(line);
+  }
+  return [...map.values()].sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
+function batchOrderedByLabel(batch: OrderBatch): string {
+  return batch.ordered_by_name ?? "לא ידוע";
+}
 
 type ItemForm = {
   name: string;
   unit: string;
   qty: string;
+  minQty: string;
+  deliveryDay: string;
   imageUrl: string | null;
   file: File | null;
 };
 
-const EMPTY_FORM: ItemForm = { name: "", unit: "יחידות", qty: "0", imageUrl: null, file: null };
+const EMPTY_FORM: ItemForm = { name: "", unit: "יחידות", qty: "0", minQty: "0", deliveryDay: "", imageUrl: null, file: null };
+
+function formatDeliveryDay(day: number | null | undefined): string {
+  if (day == null || day < 0 || day > 6) return "לא הוגדר";
+  return `יום ${HE_DAYS[day]}`;
+}
+
+function formatOrderDate(iso: string) {
+  const d = new Date(iso);
+  return {
+    day: d.toLocaleDateString("he-IL", { day: "numeric" }),
+    month: d.toLocaleDateString("he-IL", { month: "short" }),
+    time: d.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }),
+    full: d.toLocaleDateString("he-IL", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+  };
+}
+
+function orderPreviewLabel(lines: OrderLine[]): string {
+  const names = lines.map((l) => l.item?.name ?? "פריט");
+  if (names.length <= 2) return names.join(", ");
+  return `${names.slice(0, 2).join(", ")} ועוד ${names.length - 2}`;
+}
+
+/** Unique supplier delivery days across order lines, formatted for display. */
+function orderDeliveryDaysLabel(lines: OrderLine[]): string {
+  const days = [
+    ...new Set(
+      lines
+        .map((l) => l.item?.supplier_delivery_day)
+        .filter((d): d is number => d != null && d >= 0 && d <= 6),
+    ),
+  ].sort((a, b) => a - b);
+
+  if (days.length === 0) return "לא הוגדר";
+  return days.map((d) => formatDeliveryDay(d)).join(", ");
+}
 
 type StockStatus = "empty" | "low" | "ok";
 
 function stockStatus(item: ItemWithQty): StockStatus {
   if (item.current_qty === 0) return "empty";
-  if (item.current_qty <= 3) return "low";
+  const threshold = item.min_quantity > 0 ? item.min_quantity : 3;
+  if (item.current_qty <= threshold) return "low";
   return "ok";
 }
 
@@ -102,17 +187,19 @@ function SummaryStrip({
   inStock,
   outOfStock,
   pending,
+  showOrders,
 }: {
   total: number;
   inStock: number;
   outOfStock: number;
   pending: number;
+  showOrders: boolean;
 }) {
   const cells = [
     { value: total, label: "סך פריטים" },
     { value: inStock, label: "במלאי" },
     { value: outOfStock, label: "אזלו מהמלאי" },
-    { value: pending, label: "הזמנות פתוחות" },
+    ...(showOrders ? [{ value: pending, label: "הזמנות פתוחות" }] : []),
   ];
 
   return (
@@ -130,15 +217,26 @@ function SummaryStrip({
 function TabBar({
   tab,
   pending,
+  wasteCount,
+  showOrders,
+  showWaste,
   onChange,
 }: {
-  tab: "items" | "orders";
+  tab: InventoryTab;
   pending: number;
-  onChange: (tab: "items" | "orders") => void;
+  wasteCount: number;
+  showOrders: boolean;
+  showWaste: boolean;
+  onChange: (tab: InventoryTab) => void;
 }) {
   const tabs = [
     { key: "items" as const, label: "מלאי", icon: "grid_view" },
-    { key: "orders" as const, label: "הזמנות", icon: "local_shipping", count: pending },
+    ...(showOrders
+      ? [{ key: "orders" as const, label: "הזמנות", icon: "local_shipping", count: pending }]
+      : []),
+    ...(showWaste
+      ? [{ key: "waste" as const, label: "בלאי", icon: "delete_sweep", count: wasteCount }]
+      : []),
   ];
 
   return (
@@ -195,20 +293,24 @@ function ItemCard({
   item,
   index,
   isManager,
+  canManageOrders,
   onEdit,
+  onHistory,
   onOrder,
   onSetQty,
 }: {
   item: ItemWithQty;
   index: number;
   isManager: boolean;
+  canManageOrders: boolean;
   onEdit: () => void;
+  onHistory: () => void;
   onOrder: () => void;
   onSetQty: (qty: number) => void;
 }) {
   return (
     <article
-      className="inventory-card inventory-item-enter flex flex-col overflow-hidden rounded-card border border-border bg-surface"
+      className="inventory-card inventory-item-enter flex flex-col overflow-hidden rounded-card border-0 bg-surface"
       style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }}
     >
       <div className="inventory-card-image relative aspect-[5/4] overflow-hidden bg-surface-2">
@@ -226,13 +328,50 @@ function ItemCard({
       </div>
 
       <div className="flex flex-1 flex-col p-4">
-        <h3 className="text-[15px] font-bold leading-snug tracking-tight">{item.name}</h3>
+        <div className="flex items-start justify-between gap-2">
+          <h3 className="text-[15px] font-bold leading-snug tracking-tight">{item.name}</h3>
+          {isManager && (
+            <button
+              type="button"
+              onClick={onHistory}
+              aria-label="היסטוריית עדכונים"
+              title="היסטוריית עדכונים"
+              className="-mt-0.5 -ml-1 grid h-7 w-7 flex-none place-items-center rounded-md text-text-3 transition-[background-color,color] duration-[160ms] [transition-timing-function:var(--ease-out)] hover:bg-surface-2 hover:text-text active:scale-[0.97]"
+            >
+              <Icon name="history" size={17} />
+            </button>
+          )}
+        </div>
         <StockBar item={item} />
 
+        <div className="mt-3 flex items-center gap-1.5 text-[12px] text-text-3">
+          <Icon name="local_shipping" size={15} className="flex-none opacity-80" />
+          <span>
+            אספקה מהספק:{" "}
+            <span className={item.supplier_delivery_day != null ? "font-semibold text-text-2" : ""}>
+              {formatDeliveryDay(item.supplier_delivery_day)}
+            </span>
+          </span>
+        </div>
+
         <div className="mt-4 flex items-end justify-between gap-3">
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-text-3">כמות</div>
-            <div className="mt-1 text-[22px] font-extrabold tabular-nums leading-none">{item.current_qty}</div>
+          <div className="flex items-end gap-5">
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-text-3">כמות</div>
+              <div className="mt-1 text-[22px] font-extrabold tabular-nums leading-none">{item.current_qty}</div>
+              {item.ordered_qty > 0 && (
+                <div className="mt-1 text-[12px] font-bold tabular-nums text-[var(--info)]">+{item.ordered_qty} בהזמנה</div>
+              )}
+            </div>
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-text-3">מינימום</div>
+              <div
+                className={`mt-1 text-[22px] font-extrabold tabular-nums leading-none ${item.min_quantity > 0 ? "text-text" : "text-text-3"}`}
+              >
+                {item.min_quantity}
+                {item.unit ? <span className="mr-0.5 text-[12px] font-semibold text-text-3">{item.unit}</span> : null}
+              </div>
+            </div>
           </div>
           <QtyStepper value={item.current_qty} unit={item.unit} disabled={!isManager} onCommit={onSetQty} />
         </div>
@@ -242,14 +381,16 @@ function ItemCard({
             <Button variant="secondary" icon="edit" className="flex-1 !py-2.5 active:scale-[0.97]" onClick={onEdit}>
               עריכה
             </Button>
-            <Button
-              variant="ghost"
-              icon="add_shopping_cart"
-              onClick={onOrder}
-              className="!bg-ink !py-2.5 !text-white hover:brightness-110 active:scale-[0.97]"
-            >
-              הזמנה
-            </Button>
+            {canManageOrders && (
+              <Button
+                variant="ghost"
+                icon="add_shopping_cart"
+                onClick={onOrder}
+                className="!bg-ink !py-2.5 !text-white hover:brightness-110 active:scale-[0.97]"
+              >
+                הזמנה
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -257,65 +398,334 @@ function ItemCard({
   );
 }
 
-function OrderRow({
-  order,
-  item,
-  index,
-  isManager,
-  onStatusChange,
-}: {
-  order: { id: string; quantity: number; status: OrderStatus; created_at: string };
-  item?: ItemWithQty;
-  index: number;
-  isManager: boolean;
-  onStatusChange: () => void;
-}) {
-  const meta = ORDER_META[order.status];
+function OrderPreviewStack({ lines }: { lines: OrderLine[] }) {
+  const shown = lines.slice(0, 4);
+  const extra = lines.length - shown.length;
 
   return (
-    <div
-      className="inventory-item-enter flex items-center gap-3.5 border-b border-border-2 px-4 py-3.5 last:border-0"
-      style={{ animationDelay: `${Math.min(index, 10) * 40}ms` }}
-    >
-      <div className="h-12 w-12 flex-none overflow-hidden rounded-[10px] bg-surface-2">
+    <div className="inventory-order-avatars">
+      {shown.map((line, i) => (
+        <div key={line.id} className="inventory-order-avatar" style={{ zIndex: shown.length - i }}>
+          {line.item?.image_url ? (
+            <img src={line.item.image_url} alt={line.item.name} />
+          ) : (
+            <span className="inventory-order-avatar-fallback">
+              <Icon name="inventory_2" size={14} />
+            </span>
+          )}
+        </div>
+      ))}
+      {extra > 0 && <span className="inventory-order-avatar-more">+{extra}</span>}
+    </div>
+  );
+}
+
+function OrderDetailLine({
+  line,
+  index,
+  onReceive,
+}: {
+  line: OrderLine;
+  index: number;
+  onReceive: () => void;
+}) {
+  const item = line.item;
+  const pending = line.status !== "received";
+
+  return (
+    <div className="inventory-order-detail-line inventory-item-enter" style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}>
+      <div className="inventory-order-detail-thumb">
         {item?.image_url ? (
-          <img src={item.image_url} alt={item.name} className="h-full w-full object-cover" />
+          <img src={item.image_url} alt={item.name} />
         ) : (
           <span className="grid h-full place-items-center text-text-3">
             <Icon name="inventory_2" size={20} />
           </span>
         )}
       </div>
-
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[14px] font-bold">{item?.name ?? "פריט"}</div>
-        <div className="mt-0.5 text-[12px] text-text-3">
-          {new Date(order.created_at).toLocaleDateString("he-IL", { day: "numeric", month: "short", year: "numeric" })}
+      <div className="inventory-order-detail-info">
+        <div className="inventory-order-detail-name">{item?.name ?? "פריט"}</div>
+        <div className="inventory-order-detail-sub flex items-center gap-1">
+          <Icon name="event" size={12} />
+          אמורה להגיע: {formatDeliveryDay(item?.supplier_delivery_day)}
         </div>
       </div>
-
-      <div className="text-left">
-        <div className="text-[13px] font-bold tabular-nums">
-          {order.quantity}
-          {item?.unit ? ` ${item.unit}` : ""}
-        </div>
+      <div className="inventory-order-detail-qty">
+        {line.quantity}
+        {item?.unit ? <span className="mr-0.5 text-[10px] font-semibold text-text-3">{item.unit}</span> : null}
       </div>
-
-      <button
-        type="button"
-        disabled={!isManager}
-        onClick={onStatusChange}
-        className="transition-transform duration-[160ms] [transition-timing-function:var(--ease-out)] active:scale-[0.97] disabled:cursor-default"
-      >
-        <Badge tone={meta.tone}>{meta.label}</Badge>
-      </button>
+      {pending ? (
+        <Button
+          variant="secondary"
+          icon="check_circle"
+          className="inventory-order-receive-btn !bg-ink !py-2 !px-3 !text-[12px] !text-white hover:brightness-110 active:scale-[0.97]"
+          onClick={onReceive}
+        >
+          התקבל
+        </Button>
+      ) : (
+        <Badge tone="success">במלאי</Badge>
+      )}
     </div>
+  );
+}
+
+function OrderBatchRow({
+  batch,
+  index,
+  canManageOrders,
+  onDetails,
+  onEdit,
+  onDelete,
+}: {
+  batch: OrderBatch;
+  index: number;
+  canManageOrders: boolean;
+  onDetails: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const totalQty = batch.lines.reduce((sum, l) => sum + Number(l.quantity), 0);
+  const date = formatOrderDate(batch.created_at);
+
+  return (
+    <div className="inventory-order-row inventory-item-enter" style={{ animationDelay: `${Math.min(index, 10) * 45}ms` }}>
+      <div className="inventory-order-date">
+        <span className="inventory-order-date-day">{date.day}</span>
+        <span className="inventory-order-date-month">{date.month}</span>
+      </div>
+
+      <div className="inventory-order-body">
+        <div className="inventory-order-title">{orderPreviewLabel(batch.lines)}</div>
+        <div className="inventory-order-meta">
+          {batch.lines.length} פריטים · {totalQty} יחידות · {date.time}
+        </div>
+        <div className="inventory-order-meta inventory-order-by">
+          <Icon name="person" size={13} />
+          <span>
+            הוזמן על ידי: <strong>{batchOrderedByLabel(batch)}</strong>
+          </span>
+        </div>
+        <div className="inventory-order-delivery">
+          <Icon name="event" size={14} />
+          <span>
+            אמורה להגיע: <strong>{orderDeliveryDaysLabel(batch.lines)}</strong>
+          </span>
+        </div>
+        <OrderPreviewStack lines={batch.lines} />
+      </div>
+
+      <span className="inventory-order-status">
+        <span className="inventory-order-status-dot" aria-hidden />
+        בהזמנה
+      </span>
+
+      <div className="inventory-order-actions">
+        <Button
+          variant="secondary"
+          icon="visibility"
+          className="inventory-order-details-btn !py-2 !px-3 text-[12px] active:scale-[0.97]"
+          onClick={onDetails}
+        >
+          פרטים
+        </Button>
+        {canManageOrders && (
+          <>
+            <Button
+              variant="secondary"
+              icon="edit"
+              className="!py-2 !px-2.5 text-[12px] active:scale-[0.97]"
+              onClick={onEdit}
+              aria-label="עריכת הזמנה"
+              title="עריכה"
+            />
+            <Button
+              variant="secondary"
+              icon="delete"
+              className="inventory-order-delete-btn !py-2 !px-2.5 text-[12px] active:scale-[0.97]"
+              onClick={onDelete}
+              aria-label="מחיקת הזמנה"
+              title="מחיקה"
+            />
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function OrderDetailsModal({
+  batch,
+  open,
+  onClose,
+  onReceive,
+}: {
+  batch: OrderBatch | null;
+  open: boolean;
+  onClose: () => void;
+  onReceive: (line: OrderLine) => void;
+}) {
+  if (!batch) return null;
+
+  const date = formatOrderDate(batch.created_at);
+  const totalQty = batch.lines.reduce((sum, l) => sum + Number(l.quantity), 0);
+  const pendingCount = batch.lines.filter((l) => l.status !== "received").length;
+
+  return (
+    <Modal open={open} onClose={onClose} title="פרטי הזמנה" subtitle={date.full} icon="local_shipping" maxWidth={540}>
+      <div className="inventory-order-detail-summary">
+        <div className="inventory-order-detail-stat">
+          <div className="inventory-order-detail-stat-label">פריטים</div>
+          <div className="inventory-order-detail-stat-value">{batch.lines.length}</div>
+        </div>
+        <div className="inventory-order-detail-stat">
+          <div className="inventory-order-detail-stat-label">סה״כ יחידות</div>
+          <div className="inventory-order-detail-stat-value">{totalQty}</div>
+        </div>
+      </div>
+      <div className="inventory-order-delivery-banner">
+        <Icon name="event" size={18} />
+        <div>
+          <div className="text-[11px] font-semibold text-text-3">יום אספקה מהספק</div>
+          <div className="text-[14px] font-bold text-text">{orderDeliveryDaysLabel(batch.lines)}</div>
+        </div>
+      </div>
+      <div className="inventory-order-delivery-banner inventory-order-by-banner">
+        <Icon name="person" size={18} />
+        <div>
+          <div className="text-[11px] font-semibold text-text-3">הוזמן על ידי</div>
+          <div className="text-[14px] font-bold text-text">{batchOrderedByLabel(batch)}</div>
+        </div>
+      </div>
+      {pendingCount > 0 && (
+        <p className="mb-3 text-[12px] font-medium text-text-3">
+          {pendingCount} פריטים ממתינים לקבלה במלאי
+        </p>
+      )}
+      <div className="flex flex-col">
+        {batch.lines.map((line, idx) => (
+          <OrderDetailLine key={line.id} line={line} index={idx} onReceive={() => onReceive(line)} />
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
+function OrdersEmptyState({ onCreate }: { onCreate: () => void }) {
+  return (
+    <div className="inventory-orders-empty inventory-item-enter">
+      <div className="inventory-orders-empty-icon">
+        <Icon name="local_shipping" size={32} />
+      </div>
+      <h3 className="mt-5 text-[17px] font-extrabold tracking-tight text-text">אין הזמנות פתוחות</h3>
+      <p className="mt-2 max-w-[34ch] text-[13px] leading-relaxed text-text-3">
+        צרו הזמנה חדשה, בחרו מוצרים וכמויות. הפריטים יסומנו כ«בהזמנה» עד שיסומנו כהתקבלו במלאי.
+      </p>
+      <Button icon="add_shopping_cart" onClick={onCreate} className="mt-5 !bg-ink shadow-sm hover:brightness-110 active:scale-[0.97]">
+        הזמנה חדשה
+      </Button>
+    </div>
+  );
+}
+
+function NewOrderModal({
+  open,
+  items,
+  lines,
+  busy,
+  error,
+  isEditing,
+  onClose,
+  onChange,
+  onSubmit,
+}: {
+  open: boolean;
+  items: ItemWithQty[];
+  lines: Record<string, string>;
+  busy: boolean;
+  error: string | null;
+  isEditing: boolean;
+  onClose: () => void;
+  onChange: (itemId: string, qty: string) => void;
+  onSubmit: () => void;
+}) {
+  const selected = items.filter((it) => (Number(lines[it.id]) || 0) > 0);
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={isEditing ? "עריכת הזמנה" : "הזמנה חדשה"}
+      subtitle={isEditing ? "עדכנו מוצרים וכמויות" : "בחרו מוצרים וכמויות לשליחה לספק"}
+      icon={isEditing ? "edit" : "add_shopping_cart"}
+      maxWidth={540}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} className="active:scale-[0.97]">
+            ביטול
+          </Button>
+          <Button className="flex-1 !bg-ink active:scale-[0.97]" loading={busy} disabled={selected.length === 0} onClick={onSubmit}>
+            {isEditing ? `שמירה (${selected.length})` : `שליחת הזמנה (${selected.length})`}
+          </Button>
+        </>
+      }
+    >
+      {items.length > 0 && (
+        <div className="inventory-order-picker-summary">
+          <span className="inventory-order-picker-summary-label">נבחרו להזמנה</span>
+          <span className="inventory-order-picker-summary-value">{selected.length} פריטים</span>
+        </div>
+      )}
+      <div className="inventory-order-picker-list">
+        {items.length === 0 ? (
+          <p className="py-8 text-center text-[13px] text-text-3">אין מוצרים במלאי להזמנה</p>
+        ) : (
+          items.map((it) => {
+            const qty = Number(lines[it.id]) || 0;
+            return (
+              <div key={it.id} className="inventory-order-picker-row" data-selected={qty > 0}>
+                <div className="inventory-order-picker-thumb">
+                  {it.image_url ? (
+                    <img src={it.image_url} alt={it.name} />
+                  ) : (
+                    <span className="grid h-full place-items-center text-text-3">
+                      <Icon name="inventory_2" size={18} />
+                    </span>
+                  )}
+                </div>
+                <div className="inventory-order-picker-info">
+                  <div className="inventory-order-picker-name">{it.name}</div>
+                  <div className="inventory-order-picker-stock">
+                    במלאי {it.current_qty}
+                    {it.unit ? ` ${it.unit}` : ""}
+                    {it.ordered_qty > 0 ? ` · ${it.ordered_qty} בהזמנה` : ""}
+                  </div>
+                </div>
+                <Input
+                  type="number"
+                  min={0}
+                  className="inventory-order-picker-qty"
+                  value={lines[it.id] ?? ""}
+                  placeholder="0"
+                  onChange={(e) => onChange(it.id, e.target.value)}
+                />
+              </div>
+            );
+          })
+        )}
+        {error && (
+          <div className="flex items-start gap-2 rounded-[11px] [background:var(--danger-bg)] px-3 py-2.5 text-[13px] font-semibold text-danger">
+            <Icon name="error" size={18} /> {error}
+          </div>
+        )}
+      </div>
+    </Modal>
   );
 }
 
 function SkeletonCard() {
   return (
-    <div className="overflow-hidden rounded-card border border-border bg-surface">
+    <div className="overflow-hidden rounded-card border-0 bg-surface shadow-card">
       <div className="relative aspect-[5/4] overflow-hidden bg-surface-2">
         <div className="absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-black/[0.04] to-transparent" />
       </div>
@@ -328,25 +738,155 @@ function SkeletonCard() {
   );
 }
 
+const LOG_META: Record<InventoryAction, { label: string; icon: string; color: string }> = {
+  created: { label: "נוצר פריט", icon: "add_circle", color: "var(--success)" },
+  count: { label: "עדכון כמות", icon: "inventory_2", color: "var(--info)" },
+  edited: { label: "עריכת פרטים", icon: "edit", color: "var(--accent-2)" },
+  waste: { label: "דיווח בלאי", icon: "delete", color: "var(--danger)" },
+  order: { label: "הזמנה", icon: "local_shipping", color: "var(--warning)" },
+};
+
+function formatLogTime(iso: string) {
+  return new Date(iso).toLocaleString("he-IL", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function HistoryModal({
+  businessId,
+  item,
+  onClose,
+}: {
+  businessId: string | null;
+  item: ItemWithQty | null;
+  onClose: () => void;
+}) {
+  const { data: logs, isLoading, isError } = useItemLogs(businessId, item?.id ?? null);
+  const unit = item?.unit ? ` ${item.unit}` : "";
+
+  function detail(log: ItemLog): string {
+    switch (log.action) {
+      case "count":
+        return log.previous_qty != null
+          ? `כמות: ${log.previous_qty}${unit} ← ${log.new_qty}${unit}`
+          : `הכמות עודכנה ל-${log.new_qty}${unit}`;
+      case "created":
+        return log.new_qty != null ? `כמות התחלתית: ${log.new_qty}${unit}` : "הפריט נוצר";
+      case "edited":
+        return log.note ?? "עודכנו פרטי הפריט";
+      case "waste":
+        return `בלאי: ${log.new_qty}${unit}${log.note ? ` · ${log.note}` : ""}`;
+      case "order":
+        return `הוזמנו ${log.new_qty}${unit}`;
+      default:
+        return "";
+    }
+  }
+
+  return (
+    <Modal open={!!item} onClose={onClose} title="היסטוריית עדכונים" subtitle={item?.name} icon="history" maxWidth={520}>
+      {isLoading ? (
+        <div className="grid place-items-center py-12">
+          <Spinner size={28} />
+        </div>
+      ) : isError ? (
+        <p className="py-10 text-center text-[13px] text-text-3">שגיאה בטעינת ההיסטוריה</p>
+      ) : !logs || logs.length === 0 ? (
+        <EmptyState
+          icon="history"
+          title="אין עדכונים עדיין"
+          description="כל שינוי בכמות, עריכת פרטים או דיווח בלאי יתועד כאן עם שם העובד והשעה."
+        />
+      ) : (
+        <ol className="flex flex-col">
+          {logs.map((log) => {
+            const meta = LOG_META[log.action];
+            return (
+              <li key={log.id} className="flex gap-3 border-b border-border-2 py-3 last:border-0">
+                <span
+                  className="mt-0.5 grid h-8 w-8 flex-none place-items-center rounded-full"
+                  style={{ background: `color-mix(in srgb, ${meta.color} 14%, transparent)`, color: meta.color }}
+                >
+                  <Icon name={meta.icon} size={17} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[13.5px] font-bold">{meta.label}</span>
+                    <span className="flex-none text-[11.5px] text-text-3">{formatLogTime(log.created_at)}</span>
+                  </div>
+                  <p className="mt-0.5 text-[13px] text-text-2">{detail(log)}</p>
+                  <p className="mt-1 flex items-center gap-1 text-[12px] font-medium text-text-3">
+                    <Icon name="person" size={13} />
+                    {log.employee_name ?? "לא ידוע"}
+                  </p>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </Modal>
+  );
+}
+
 export function Inventory() {
   const businessId = useBusinessId();
-  const { profile } = useAuth();
+  const { profile, hasFeature } = useAuth();
+  const showWaste = hasFeature("waste");
   const { data: items, isLoading, isError, refetch } = useInventory(businessId);
-  const { data: orders } = useOrders(businessId);
+  const canManageOrders = !!(profile && ["manager", "office_manager"].includes(profile.role));
+  const { data: orders } = useOrders(businessId, canManageOrders);
+  const { data: wasteRecords } = useWaste(showWaste ? businessId : null);
   const createItem = useCreateItem(businessId);
   const updateItem = useUpdateItem(businessId);
   const setCount = useSetCount(businessId);
-  const createOrder = useCreateOrder(businessId);
-  const updateOrder = useUpdateOrder(businessId);
-  const [tab, setTab] = useState<"items" | "orders">("items");
+  const createOrdersBatch = useCreateOrdersBatch(businessId);
+  const updateOrdersBatch = useUpdateOrdersBatch(businessId);
+  const deleteOrdersBatch = useDeleteOrdersBatch(businessId);
+  const receiveOrder = useReceiveOrder(businessId);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [wasteReportOpen, setWasteReportOpen] = useState(false);
+
+  function resolveTab(param: string | null): InventoryTab {
+    if (param === "waste" && showWaste) return "waste";
+    if (param === "orders" && canManageOrders) return "orders";
+    return "items";
+  }
+
+  const [tab, setTab] = useState<InventoryTab>(() => resolveTab(searchParams.get("tab")));
   const [modalOpen, setModalOpen] = useState(false);
+  const [orderModalOpen, setOrderModalOpen] = useState(false);
+  const [editingOrderBatch, setEditingOrderBatch] = useState<OrderBatch | null>(null);
+  const [orderLines, setOrderLines] = useState<Record<string, string>>({});
+  const [orderBusy, setOrderBusy] = useState(false);
+  const [orderError, setOrderError] = useState<string | null>(null);
+  const [detailBatchId, setDetailBatchId] = useState<string | null>(null);
   const [editing, setEditing] = useState<ItemWithQty | null>(null);
+  const [historyItem, setHistoryItem] = useState<ItemWithQty | null>(null);
   const [form, setForm] = useState<ItemForm>(EMPTY_FORM);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const isManager = !!(profile && ["manager", "department_manager", "shift_manager", "office_manager"].includes(profile.role));
+  const isManager = !!(profile && ["manager", "shift_manager", "office_manager"].includes(profile.role));
+
+  function changeTab(next: InventoryTab) {
+    setTab(next);
+    setSearchParams(next === "items" ? {} : { tab: next }, { replace: true });
+  }
+
+  useEffect(() => {
+    const next = resolveTab(searchParams.get("tab"));
+    if (next !== tab) setTab(next);
+  }, [searchParams, showWaste, canManageOrders]);
+
+  useEffect(() => {
+    if (!canManageOrders && tab === "orders") changeTab("items");
+    if (!showWaste && tab === "waste") changeTab("items");
+  }, [canManageOrders, showWaste, tab]);
 
   if (isLoading) {
     return (
@@ -355,7 +895,7 @@ export function Inventory() {
           <div className="h-8 w-40 rounded-md bg-surface-2" />
           <div className="mt-2 h-4 w-28 rounded-md bg-surface-2" />
         </header>
-        <div className="mb-6 h-[76px] rounded-card border border-border bg-surface" />
+        <div className="mb-6 h-[76px] rounded-card border-0 bg-surface shadow-card" />
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <SkeletonCard key={i} />
@@ -379,6 +919,8 @@ export function Inventory() {
       name: item.name,
       unit: item.unit ?? "יחידות",
       qty: String(item.current_qty),
+      minQty: String(item.min_quantity),
+      deliveryDay: item.supplier_delivery_day != null ? String(item.supplier_delivery_day) : "",
       imageUrl: item.image_url,
       file: null,
     });
@@ -393,6 +935,96 @@ export function Inventory() {
     setError(null);
   }
 
+  function openNewOrder(presetItemId?: string) {
+    const init: Record<string, string> = {};
+    if (presetItemId) init[presetItemId] = "1";
+    setEditingOrderBatch(null);
+    setOrderLines(init);
+    setOrderError(null);
+    setOrderModalOpen(true);
+  }
+
+  function openEditOrder(batch: OrderBatch) {
+    const init: Record<string, string> = {};
+    batch.lines.forEach((l) => {
+      init[l.item_id] = String(l.quantity);
+    });
+    setEditingOrderBatch(batch);
+    setOrderLines(init);
+    setOrderError(null);
+    setOrderModalOpen(true);
+    setDetailBatchId(null);
+  }
+
+  function closeOrderModal() {
+    setOrderModalOpen(false);
+    setEditingOrderBatch(null);
+    setOrderLines({});
+    setOrderError(null);
+  }
+
+  async function submitOrder() {
+    setOrderError(null);
+    const lines = Object.entries(orderLines)
+      .map(([item_id, qty]) => ({ item_id, quantity: Number(qty) || 0 }))
+      .filter((l) => l.quantity > 0);
+    if (!lines.length) return setOrderError("נא לבחור לפחות מוצר אחד עם כמות");
+    setOrderBusy(true);
+    try {
+      if (editingOrderBatch) {
+        const batchId = editingOrderBatch.batch_id ?? editingOrderBatch.id;
+        await updateOrdersBatch.mutateAsync({
+          batch_id: batchId,
+          business_id: businessId!,
+          ordered_by: editingOrderBatch.ordered_by ?? profile?.id ?? null,
+          line_ids: editingOrderBatch.lines.map((l) => l.id),
+          lines,
+        });
+      } else {
+        await createOrdersBatch.mutateAsync({
+          business_id: businessId!,
+          ordered_by: profile?.id ?? null,
+          lines,
+        });
+      }
+      closeOrderModal();
+      changeTab("orders");
+    } catch (e) {
+      setOrderError(inventorySaveError(e));
+    } finally {
+      setOrderBusy(false);
+    }
+  }
+
+  async function handleDeleteOrder(batch: OrderBatch) {
+    const ok = window.confirm("למחוק את ההזמנה? הפריטים יוסרו מרשימת «בהזמנה».");
+    if (!ok) return;
+    try {
+      await deleteOrdersBatch.mutateAsync({
+        business_id: businessId!,
+        line_ids: batch.lines.map((l) => l.id),
+        employee_id: profile?.id ?? null,
+        lines: batch.lines.map((l) => ({ item_id: l.item_id, quantity: Number(l.quantity) })),
+      });
+      if (detailBatchId === batch.id) setDetailBatchId(null);
+    } catch (e) {
+      window.alert(inventorySaveError(e));
+    }
+  }
+
+  async function handleReceive(line: OrderLine) {
+    const item = list.find((i) => i.id === line.item_id);
+    if (!item) return;
+    await receiveOrder.mutateAsync({
+      order_id: line.id,
+      business_id: businessId!,
+      item_id: line.item_id,
+      quantity: Number(line.quantity),
+      current_qty: item.current_qty,
+      employee_id: profile?.id ?? null,
+    });
+  }
+
   async function submitItem() {
     setError(null);
     if (!form.name.trim()) return setError("נא להזין שם מוצר");
@@ -401,13 +1033,28 @@ export function Inventory() {
       let image_url = form.imageUrl;
       if (form.file) image_url = await uploadItemImage(businessId!, form.file);
       const quantity = Number(form.qty) || 0;
+      const min_quantity = Math.max(0, Number(form.minQty) || 0);
+      const supplier_delivery_day = form.deliveryDay === "" ? null : Number(form.deliveryDay);
 
       if (editing) {
+        const changed: string[] = [];
+        if (form.name.trim() !== editing.name) changed.push("שם");
+        if (form.unit !== (editing.unit ?? "יחידות")) changed.push("יחידת מידה");
+        if (min_quantity !== editing.min_quantity) changed.push("כמות מינימום");
+        if (supplier_delivery_day !== editing.supplier_delivery_day) changed.push("יום אספקה");
+        if (image_url !== editing.image_url) changed.push("תמונה");
         await updateItem.mutateAsync({
           id: editing.id,
-          name: form.name.trim(),
-          unit: form.unit,
-          image_url,
+          business_id: businessId!,
+          employee_id: profile?.id ?? null,
+          changes: {
+            name: form.name.trim(),
+            unit: form.unit,
+            image_url,
+            min_quantity,
+            supplier_delivery_day,
+          },
+          note: changed.length ? `עודכן: ${changed.join(", ")}` : null,
         });
         if (quantity !== editing.current_qty) {
           await setCount.mutateAsync({
@@ -415,6 +1062,7 @@ export function Inventory() {
             item_id: editing.id,
             employee_id: profile?.id ?? null,
             quantity,
+            previous_qty: editing.current_qty,
           });
         }
       } else {
@@ -423,13 +1071,15 @@ export function Inventory() {
           name: form.name.trim(),
           unit: form.unit,
           image_url,
+          min_quantity,
+          supplier_delivery_day,
           quantity,
           employee_id: profile?.id ?? null,
         });
       }
       closeModal();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "שגיאה בשמירה. ודאו שקיים Bucket בשם inventory ב-Storage.");
+      setError(inventorySaveError(e));
     } finally {
       setBusy(false);
     }
@@ -437,38 +1087,78 @@ export function Inventory() {
 
   const list = items ?? [];
   const orderList = orders ?? [];
+  const openBatches = groupOpenOrders(orderList, list);
+  const detailBatch = detailBatchId ? openBatches.find((b) => b.id === detailBatchId) ?? null : null;
   const inStock = list.filter((i) => i.current_qty > 0).length;
   const outOfStock = list.filter((i) => i.current_qty === 0).length;
   const pending = orderList.filter((o) => o.status !== "received").length;
+  const wasteCount = wasteRecords?.length ?? 0;
+  const showTabActions = (isManager && tab === "items") || (canManageOrders && tab === "orders") || (showWaste && tab === "waste");
 
   return (
     <div className="mx-auto max-w-[1080px] animate-fadeUp">
-      <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-3">מלאי ורכש</p>
-          <h1 className="mt-1 text-[26px] font-extrabold tracking-tight">ניהול סחורות</h1>
-          <p className="mt-1.5 text-[13.5px] text-text-2">
-            {list.length} פריטים · {inStock} במלאי
-            {pending > 0 && ` · ${pending} הזמנות ממתינות`}
-          </p>
-        </div>
-        {isManager && (
-          <Button
-            icon="add"
-            onClick={openCreate}
-            className="!bg-ink shadow-sm hover:brightness-110 active:scale-[0.97]"
-          >
-            פריט חדש
-          </Button>
-        )}
-      </header>
+      {showTabActions && (
+        <header className="mb-6 flex flex-wrap items-center justify-end gap-4">
+          {tab === "items" && isManager ? (
+            <Button icon="add" onClick={openCreate} className="!bg-ink shadow-sm hover:brightness-110 active:scale-[0.97]">
+              פריט חדש
+            </Button>
+          ) : tab === "orders" && canManageOrders ? (
+            <Button icon="add_shopping_cart" onClick={() => openNewOrder()} className="!bg-ink shadow-sm hover:brightness-110 active:scale-[0.97]">
+              הזמנה חדשה
+            </Button>
+          ) : tab === "waste" && showWaste ? (
+            <Button
+              icon="add"
+              onClick={() => setWasteReportOpen(true)}
+              disabled={list.length === 0}
+              className="!bg-ink shadow-sm hover:brightness-110 active:scale-[0.97]"
+            >
+              דיווח בלאי
+            </Button>
+          ) : null}
+        </header>
+      )}
 
-      <SummaryStrip total={list.length} inStock={inStock} outOfStock={outOfStock} pending={pending} />
+      <SummaryStrip total={list.length} inStock={inStock} outOfStock={outOfStock} pending={pending} showOrders={canManageOrders} />
 
-      <TabBar tab={tab} pending={pending} onChange={setTab} />
+      <TabBar
+        tab={tab}
+        pending={pending}
+        wasteCount={wasteCount}
+        showOrders={canManageOrders}
+        showWaste={showWaste}
+        onChange={changeTab}
+      />
 
-      {tab === "items" ? (
-        list.length === 0 ? (
+      {tab === "waste" && showWaste ? (
+        <WastePanel items={list} reportOpen={wasteReportOpen} onReportOpenChange={setWasteReportOpen} />
+      ) : tab === "orders" && canManageOrders ? (
+        openBatches.length === 0 ? (
+          <OrdersEmptyState onCreate={() => openNewOrder()} />
+        ) : (
+          <div className="inventory-orders-panel">
+            <div className="inventory-orders-panel-head">
+              <div className="inventory-orders-panel-title">
+                <Icon name="local_shipping" size={18} />
+                הזמנות פתוחות
+              </div>
+              <span className="inventory-orders-panel-count">{openBatches.length}</span>
+            </div>
+            {openBatches.map((batch, idx) => (
+              <OrderBatchRow
+                key={batch.id}
+                batch={batch}
+                index={idx}
+                canManageOrders={canManageOrders}
+                onDetails={() => setDetailBatchId(batch.id)}
+                onEdit={() => openEditOrder(batch)}
+                onDelete={() => handleDeleteOrder(batch)}
+              />
+            ))}
+          </div>
+        )
+      ) : list.length === 0 ? (
           <EmptyState
             icon="inventory_2"
             title="אין פריטים במלאי"
@@ -483,47 +1173,24 @@ export function Inventory() {
                 item={it}
                 index={idx}
                 isManager={isManager}
+                canManageOrders={canManageOrders}
                 onEdit={() => openEdit(it)}
-                onOrder={() =>
-                  createOrder.mutate({
-                    business_id: businessId!,
-                    item_id: it.id,
-                    quantity: 1,
-                    ordered_by: profile?.id,
-                  })
-                }
+                onHistory={() => setHistoryItem(it)}
+                onOrder={() => openNewOrder(it.id)}
                 onSetQty={(quantity) =>
                   setCount.mutate({
                     business_id: businessId!,
                     item_id: it.id,
                     employee_id: profile?.id ?? null,
                     quantity,
+                    previous_qty: it.current_qty,
                   })
                 }
               />
             ))}
           </div>
         )
-      ) : orderList.length === 0 ? (
-        <EmptyState icon="local_shipping" title="אין הזמנות" description="הזמנות שתיצרו מהמלאי יופיעו כאן." />
-      ) : (
-        <Card className="overflow-hidden p-0">
-          {orderList.map((o, idx) => {
-            const item = items?.find((i) => i.id === o.item_id);
-            const next: OrderStatus = o.status === "requested" ? "ordered" : o.status === "ordered" ? "received" : "requested";
-            return (
-              <OrderRow
-                key={o.id}
-                order={o}
-                item={item}
-                index={idx}
-                isManager={isManager}
-                onStatusChange={() => isManager && updateOrder.mutate({ id: o.id, status: next })}
-              />
-            );
-          })}
-        </Card>
-      )}
+      }
 
       <Modal
         open={modalOpen}
@@ -587,10 +1254,27 @@ export function Inventory() {
                 ))}
               </Select>
             </Field>
-            <Field label="כמות">
-              <Input type="number" value={form.qty} onChange={(e) => setForm((f) => ({ ...f, qty: e.target.value }))} />
+            <Field label="כמות נוכחית">
+              <Input type="number" min={0} value={form.qty} onChange={(e) => setForm((f) => ({ ...f, qty: e.target.value }))} />
             </Field>
           </div>
+
+          <Field label="כמות מינימום">
+            <Input type="number" min={0} value={form.minQty} onChange={(e) => setForm((f) => ({ ...f, minQty: e.target.value }))} placeholder="0" />
+            <p className="mt-1 text-[12px] text-text-3">מתחת לסף זה הפריט יסומן כמלאי נמוך</p>
+          </Field>
+
+          <Field label="יום אספקה מהספק">
+            <Select value={form.deliveryDay} onChange={(e) => setForm((f) => ({ ...f, deliveryDay: e.target.value }))}>
+              <option value="">לא הוגדר</option>
+              {HE_DAYS.map((d, i) => (
+                <option key={i} value={String(i)}>
+                  יום {d}
+                </option>
+              ))}
+            </Select>
+            <p className="mt-1 text-[12px] text-text-3">ביום זה הסחורה אמורה להגיע מהספק לאחר הזמנה</p>
+          </Field>
 
           {error && (
             <div className="flex items-start gap-2 rounded-[11px] [background:var(--danger-bg)] px-3 py-2.5 text-[13px] font-semibold text-danger">
@@ -599,6 +1283,27 @@ export function Inventory() {
           )}
         </div>
       </Modal>
+
+      <HistoryModal businessId={businessId} item={historyItem} onClose={() => setHistoryItem(null)} />
+
+      <NewOrderModal
+        open={orderModalOpen}
+        items={list}
+        lines={orderLines}
+        busy={orderBusy}
+        error={orderError}
+        isEditing={!!editingOrderBatch}
+        onClose={closeOrderModal}
+        onChange={(itemId, qty) => setOrderLines((prev) => ({ ...prev, [itemId]: qty }))}
+        onSubmit={submitOrder}
+      />
+
+      <OrderDetailsModal
+        batch={detailBatch}
+        open={!!detailBatch}
+        onClose={() => setDetailBatchId(null)}
+        onReceive={handleReceive}
+      />
     </div>
   );
 }

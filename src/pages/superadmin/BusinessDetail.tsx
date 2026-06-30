@@ -8,18 +8,17 @@ import {
   Input,
   PageLoader,
   ErrorState,
-  Switch,
 } from "@/components/ui";
 import { useBusiness, useBusinessFeatures, useSetFeature, useUpdateBusiness } from "@/api/businesses";
 import { useProfiles } from "@/api/users";
 import { AddUserModal } from "@/components/AddUserModal";
-import { ALL_FEATURES, ROLE_LABELS } from "@/lib/constants";
+import { ActiveModulesPanel } from "@/components/superadmin/ActiveModulesPanel";
+import { ROLE_LABELS } from "@/lib/constants";
 import { colorFor, initialsOf } from "@/lib/db";
-import type { FeatureKey, UserRole } from "@/types/database";
+import type { UserRole } from "@/types/database";
 
 const ASSIGNABLE_ROLES: UserRole[] = [
   "manager",
-  "department_manager",
   "shift_manager",
   "office_manager",
   "employee",
@@ -94,32 +93,10 @@ export function BusinessDetail() {
         </div>
       </Card>
 
-      <div className="mb-3 flex items-center justify-between">
-        <div className="text-[18px] font-extrabold">מודולים פעילים</div>
-        <Badge tone="violet">{enabledSet.size} מתוך {ALL_FEATURES.length}</Badge>
-      </div>
-      <div className="mb-6 grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
-        {ALL_FEATURES.map((f) => {
-          const on = enabledSet.has(f.key as FeatureKey);
-          return (
-            <Card
-              key={f.key}
-              className="cursor-pointer p-4 transition"
-              style={{ borderColor: on ? "var(--accent)" : undefined, background: on ? "var(--accent-tint)" : undefined }}
-              onClick={() => setFeature.mutate({ businessId: biz.id, feature: f.key, enabled: !on })}
-            >
-              <div className="mb-3 flex items-start justify-between gap-2.5">
-                <span className="grid h-11 w-11 place-items-center rounded-[12px]" style={{ background: on ? "var(--accent)" : "var(--surface-2)" }}>
-                  <Icon name={f.icon} size={24} className={on ? "text-white" : "text-text-3"} />
-                </span>
-                <Switch checked={on} />
-              </div>
-              <div className="text-[15px] font-bold">{f.label}</div>
-              <div className="mt-1 text-[12.5px] leading-relaxed text-text-2">{f.desc}</div>
-            </Card>
-          );
-        })}
-      </div>
+      <ActiveModulesPanel
+        enabledSet={enabledSet}
+        onToggle={(feature, enabled) => setFeature.mutate({ businessId: biz.id, feature, enabled })}
+      />
 
       <div className="mb-3 flex items-center justify-between">
         <div className="text-[18px] font-extrabold">משתמשים ({users?.length ?? 0})</div>

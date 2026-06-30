@@ -19,7 +19,11 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const buttonBase =
+<<<<<<< HEAD
   "btn-press inline-flex items-center justify-center gap-2 rounded-[11px] font-bold text-[13.5px] cursor-pointer transition-[transform,filter,background-color,border-color] duration-[160ms] [transition-timing-function:var(--ease-out)] disabled:opacity-60 disabled:cursor-not-allowed";
+=======
+  "inline-flex items-center justify-center gap-2 rounded-[11px] font-bold text-[13.5px] cursor-pointer transition active:scale-[0.97] disabled:opacity-60 disabled:cursor-not-allowed disabled:active:scale-100";
+>>>>>>> a037aa1474cf6694a900794a50193c5055ceb385
 
 const buttonVariants: Record<ButtonVariant, string> = {
   primary:
@@ -95,7 +99,11 @@ export function Card({
 }: { children: ReactNode; className?: string } & React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
+<<<<<<< HEAD
       className={`rounded-card border border-border/80 bg-surface shadow-sm transition-[box-shadow,border-color] duration-[200ms] [transition-timing-function:var(--ease-out)] ${className}`}
+=======
+      className={`rounded-card border-0 bg-surface shadow-card ${className}`}
+>>>>>>> a037aa1474cf6694a900794a50193c5055ceb385
       {...rest}
     >
       {children}
@@ -133,21 +141,25 @@ export function Badge({
 
 /* ----------------------------- PageHeader ----------------------------- */
 export function PageHeader({
-  title,
-  subtitle,
   actions,
 }: {
-  title: string;
+  title?: string;
   subtitle?: string;
   actions?: ReactNode;
 }) {
+  if (!actions) return null;
   return (
+<<<<<<< HEAD
     <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between sm:gap-3.5">
       <div className="min-w-0">
         <div className="text-[clamp(1.25rem,4vw,1.5rem)] font-extrabold tracking-tight">{title}</div>
         {subtitle && <div className="mt-1 text-[13.5px] text-text-2 sm:text-[14.5px]">{subtitle}</div>}
       </div>
       {actions && <div className="flex flex-wrap gap-2 sm:gap-2.5">{actions}</div>}
+=======
+    <div className="mb-5 flex flex-wrap items-center justify-end gap-2.5">
+      {actions}
+>>>>>>> a037aa1474cf6694a900794a50193c5055ceb385
     </div>
   );
 }
@@ -160,11 +172,11 @@ export function Switch({ checked, onChange }: { checked: boolean; onChange?: (v:
         e.stopPropagation();
         onChange?.(!checked);
       }}
-      className="relative inline-block h-6 w-[42px] flex-none cursor-pointer rounded-full transition"
-      style={{ background: checked ? "var(--accent-2)" : "var(--border)" }}
+      data-checked={checked}
+      className="ui-switch relative inline-block h-6 w-[42px] flex-none cursor-pointer rounded-full"
     >
       <span
-        className="absolute top-[3px] h-[18px] w-[18px] rounded-full bg-white shadow transition-all"
+        className="ui-switch-knob absolute top-[3px] h-[18px] w-[18px] rounded-full bg-white shadow"
         style={{ right: checked ? 21 : 3 }}
       />
     </span>
@@ -177,14 +189,20 @@ export function EmptyState({
   title,
   description,
   action,
+  embedded = false,
 }: {
   icon?: string;
   title: string;
   description?: string;
   action?: ReactNode;
+  embedded?: boolean;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-card border border-dashed border-border bg-surface px-6 py-16 text-center">
+    <div
+      className={`flex flex-col items-center justify-center gap-3 rounded-card px-6 py-16 text-center ${
+        embedded ? "bg-surface-2 py-12" : "border-0 bg-surface shadow-card"
+      }`}
+    >
       <span className="grid h-16 w-16 place-items-center rounded-2xl bg-surface-2 text-text-3">
         <Icon name={icon} size={32} />
       </span>
@@ -214,7 +232,7 @@ export function PageLoader({ label = "טוען..." }: { label?: string }) {
 /* ----------------------------- ErrorState ----------------------------- */
 export function ErrorState({ message, onRetry }: { message?: string; onRetry?: () => void }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-card border border-danger/30 bg-surface px-6 py-12 text-center">
+    <div className="flex flex-col items-center justify-center gap-3 rounded-card border-0 bg-surface px-6 py-12 text-center shadow-card">
       <span className="grid h-14 w-14 place-items-center rounded-2xl [background:var(--danger-bg)] text-danger">
         <Icon name="error" size={28} />
       </span>

@@ -37,8 +37,8 @@ VITE_SUPABASE_ANON_KEY=...
 
 1. בלוח הבקרה של Supabase: **Authentication → Providers** — ודאו ש-Email מופעל.
 2. **SQL Editor → New query** — הדביקו והריצו את כל התוכן של `supabase/schema.sql`.
-   > הסכמה כוללת טבלת `departments` (מחלקות: מטבח/בר/מלצרות...), תפקיד `department_manager`, טבלת `shift_templates` דינמית (שעות משמרת לכל עסק), בידוד לפי `business_id`, ו-RLS מלא. הרצה חוזרת מוחקת ובונה מחדש את הטבלאות.
-3. **Storage (מודול תקלות)** — הריצו את `supabase/storage.sql` ב-SQL Editor (יוצר Bucket בשם `faults` עם הרשאות העלאה/צפייה). לחלופין: **Storage → New bucket → name: `faults`, Public: on**.
+   > הסכמה כוללת טבלת `departments` (מחלקות: מטבח/בר/מלצרות...), טבלת `shift_reports` (דוח סגירת משמרת), טבלת `shift_templates` דינמית (שעות משמרת לכל עסק), בידוד לפי `business_id`, ו-RLS מלא. הרצה חוזרת מוחקת ובונה מחדש את הטבלאות.
+3. **Storage (תקלות / מלאי / חשבוניות)** — הריצו את `supabase/storage.sql` ב-SQL Editor (יוצר Buckets בשמות `faults`, `inventory`, `invoices` עם הרשאות העלאה/צפייה). לחלופין צרו אותם ידנית דרך **Storage → New bucket**, Public: on.
 4. **פונקציית יצירת משתמשים (Edge Function)** — נדרשת כדי שסופר אדמין/מנהל יוכלו ליצור עובדים מתוך הממשק:
 
 ```bash
@@ -68,14 +68,14 @@ supabase secrets set SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
 - הוספת משתמש מתבצעת מהממשק (כפתור "הוספת משתמש") — מצריך את פונקציית `create-user` (ראו למעלה).
 - לחלופין ידנית ב-Auth: צרו משתמש עם `user_metadata` הכולל `full_name`, `role`, `business_id`, ואופציונלית `department_id`, `phone`, `hourly_rate`.
 
-תפקידים נתמכים: `super_admin`, `manager`, `department_manager` (מנהל מחלקה — בונה את סידור העבודה ורואה את כל המחלקות), `shift_manager`, `office_manager`, `employee`, `maintenance`.
+תפקידים נתמכים: `super_admin`, `manager`, `shift_manager` (אחראי משמרת — סידור עבודה, אילוצים, חשבוניות, דוח סגירת קופה וטיפים), `office_manager`, `employee`, `maintenance`.
 
 ### מחלקות וסידור עבודה
 
 - במסך **הגדרות עסק** המנהל מגדיר **מחלקות** (מטבח, בר, מלצרות, אירוח...) ו**שעות משמרת**.
 - כל עובד משויך למחלקה במסך **משתמשים**.
 - עובד מגיש **אילוצים** שבועיים (מעדיף / יכול / לא יכול) לכל משמרת.
-- מנהל/מנהל מחלקה/מנהל משמרת בונים **סידור עבודה לכל מחלקה בנפרד**, רואים את אילוצי העובדים תוך כדי שיבוץ, ויכולים לראות את כל הסידורים.
+- מנהל/אחראי משמרת בונים **סידור עבודה לכל מחלקה בנפרד**, רואים את אילוצי העובדים תוך כדי שיבוץ, ויכולים לראות את כל הסידורים.
 
 ## מודולים זמינים
 

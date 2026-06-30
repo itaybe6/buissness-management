@@ -1,28 +1,161 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { Button, Card, EmptyState, Icon, PageHeader, PageLoader, ErrorState, Field, Textarea } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId } from "@/lib/db";
+import { isVideoFile, isVideoUrl } from "@/lib/media";
 import { useFaults, useCreateFault, useUpdateFault, uploadFaultPhotos } from "@/api/faults";
 import type { FaultStatus } from "@/types/database";
 
-const STATUS_META: Record<FaultStatus, { label: string; tone: "danger" | "warning" | "success"; icon: string; color: string }> = {
+type StatusTone = "danger" | "warning" | "success";
+
+const STATUS_META: Record<FaultStatus, { label: string; tone: StatusTone; icon: string; color: string }> = {
   needs_handling: { label: "דורש טיפול", tone: "danger", icon: "error", color: "var(--danger)" },
   in_progress: { label: "בטיפול", tone: "warning", icon: "pending", color: "var(--warning)" },
   handled: { label: "טופל", tone: "success", icon: "check_circle", color: "var(--success)" },
 };
-const NEXT: Record<FaultStatus, FaultStatus> = { needs_handling: "in_progress", in_progress: "handled", handled: "needs_handling" };
+const STATUS_ORDER: FaultStatus[] = ["needs_handling", "in_progress", "handled"];
 
-function FaultPhotos({ urls }: { urls: string[] }) {
-  if (urls.length === 0) return null;
-  if (urls.length === 1) {
-    return <img src={urls[0]} alt="תקלה" className="h-36 w-full object-cover" />;
+const STATUS_TONE_CLASS: Record<StatusTone, string> = {
+  danger: "text-danger [background:var(--danger-bg)]",
+  warning: "text-warning [background:var(--warning-bg)]",
+  success: "text-success [background:var(--success-bg)]",
+};
+
+type MediaEntry = { file: File; preview: string; isVideo: boolean };
+
+function revokeMediaEntries(entries: MediaEntry[]) {
+  entries.forEach(({ preview }) => URL.revokeObjectURL(preview));
+}
+
+function FaultMediaItem({ url }: { url: string }) {
+  if (isVideoUrl(url)) {
+    return (
+      <a href={url} target="_blank" rel="noreferrer" className="relative block h-full w-full bg-black">
+        <video src={url} className="h-full w-full object-cover" muted playsInline preload="metadata" />
+        <span className="absolute inset-0 grid place-items-center bg-black/35 text-white">
+          <Icon name="play_circle" size={44} />
+        </span>
+      </a>
+    );
   }
+  return <img src={url} alt="תקלה" className="h-full w-full object-cover" />;
+}
+
+function FaultMediaCarousel({ urls }: { urls: string[] }) {
+  const [index, setIndex] = useState(0);
+  const touchStart = useRef<number | null>(null);
+  const count = urls.length;
+
+  useEffect(() => {
+    setIndex((i) => Math.min(i, Math.max(0, count - 1)));
+  }, [count]);
+
+  function go(delta: number) {
+    setIndex((i) => (i + delta + count) % count);
+  }
+
+  function onTouchStart(e: React.TouchEvent) {
+    touchStart.current = e.touches[0].clientX;
+  }
+
+  function onTouchEnd(e: React.TouchEvent) {
+    if (touchStart.current === null) return;
+    const delta = e.changedTouches[0].clientX - touchStart.current;
+    if (Math.abs(delta) > 40) go(delta < 0 ? 1 : -1);
+    touchStart.current = null;
+  }
+
+  if (count === 0) return null;
+
   return (
-    <div className="flex h-36 snap-x snap-mandatory gap-1 overflow-x-auto bg-surface-2">
-      {urls.map((url, i) => (
-        <img key={url} src={url} alt={`תקלה ${i + 1}`} className="h-full w-full min-w-full snap-center object-cover" />
-      ))}
+    <div
+      className="group relative h-36 w-full overflow-hidden bg-surface-2"
+      onTouchStart={count > 1 ? onTouchStart : undefined}
+      onTouchEnd={count > 1 ? onTouchEnd : undefined}
+    >
+      <div key={index} className="absolute inset-0 animate-fadeIn">
+        <FaultMediaItem url={urls[index]} />
+      </div>
+
+      {count > 1 && (
+        <>
+          <span className="absolute left-2 top-2 z-10 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-bold text-white">
+            {index + 1}/{count}
+          </span>
+
+          <button
+            type="button"
+            onClick={() => go(-1)}
+            className="absolute right-2 top-1/2 z-10 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full bg-black/55 text-white opacity-90 backdrop-blur-sm transition hover:bg-black/75 hover:opacity-100"
+            aria-label="תמונה קודמת"
+          >
+            <Icon name="chevron_right" size={22} />
+          </button>
+          <button
+            type="button"
+            onClick={() => go(1)}
+            className="absolute left-2 top-1/2 z-10 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full bg-black/55 text-white opacity-90 backdrop-blur-sm transition hover:bg-black/75 hover:opacity-100"
+            aria-label="תמונה הבאה"
+          >
+            <Icon name="chevron_left" size={22} />
+          </button>
+
+          <div className="absolute inset-x-0 bottom-2 z-10 flex justify-center gap-1.5">
+            {urls.map((url, i) => (
+              <button
+                key={url}
+                type="button"
+                onClick={() => setIndex(i)}
+                aria-label={`תמונה ${i + 1}`}
+                aria-current={i === index}
+                className={`h-1.5 rounded-full transition-all ${
+                  i === index ? "w-5 bg-white shadow-sm" : "w-1.5 bg-white/45 hover:bg-white/70"
+                }`}
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function FaultStatusSegmented({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: FaultStatus;
+  onChange: (s: FaultStatus) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div
+      className="mt-3 flex items-center gap-1 rounded-[11px] border border-border bg-surface-2 p-1"
+      role="group"
+      aria-label="סטטוס התקלה"
+    >
+      {STATUS_ORDER.map((s) => {
+        const m = STATUS_META[s];
+        const active = value === s;
+        return (
+          <button
+            key={s}
+            type="button"
+            disabled={disabled}
+            onClick={() => onChange(s)}
+            aria-pressed={active}
+            className={`seg-btn flex flex-1 items-center justify-center gap-1 rounded-[8px] px-1.5 py-2 text-[11.5px] font-bold sm:gap-1.5 sm:px-2 sm:text-[12.5px] ${
+              active ? `${STATUS_TONE_CLASS[m.tone]} shadow-sm` : "text-text-3 hover:text-text-2"
+            } disabled:cursor-not-allowed disabled:opacity-60`}
+          >
+            <Icon name={m.icon} size={15} className="flex-none sm:hidden" />
+            <Icon name={m.icon} size={16} className="hidden flex-none sm:block" />
+            <span className="truncate">{m.label}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -35,17 +168,14 @@ export function Faults() {
   const updateFault = useUpdateFault(businessId);
   const [open, setOpen] = useState(false);
   const [desc, setDesc] = useState("");
-  const [files, setFiles] = useState<File[]>([]);
-  const [previews, setPreviews] = useState<string[]>([]);
+  const [media, setMedia] = useState<MediaEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const mediaRef = useRef(media);
+  mediaRef.current = media;
 
-  useEffect(() => {
-    const urls = files.map((f) => URL.createObjectURL(f));
-    setPreviews(urls);
-    return () => urls.forEach((url) => URL.revokeObjectURL(url));
-  }, [files]);
+  useEffect(() => () => revokeMediaEntries(mediaRef.current), []);
 
   const canReport = profile?.role !== "maintenance";
 
@@ -57,17 +187,34 @@ export function Faults() {
 
   function resetForm() {
     setDesc("");
-    setFiles([]);
+    setMedia((prev) => {
+      revokeMediaEntries(prev);
+      return [];
+    });
     setError(null);
   }
 
   function addFiles(next: FileList | null) {
     if (!next?.length) return;
-    setFiles((prev) => [...prev, ...Array.from(next)]);
+    const entries = Array.from(next).map((file) => ({
+      file,
+      preview: URL.createObjectURL(file),
+      isVideo: isVideoFile(file),
+    }));
+    setMedia((prev) => [...prev, ...entries]);
   }
 
-  function removeFile(index: number) {
-    setFiles((prev) => prev.filter((_, i) => i !== index));
+  function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
+    addFiles(e.target.files);
+    e.target.value = "";
+  }
+
+  function removeMedia(index: number) {
+    setMedia((prev) => {
+      const entry = prev[index];
+      if (entry) URL.revokeObjectURL(entry.preview);
+      return prev.filter((_, i) => i !== index);
+    });
   }
 
   async function submit() {
@@ -75,7 +222,7 @@ export function Faults() {
     if (!desc.trim()) return setError("נא לתאר את התקלה");
     setBusy(true);
     try {
-      const photo_urls = files.length ? await uploadFaultPhotos(businessId!, files) : [];
+      const photo_urls = media.length ? await uploadFaultPhotos(businessId!, media.map((m) => m.file)) : [];
       await createFault.mutateAsync({
         business_id: businessId!,
         description: desc.trim(),
@@ -95,7 +242,7 @@ export function Faults() {
     <div className="mx-auto max-w-[1100px] animate-fadeUp">
       <PageHeader
         title="דיווח תקלות"
-        subtitle="מעקב וטיפול בתקלות · עדכון סטטוס בלחיצה"
+        subtitle="מעקב וטיפול בתקלות · עדכון סטטוס ישיר מהכרטיס"
         actions={canReport ? <Button icon="add_a_photo" onClick={() => setOpen(true)}>דיווח תקלה חדשה</Button> : undefined}
       />
 
@@ -119,18 +266,11 @@ export function Faults() {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {(faults ?? []).map((f) => {
             const meta = STATUS_META[f.status];
-            const photos = f.photo_urls ?? [];
+            const mediaUrls = f.photo_urls ?? [];
             return (
               <Card key={f.id} className="flex flex-col overflow-hidden p-0">
                 <div className="h-1.5" style={{ background: meta.color }} />
-                <div className="relative">
-                  <FaultPhotos urls={photos} />
-                  {photos.length > 1 && (
-                    <span className="absolute bottom-2 left-2 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-bold text-white">
-                      {photos.length} תמונות
-                    </span>
-                  )}
-                </div>
+                <FaultMediaCarousel urls={mediaUrls} />
                 <div className="flex flex-1 flex-col p-4">
                   <div className="flex items-start justify-between">
                     <span className="grid h-11 w-11 place-items-center rounded-[12px]" style={{ background: `var(--${meta.tone}-bg)` }}>
@@ -139,13 +279,13 @@ export function Faults() {
                   </div>
                   <div className="mt-3 text-[14.5px] font-bold leading-snug">{f.description}</div>
                   <div className="mt-1.5 text-[12px] text-text-3">{new Date(f.created_at).toLocaleString("he-IL")}</div>
-                  <button
-                    onClick={() => updateFault.mutate({ id: f.id, status: NEXT[f.status] })}
-                    className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-[11px] py-2.5 text-[13px] font-bold text-white transition active:scale-[0.98]"
-                    style={{ background: meta.color }}
-                  >
-                    <Icon name={meta.icon} size={18} /> {meta.label}
-                  </button>
+                  <FaultStatusSegmented
+                    value={f.status}
+                    disabled={updateFault.isPending}
+                    onChange={(status) => {
+                      if (status !== f.status) updateFault.mutate({ id: f.id, status });
+                    }}
+                  />
                 </div>
               </Card>
             );
@@ -169,34 +309,43 @@ export function Faults() {
           <input
             ref={fileRef}
             type="file"
-            accept="image/*"
+            accept="image/*,video/*"
             multiple
             capture="environment"
             className="hidden"
-            onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }}
+            onChange={handleFileChange}
           />
 
-          {previews.length === 0 ? (
+          {media.length === 0 ? (
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
-              className="flex h-36 flex-col items-center justify-center gap-2 rounded-[13px] border border-dashed border-border bg-surface-2 text-text-3 hover:border-accent-2 hover:text-ink"
+              className="flex h-36 w-full flex-col items-center justify-center gap-2 rounded-[13px] border border-dashed border-border bg-surface-2 text-text-3 hover:border-accent-2 hover:text-ink"
             >
-              <Icon name="add_a_photo" size={34} />
-              <span className="text-[13.5px] font-semibold">צילום או העלאת תמונות</span>
-              <span className="text-[12px]">ניתן לבחור כמה תמונות</span>
+              <Icon name="perm_media" size={34} />
+              <span className="text-[13.5px] font-semibold">צילום או העלאת תמונות וסרטונים</span>
+              <span className="text-[12px]">ניתן לבחור כמה קבצים · הקבצים יכווצו לפני העלאה</span>
             </button>
           ) : (
             <div className="flex flex-col gap-2">
               <div className="grid grid-cols-3 gap-2">
-                {previews.map((url, i) => (
-                  <div key={url} className="relative aspect-square overflow-hidden rounded-[11px] bg-surface-2">
-                    <img src={url} alt={`תמונה ${i + 1}`} className="h-full w-full object-cover" />
+                {media.map(({ preview, isVideo }, i) => (
+                  <div key={preview} className="relative aspect-square overflow-hidden rounded-[11px] border border-border bg-surface-2">
+                    {isVideo ? (
+                      <>
+                        <video src={preview} className="h-full w-full object-cover" muted playsInline preload="metadata" />
+                        <span className="pointer-events-none absolute inset-0 grid place-items-center bg-black/30 text-white">
+                          <Icon name="play_circle" size={28} />
+                        </span>
+                      </>
+                    ) : (
+                      <img src={preview} alt={`תמונה ${i + 1}`} className="h-full w-full object-cover" />
+                    )}
                     <button
                       type="button"
-                      onClick={() => removeFile(i)}
-                      className="absolute left-1.5 top-1.5 grid h-6 w-6 place-items-center rounded-full bg-black/60 text-white"
-                      aria-label="הסרת תמונה"
+                      onClick={() => removeMedia(i)}
+                      className="absolute left-1.5 top-1.5 grid h-6 w-6 place-items-center rounded-full bg-black/60 text-white hover:bg-black/80"
+                      aria-label="הסרת קובץ"
                     >
                       <Icon name="close" size={14} />
                     </button>
@@ -205,13 +354,20 @@ export function Faults() {
                 <button
                   type="button"
                   onClick={() => fileRef.current?.click()}
-                  className="flex aspect-square flex-col items-center justify-center gap-1 rounded-[11px] border border-dashed border-border bg-surface-2 text-text-3 hover:border-accent-2"
+                  className="flex aspect-square flex-col items-center justify-center gap-1 rounded-[11px] border border-dashed border-border bg-surface-2 text-text-3 hover:border-accent-2 hover:text-ink"
                 >
                   <Icon name="add" size={24} />
                   <span className="text-[11px] font-semibold">הוספה</span>
                 </button>
               </div>
-              <div className="text-[12px] text-text-3">{files.length} תמונות נבחרו</div>
+              <div className="text-[12px] text-text-3">
+                {media.length} קבצים נבחרו
+                {media.some((m) => m.isVideo) && media.some((m) => !m.isVideo)
+                  ? " · תמונות וסרטונים"
+                  : media.every((m) => m.isVideo)
+                    ? " · סרטונים"
+                    : " · תמונות"}
+              </div>
             </div>
           )}
 

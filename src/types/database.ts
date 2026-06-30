@@ -3,27 +3,33 @@
 export type UserRole =
   | "super_admin"
   | "manager"
-  | "department_manager"
   | "shift_manager"
   | "office_manager"
   | "employee"
   | "maintenance";
 
 export type Availability = "prefer" | "available" | "cannot";
+/** How an employee's pay is computed. hourly = hours×rate; tips = tip pool, floored at their hourly_rate. */
+export type WageType = "hourly" | "tips";
 export type FaultStatus = "needs_handling" | "in_progress" | "handled";
 export type AgreementType = "work" | "sexual_harassment" | "other";
 export type TaskType = "one_time" | "recurring";
 export type TaskStatus = "open" | "in_progress" | "done";
+/** Manager-approval state for maintenance tasks. null = no approval needed. */
+export type TaskApproval = "pending" | "approved";
 export type OrderStatus = "requested" | "ordered" | "received";
+/** Kind of action recorded in the inventory audit log (inventory_logs.action). */
+export type InventoryAction = "created" | "count" | "edited" | "waste" | "order";
 
 /** Feature keys that can be toggled per business (business_features.feature_key). */
 export type FeatureKey =
   | "agreements"
-  | "forms"
   | "shifts"
+  | "shift_reports"
   | "payroll"
   | "attendance"
   | "inventory"
+  | "waste"
   | "faults"
   | "events"
   | "tasks";
@@ -36,6 +42,8 @@ export interface Business {
   location_lng: number | null;
   location_address: string | null;
   location_radius_m: number | null;
+  /** Require manager approval for tasks a shift manager assigns to a maintenance worker. */
+  maintenance_task_approval: boolean;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -67,6 +75,8 @@ export interface Profile {
   phone: string | null;
   role: UserRole;
   hourly_rate: number | null;
+  /** Pay model. For tips employees hourly_rate is the per-shift minimum (top-up floor). */
+  wage_type: WageType;
   active: boolean;
   created_at: string;
   updated_at: string;
@@ -94,6 +104,9 @@ export interface AgreementTemplate {
   type: AgreementType;
   title: string;
   content: string;
+  file_url: string | null;
+  /** null = fixed template for all employees; set = dynamic per-employee agreement */
+  employee_id: string | null;
   is_editable: boolean;
   created_by: string | null;
   created_at: string;
@@ -119,6 +132,25 @@ export interface Form101 {
   data: Record<string, unknown>;
   submitted: boolean;
   submitted_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** סוג מסמך פיננסי שהועלה ע״י מנהלת המשרד */
+export type ReceiptType = "tax_invoice" | "tax_invoice_receipt" | "receipt";
+
+/** חשבונית / קבלה שהועלתה למערכת */
+export interface OfficeReceipt {
+  id: string;
+  business_id: string;
+  type: ReceiptType;
+  amount: number;
+  vendor_name: string;
+  vendor_details: string | null;
+  document_date: string | null;
+  file_url: string;
+  notes: string | null;
+  created_by: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -167,7 +199,61 @@ export interface Tip {
   amount: number;
   hours: number | null;
   hourly_from_tips: number | null;
+  /** When the tip was generated from a shift report, links back to it. */
+  shift_report_id: string | null;
   created_at: string;
+}
+
+/** A single tip participant inside a shift report (saved into extra.tip_participants and tips). */
+export interface ShiftReportParticipant {
+  employee_id: string;
+  hours: number;
+}
+
+/** A dynamic sales counter line (e.g. "קוקטיילים": 36). */
+export interface ShiftReportSalesItem {
+  label: string;
+  count: number;
+}
+
+/** Free-form extra payload stored as jsonb on shift_reports. */
+export interface ShiftReportExtra {
+  tip_participants?: ShiftReportParticipant[];
+  sales_items?: ShiftReportSalesItem[];
+  top_seller?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * End-of-shift summary / cash-register closing report filled by the shift lead
+ * (אחראי משמרת). Financial fields drive payroll tips; narrative fields capture
+ * the team debrief.
+ */
+export interface ShiftReport {
+  id: string;
+  business_id: string;
+  report_date: string;
+  shift_template_id: string | null;
+  manager_names: string | null;
+  total_sales: number;
+  delivery_sales: number;
+  avg_per_diner: number;
+  total_tips: number;
+  service_pct: number;
+  tips_hourly: number;
+  first_release: string | null;
+  energy_level: number | null;
+  unusual_events: string | null;
+  team_talks: string | null;
+  team_voice: string | null;
+  daily_tasks_done: boolean;
+  urgent_inventory: string | null;
+  faults_maintenance: string | null;
+  extra: ShiftReportExtra;
+  invoice_urls: string[];
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface PayrollRecord {
@@ -189,6 +275,9 @@ export interface InventoryItem {
   name: string;
   unit: string | null;
   image_url: string | null;
+  min_quantity: number;
+  /** 0=Sunday … 6=Saturday (JS getDay). null = not set */
+  supplier_delivery_day: number | null;
   active: boolean;
   created_at: string;
 }
@@ -209,6 +298,31 @@ export interface InventoryOrder {
   quantity: number;
   status: OrderStatus;
   ordered_by: string | null;
+  batch_id: string | null;
+  created_at: string;
+}
+
+export interface InventoryWaste {
+  id: string;
+  business_id: string;
+  item_id: string;
+  employee_id: string | null;
+  quantity: number;
+  note: string | null;
+  deducted: boolean;
+  created_at: string;
+}
+
+/** Audit-log entry: who changed an inventory item, what, and when. */
+export interface InventoryLog {
+  id: string;
+  business_id: string;
+  item_id: string;
+  employee_id: string | null;
+  action: InventoryAction;
+  previous_qty: number | null;
+  new_qty: number | null;
+  note: string | null;
   created_at: string;
 }
 
@@ -237,9 +351,10 @@ export interface EventRecord {
 export interface TaskTemplate {
   id: string;
   business_id: string;
+  department_id: string | null;
   title: string;
   description: string | null;
-  recurrence_weekday: number | null;
+  recurrence_weekday: number | null; // -1 = כל יום, 0-6 = יום בשבוע
   active: boolean;
   sort_order: number;
   created_at: string;
@@ -255,8 +370,12 @@ export interface Task {
   assigned_to: string | null;
   assigned_by: string | null;
   due_date: string | null;
-  recurrence_weekday: number | null;
+  recurrence_weekday: number | null; // -1 = כל יום, 0-6 = יום בשבוע
   status: TaskStatus;
+  approval_status: TaskApproval | null;
+  /** @deprecated single photo kept for backward compat — use media_urls. */
+  photo_url: string | null;
+  media_urls: string[];
   completed_at: string | null;
   created_at: string;
   updated_at: string;
