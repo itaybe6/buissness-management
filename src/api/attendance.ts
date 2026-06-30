@@ -43,6 +43,34 @@ export function useAttendanceMonth(businessId: string | null, monthISO: string) 
   });
 }
 
+/** A single employee's attendance rows within a month (yyyy-mm), newest first. */
+export function useEmployeeAttendanceMonth(
+  businessId: string | null,
+  employeeId: string | null | undefined,
+  monthISO: string,
+) {
+  return useQuery({
+    queryKey: ["attendance_month", businessId, employeeId, monthISO],
+    enabled: !!businessId && !!employeeId,
+    queryFn: async (): Promise<Attendance[]> => {
+      const start = `${monthISO}-01T00:00:00`;
+      const d = new Date(`${monthISO}-01`);
+      d.setMonth(d.getMonth() + 1);
+      const end = d.toISOString();
+      const { data, error } = await supabase
+        .from("attendance")
+        .select("*")
+        .eq("business_id", businessId)
+        .eq("employee_id", employeeId)
+        .gte("clock_in", start)
+        .lt("clock_in", end)
+        .order("clock_in", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as Attendance[];
+    },
+  });
+}
+
 export function useClockIn(businessId: string | null) {
   const qc = useQueryClient();
   return useMutation({

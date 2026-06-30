@@ -122,6 +122,18 @@ export function AppShell() {
           className="sticky top-0 z-30 flex flex-none items-center gap-3 border-b border-border bg-surface/90 px-4 backdrop-blur-md md:gap-4 md:px-[26px]"
           style={{ paddingTop: "max(0px, var(--safe-top))", height: "calc(58px + var(--safe-top))" }}
         >
+          {isEmployeeMobile && (
+            <button
+              type="button"
+              onClick={() => setMenuOpen(true)}
+              aria-label="פתח תפריט"
+              aria-expanded={menuOpen}
+              className="btn-press grid h-10 w-10 flex-none place-items-center rounded-[11px] border border-border bg-surface text-text-2 hover:bg-surface-2 md:hidden"
+            >
+              <Icon name="menu" size={22} />
+            </button>
+          )}
+
           <div className="flex min-w-0 flex-1 items-center gap-2.5 md:hidden">
             {!isEmployeeMobile && (
               <div className="grid h-9 w-9 flex-none place-items-center rounded-[10px] [background:var(--accent)]">
@@ -198,18 +210,6 @@ export function AppShell() {
               </>
             )}
           </div>
-
-          {isEmployeeMobile && (
-            <button
-              type="button"
-              onClick={() => setMenuOpen(true)}
-              aria-label="פתח תפריט"
-              aria-expanded={menuOpen}
-              className="btn-press order-last grid h-10 w-10 flex-none place-items-center rounded-[11px] border border-border bg-surface text-text-2 hover:bg-surface-2 md:hidden"
-            >
-              <Icon name="menu" size={22} />
-            </button>
-          )}
         </header>
 
         <main

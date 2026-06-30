@@ -32,9 +32,18 @@ import {
 import { useDepartments } from "@/api/departments";
 import { useProfiles } from "@/api/users";
 import { useBusiness } from "@/api/businesses";
+import { EmployeeShiftPunch } from "@/components/attendance/EmployeeShiftPunch";
 import { TaskWeekSchedule } from "@/components/tasks/TaskWeekSchedule";
 import { DailyTasksChecklist, useDailyTaskActions, taskMedia, isVideoUrl } from "@/components/tasks/DailyTasksChecklist";
 import type { Department, Task, TaskTemplate, TaskType } from "@/types/database";
+
+function greeting() {
+  const h = new Date().getHours();
+  if (h < 12) return "בוקר טוב";
+  if (h < 17) return "צהריים טובים";
+  if (h < 21) return "ערב טוב";
+  return "לילה טוב";
+}
 
 type ManagerTab = "assign" | "templates";
 type ListTab = TaskType;
@@ -52,13 +61,15 @@ export function Tasks() {
 /* ============================== Employee ============================== */
 
 function EmployeeTasksView({ businessId, profileId }: { businessId: string; profileId: string }) {
-  const { profile } = useAuth();
+  const { profile, hasFeature } = useAuth();
   const { data: tasks, isLoading, isError, refetch } = useTasks(businessId);
   const { data: templates, isLoading: tplLoading } = useTaskTemplates(businessId);
   const { data: departments, isLoading: deptLoading } = useDepartments(businessId);
   const { data: users } = useProfiles(businessId);
+  const { data: business } = useBusiness(businessId);
   const update = useUpdateTask(businessId);
   const { todayTasks, setStatus, setMedia } = useDailyTaskActions(businessId, profileId, profile?.department_id ?? null);
+  const [weekOpen, setWeekOpen] = useState(false);
 
   if (isLoading || tplLoading || deptLoading) return <PageLoader />;
   if (isError) return <ErrorState onRetry={refetch} />;
@@ -68,65 +79,70 @@ function EmployeeTasksView({ businessId, profileId }: { businessId: string; prof
   const doneCount = total - remaining;
   const todayLabel = new Date().toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long" });
   const mine = (tasks ?? []).filter((t) => t.assigned_to === profileId && t.approval_status !== "pending");
+  const firstName = (profile?.full_name ?? "").split(/\s+/)[0];
 
   return (
-    <div className="mx-auto max-w-[760px] animate-fadeUp">
-      <PageHeader title="המשימות שלי להיום" subtitle={todayLabel} />
-
-      {total > 0 && <TodayProgress total={total} done={doneCount} />}
-
-      <DailyTasksChecklist tasks={todayTasks} businessId={businessId} onStatus={setStatus} onMedia={setMedia} />
-
-      <div className="my-8 border-t border-border" />
-
-      <TaskWeekSchedule
-        tasks={mine}
-        templates={templates ?? []}
-        employees={users ?? []}
-        departments={departments ?? []}
-        employeeFilter={profileId}
-        onToggle={(id, done) =>
-          update.mutate({ id, status: done ? "open" : "done", completed_at: done ? null : new Date().toISOString() })
-        }
-      />
-    </div>
-  );
-}
-
-/** Today's progress: completion ring + encouraging headline. Shown only when there are tasks. */
-function TodayProgress({ total, done }: { total: number; done: number }) {
-  const pct = Math.round((done / total) * 100);
-  const allDone = done === total;
-  const accent = allDone ? "var(--success)" : "var(--accent-2)";
-
-  return (
-    <Card className="mb-5 flex items-center gap-4 p-4 sm:p-5">
-      <div
-        className="grid h-16 w-16 flex-none place-items-center rounded-full transition-[background] duration-500"
-        style={{ background: `conic-gradient(${accent} ${pct * 3.6}deg, var(--border-2) 0deg)` }}
-        role="img"
-        aria-label={`${pct}% הושלמו`}
-      >
-        <div className="grid h-[52px] w-[52px] place-items-center rounded-full bg-surface">
-          {allDone ? (
-            <Icon name="check" size={26} style={{ color: "var(--success)" }} />
-          ) : (
-            <span className="text-[15px] font-extrabold tabular-nums" style={{ color: accent }}>
-              {pct}%
+    <div className="employee-home mx-auto max-w-[640px] animate-fadeUp pb-2">
+      <header className="employee-home-hero mb-5 overflow-hidden rounded-[22px] border border-border/70 px-4 py-5 sm:px-5">
+        <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-text-3">{business?.name ?? "העסק שלך"}</p>
+        <h1 className="mt-1 text-[clamp(1.35rem,5vw,1.75rem)] font-extrabold tracking-tight text-text">
+          {greeting()}
+          {firstName ? `, ${firstName}` : ""}
+        </h1>
+        <p className="mt-1 text-[13px] text-text-2">{todayLabel}</p>
+        {total > 0 && (
+          <div className="mt-4 flex items-center gap-3 rounded-[14px] border border-border/60 bg-surface/80 px-3 py-2.5">
+            <span
+              className="grid h-10 w-10 flex-none place-items-center rounded-full text-[12px] font-extrabold tabular-nums"
+              style={{
+                background: doneCount === total ? "var(--success-bg)" : "var(--accent-tint)",
+                color: doneCount === total ? "var(--success)" : "var(--accent-2)",
+              }}
+            >
+              {doneCount}/{total}
             </span>
-          )}
-        </div>
-      </div>
+            <div className="min-w-0 text-[12.5px] leading-snug text-text-2">
+              {remaining === 0 ? "סיימת את כל משימות היום" : `${remaining} משימות ממתינות לטיפול`}
+            </div>
+          </div>
+        )}
+      </header>
 
-      <div className="min-w-0">
-        <div className="text-[16.5px] font-extrabold tracking-tight">
-          {allDone ? "כל הכבוד! סיימת להיום 🎉" : done === 0 ? "בוא נתחיל ביום" : "אתה בקצב טוב"}
-        </div>
-        <div className="mt-0.5 text-[13px] text-text-2">
-          {allDone ? `כל ${total} המשימות הושלמו` : `${done} מתוך ${total} משימות הושלמו`}
-        </div>
-      </div>
-    </Card>
+      {hasFeature("attendance") && <EmployeeShiftPunch />}
+
+      <DailyTasksChecklist
+        tasks={todayTasks}
+        businessId={businessId}
+        onStatus={setStatus}
+        onMedia={setMedia}
+        variant="employee"
+      />
+
+      <section className="mt-6">
+        <button
+          type="button"
+          onClick={() => setWeekOpen((v) => !v)}
+          className="press flex w-full items-center justify-between rounded-[16px] border border-border/70 bg-surface px-4 py-3.5 text-right shadow-sm"
+        >
+          <span className="text-[14px] font-bold text-text">לוח שבועי</span>
+          <Icon name={weekOpen ? "expand_less" : "expand_more"} size={22} className="text-text-3" />
+        </button>
+        {weekOpen && (
+          <div className="mt-3 overflow-hidden rounded-[18px] border border-border/70 bg-surface p-2 sm:p-3">
+            <TaskWeekSchedule
+              tasks={mine}
+              templates={templates ?? []}
+              employees={users ?? []}
+              departments={departments ?? []}
+              employeeFilter={profileId}
+              onToggle={(id, done) =>
+                update.mutate({ id, status: done ? "open" : "done", completed_at: done ? null : new Date().toISOString() })
+              }
+            />
+          </div>
+        )}
+      </section>
+    </div>
   );
 }
 

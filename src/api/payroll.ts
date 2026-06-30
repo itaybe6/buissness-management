@@ -24,6 +24,34 @@ export function useTips(businessId: string | null, monthISO: string) {
   });
 }
 
+/** A single employee's tips within a month (yyyy-mm), newest shift first. */
+export function useEmployeeTips(
+  businessId: string | null,
+  employeeId: string | null | undefined,
+  monthISO: string,
+) {
+  return useQuery({
+    queryKey: ["tips", businessId, employeeId, monthISO],
+    enabled: !!businessId && !!employeeId,
+    queryFn: async (): Promise<Tip[]> => {
+      const start = `${monthISO}-01`;
+      const d = new Date(start);
+      d.setMonth(d.getMonth() + 1);
+      const end = d.toISOString().slice(0, 10);
+      const { data, error } = await supabase
+        .from("tips")
+        .select("*")
+        .eq("business_id", businessId)
+        .eq("employee_id", employeeId)
+        .gte("shift_date", start)
+        .lt("shift_date", end)
+        .order("shift_date", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as Tip[];
+    },
+  });
+}
+
 export function useAddTip(businessId: string | null) {
   const qc = useQueryClient();
   return useMutation({

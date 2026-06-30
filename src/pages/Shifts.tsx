@@ -17,8 +17,11 @@ import {
 } from "@/api/shifts";
 import { SCHEDULER_ROLES } from "@/lib/constants";
 import {
-  formatShiftPrefsDeadline,
-  formatShiftPrefsDeadlineRule,
+  formatShiftPrefsClose,
+  formatShiftPrefsCloseRule,
+  formatShiftPrefsOpen,
+  formatShiftPrefsWindowRule,
+  getShiftPrefsWindowStatus,
   isShiftPrefsOpenForWeek,
 } from "@/lib/shift-deadline";
 import type { Availability, Profile } from "@/types/database";
@@ -237,10 +240,13 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const deadlineDow = business?.shift_prefs_deadline_dow;
-  const deadlineTime = business?.shift_prefs_deadline_time;
-  const canEdit = isShiftPrefsOpenForWeek(wk, deadlineDow, deadlineTime);
-  const hasDeadline = deadlineDow != null && deadlineTime != null;
+  const closeDow = business?.shift_prefs_deadline_dow;
+  const closeTime = business?.shift_prefs_deadline_time;
+  const openDow = business?.shift_prefs_open_dow;
+  const openTime = business?.shift_prefs_open_time;
+  const windowStatus = getShiftPrefsWindowStatus(wk, closeDow, closeTime, openDow, openTime);
+  const canEdit = isShiftPrefsOpenForWeek(wk, closeDow, closeTime, openDow, openTime);
+  const hasWindow = closeDow != null && closeTime != null;
 
   const prefMap = useMemo(() => {
     const m = new Map<string, "available" | "cannot">();
@@ -324,17 +330,35 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
         </div>
       )}
 
-      {hasDeadline && !canEdit && (
+      {hasWindow && windowStatus.state === "closed" && (
         <div className="mb-3 flex items-center gap-2 rounded-[11px] border border-warning/30 [background:var(--warning-bg)] px-3.5 py-2.5 text-[13px] font-semibold text-warning">
           <Icon name="lock" size={18} />
-          המועד להגשת זמינות לשבוע זה הסתיים ({formatShiftPrefsDeadline(wk, deadlineDow, deadlineTime)}).
+          המועד להגשת זמינות לשבוע זה הסתיים ({formatShiftPrefsClose(wk, closeDow!, closeTime!)}).
         </div>
       )}
 
-      {hasDeadline && canEdit && wk === nextWk && (
+      {hasWindow && windowStatus.state === "not_yet_open" && openDow != null && openTime != null && (
+        <div className="mb-3 flex items-center gap-2 rounded-[11px] border border-warning/30 [background:var(--warning-bg)] px-3.5 py-2.5 text-[13px] font-semibold text-warning">
+          <Icon name="hourglass_empty" size={18} />
+          חלון ההגשה לשבוע זה עדיין לא נפתח — ייפתח ב-
+          {formatShiftPrefsOpen(wk, openDow, openTime, closeDow!)}.
+        </div>
+      )}
+
+      {hasWindow && canEdit && wk === nextWk && (
         <div className="mb-3 flex items-center gap-2 rounded-[11px] border border-info/30 [background:var(--info-bg)] px-3.5 py-2.5 text-[13px] font-semibold text-info">
           <Icon name="schedule" size={18} />
-          ניתן לעדכן עד {formatShiftPrefsDeadline(wk, deadlineDow, deadlineTime)} · {formatShiftPrefsDeadlineRule(deadlineDow, deadlineTime)}
+          {openDow != null && openTime != null ? (
+            <>
+              חלון פתוח: {formatShiftPrefsWindowRule(openDow, openTime, closeDow!, closeTime!)} · נסגר ב-
+              {formatShiftPrefsClose(wk, closeDow!, closeTime!)}
+            </>
+          ) : (
+            <>
+              ניתן לעדכן עד {formatShiftPrefsClose(wk, closeDow!, closeTime!)} ·{" "}
+              {formatShiftPrefsCloseRule(closeDow!, closeTime!)}
+            </>
+          )}
         </div>
       )}
 

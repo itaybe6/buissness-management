@@ -134,7 +134,9 @@ create table public.businesses (
   attendance_geofence_enabled boolean not null default true,
   -- מתג: לדרוש אישור מנהל למשימות שאחראי משמרת מוריד לאיש אחזקה
   maintenance_task_approval boolean not null default false,
-  -- מועד אחרון להגשת זמינות לשבוע הבא (יום+שעה בשבוע הנוכחי; null = ללא הגבלה)
+  -- חלון הגשת זמינות לשבוע הבא (יום+שעה; null = ללא הגבלה / פתוח מההתחלה)
+  shift_prefs_open_dow smallint check (shift_prefs_open_dow is null or (shift_prefs_open_dow >= 0 and shift_prefs_open_dow <= 6)),
+  shift_prefs_open_time time default '21:00',
   shift_prefs_deadline_dow smallint check (shift_prefs_deadline_dow is null or (shift_prefs_deadline_dow >= 0 and shift_prefs_deadline_dow <= 6)),
   shift_prefs_deadline_time time default '20:00',
   created_by  uuid references auth.users(id),

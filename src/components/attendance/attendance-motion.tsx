@@ -96,7 +96,7 @@ export const GeofenceRadar = memo(function GeofenceRadar({ active }: { active: b
   );
 });
 
-export function LiveClockDigits({ time }: { time: string }) {
+export function LiveClockDigits({ time, compact }: { time: string; compact?: boolean }) {
   const reduce = useReducedMotion();
 
   return (
@@ -105,7 +105,9 @@ export function LiveClockDigits({ time }: { time: string }) {
       initial={reduce ? false : { opacity: 0.4, transform: "translateY(6px)" }}
       animate={{ opacity: 1, transform: "translateY(0)" }}
       transition={{ duration: 0.18, ease: EASE_OUT }}
-      className="font-mono text-[clamp(2.75rem,8vw,4.25rem)] font-bold tabular-nums leading-none tracking-tighter text-text"
+      className={`font-mono font-bold tabular-nums leading-none tracking-tighter text-text ${
+        compact ? "text-[clamp(2rem,7vw,2.75rem)]" : "text-[clamp(2.75rem,8vw,4.25rem)]"
+      }`}
     >
       {time}
     </motion.div>

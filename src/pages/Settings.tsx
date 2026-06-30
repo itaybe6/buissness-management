@@ -17,8 +17,12 @@ import {
   useDeleteShiftTemplate,
 } from "@/api/shifts";
 import { useBusinessId, HE_DAYS } from "@/lib/db";
-import { formatShiftPrefsDeadlineRule } from "@/lib/shift-deadline";
-import { PageEnter, PressableCard, StaggerGrid, StaggerItem } from "@/components/motion/shared-motion";
+import {
+  formatShiftPrefsCloseRule,
+  formatShiftPrefsOpenRule,
+  formatShiftPrefsWindowRule,
+} from "@/lib/shift-deadline";
+import { PageEnter, StaggerGrid, StaggerItem } from "@/components/motion/shared-motion";
 
 const SHIFT_COLORS = ["#eab308", "#fdab3d", "#ef4444", "#7c3aed", "#0d9488", "#2563eb"];
 
@@ -75,51 +79,66 @@ export function Settings() {
         </div>
       </header>
 
-      <StaggerGrid className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
+      <StaggerGrid className="settings-grid mt-6">
         <SettingsTile
           icon="store"
           label="שם העסק"
           value={biz.name}
-          hint="דשבורד, דוחות וממשק עובדים"
-          accent="var(--accent)"
+          sub="דשבורד, דוחות וממשק עובדים"
+          tint="var(--accent-tint)"
+          color="var(--accent-2)"
+          delay={0}
           onClick={() => setPanel("name")}
         />
         <SettingsTile
           icon="location_on"
           label="כתובת לשעון נוכחות"
           value={biz.location_address?.split(",")[0] ?? "לא הוגדרה"}
-          hint={biz.attendance_geofence_enabled ? "בדיקת GPS פעילה" : "בדיקת GPS כבויה"}
-          accent="var(--info)"
+          sub={biz.attendance_geofence_enabled ? "בדיקת GPS פעילה" : "בדיקת GPS כבויה"}
+          tint="var(--info-bg)"
+          color="var(--info)"
+          delay={60}
           onClick={() => setPanel("location")}
         />
         <SettingsTile
           icon="verified_user"
           label="אישור משימות אחזקה"
-          value={biz.maintenance_task_approval ? "דרוש אישור מנהל" : "ללא אישור"}
-          hint="משימות מאחראי משמרת"
-          accent="var(--success)"
+          value={biz.maintenance_task_approval ? "דרוש אישור" : "ללא אישור"}
+          sub="משימות מאחראי משמרת"
+          tint="var(--success-bg)"
+          color="var(--success)"
+          delay={120}
           onClick={() => setPanel("maintenance")}
         />
         <SettingsTile
-          icon="event_busy"
-          label="מועד הגשה לשבוע הבא"
+          icon="event_available"
+          label="חלון הגשה לשבוע הבא"
           value={
             biz.shift_prefs_deadline_dow != null
-              ? formatShiftPrefsDeadlineRule(
-                  biz.shift_prefs_deadline_dow,
-                  biz.shift_prefs_deadline_time?.slice(0, 5) ?? "20:00"
-                )
+              ? biz.shift_prefs_open_dow != null
+                ? formatShiftPrefsWindowRule(
+                    biz.shift_prefs_open_dow,
+                    biz.shift_prefs_open_time?.slice(0, 5) ?? "21:00",
+                    biz.shift_prefs_deadline_dow,
+                    biz.shift_prefs_deadline_time?.slice(0, 5) ?? "20:00"
+                  )
+                : formatShiftPrefsCloseRule(
+                    biz.shift_prefs_deadline_dow,
+                    biz.shift_prefs_deadline_time?.slice(0, 5) ?? "20:00"
+                  )
               : "ללא הגבלה"
           }
-          hint="זמינות עובדים למשמרות"
-          accent="var(--warning)"
+          sub="זמינות עובדים למשמרות"
+          tint="var(--warning-bg)"
+          color="var(--warning)"
+          delay={180}
           onClick={() => setPanel("deadline")}
         />
         <SettingsTile
           icon="category"
           label="מחלקות"
           value={deptCount > 0 ? `${deptCount} מחלקות` : "אין מחלקות"}
-          hint={
+          sub={
             deptCount > 0
               ? (departments ?? [])
                   .slice(0, 2)
@@ -127,15 +146,19 @@ export function Settings() {
                   .join(" · ")
               : "הוסיפו מטבח, בר, מלצרות…"
           }
-          accent="#fdab3d"
+          tint="color-mix(in srgb, #fdab3d 14%, var(--surface))"
+          color="#c27803"
+          delay={240}
           onClick={() => setPanel("departments")}
         />
         <SettingsTile
           icon="schedule"
           label="שעות משמרת"
           value={`${activeShifts} פעילות`}
-          hint={`${templates?.length ?? 0} משמרות מוגדרות`}
-          accent="var(--accent-2)"
+          sub={`${templates?.length ?? 0} משמרות מוגדרות`}
+          tint="var(--accent-tint)"
+          color="var(--accent-2)"
+          delay={300}
           onClick={() => setPanel("shifts")}
         />
       </StaggerGrid>
@@ -154,51 +177,48 @@ function SettingsTile({
   icon,
   label,
   value,
-  hint,
-  accent,
+  sub,
+  tint,
+  color,
+  delay,
   onClick,
 }: {
   icon: string;
   label: string;
   value: string;
-  hint: string;
-  accent: string;
+  sub: string;
+  tint: string;
+  color: string;
+  delay: number;
   onClick: () => void;
 }) {
   return (
     <StaggerItem>
-      <PressableCard>
-        <button
-          type="button"
-          onClick={onClick}
-          className="settings-tile group relative w-full overflow-hidden rounded-[20px] border border-border/70 bg-surface p-4 text-start shadow-[0_12px_32px_-12px_rgba(15,23,20,0.08)] transition-[border-color,box-shadow] hover:border-accent/30 sm:p-5"
-        >
-          <div
-            className="pointer-events-none absolute -left-6 -top-6 h-24 w-24 rounded-full blur-2xl transition-opacity group-hover:opacity-70"
-            style={{ background: accent, opacity: 0.14 }}
-          />
-          <div className="relative flex items-start justify-between gap-2">
-            <span
-              className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]"
-              style={{ background: accent }}
-            >
-              <Icon name={icon} size={20} className="text-white" />
-            </span>
-            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-surface-2 text-text-3 opacity-0 transition group-hover:opacity-100">
-              <Icon name="edit" size={16} />
-            </span>
+      <button
+        type="button"
+        onClick={onClick}
+        className="settings-tile dash-kpi dash-rise group w-full p-4 text-start sm:p-[18px]"
+        style={{ ["--rise-delay" as string]: `${delay}ms` }}
+      >
+        <div className="relative flex items-center justify-between gap-2">
+          <span
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-[11px]"
+            style={{ background: tint, color }}
+          >
+            <Icon name={icon} size={21} />
+          </span>
+          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-surface-2 text-text-3 opacity-0 transition-opacity group-hover:opacity-100">
+            <Icon name="chevron_left" size={17} />
+          </span>
+        </div>
+        <div className="relative mt-3 min-w-0">
+          <div className="text-[11.5px] font-bold uppercase tracking-wide text-text-3">{label}</div>
+          <div className="mt-1 line-clamp-2 text-[19px] font-extrabold leading-snug tracking-tight text-text sm:text-[21px]">
+            {value}
           </div>
-          <div className="relative mt-4 min-w-0">
-            <div className="truncate text-[clamp(1.05rem,2.5vw,1.25rem)] font-extrabold leading-snug tracking-tight text-text">
-              {value}
-            </div>
-            <div className="mt-1.5">
-              <div className="text-[12px] font-semibold text-text-2">{label}</div>
-              <div className="mt-0.5 truncate text-[11.5px] text-text-3">{hint}</div>
-            </div>
-          </div>
-        </button>
-      </PressableCard>
+          <div className="mt-1.5 truncate text-[12px] font-semibold text-text-2">{sub}</div>
+        </div>
+      </button>
     </StaggerItem>
   );
 }
@@ -468,20 +488,31 @@ function ShiftPrefsDeadlineModal({
   const { data: biz } = useBusiness(businessId);
   const update = useUpdateBusiness();
   const [draftEnabled, setDraftEnabled] = useState<boolean | null>(null);
-  const [dow, setDow] = useState<number | null>(null);
-  const [time, setTime] = useState<string | null>(null);
+  const [openDow, setOpenDow] = useState<number | null>(null);
+  const [openTime, setOpenTime] = useState<string | null>(null);
+  const [closeDow, setCloseDow] = useState<number | null>(null);
+  const [closeTime, setCloseTime] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
   if (!biz) return null;
 
   const isEnabled = draftEnabled ?? biz.shift_prefs_deadline_dow != null;
-  const dowV = dow ?? biz.shift_prefs_deadline_dow ?? 2;
-  const timeV = time ?? biz.shift_prefs_deadline_time?.slice(0, 5) ?? "20:00";
-  const savedTime = biz.shift_prefs_deadline_time?.slice(0, 5) ?? "20:00";
+  const openDowV = openDow ?? biz.shift_prefs_open_dow ?? 6;
+  const openTimeV = openTime ?? biz.shift_prefs_open_time?.slice(0, 5) ?? "21:00";
+  const closeDowV = closeDow ?? biz.shift_prefs_deadline_dow ?? 2;
+  const closeTimeV = closeTime ?? biz.shift_prefs_deadline_time?.slice(0, 5) ?? "20:00";
+  const savedOpenDow = biz.shift_prefs_open_dow ?? 6;
+  const savedOpenTime = biz.shift_prefs_open_time?.slice(0, 5) ?? "21:00";
+  const savedCloseDow = biz.shift_prefs_deadline_dow ?? 2;
+  const savedCloseTime = biz.shift_prefs_deadline_time?.slice(0, 5) ?? "20:00";
   const unchanged =
     isEnabled === (biz.shift_prefs_deadline_dow != null) &&
-    (!isEnabled || (dowV === (biz.shift_prefs_deadline_dow ?? 2) && timeV === savedTime));
+    (!isEnabled ||
+      (openDowV === savedOpenDow &&
+        openTimeV === savedOpenTime &&
+        closeDowV === savedCloseDow &&
+        closeTimeV === savedCloseTime));
 
   function handleToggle(on: boolean) {
     if (!biz) return;
@@ -489,18 +520,37 @@ function ShiftPrefsDeadlineModal({
     setSaved(false);
     if (!on) {
       setDraftEnabled(false);
-      setDow(null);
-      setTime(null);
+      setOpenDow(null);
+      setOpenTime(null);
+      setCloseDow(null);
+      setCloseTime(null);
       update.mutate({
         id: businessId,
+        shift_prefs_open_dow: null,
+        shift_prefs_open_time: null,
         shift_prefs_deadline_dow: null,
         shift_prefs_deadline_time: null,
       });
       return;
     }
     setDraftEnabled(true);
-    setDow(biz.shift_prefs_deadline_dow ?? 2);
-    setTime(biz.shift_prefs_deadline_time?.slice(0, 5) ?? "20:00");
+    const nextOpenDow = biz.shift_prefs_open_dow ?? 6;
+    const nextOpenTime = biz.shift_prefs_open_time?.slice(0, 5) ?? "21:00";
+    const nextCloseDow = biz.shift_prefs_deadline_dow ?? 2;
+    const nextCloseTime = biz.shift_prefs_deadline_time?.slice(0, 5) ?? "20:00";
+    setOpenDow(nextOpenDow);
+    setOpenTime(nextOpenTime);
+    setCloseDow(nextCloseDow);
+    setCloseTime(nextCloseTime);
+    if (biz.shift_prefs_deadline_dow == null) {
+      update.mutate({
+        id: businessId,
+        shift_prefs_open_dow: nextOpenDow,
+        shift_prefs_open_time: `${nextOpenTime}:00`,
+        shift_prefs_deadline_dow: nextCloseDow,
+        shift_prefs_deadline_time: `${nextCloseTime}:00`,
+      });
+    }
   }
 
   function handleSave() {
@@ -509,16 +559,20 @@ function ShiftPrefsDeadlineModal({
     update.mutate(
       {
         id: businessId,
-        shift_prefs_deadline_dow: dowV,
-        shift_prefs_deadline_time: `${timeV}:00`,
+        shift_prefs_open_dow: openDowV,
+        shift_prefs_open_time: `${openTimeV}:00`,
+        shift_prefs_deadline_dow: closeDowV,
+        shift_prefs_deadline_time: `${closeTimeV}:00`,
       },
       {
         onSuccess: () => {
           setMsg(null);
           setSaved(true);
           setDraftEnabled(null);
-          setDow(null);
-          setTime(null);
+          setOpenDow(null);
+          setOpenTime(null);
+          setCloseDow(null);
+          setCloseTime(null);
         },
         onError: () => setMsg("שמירה נכשלה"),
       }
@@ -529,10 +583,10 @@ function ShiftPrefsDeadlineModal({
     <Modal
       open={open}
       onClose={onClose}
-      title="מועד הגשה לשבוע הבא"
-      subtitle="קבעו עד איזה יום ושעה בשבוע הנוכחי עובדים יכולים לעדכן זמינות לשבוע הבא"
-      icon="event_busy"
-      maxWidth={520}
+      title="חלון הגשה לשבוע הבא"
+      subtitle="קבעו מתי נפתח ומתי נסגר חלון עדכון הזמינות לשבוע הבא"
+      icon="event_available"
+      maxWidth={560}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
@@ -540,7 +594,7 @@ function ShiftPrefsDeadlineModal({
           </Button>
           {isEnabled && (
             <Button icon="save" loading={update.isPending} disabled={unchanged} onClick={handleSave}>
-              שמירת מועד
+              שמירת חלון
             </Button>
           )}
         </>
@@ -548,49 +602,112 @@ function ShiftPrefsDeadlineModal({
     >
       <ModalBody>
         <div className="settings-toggle-row">
-          <div className="settings-toggle-label">הגבלת מועד הגשה</div>
+          <div className="settings-toggle-label">הגבלת חלון הגשה</div>
           <Switch checked={isEnabled} onChange={handleToggle} />
         </div>
 
         {isEnabled && (
           <>
-            <p className="text-[13px] font-semibold text-text-2">
-              {formatShiftPrefsDeadlineRule(dowV, timeV)}
-            </p>
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
-              <label className="block flex-1">
-                <span className="label-text">יום בשבוע</span>
-                <select
-                  className="field mt-1.5 w-full"
-                  value={dowV}
-                  onChange={(e) => {
-                    setDow(Number(e.target.value));
-                    setMsg(null);
-                    setSaved(false);
-                  }}
-                >
-                  {HE_DAYS.map((label, i) => (
-                    <option key={i} value={i}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block sm:w-36">
-                <span className="label-text">שעה</span>
-                <input
-                  type="time"
-                  value={timeV}
-                  onChange={(e) => {
-                    setTime(e.target.value);
-                    setMsg(null);
-                    setSaved(false);
-                  }}
-                  className="field mt-1.5 w-full"
-                  style={{ direction: "ltr" }}
-                />
-              </label>
+            <div className="settings-window-preview">
+              <Icon name="schedule" size={18} className="text-accent-2" />
+              <span>
+                {formatShiftPrefsWindowRule(openDowV, openTimeV, closeDowV, closeTimeV)} · לשבוע הבא
+              </span>
             </div>
+
+            <div className="settings-window-block">
+              <div className="settings-window-block-head">
+                <Icon name="lock_open" size={17} className="text-success" />
+                <span>פתיחה</span>
+              </div>
+              <p className="settings-window-block-desc">
+                {formatShiftPrefsOpenRule(openDowV, openTimeV)} — מרגע זה עובדים יכולים להתחיל לעדכן
+              </p>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+                <label className="block flex-1">
+                  <span className="label-text">יום פתיחה</span>
+                  <select
+                    className="field mt-1.5 w-full"
+                    value={openDowV}
+                    onChange={(e) => {
+                      setOpenDow(Number(e.target.value));
+                      setMsg(null);
+                      setSaved(false);
+                    }}
+                  >
+                    {HE_DAYS.map((label, i) => (
+                      <option key={i} value={i}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block sm:w-36">
+                  <span className="label-text">שעה</span>
+                  <input
+                    type="time"
+                    value={openTimeV}
+                    onChange={(e) => {
+                      setOpenTime(e.target.value);
+                      setMsg(null);
+                      setSaved(false);
+                    }}
+                    className="field mt-1.5 w-full"
+                    style={{ direction: "ltr" }}
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="settings-window-block">
+              <div className="settings-window-block-head">
+                <Icon name="lock" size={17} className="text-warning" />
+                <span>סגירה</span>
+              </div>
+              <p className="settings-window-block-desc">
+                {formatShiftPrefsCloseRule(closeDowV, closeTimeV)} — לאחר מכן הטופס ננעל
+              </p>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+                <label className="block flex-1">
+                  <span className="label-text">יום סגירה</span>
+                  <select
+                    className="field mt-1.5 w-full"
+                    value={closeDowV}
+                    onChange={(e) => {
+                      setCloseDow(Number(e.target.value));
+                      setMsg(null);
+                      setSaved(false);
+                    }}
+                  >
+                    {HE_DAYS.map((label, i) => (
+                      <option key={i} value={i}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block sm:w-36">
+                  <span className="label-text">שעה</span>
+                  <input
+                    type="time"
+                    value={closeTimeV}
+                    onChange={(e) => {
+                      setCloseTime(e.target.value);
+                      setMsg(null);
+                      setSaved(false);
+                    }}
+                    className="field mt-1.5 w-full"
+                    style={{ direction: "ltr" }}
+                  />
+                </label>
+              </div>
+            </div>
+
+            <p className="text-[12px] leading-relaxed text-text-3">
+              לדוגמה: פתיחה בשבת 21:00 וסגירה בשלישי 20:00 — עובדים יוכלו להגיש זמינות לשבוע הבא רק בין
+              שני המועדים.
+            </p>
+
             {msg && <span className="text-[13px] font-semibold text-danger">{msg}</span>}
             {saved && !msg && !update.isPending && (
               <span className="text-[13px] font-semibold text-success">נשמר בהצלחה</span>

@@ -71,9 +71,9 @@ export function MobileSideDrawer({
             role="dialog"
             aria-modal="true"
             aria-label="תפריט ניווט"
-            initial={reduce ? false : { opacity: 0, transform: "translateX(-100%)" }}
+            initial={reduce ? false : { opacity: 0, transform: "translateX(100%)" }}
             animate={{ opacity: 1, transform: "translateX(0)" }}
-            exit={reduce ? undefined : { opacity: 0, transform: "translateX(-100%)" }}
+            exit={reduce ? undefined : { opacity: 0, transform: "translateX(100%)" }}
             transition={reduce ? undefined : { duration: 0.28, ease: EASE_OUT }}
             className="mobile-drawer fixed top-0 z-[60] flex h-[100dvh] w-[min(288px,calc(100vw-48px))] flex-col md:hidden"
             style={{
