@@ -42,6 +42,8 @@ export interface Business {
   location_lng: number | null;
   location_address: string | null;
   location_radius_m: number | null;
+  /** When true, employees must clock in within location_radius_m of the business address. */
+  attendance_geofence_enabled: boolean;
   /** Require manager approval for tasks a shift manager assigns to a maintenance worker. */
   maintenance_task_approval: boolean;
   created_by: string | null;

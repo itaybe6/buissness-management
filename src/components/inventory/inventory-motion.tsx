@@ -5,10 +5,6 @@ const EASE_OUT: [number, number, number, number] = [0.23, 1, 0.32, 1];
 
 export function InventoryTabBar({
   tab,
-<<<<<<< HEAD
-  pending: _pending,
-=======
->>>>>>> a037aa1474cf6694a900794a50193c5055ceb385
   onChange,
   tabs,
 }: {

@@ -60,13 +60,8 @@ export function AppShell() {
     <div className="flex min-h-[100dvh]">
       {/* Sidebar — desktop only */}
       <aside
-<<<<<<< HEAD
         className="sticky top-0 hidden h-[100dvh] w-[var(--sw)] flex-none flex-col border-l border-white/[0.06] md:flex"
-        style={{ background: "linear-gradient(178deg,#1d1432,#0f0a1a)" }}
-=======
-        className="sticky top-0 hidden h-screen w-[var(--sw)] flex-none flex-col border-l border-border md:flex"
         style={{ background: "linear-gradient(178deg, var(--sidebar-plum), var(--sidebar-plum-deep))" }}
->>>>>>> a037aa1474cf6694a900794a50193c5055ceb385
       >
         <div className="flex items-center gap-3 px-[18px] pb-4 pt-5">
           <div className="grid h-[38px] w-[38px] flex-none place-items-center rounded-[11px] [background:var(--accent)] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]">
@@ -116,12 +111,10 @@ export function AppShell() {
 
       {/* Main column */}
       <div className="flex min-w-0 flex-1 flex-col">
-<<<<<<< HEAD
         <header
           className="sticky top-0 z-30 flex flex-none items-center gap-3 border-b border-border bg-surface/90 px-4 backdrop-blur-md md:gap-4 md:px-[26px]"
           style={{ paddingTop: "max(0px, var(--safe-top))", height: "calc(58px + var(--safe-top))" }}
         >
-          {/* Mobile brand */}
           <div className="flex min-w-0 flex-1 items-center gap-2.5 md:hidden">
             <div className="grid h-9 w-9 flex-none place-items-center rounded-[10px] [background:var(--accent)]">
               <Icon name="hub" size={20} className="text-white" />
@@ -133,25 +126,6 @@ export function AppShell() {
               </div>
             </div>
           </div>
-=======
-        {/* Topbar */}
-        <header className="sticky top-0 z-30 flex h-[66px] flex-none items-center gap-4 border-0 bg-surface px-4 shadow-header md:px-[26px]">
-          {/* Mobile brand — fills the otherwise-empty header on phones */}
-          <div className="flex min-w-0 items-center gap-2.5 md:hidden">
-            <div className="grid h-9 w-9 flex-none place-items-center rounded-[10px] [background:var(--accent)]">
-              <Icon name="hub" size={19} className="text-white" />
-            </div>
-            <div className="min-w-0">
-              <div className="truncate text-[14.5px] font-extrabold leading-tight tracking-tight">
-                {isSuperAdmin ? "אופק" : business?.name ?? "—"}
-              </div>
-              <div className="text-[10.5px] leading-tight text-text-3">ניהול עסקים</div>
-            </div>
-          </div>
-
-          <div className="hidden flex-1 md:block" />
-          <div className="flex-1 md:hidden" />
->>>>>>> a037aa1474cf6694a900794a50193c5055ceb385
 
           <div className="hidden flex-1 md:block" />
 
@@ -199,18 +173,15 @@ export function AppShell() {
                   </div>
                   <div className="p-1.5">
                     <button
-<<<<<<< HEAD
-                      onClick={handleLogout}
-                      className="btn-press flex w-full items-center gap-3 rounded-[9px] px-3 py-2.5 text-right text-[13.5px] text-danger hover:[background:var(--danger-bg)]"
-                    >
-=======
                       onClick={() => { setProfileOpen(false); navigate("/profile"); }}
-                      className="flex w-full items-center gap-3 rounded-[9px] px-3 py-2.5 text-right text-[13.5px] hover:bg-surface-2"
+                      className="btn-press flex w-full items-center gap-3 rounded-[9px] px-3 py-2.5 text-right text-[13.5px] hover:bg-surface-2"
                     >
                       <Icon name="person" size={19} /> הפרופיל שלי
                     </button>
-                    <button onClick={handleLogout} className="flex w-full items-center gap-3 rounded-[9px] px-3 py-2.5 text-right text-[13.5px] text-danger hover:[background:var(--danger-bg)]">
->>>>>>> a037aa1474cf6694a900794a50193c5055ceb385
+                    <button
+                      onClick={handleLogout}
+                      className="btn-press flex w-full items-center gap-3 rounded-[9px] px-3 py-2.5 text-right text-[13.5px] text-danger hover:[background:var(--danger-bg)]"
+                    >
                       <Icon name="logout" size={19} /> התנתקות
                     </button>
                   </div>
@@ -220,7 +191,6 @@ export function AppShell() {
           </div>
         </header>
 
-<<<<<<< HEAD
         <main
           className="flex-1 overflow-x-hidden overflow-y-auto px-4 pb-[var(--mobile-nav-h)] pt-4 md:px-[30px] md:pb-7 md:pt-7"
         >
@@ -239,33 +209,6 @@ export function AppShell() {
       </div>
 
       <MobileBottomNav items={navItems} currentKey={currentKey} />
-=======
-        <main className="flex-1 overflow-auto bg-bg px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] pt-[18px] md:px-[30px] md:pb-7 md:pt-7">
-          <Outlet />
-        </main>
-      </div>
-
-      {/* Mobile bottom nav */}
-      <nav className="mobile-nav md:hidden" aria-label="ניווט ראשי">
-        {navItems.slice(0, 5).map((item) => {
-          const active = currentKey === item.key || (item.key === "dashboard" && currentKey === "");
-          return (
-            <NavLink
-              key={item.key}
-              to={`/${item.key}`}
-              className="mobile-nav-item"
-              data-active={active}
-              aria-current={active ? "page" : undefined}
-            >
-              <span className="mobile-nav-icon">
-                <Icon name={item.icon} size={24} fill={active} />
-              </span>
-              <span className="mobile-nav-label">{item.label}</span>
-            </NavLink>
-          );
-        })}
-      </nav>
->>>>>>> a037aa1474cf6694a900794a50193c5055ceb385
     </div>
   );
 }

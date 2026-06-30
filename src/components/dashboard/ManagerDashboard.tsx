@@ -11,7 +11,6 @@ import { useInventory } from "@/api/inventory";
 import { useWaste } from "@/api/waste";
 import { useAttendanceToday } from "@/api/attendance";
 import { Icon } from "@/components/ui";
-import { NAV_ITEMS } from "@/lib/constants";
 import type { FeatureKey } from "@/types/database";
 import { AreaChart, BarChart, CountUp, DonutChart, RadialGauge, Sparkline } from "./charts";
 
@@ -328,14 +327,6 @@ export function ManagerDashboard() {
   const heToday = now.toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long" });
   const firstName = profile?.full_name?.trim().split(/\s+/)[0] ?? "";
 
-  /* ---------- quick links ---------- */
-  const quickLinks = NAV_ITEMS.filter(
-    (i) =>
-      i.roles.includes("manager") &&
-      !["dashboard", "platform"].includes(i.key) &&
-      (!i.feature || on(i.feature) || i.key === "users" || i.key === "settings")
-  ).filter((i, idx, arr) => arr.findIndex((x) => x.key === i.key) === idx);
-
   return (
     <div className="w-full space-y-4 xl:space-y-5">
       {/* ---------------- Hero ---------------- */}
@@ -585,29 +576,6 @@ export function ManagerDashboard() {
             </div>
           </Panel>
         )}
-      </div>
-
-      {/* ---------------- Quick links ---------------- */}
-      <div>
-        <div className="mb-3 mt-1 flex items-center gap-2 text-[13px] font-extrabold uppercase tracking-wide text-text-3">
-          <Icon name="bolt" size={16} />
-          גישה מהירה
-        </div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {quickLinks.map((item, i) => (
-            <Link
-              key={item.key}
-              to={`/${item.key}`}
-              className="dash-quick dash-rise"
-              style={{ ["--rise-delay" as string]: `${420 + i * 35}ms` } as React.CSSProperties}
-            >
-              <span className="dash-quick-icon">
-                <Icon name={item.icon} size={22} />
-              </span>
-              <span className="text-[14px] font-bold text-text">{item.label}</span>
-            </Link>
-          ))}
-        </div>
       </div>
     </div>
   );

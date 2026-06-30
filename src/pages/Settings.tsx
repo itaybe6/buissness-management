@@ -176,6 +176,8 @@ function LocationCard({ businessId }: { businessId: string }) {
   const latV = lat ?? (addressDirty ? null : biz.location_lat);
   const lngV = lng ?? (addressDirty ? null : biz.location_lng);
   const hasCoords = latV != null && lngV != null;
+  const geofenceEnabled = biz.attendance_geofence_enabled;
+  const radiusM = biz.location_radius_m ?? ATTENDANCE_RADIUS_M;
 
   function handleSave() {
     setMsg(null);
@@ -210,8 +212,19 @@ function LocationCard({ businessId }: { businessId: string }) {
       icon="location_on"
       tone="info"
       title="כתובת לשעון נוכחות"
-      desc={`העובדים יוכלו להחתים נוכחות רק במרחק של עד ${ATTENDANCE_RADIUS_M} מטר מהכתובת.`}
+      desc={
+        geofenceEnabled
+          ? `כשבדיקת הרדיוס פעילה, עובדים יוכלו להחתים נוכחות רק במרחק של עד ${radiusM} מטר מהכתובת.`
+          : "בדיקת הרדיוס כבויה — ניתן להחתים נוכחות מכל מקום. אפשר עדיין להגדיר כתובת לתצוגה."
+      }
     >
+      <div className="settings-toggle-row mb-4">
+        <div className="settings-toggle-label">דרישת מיקום GPS ברדיוס מהכתובת</div>
+        <Switch
+          checked={geofenceEnabled}
+          onChange={(v) => update.mutate({ id: businessId, attendance_geofence_enabled: v })}
+        />
+      </div>
       <label className="block">
         <span className="label-text">כתובת העסק</span>
         <div className="mt-1.5">
@@ -237,7 +250,7 @@ function LocationCard({ businessId }: { businessId: string }) {
       </label>
       {hasCoords && (
         <div className="mt-3 flex flex-wrap items-center gap-2 text-[12.5px] text-text-3">
-          <Badge tone="violet">רדיוס: {ATTENDANCE_RADIUS_M} מ׳</Badge>
+          <Badge tone="violet">רדיוס: {radiusM} מ׳</Badge>
           <span style={{ direction: "ltr" }}>
             {latV!.toFixed(6)}, {lngV!.toFixed(6)}
           </span>

@@ -130,6 +130,8 @@ create table public.businesses (
   location_lat   double precision,
   location_lng   double precision,
   location_radius_m integer default 100,
+  -- מתג: לדרוש מיקום GPS ברדיוס בהחתמת נוכחות
+  attendance_geofence_enabled boolean not null default true,
   -- מתג: לדרוש אישור מנהל למשימות שאחראי משמרת מוריד לאיש אחזקה
   maintenance_task_approval boolean not null default false,
   created_by  uuid references auth.users(id),
