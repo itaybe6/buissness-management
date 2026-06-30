@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { motion, useReducedMotion } from "motion/react";
 import { Icon } from "./Icon";
 import { EASE_OUT } from "@/components/motion/shared-motion";
@@ -30,20 +31,21 @@ export function Modal({ open, onClose, title, subtitle, icon, children, footer, 
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div
       onClick={onClose}
-      className="fixed inset-0 z-[100] flex items-end justify-center bg-ink/50 p-0 backdrop-blur-[3px] sm:items-center sm:p-5"
+      className="fixed inset-0 z-[100] overflow-y-auto bg-ink/50 backdrop-blur-[3px]"
     >
-      <motion.div
-        onClick={(e) => e.stopPropagation()}
-        initial={reduce ? false : { opacity: 0, transform: "translateY(100%)" }}
-        animate={{ opacity: 1, transform: "translateY(0)" }}
-        exit={reduce ? undefined : { opacity: 0, transform: "translateY(100%)" }}
-        transition={{ duration: 0.28, ease: EASE_OUT }}
-        className="flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-[22px] border border-border bg-surface shadow-lg sm:max-h-[90vh] sm:animate-pop sm:rounded-[18px]"
-        style={{ maxWidth: maxWidth }}
-      >
+      <div className="flex min-h-full items-end justify-center p-0 sm:items-center sm:p-5">
+        <motion.div
+          onClick={(e) => e.stopPropagation()}
+          initial={reduce ? false : { opacity: 0, transform: "translateY(100%)" }}
+          animate={{ opacity: 1, transform: "translateY(0)" }}
+          exit={reduce ? undefined : { opacity: 0, transform: "translateY(100%)" }}
+          transition={{ duration: 0.28, ease: EASE_OUT }}
+          className="flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-[22px] border border-border bg-surface shadow-lg sm:my-auto sm:max-h-[min(90dvh,calc(100dvh-2.5rem))] sm:animate-pop sm:rounded-[18px]"
+          style={{ maxWidth: maxWidth }}
+        >
         <div className="mx-auto mt-2.5 h-1 w-9 shrink-0 rounded-full bg-border sm:hidden" aria-hidden />
         <div className="flex items-center justify-between border-b border-border px-5 py-4 sm:px-[22px] sm:py-5">
           <div className="flex min-w-0 items-center gap-3">
@@ -71,7 +73,9 @@ export function Modal({ open, onClose, title, subtitle, icon, children, footer, 
             {footer}
           </div>
         )}
-      </motion.div>
-    </div>
+        </motion.div>
+      </div>
+    </div>,
+    document.body
   );
 }

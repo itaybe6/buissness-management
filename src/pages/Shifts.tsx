@@ -4,6 +4,7 @@ import { Badge, Card, EmptyState, ErrorState, Icon, PageLoader } from "@/compone
 import { useAuth } from "@/lib/auth";
 import { useBusinessId, HE_DAYS, addDays, formatDateShort, weekStart, todayISO, colorFor, initialsOf } from "@/lib/db";
 import { useDepartments } from "@/api/departments";
+import { useBusiness } from "@/api/businesses";
 import { useProfiles } from "@/api/users";
 import {
   useActiveShiftTemplates,
@@ -15,6 +16,11 @@ import {
   useRemoveAssignment,
 } from "@/api/shifts";
 import { SCHEDULER_ROLES } from "@/lib/constants";
+import {
+  formatShiftPrefsDeadline,
+  formatShiftPrefsDeadlineRule,
+  isShiftPrefsOpenForWeek,
+} from "@/lib/shift-deadline";
 import type { Availability, Profile } from "@/types/database";
 
 const AVAIL_META: Record<"available" | "cannot", { label: string; short: string; bg: string; color: string; border: string }> = {
@@ -222,6 +228,7 @@ function EmployeeSchedule({ templates }: { templates: NonNullable<ReturnType<typ
 function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<typeof useActiveShiftTemplates>["data"]> }) {
   const businessId = useBusinessId();
   const { profile } = useAuth();
+  const { data: business } = useBusiness(businessId);
   const nextWk = addDays(weekStart(), 7);
   const [wk, setWk] = useState(nextWk);
   const { data: prefs, isLoading, error, refetch } = useShiftPreferences(businessId, wk, profile?.id);
@@ -229,6 +236,11 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
   const clearPref = useClearPreference(businessId);
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  const deadlineDow = business?.shift_prefs_deadline_dow;
+  const deadlineTime = business?.shift_prefs_deadline_time;
+  const canEdit = isShiftPrefsOpenForWeek(wk, deadlineDow, deadlineTime);
+  const hasDeadline = deadlineDow != null && deadlineTime != null;
 
   const prefMap = useMemo(() => {
     const m = new Map<string, "available" | "cannot">();
@@ -251,7 +263,7 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
   }, [templates, prefMap, wk]);
 
   async function setAvailability(templateId: string, date: string, value: Availability | null) {
-    if (!profile?.id || !businessId) return;
+    if (!profile?.id || !businessId || !canEdit) return;
     const key = `${templateId}_${date}`;
     setPending((s) => new Set(s).add(key));
     setSaveError(null);
@@ -312,6 +324,20 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
         </div>
       )}
 
+      {hasDeadline && !canEdit && (
+        <div className="mb-3 flex items-center gap-2 rounded-[11px] border border-warning/30 [background:var(--warning-bg)] px-3.5 py-2.5 text-[13px] font-semibold text-warning">
+          <Icon name="lock" size={18} />
+          המועד להגשת זמינות לשבוע זה הסתיים ({formatShiftPrefsDeadline(wk, deadlineDow, deadlineTime)}).
+        </div>
+      )}
+
+      {hasDeadline && canEdit && wk === nextWk && (
+        <div className="mb-3 flex items-center gap-2 rounded-[11px] border border-info/30 [background:var(--info-bg)] px-3.5 py-2.5 text-[13px] font-semibold text-info">
+          <Icon name="schedule" size={18} />
+          ניתן לעדכן עד {formatShiftPrefsDeadline(wk, deadlineDow, deadlineTime)} · {formatShiftPrefsDeadlineRule(deadlineDow, deadlineTime)}
+        </div>
+      )}
+
       <Card className="overflow-hidden !p-0 shadow-sm">
         <div className="shift-grid-wrap">
           <div className="shift-grid min-w-[720px]">
@@ -328,16 +354,18 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
                       <button
                         type="button"
                         title="כל המשמרות ביום זה — יכול"
+                        disabled={!canEdit}
                         onClick={() => fillDay(i, "available")}
-                        className="rounded-md px-1.5 py-0.5 text-[10px] font-bold text-info transition hover:[background:var(--info-bg)]"
+                        className="rounded-md px-1.5 py-0.5 text-[10px] font-bold text-info transition hover:[background:var(--info-bg)] disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         הכל יכול
                       </button>
                       <button
                         type="button"
                         title="נקה יום"
+                        disabled={!canEdit}
                         onClick={() => clearDay(i)}
-                        className="rounded-md px-1.5 py-0.5 text-[10px] font-bold text-text-3 transition hover:bg-surface-2"
+                        className="rounded-md px-1.5 py-0.5 text-[10px] font-bold text-text-3 transition hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         נקה
                       </button>
@@ -370,6 +398,7 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
                       <AvailabilityCell
                         value={cur}
                         saving={isSaving}
+                        disabled={!canEdit}
                         onSet={(v) => setAvailability(t.id, date, v)}
                       />
                     </div>
@@ -381,7 +410,12 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
         </div>
 
         <div className="flex flex-wrap items-center gap-2 border-t border-border px-5 py-3.5 text-[12.5px] text-text-3">
-          {setPref.isPending || clearPref.isPending ? (
+          {!canEdit ? (
+            <>
+              <Icon name="lock" size={16} />
+              הזמינות לשבוע זה נעולה — לא ניתן לערוך
+            </>
+          ) : setPref.isPending || clearPref.isPending ? (
             <>
               <Icon name="sync" size={16} className="animate-spin" />
               שומר...
@@ -401,18 +435,21 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
 function AvailabilityCell({
   value,
   saving,
+  disabled,
   onSet,
 }: {
   value: "available" | "cannot" | null;
   saving?: boolean;
+  disabled?: boolean;
   onSet: (v: Availability | null) => void;
 }) {
   const isAvail = value === "available";
   const isCannot = value === "cannot";
+  const locked = disabled || saving;
 
   return (
     <div
-      className={`flex min-h-[52px] flex-col gap-1 rounded-[10px] border p-1 transition ${saving ? "opacity-60" : ""}`}
+      className={`flex min-h-[52px] flex-col gap-1 rounded-[10px] border p-1 transition ${locked ? "opacity-60" : ""}`}
       style={{
         background: isAvail ? AVAIL_META.available.bg : isCannot ? AVAIL_META.cannot.bg : "var(--surface)",
         borderColor: isAvail ? AVAIL_META.available.border : isCannot ? AVAIL_META.cannot.border : "var(--border)",
@@ -420,7 +457,7 @@ function AvailabilityCell({
     >
       <button
         type="button"
-        disabled={saving}
+        disabled={locked}
         onClick={() => onSet(isAvail ? null : "available")}
         className="seg-btn flex flex-1 items-center justify-center gap-1 rounded-[7px] py-1.5 text-[11.5px] font-bold transition"
         style={
@@ -434,7 +471,7 @@ function AvailabilityCell({
       </button>
       <button
         type="button"
-        disabled={saving}
+        disabled={locked}
         onClick={() => onSet(isCannot ? null : "cannot")}
         className="seg-btn flex flex-1 items-center justify-center gap-1 rounded-[7px] py-1.5 text-[11.5px] font-bold transition"
         style={

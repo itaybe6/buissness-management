@@ -46,6 +46,10 @@ export interface Business {
   attendance_geofence_enabled: boolean;
   /** Require manager approval for tasks a shift manager assigns to a maintenance worker. */
   maintenance_task_approval: boolean;
+  /** Day of week (0=Sun … 6=Sat) in the current week when next-week availability closes. null = no limit. */
+  shift_prefs_deadline_dow: number | null;
+  /** Time on shift_prefs_deadline_dow when submissions close (e.g. "20:00:00"). */
+  shift_prefs_deadline_time: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
