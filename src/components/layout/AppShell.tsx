@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useBusiness } from "@/api/businesses";
@@ -7,6 +7,7 @@ import { useBusinessId } from "@/lib/db";
 import { useTheme } from "@/lib/theme";
 import { Icon } from "@/components/ui";
 import { MobileBottomNav } from "@/components/layout/MobileBottomNav";
+import { MobileSideDrawer } from "@/components/layout/MobileSideDrawer";
 import { EASE_OUT } from "@/components/motion/shared-motion";
 import { NAV_ITEMS, ROLE_LABELS } from "@/lib/constants";
 import type { NavItem } from "@/lib/constants";
@@ -25,9 +26,11 @@ export function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const [profileOpen, setProfileOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const reduce = useReducedMotion();
 
   const role = profile?.role ?? "employee";
+  const isEmployeeMobile = role === "employee";
 
   const navItems: NavItem[] = useMemo(() => {
     const seen = new Set<string>();
@@ -42,12 +45,16 @@ export function AppShell() {
 
   const isSuperAdmin = role === "super_admin";
   const currentKey = location.pathname.replace(/^\//, "").split("/")[0] || "dashboard";
-  const pageTitle = navItems.find((i) => i.key === currentKey)?.label ?? "אופק";
+  const pageTitle = navItems.find((i) => i.key === currentKey)?.label ?? "אביחי";
 
   async function handleLogout() {
     await signOut();
     navigate("/login", { replace: true });
   }
+
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [location.pathname]);
 
   const navLinkClass = (key: string) => {
     const active = currentKey === key || (key === "dashboard" && currentKey === "");
@@ -69,7 +76,7 @@ export function AppShell() {
           </div>
           <div className="min-w-0">
             <div className="truncate text-[16px] font-extrabold tracking-tight text-white">
-              {isSuperAdmin ? "אופק" : business?.name ?? "—"}
+              {isSuperAdmin ? "אביחי" : business?.name ?? "—"}
             </div>
             <div className="text-[11.5px] text-[#8b919c]">ניהול עסקים</div>
           </div>
@@ -116,13 +123,15 @@ export function AppShell() {
           style={{ paddingTop: "max(0px, var(--safe-top))", height: "calc(58px + var(--safe-top))" }}
         >
           <div className="flex min-w-0 flex-1 items-center gap-2.5 md:hidden">
-            <div className="grid h-9 w-9 flex-none place-items-center rounded-[10px] [background:var(--accent)]">
-              <Icon name="hub" size={20} className="text-white" />
-            </div>
-            <div className="min-w-0">
+            {!isEmployeeMobile && (
+              <div className="grid h-9 w-9 flex-none place-items-center rounded-[10px] [background:var(--accent)]">
+                <Icon name="hub" size={20} className="text-white" />
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
               <div className="truncate text-[15px] font-extrabold tracking-tight">{pageTitle}</div>
               <div className="truncate text-[11px] text-text-3">
-                {isSuperAdmin ? "אופק" : business?.name ?? ROLE_LABELS[role]}
+                {isSuperAdmin ? "אביחי" : business?.name ?? ROLE_LABELS[role]}
               </div>
             </div>
           </div>
@@ -189,10 +198,24 @@ export function AppShell() {
               </>
             )}
           </div>
+
+          {isEmployeeMobile && (
+            <button
+              type="button"
+              onClick={() => setMenuOpen(true)}
+              aria-label="פתח תפריט"
+              aria-expanded={menuOpen}
+              className="btn-press order-last grid h-10 w-10 flex-none place-items-center rounded-[11px] border border-border bg-surface text-text-2 hover:bg-surface-2 md:hidden"
+            >
+              <Icon name="menu" size={22} />
+            </button>
+          )}
         </header>
 
         <main
-          className="flex-1 overflow-x-hidden overflow-y-auto px-4 pb-[var(--mobile-nav-h)] pt-4 md:px-[30px] md:pb-7 md:pt-7"
+          className={`flex-1 overflow-x-hidden overflow-y-auto px-4 pt-4 md:px-[30px] md:pb-7 md:pt-7 ${
+            isEmployeeMobile ? "pb-[max(1rem,var(--safe-bottom))]" : "pb-[var(--mobile-nav-h)]"
+          }`}
         >
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
@@ -208,7 +231,20 @@ export function AppShell() {
         </main>
       </div>
 
-      <MobileBottomNav items={navItems} currentKey={currentKey} />
+      {!isEmployeeMobile && <MobileBottomNav items={navItems} currentKey={currentKey} />}
+
+      {isEmployeeMobile && (
+        <MobileSideDrawer
+          open={menuOpen}
+          onClose={() => setMenuOpen(false)}
+          items={navItems}
+          currentKey={currentKey}
+          businessName={business?.name}
+          userName={profile?.full_name}
+          role={role}
+          onLogout={handleLogout}
+        />
+      )}
     </div>
   );
 }

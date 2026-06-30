@@ -146,22 +146,26 @@ function PdfPage({
 }
 
 /**
- * Manager overlay: drag to draw a signature box on the page; click × to remove.
- * Coordinates handed to callbacks are normalized (0..1) to the page size.
+ * Manager overlay: drag on empty space to draw a new signature box; drag an
+ * existing box to move it; click × to remove. Coordinates handed to callbacks
+ * are normalized (0..1) to the page size.
  */
 export function FieldEditorOverlay({
   pageIndex,
   fields,
   onAdd,
   onRemove,
+  onMove,
 }: {
   pageIndex: number;
   fields: SignatureField[];
   onAdd: (f: Omit<SignatureField, "id">) => void;
   onRemove: (id: string) => void;
+  onMove?: (id: string, x: number, y: number) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const start = useRef<{ x: number; y: number } | null>(null);
+  const dragging = useRef<{ id: string; dx: number; dy: number } | null>(null);
   const [draft, setDraft] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
 
   const local = (e: React.PointerEvent) => {
@@ -173,12 +177,31 @@ export function FieldEditorOverlay({
   };
 
   function down(e: React.PointerEvent) {
-    if ((e.target as HTMLElement).dataset.handle) return; // ignore delete clicks
+    const t = e.target as HTMLElement;
+    if (t.dataset.handle) return; // delete button handles itself
     ref.current!.setPointerCapture(e.pointerId);
+    const fieldId = t.dataset.field;
+    if (fieldId && onMove) {
+      const f = fields.find((x) => x.id === fieldId);
+      if (f) {
+        const p = local(e);
+        dragging.current = { id: fieldId, dx: p.x - f.x, dy: p.y - f.y };
+        return;
+      }
+    }
     start.current = local(e);
     setDraft({ ...start.current, w: 0, h: 0 });
   }
   function move(e: React.PointerEvent) {
+    if (dragging.current) {
+      const f = fields.find((x) => x.id === dragging.current!.id);
+      if (!f) return;
+      const p = local(e);
+      const x = Math.min(Math.max(p.x - dragging.current.dx, 0), 1 - f.w);
+      const y = Math.min(Math.max(p.y - dragging.current.dy, 0), 1 - f.h);
+      onMove?.(dragging.current.id, x, y);
+      return;
+    }
     if (!start.current) return;
     const p = local(e);
     setDraft({
@@ -189,6 +212,10 @@ export function FieldEditorOverlay({
     });
   }
   function up() {
+    if (dragging.current) {
+      dragging.current = null;
+      return;
+    }
     if (draft && draft.w > 0.03 && draft.h > 0.015) {
       onAdd({ page: pageIndex, x: draft.x, y: draft.y, w: draft.w, h: draft.h });
     }
@@ -208,7 +235,8 @@ export function FieldEditorOverlay({
       {fields.map((f) => (
         <div
           key={f.id}
-          className="absolute rounded-[4px] border-2 border-dashed border-accent-2 bg-accent-2/10"
+          data-field={f.id}
+          className="absolute cursor-move rounded-[4px] border-2 border-dashed border-accent-2 bg-accent-2/10"
           style={{ left: `${f.x * 100}%`, top: `${f.y * 100}%`, width: `${f.w * 100}%`, height: `${f.h * 100}%` }}
         >
           <button

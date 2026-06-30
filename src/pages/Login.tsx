@@ -53,7 +53,7 @@ export function Login() {
             <Icon name="hub" size={26} className="text-white" />
           </div>
           <div>
-            <div className="text-[21px] font-extrabold tracking-tight">אופק</div>
+            <div className="text-[21px] font-extrabold tracking-tight">אביחי</div>
             <div className="-mt-px text-[12.5px] opacity-80">פלטפורמת ניהול עסקים</div>
           </div>
         </div>
@@ -75,7 +75,7 @@ export function Login() {
             </span>
           </div>
         </div>
-        <div className="relative text-[13px] opacity-70">© 2026 אופק · מערכת לניהול מסעדות, ברים ועסקי שירות</div>
+        <div className="relative text-[13px] opacity-70">© 2026 אביחי · מערכת לניהול מסעדות, ברים ועסקי שירות</div>
       </div>
 
       {/* Form panel */}
@@ -102,7 +102,7 @@ export function Login() {
             <div className="grid h-10 w-10 place-items-center rounded-[11px] [background:var(--ink)]">
               <Icon name="hub" size={23} className="text-accent" />
             </div>
-            <div className="text-[18px] font-extrabold">אופק</div>
+            <div className="text-[18px] font-extrabold">אביחי</div>
           </div>
           <div className="text-[clamp(1.35rem,5vw,1.55rem)] font-extrabold tracking-tight">ברוכים השבים</div>
           <div className="mt-1.5 text-[14.5px] text-text-2">התחברו כדי להמשיך לחשבון העסק שלכם</div>

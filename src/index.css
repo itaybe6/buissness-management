@@ -1744,6 +1744,44 @@ select {
   background: var(--accent-tint);
 }
 
+/* ── Mobile side drawer (employee) ── */
+.mobile-drawer-backdrop {
+  background: rgba(15, 10, 26, 0.52);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.mobile-drawer {
+  inset-inline-end: 0;
+  border-inline-end: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 16px 0 48px -12px rgba(0, 0, 0, 0.35);
+}
+
+.mobile-drawer-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-radius: 11px;
+  padding: 10px 12px;
+  font-size: 14.5px;
+  font-weight: 500;
+  color: #aeb4bf;
+  transition:
+    background-color 160ms var(--ease-out),
+    color 160ms var(--ease-out);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-drawer-link-active {
+  font-weight: 700;
+  color: #fff;
+  background: var(--accent);
+}
+
+.mobile-drawer-link:active:not(.mobile-drawer-link-active) {
+  background: rgba(255, 255, 255, 0.07);
+}
+
 .mobile-sheet-label {
   display: -webkit-box;
   -webkit-line-clamp: 2;
