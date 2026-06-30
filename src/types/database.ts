@@ -9,6 +9,8 @@ export type UserRole =
   | "maintenance";
 
 export type Availability = "prefer" | "available" | "cannot";
+/** How an employee's pay is computed. hourly = hours×rate; tips = tip pool, floored at their hourly_rate. */
+export type WageType = "hourly" | "tips";
 export type FaultStatus = "needs_handling" | "in_progress" | "handled";
 export type AgreementType = "work" | "sexual_harassment" | "other";
 export type TaskType = "one_time" | "recurring";
@@ -22,7 +24,6 @@ export type InventoryAction = "created" | "count" | "edited" | "waste" | "order"
 /** Feature keys that can be toggled per business (business_features.feature_key). */
 export type FeatureKey =
   | "agreements"
-  | "forms"
   | "shifts"
   | "shift_reports"
   | "payroll"
@@ -74,6 +75,8 @@ export interface Profile {
   phone: string | null;
   role: UserRole;
   hourly_rate: number | null;
+  /** Pay model. For tips employees hourly_rate is the per-shift minimum (top-up floor). */
+  wage_type: WageType;
   active: boolean;
   created_at: string;
   updated_at: string;
@@ -273,6 +276,8 @@ export interface InventoryItem {
   unit: string | null;
   image_url: string | null;
   min_quantity: number;
+  /** 0=Sunday … 6=Saturday (JS getDay). null = not set */
+  supplier_delivery_day: number | null;
   active: boolean;
   created_at: string;
 }
@@ -293,6 +298,7 @@ export interface InventoryOrder {
   quantity: number;
   status: OrderStatus;
   ordered_by: string | null;
+  batch_id: string | null;
   created_at: string;
 }
 
@@ -348,7 +354,7 @@ export interface TaskTemplate {
   department_id: string | null;
   title: string;
   description: string | null;
-  recurrence_weekday: number | null;
+  recurrence_weekday: number | null; // -1 = כל יום, 0-6 = יום בשבוע
   active: boolean;
   sort_order: number;
   created_at: string;
@@ -364,7 +370,7 @@ export interface Task {
   assigned_to: string | null;
   assigned_by: string | null;
   due_date: string | null;
-  recurrence_weekday: number | null;
+  recurrence_weekday: number | null; // -1 = כל יום, 0-6 = יום בשבוע
   status: TaskStatus;
   approval_status: TaskApproval | null;
   /** @deprecated single photo kept for backward compat — use media_urls. */

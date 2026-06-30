@@ -314,7 +314,7 @@ function UploadForm({
   const busy = saving || uploading;
 
   return (
-    <Card className="receipt-upload overflow-hidden border-accent/15 shadow-[var(--shadow)]">
+    <Card className="receipt-upload overflow-hidden shadow-[var(--shadow)]">
       <div className="border-b border-border bg-gradient-to-l from-[var(--accent-tint)] to-transparent px-5 py-4">
         <div className="flex items-center gap-3">
           <span className="grid h-11 w-11 place-items-center rounded-[12px] [background:var(--accent)] text-white shadow-sm">

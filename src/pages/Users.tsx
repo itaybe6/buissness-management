@@ -16,9 +16,9 @@ import { useProfiles, useUpdateProfile } from "@/api/users";
 import { useDepartments } from "@/api/departments";
 import { AddUserModal } from "@/components/AddUserModal";
 import { useBusinessId } from "@/lib/db";
-import { ROLE_LABELS } from "@/lib/constants";
+import { ROLE_LABELS, WAGE_TYPE_LABELS } from "@/lib/constants";
 import { colorFor, initialsOf } from "@/lib/db";
-import type { Profile, UserRole } from "@/types/database";
+import type { Profile, UserRole, WageType } from "@/types/database";
 
 const ASSIGNABLE_ROLES: UserRole[] = [
   "shift_manager",
@@ -172,6 +172,7 @@ function EditUserModal({
 }) {
   const [role, setRole] = useState<UserRole>(user.role);
   const [departmentId, setDepartmentId] = useState(user.department_id ?? "");
+  const [wageType, setWageType] = useState<WageType>(user.wage_type ?? "hourly");
   const [hourly, setHourly] = useState(String(user.hourly_rate ?? 0));
   const [active, setActive] = useState(user.active);
   const [error, setError] = useState<string | null>(null);
@@ -192,7 +193,7 @@ function EditUserModal({
             onClick={async () => {
               setError(null);
               try {
-                await onSave({ role, department_id: role === "employee" ? departmentId || null : null, hourly_rate: Number(hourly) || 0, active });
+                await onSave({ role, department_id: role === "employee" ? departmentId || null : null, hourly_rate: Number(hourly) || 0, wage_type: wageType, active });
               } catch (e) {
                 setError(e instanceof Error ? e.message : "שגיאה בשמירה");
               }
@@ -227,9 +228,18 @@ function EditUserModal({
             </Select>
           </label>
         )}
-        <label className="block"><span className="label-text">שכר שעתי (₪)</span>
-          <Input className="mt-1.5" type="number" value={hourly} onChange={(e) => setHourly(e.target.value)} />
-        </label>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block"><span className="label-text">סוג שכר</span>
+            <Select className="mt-1.5" value={wageType} onChange={(e) => setWageType(e.target.value as WageType)}>
+              {(Object.keys(WAGE_TYPE_LABELS) as WageType[]).map((w) => (
+                <option key={w} value={w}>{WAGE_TYPE_LABELS[w]}</option>
+              ))}
+            </Select>
+          </label>
+          <label className="block"><span className="label-text">{wageType === "tips" ? "מינימום לשעה (₪)" : "שכר שעתי (₪)"}</span>
+            <Input className="mt-1.5" type="number" value={hourly} onChange={(e) => setHourly(e.target.value)} />
+          </label>
+        </div>
         <label className="flex cursor-pointer items-center gap-2.5 rounded-[11px] border border-border px-3.5 py-3">
           <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} className="h-[17px] w-[17px]" style={{ accentColor: "var(--accent-2)" }} />
           <span className="text-[14px] font-semibold">משתמש פעיל</span>

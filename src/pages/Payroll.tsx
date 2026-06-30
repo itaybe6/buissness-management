@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
-import { Button, Card, Field, Icon, Input, PageHeader, PageLoader, ErrorState, Select } from "@/components/ui";
+import { Badge, Button, Card, Field, Icon, Input, PageHeader, PageLoader, ErrorState, Select } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/lib/auth";
+import { WAGE_TYPE_LABELS } from "@/lib/constants";
 import { useBusinessId, formatCurrency, initialsOf, colorFor, todayISO } from "@/lib/db";
 import { useProfiles } from "@/api/users";
 import { useAttendanceMonth } from "@/api/attendance";
@@ -28,20 +29,45 @@ export function Payroll() {
   const rows = useMemo(() => {
     const employees = (users ?? []).filter((u) => isPayrollManager || u.id === profile?.id);
     return employees.map((u) => {
+      const rate = Number(u.hourly_rate ?? 0);
+      const wageType = u.wage_type ?? "hourly";
+      const myTips = (tips ?? []).filter((t) => t.employee_id === u.id);
+
+      if (wageType === "tips") {
+        // השכר מגיע מקופת הטיפים, עם רצפת מינימום לכל משמרת בנפרד:
+        // לכל משמרת השכר = שעות × max(תעריף-טיפים-של-המשמרת, התעריף השעתי שלו).
+        const hours = myTips.reduce((s, t) => s + (Number(t.hours) || 0), 0);
+        const tipSum = myTips.reduce((s, t) => s + Number(t.amount), 0);
+        const guaranteed = myTips.reduce((s, t) => {
+          const h = Number(t.hours) || 0;
+          return s + h * Math.max(Number(t.hourly_from_tips) || 0, rate);
+        }, 0);
+        const topup = Math.max(0, guaranteed - tipSum);
+        return { id: u.id, name: u.full_name, wageType, rate, hours, base: tipSum, tips: tipSum, topup, total: guaranteed };
+      }
+
+      // עובד שעתי: שעות נוכחות × תעריף, ללא טיפים.
       const hours = (attendance ?? [])
         .filter((a) => a.employee_id === u.id && a.clock_in && a.clock_out)
         .reduce((sum, a) => sum + (new Date(a.clock_out!).getTime() - new Date(a.clock_in!).getTime()) / 3.6e6, 0);
-      const tipSum = (tips ?? []).filter((t) => t.employee_id === u.id).reduce((s, t) => s + Number(t.amount), 0);
-      const rate = Number(u.hourly_rate ?? 0);
       const base = hours * rate;
-      return { id: u.id, name: u.full_name, hours, rate, base, tips: tipSum, total: base + tipSum };
+      return { id: u.id, name: u.full_name, wageType, rate, hours, base, tips: 0, topup: 0, total: base };
     });
   }, [users, attendance, tips, isPayrollManager, profile?.id]);
 
   if (isLoading) return <PageLoader />;
   if (isError) return <ErrorState onRetry={refetch} />;
 
-  const totals = rows.reduce((acc, r) => ({ hours: acc.hours + r.hours, base: acc.base + r.base, tips: acc.tips + r.tips, total: acc.total + r.total }), { hours: 0, base: 0, tips: 0, total: 0 });
+  const totals = rows.reduce(
+    (acc, r) => ({
+      hours: acc.hours + r.hours,
+      base: acc.base + (r.wageType === "hourly" ? r.base : 0),
+      tips: acc.tips + r.tips,
+      topup: acc.topup + r.topup,
+      total: acc.total + r.total,
+    }),
+    { hours: 0, base: 0, tips: 0, topup: 0, total: 0 },
+  );
 
   return (
     <div className="mx-auto max-w-[1100px] animate-fadeUp">
@@ -56,11 +82,12 @@ export function Payroll() {
         }
       />
 
-      <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-5">
         {[
           { label: "סה״כ שעות", value: Math.round(totals.hours).toLocaleString("he-IL"), icon: "schedule" },
-          { label: "שכר בסיס", value: formatCurrency(totals.base), icon: "payments" },
+          { label: "שכר שעתי", value: formatCurrency(totals.base), icon: "payments" },
           { label: "טיפים", value: formatCurrency(totals.tips), icon: "savings" },
+          { label: "השלמות למינימום", value: formatCurrency(totals.topup), icon: "add_card" },
           { label: "סה״כ לתשלום", value: formatCurrency(totals.total), icon: "account_balance_wallet" },
         ].map((k) => (
           <Card key={k.label} className="p-[18px]">
@@ -73,20 +100,21 @@ export function Payroll() {
 
       <Card className="overflow-hidden">
         <div className="overflow-auto">
-          <div className="min-w-[640px]">
-            <div className="grid grid-cols-[2fr_1fr_1fr_1.2fr_1fr_1.2fr] gap-2 border-b border-border bg-surface-2 px-5 py-3 text-[12px] font-bold text-text-3">
-              <span>עובד</span><span>שעות</span><span>תעריף</span><span>בסיס</span><span>טיפים</span><span>סה״כ</span>
+          <div className="min-w-[720px]">
+            <div className="grid grid-cols-[1.7fr_0.8fr_0.7fr_0.8fr_1fr_0.9fr_1fr] gap-2 border-b border-border bg-surface-2 px-5 py-3 text-[12px] font-bold text-text-3">
+              <span>עובד</span><span>סוג</span><span>שעות</span><span>תעריף</span><span>בסיס / טיפים</span><span>השלמה</span><span>סה״כ</span>
             </div>
             {rows.map((r) => (
-              <div key={r.id} className="grid grid-cols-[2fr_1fr_1fr_1.2fr_1fr_1.2fr] items-center gap-2 border-b border-border-2 px-5 py-3 text-[13.5px]">
+              <div key={r.id} className="grid grid-cols-[1.7fr_0.8fr_0.7fr_0.8fr_1fr_0.9fr_1fr] items-center gap-2 border-b border-border-2 px-5 py-3 text-[13.5px]">
                 <span className="flex min-w-0 items-center gap-2.5">
                   <span className="grid h-8 w-8 flex-none place-items-center rounded-[9px] text-[12px] font-bold text-white" style={{ background: colorFor(r.id) }}>{initialsOf(r.name)}</span>
                   <span className="truncate font-bold">{r.name}</span>
                 </span>
+                <span><Badge tone={r.wageType === "tips" ? "violet" : "neutral"}>{WAGE_TYPE_LABELS[r.wageType]}</Badge></span>
                 <span>{r.hours.toFixed(1)}</span>
-                <span>{formatCurrency(r.rate)}</span>
-                <span>{formatCurrency(r.base)}</span>
-                <span className="text-accent-2">{formatCurrency(r.tips)}</span>
+                <span>{r.rate ? formatCurrency(r.rate) : "—"}</span>
+                <span className={r.wageType === "tips" ? "text-accent-2" : undefined}>{formatCurrency(r.wageType === "tips" ? r.tips : r.base)}</span>
+                <span className="text-text-2">{r.topup > 0 ? formatCurrency(r.topup) : "—"}</span>
                 <span className="font-extrabold">{formatCurrency(r.total)}</span>
               </div>
             ))}
@@ -97,7 +125,7 @@ export function Payroll() {
 
       {tipOpen && (
         <TipModal
-          users={users ?? []}
+          users={(users ?? []).filter((u) => (u.wage_type ?? "hourly") === "tips")}
           templates={(templates ?? []).map((t) => ({ id: t.id, name: t.name }))}
           saving={addTip.isPending}
           onClose={() => setTipOpen(false)}

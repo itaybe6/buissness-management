@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { compressImage } from "@/lib/compressImage";
+import { compressVideo } from "@/lib/compressVideo";
+import { isVideoFile } from "@/lib/media";
 import { supabase } from "@/lib/supabase";
 import type { Fault, FaultStatus } from "@/types/database";
 
@@ -19,12 +21,27 @@ export function useFaults(businessId: string | null) {
   });
 }
 
-export async function uploadFaultPhoto(businessId: string, file: File): Promise<string> {
-  const compressed = await compressImage(file);
-  const path = `${businessId}/${crypto.randomUUID()}.jpg`;
-  const { error } = await supabase.storage.from("faults").upload(path, compressed, {
+/** Upload fault media (images compressed to JPEG; videos re-encoded when possible). */
+export async function uploadFaultMedia(businessId: string, file: File): Promise<string> {
+  const isVideo = isVideoFile(file);
+  let body: File;
+  let ext: string;
+  let contentType: string;
+
+  if (isVideo) {
+    body = await compressVideo(file);
+    ext = (body.name.match(/\.([a-z0-9]+)$/i)?.[1] || "webm").toLowerCase();
+    contentType = body.type || "video/webm";
+  } else {
+    body = await compressImage(file);
+    ext = "jpg";
+    contentType = "image/jpeg";
+  }
+
+  const path = `${businessId}/${crypto.randomUUID()}.${ext}`;
+  const { error } = await supabase.storage.from("faults").upload(path, body, {
     upsert: false,
-    contentType: "image/jpeg",
+    contentType,
   });
   if (error) throw error;
   const { data } = supabase.storage.from("faults").getPublicUrl(path);
@@ -32,7 +49,7 @@ export async function uploadFaultPhoto(businessId: string, file: File): Promise<
 }
 
 export async function uploadFaultPhotos(businessId: string, files: File[]): Promise<string[]> {
-  return Promise.all(files.map((file) => uploadFaultPhoto(businessId, file)));
+  return Promise.all(files.map((file) => uploadFaultMedia(businessId, file)));
 }
 
 export function useCreateFault() {

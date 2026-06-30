@@ -1,4 +1,4 @@
-import type { FeatureKey, UserRole } from "@/types/database";
+import type { FeatureKey, UserRole, WageType } from "@/types/database";
 
 /** Fixed geofence radius for attendance clock-in (meters). */
 export const ATTENDANCE_RADIUS_M = 15;
@@ -12,12 +12,17 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   maintenance: "איש אחזקה",
 };
 
+export const WAGE_TYPE_LABELS: Record<WageType, string> = {
+  hourly: "שעתי",
+  tips: "טיפים",
+};
+
 export const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
   super_admin: "ניהול כל הפלטפורמה",
   manager: "סקירה מלאה של העסק",
   shift_manager: "סידור עבודה, אילוצים, חשבוניות ודוח סגירת קופה",
   office_manager: "שכר, מלאי וחשבוניות",
-  employee: "משמרות, טפסים, נוכחות",
+  employee: "משמרות, נוכחות",
   maintenance: "תקלות בלבד",
 };
 
@@ -35,7 +40,6 @@ export const SCHEDULER_ROLES: UserRole[] = ["manager", "shift_manager"];
 
 export const ALL_FEATURES: { key: FeatureKey; label: string; icon: string; desc: string }[] = [
   { key: "agreements", label: "הסכמים וחתימה דיגיטלית", icon: "draw", desc: "העלאת הסכמים לחתימה דיגיטלית של העובדים" },
-  { key: "forms", label: "טפסים (טופס 101)", icon: "description", desc: "מילוי טופס 101 ומסמכי קליטה במערכת" },
   { key: "shifts", label: "הגשת משמרות וסידור", icon: "calendar_month", desc: "אילוצים שבועיים ובניית סידור עבודה" },
   { key: "shift_reports", label: "דוח סגירת משמרת", icon: "receipt_long", desc: "סיכום משמרת, חשבוניות, סגירת קופה וטיפים" },
   { key: "payroll", label: "חישוב שכר וטיפים", icon: "payments", desc: "שכר שעתי, טיפים וחישוב אוטומטי" },
@@ -76,11 +80,9 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "tasks", label: "משימות", icon: "checklist", roles: ["manager", "shift_manager", "office_manager", "employee", "maintenance"], feature: "tasks" },
   { key: "attendance", label: "שעון נוכחות", icon: "schedule", roles: ["manager", "shift_manager", "employee"], feature: "attendance" },
   { key: "payroll", label: "שכר", icon: "payments", roles: ["manager", "office_manager"], feature: "payroll" },
-  { key: "inventory", label: "סחורות", icon: "inventory_2", roles: ["manager", "shift_manager", "office_manager", "employee"], feature: "inventory" },
-  { key: "waste", label: "בלאי", icon: "delete_sweep", roles: ["manager", "shift_manager", "office_manager", "employee", "maintenance"], feature: "waste" },
+  { key: "inventory", label: "סחורות", icon: "inventory_2", roles: ["manager", "shift_manager", "office_manager", "employee", "maintenance"], feature: "inventory" },
   { key: "faults", label: "תקלות", icon: "build", roles: ["manager", "shift_manager", "employee"], feature: "faults" },
   { key: "agreements", label: "מסמכי עובדים", icon: "draw", roles: ["manager", "shift_manager", "office_manager", "employee"], feature: "agreements" },
-  { key: "form101", label: "טפסים", icon: "description", roles: ["manager", "shift_manager", "office_manager", "employee"], feature: "forms" },
   { key: "events", label: "אירועים", icon: "celebration", roles: ["manager"], feature: "events" },
   { key: "settings", label: "הגדרות עסק", icon: "settings", roles: ["manager"] },
 ];
@@ -95,7 +97,6 @@ export function getHomePath(role: UserRole): string {
 /** Default feature set when creating a new business. */
 export const DEFAULT_FEATURE_STATE: Record<FeatureKey, boolean> = {
   agreements: true,
-  forms: true,
   shifts: true,
   shift_reports: true,
   payroll: true,

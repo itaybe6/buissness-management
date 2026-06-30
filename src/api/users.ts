@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
-import type { Profile, UserRole } from "@/types/database";
+import type { Profile, UserRole, WageType } from "@/types/database";
 
 /** List profiles. Super admin omits businessId to get everyone (RLS allows). */
 export function useProfiles(businessId?: string | null) {
@@ -25,6 +25,7 @@ export interface CreateUserInput {
   department_id?: string | null;
   phone?: string;
   hourly_rate?: number;
+  wage_type?: WageType;
 }
 
 export function useCreateUser() {

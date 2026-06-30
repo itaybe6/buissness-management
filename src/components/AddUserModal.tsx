@@ -3,8 +3,8 @@ import { Modal } from "@/components/ui/Modal";
 import { Button, Field, Icon, Input, Select } from "@/components/ui";
 import { useCreateUser } from "@/api/users";
 import { useDepartments } from "@/api/departments";
-import { ROLE_LABELS } from "@/lib/constants";
-import type { Business, UserRole } from "@/types/database";
+import { ROLE_LABELS, WAGE_TYPE_LABELS } from "@/lib/constants";
+import type { Business, UserRole, WageType } from "@/types/database";
 
 interface Props {
   open: boolean;
@@ -26,6 +26,7 @@ export function AddUserModal({ open, onClose, businessId, businesses, roles }: P
   const [role, setRole] = useState<UserRole>(roles[0] ?? "employee");
   const [bizId, setBizId] = useState<string>(businessId ?? businesses?.[0]?.id ?? "");
   const [departmentId, setDepartmentId] = useState<string>("");
+  const [wageType, setWageType] = useState<WageType>("hourly");
   const [hourlyRate, setHourlyRate] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -45,6 +46,7 @@ export function AddUserModal({ open, onClose, businessId, businesses, roles }: P
         department_id: role === "employee" ? departmentId || null : null,
         phone: phone || undefined,
         hourly_rate: hourlyRate ? Number(hourlyRate) : 0,
+        wage_type: wageType,
       });
       onClose();
       reset();
@@ -54,7 +56,7 @@ export function AddUserModal({ open, onClose, businessId, businesses, roles }: P
   }
 
   function reset() {
-    setFullName(""); setEmail(""); setPhone(""); setPassword(""); setHourlyRate(""); setDepartmentId("");
+    setFullName(""); setEmail(""); setPhone(""); setPassword(""); setHourlyRate(""); setDepartmentId(""); setWageType("hourly");
   }
 
   return (
@@ -113,14 +115,26 @@ export function AddUserModal({ open, onClose, businessId, businesses, roles }: P
         <Field label="אימייל">
           <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} style={{ direction: "ltr", textAlign: "right" }} placeholder="name@business.co.il" />
         </Field>
+        <Field label="טלפון">
+          <Input value={phone} onChange={(e) => setPhone(e.target.value)} style={{ direction: "ltr", textAlign: "right" }} placeholder="050-0000000" />
+        </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="טלפון">
-            <Input value={phone} onChange={(e) => setPhone(e.target.value)} style={{ direction: "ltr", textAlign: "right" }} placeholder="050-0000000" />
+          <Field label="סוג שכר">
+            <Select value={wageType} onChange={(e) => setWageType(e.target.value as WageType)}>
+              {(Object.keys(WAGE_TYPE_LABELS) as WageType[]).map((w) => (
+                <option key={w} value={w}>{WAGE_TYPE_LABELS[w]}</option>
+              ))}
+            </Select>
           </Field>
-          <Field label="שכר שעתי (₪)">
+          <Field label={wageType === "tips" ? "מינימום לשעה (₪)" : "שכר שעתי (₪)"}>
             <Input type="number" value={hourlyRate} onChange={(e) => setHourlyRate(e.target.value)} placeholder="0" />
           </Field>
         </div>
+        {wageType === "tips" && (
+          <div className="-mt-1.5 text-[12px] text-text-2">
+            עובד טיפים מקבל את חלקו מקופת הטיפים. אם בחישוב המשמרת התעריף השעתי יוצא נמוך מהמינימום — משלימים לו עד המינימום שהוזן.
+          </div>
+        )}
         <Field label="סיסמה ראשונית">
           <Input type="text" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="לפחות 6 תווים" />
         </Field>

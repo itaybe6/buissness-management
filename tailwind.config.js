@@ -39,6 +39,8 @@ export default {
         sm: "var(--shadow-sm)",
         DEFAULT: "var(--shadow)",
         lg: "var(--shadow-lg)",
+        card: "var(--shadow-card)",
+        header: "var(--shadow-header)",
       },
       keyframes: {
         fadeUp: { from: { opacity: "0", transform: "translateY(10px)" }, to: { opacity: "1", transform: "none" } },

@@ -142,7 +142,7 @@ export function ShiftReports() {
           report={editing === "new" ? null : editing}
           businessId={businessId!}
           createdBy={profile?.id ?? null}
-          users={(users ?? []).filter((u) => u.active)}
+          users={(users ?? []).filter((u) => u.active && (u.wage_type ?? "hourly") === "tips")}
           templates={templates ?? []}
           userName={userName}
           onClose={() => setEditing(null)}

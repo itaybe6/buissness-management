@@ -1,4 +1,5 @@
 import type { Task, TaskTemplate } from "@/types/database";
+import { matchesRecurrenceWeekday } from "@/lib/taskRecurrence";
 
 export interface PendingTask {
   title: string;
@@ -27,7 +28,7 @@ export function pendingTasksForEmployee(
   templates.forEach((t) => {
     if (
       t.active &&
-      t.recurrence_weekday === weekday &&
+      matchesRecurrenceWeekday(t.recurrence_weekday, weekday) &&
       (t.department_id == null || t.department_id === deptId) &&
       !materializedTemplateIds.has(t.id)
     ) {
@@ -39,7 +40,7 @@ export function pendingTasksForEmployee(
   tasks.forEach((t) => {
     if (t.assigned_to !== profileId || t.approval_status === "pending" || t.status === "done") return;
     if (t.type === "recurring") {
-      if (t.recurrence_weekday === weekday) result.push({ title: t.title, type: "recurring" });
+      if (matchesRecurrenceWeekday(t.recurrence_weekday, weekday)) result.push({ title: t.title, type: "recurring" });
     } else {
       result.push({ title: t.title, type: "one_time" });
     }

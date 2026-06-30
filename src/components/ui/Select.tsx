@@ -160,7 +160,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectHTMLAttributes<HTMLSel
             aria-controls={open ? listboxId : undefined}
             onClick={() => !disabled && setOpen((v) => !v)}
             className={`field flex w-full items-center justify-between gap-2 text-right ${
-              open ? "border-[var(--accent-2)] shadow-[0_0_0_3px_var(--accent-tint)]" : ""
+              open ? "border-[var(--accent-2)] shadow-[0_0_0_3px_var(--focus-ring)]" : ""
             } ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
           >
             <span className={`truncate ${displayLabel ? "text-text" : "text-text-3"}`}>

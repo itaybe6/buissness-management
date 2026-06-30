@@ -95,7 +95,7 @@ export function Card({
 }: { children: ReactNode; className?: string } & React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={`rounded-card border border-border bg-surface shadow-sm ${className}`}
+      className={`rounded-card border-0 bg-surface shadow-card ${className}`}
       {...rest}
     >
       {children}
@@ -172,14 +172,20 @@ export function EmptyState({
   title,
   description,
   action,
+  embedded = false,
 }: {
   icon?: string;
   title: string;
   description?: string;
   action?: ReactNode;
+  embedded?: boolean;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-card border border-dashed border-border bg-surface px-6 py-16 text-center">
+    <div
+      className={`flex flex-col items-center justify-center gap-3 rounded-card px-6 py-16 text-center ${
+        embedded ? "bg-surface-2 py-12" : "border-0 bg-surface shadow-card"
+      }`}
+    >
       <span className="grid h-16 w-16 place-items-center rounded-2xl bg-surface-2 text-text-3">
         <Icon name={icon} size={32} />
       </span>
@@ -205,7 +211,7 @@ export function PageLoader({ label = "טוען..." }: { label?: string }) {
 /* ----------------------------- ErrorState ----------------------------- */
 export function ErrorState({ message, onRetry }: { message?: string; onRetry?: () => void }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-card border border-danger/30 bg-surface px-6 py-12 text-center">
+    <div className="flex flex-col items-center justify-center gap-3 rounded-card border-0 bg-surface px-6 py-12 text-center shadow-card">
       <span className="grid h-14 w-14 place-items-center rounded-2xl [background:var(--danger-bg)] text-danger">
         <Icon name="error" size={28} />
       </span>

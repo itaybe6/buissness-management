@@ -2,10 +2,15 @@ import { Link } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import { Card, Icon } from "@/components/ui";
 import { NAV_ITEMS } from "@/lib/constants";
+import { ManagerDashboard } from "@/components/dashboard/ManagerDashboard";
 
 export function Dashboard() {
   const { profile, hasFeature, features } = useAuth();
   const role = profile?.role ?? "employee";
+
+  if (role === "manager" && profile?.business_id) {
+    return <ManagerDashboard />;
+  }
 
   const quickLinks = NAV_ITEMS.filter(
     (i) =>
@@ -24,7 +29,7 @@ export function Dashboard() {
             { to: "/platform-users", icon: "group", label: "משתמשים", desc: "כל המשתמשים בפלטפורמה" },
           ].map((c) => (
             <Link key={c.to} to={c.to}>
-              <Card className="flex flex-col gap-3 p-5 transition hover:border-accent-2 hover:shadow">
+              <Card className="flex flex-col gap-3 p-5 transition hover:shadow">
                 <span className="grid h-11 w-11 place-items-center rounded-[12px] [background:var(--accent-tint)]">
                   <Icon name={c.icon} size={24} className="text-accent-2" />
                 </span>
@@ -47,7 +52,7 @@ export function Dashboard() {
             <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 lg:grid-cols-4">
               {quickLinks.map((item) => (
                 <Link key={item.key} to={`/${item.key}`}>
-                  <Card className="flex flex-col gap-3 p-5 transition hover:border-accent-2 hover:shadow">
+                  <Card className="flex flex-col gap-3 p-5 transition hover:shadow">
                     <span className="grid h-11 w-11 place-items-center rounded-[12px] [background:var(--accent-tint)]">
                       <Icon name={item.icon} size={24} className="text-accent-2" />
                     </span>

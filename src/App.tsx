@@ -22,8 +22,8 @@ import { Payroll } from "@/pages/Payroll";
 import { Inventory } from "@/pages/Inventory";
 import { Waste } from "@/pages/Waste";
 import { Agreements } from "@/pages/Agreements";
-import { Form101 } from "@/pages/Form101";
 import { Events } from "@/pages/Events";
+import { Profile } from "@/pages/Profile";
 import { FeatureGate } from "@/components/FeatureGate";
 
 function HomeRedirect() {
@@ -70,9 +70,9 @@ export function App() {
         <Route path="waste" element={<FeatureGate feature="waste"><Waste /></FeatureGate>} />
         <Route path="faults" element={<FeatureGate feature="faults"><Faults /></FeatureGate>} />
         <Route path="agreements" element={<FeatureGate feature="agreements"><Agreements /></FeatureGate>} />
-        <Route path="form101" element={<FeatureGate feature="forms"><Form101 /></FeatureGate>} />
         <Route path="events" element={<FeatureGate feature="events"><Events /></FeatureGate>} />
         <Route path="settings" element={<Settings />} />
+        <Route path="profile" element={<Profile />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

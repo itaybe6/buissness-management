@@ -14,7 +14,7 @@ const SPRING = { stiffness: 280, damping: 28, mass: 0.6 };
 const EASE: [number, number, number, number] = [0.32, 0.72, 0, 1];
 
 const MODULE_GROUPS: { id: string; label: string; keys: FeatureKey[] }[] = [
-  { id: "hr", label: "עובדים ומסמכים", keys: ["agreements", "forms"] },
+  { id: "hr", label: "עובדים ומסמכים", keys: ["agreements"] },
   { id: "shifts", label: "משמרות ושכר", keys: ["shifts", "shift_reports", "payroll", "attendance"] },
   { id: "ops", label: "מלאי ותפעול", keys: ["inventory", "waste", "faults", "events", "tasks"] },
 ];
@@ -30,7 +30,6 @@ const MODULE_ART: Record<
   }
 > = {
   agreements: { layout: "cinema", span: "module-capsule--half", decor: "decor-rings" },
-  forms: { layout: "portrait", span: "module-capsule--half", decor: "decor-lines" },
   shifts: { layout: "cinema", span: "module-capsule--lead", decor: "decor-grid" },
   shift_reports: { layout: "portrait", span: "module-capsule--tail", decor: "decor-wave" },
   payroll: { layout: "orbit", span: "module-capsule--third", decor: "decor-dots" },

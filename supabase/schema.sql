@@ -173,7 +173,8 @@ create table public.profiles (
   email       text,
   phone       text,
   role        public.user_role not null default 'employee',
-  hourly_rate numeric(10,2) default 0,  -- שכר שעתי
+  hourly_rate numeric(10,2) default 0,  -- שכר שעתי (לעובד טיפים זהו מינימום/רצפה)
+  wage_type   text not null default 'hourly' check (wage_type in ('hourly', 'tips')), -- שעתי / טיפים
   active      boolean not null default true,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
@@ -183,7 +184,7 @@ create table public.profiles (
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
-  insert into public.profiles (id, email, full_name, business_id, role, department_id, phone, hourly_rate)
+  insert into public.profiles (id, email, full_name, business_id, role, department_id, phone, hourly_rate, wage_type)
   values (
     new.id,
     new.email,
@@ -192,7 +193,8 @@ begin
     coalesce((new.raw_user_meta_data->>'role')::public.user_role, 'employee'),
     (new.raw_user_meta_data->>'department_id')::uuid,
     new.raw_user_meta_data->>'phone',
-    coalesce((new.raw_user_meta_data->>'hourly_rate')::numeric, 0)
+    coalesce((new.raw_user_meta_data->>'hourly_rate')::numeric, 0),
+    coalesce(new.raw_user_meta_data->>'wage_type', 'hourly')
   );
   return new;
 end; $$;
@@ -389,6 +391,7 @@ create table public.inventory_items (
   unit          text,                 -- יחידה (יחידות, ארגז, ק"ג, ליטר)
   image_url     text,                 -- תמונת המוצר ב-Storage
   min_quantity  numeric(12,2) not null default 0,  -- סף מלאי נמוך
+  supplier_delivery_day smallint check (supplier_delivery_day between 0 and 6),  -- יום אספקה מהספק
   active        boolean not null default true,
   created_at    timestamptz not null default now()
 );
@@ -411,6 +414,7 @@ create table public.inventory_orders (
   quantity    numeric(12,2) not null,
   status      public.order_status not null default 'requested',
   ordered_by  uuid references public.profiles(id),
+  batch_id    uuid,                 -- קיבוץ שורות מאותה הזמנה
   created_at  timestamptz not null default now()
 );
 
@@ -482,7 +486,7 @@ create table public.task_templates (
   department_id      uuid references public.departments(id) on delete set null, -- שיוך למחלקה; null = כללי לכל העסק
   title              text not null,
   description        text,
-  recurrence_weekday smallint check (recurrence_weekday is null or (recurrence_weekday >= 0 and recurrence_weekday <= 6)),
+  recurrence_weekday smallint check (recurrence_weekday is null or (recurrence_weekday >= -1 and recurrence_weekday <= 6)), -- -1 = כל יום
   active             boolean not null default true,
   sort_order         integer not null default 0,
   created_at         timestamptz not null default now()

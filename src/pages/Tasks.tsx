@@ -16,6 +16,12 @@ import {
 } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId, HE_DAYS, initialsOf, colorFor, todayISO } from "@/lib/db";
+import {
+  RECURRENCE_EVERY_DAY,
+  formatRecurrenceWeekday,
+  matchesRecurrenceWeekday,
+  recurrenceSelectValue,
+} from "@/lib/taskRecurrence";
 import { useTasks, useCreateTask, useUpdateTask, useDeleteTask, uploadTaskMedia, notifyTaskAssigned } from "@/api/tasks";
 import {
   useTaskTemplates,
@@ -122,7 +128,7 @@ function EmployeeTasksView({ businessId, profileId }: { businessId: string; prof
     .filter(
       (t) =>
         t.active &&
-        t.recurrence_weekday === todayWeekday &&
+        matchesRecurrenceWeekday(t.recurrence_weekday, todayWeekday) &&
         (t.department_id == null || t.department_id === deptId) &&
         !materializedTemplateIds.has(t.id),
     )
@@ -132,7 +138,7 @@ function EmployeeTasksView({ businessId, profileId }: { businessId: string; prof
   const todayTasks = [
     ...virtualToday,
     ...mine.filter((t) => {
-      if (t.type === "recurring") return t.recurrence_weekday === todayWeekday;
+      if (t.type === "recurring") return matchesRecurrenceWeekday(t.recurrence_weekday, todayWeekday);
       // one_time — מציגים כל עוד לא בוצעה, או אם תאריך היעד הוא היום
       if (t.status !== "done") return true;
       return t.due_date === today;
@@ -606,7 +612,7 @@ function ApprovalQueue({
   onReject: (id: string) => void;
 }) {
   return (
-    <Card className="mb-5 overflow-hidden border-warning/40">
+    <Card className="mb-5 overflow-hidden">
       <div className="flex items-center gap-2 border-b border-border-2 bg-[var(--warning-bg)] px-4 py-3 text-[15px] font-bold text-warning">
         <Icon name="verified_user" size={20} />
         משימות הממתינות לאישורך
@@ -757,7 +763,7 @@ function TaskList({
                 )}
                 {!showAssignee && !t.assigned_to && <span>לא משויך · </span>}
                 {t.type === "recurring" && t.recurrence_weekday != null
-                  ? `כל יום ${HE_DAYS[t.recurrence_weekday]}`
+                  ? formatRecurrenceWeekday(t.recurrence_weekday)
                   : t.due_date
                     ? new Date(t.due_date).toLocaleDateString("he-IL")
                     : "ללא תאריך"}
@@ -816,23 +822,28 @@ function FixedTasksPanel({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [departmentId, setDepartmentId] = useState("");
-  const [recurrence, setRecurrence] = useState("none");
+  const [recurrence, setRecurrence] = useState(String(RECURRENCE_EVERY_DAY));
 
   const rowGrid =
     "grid grid-cols-[auto_minmax(110px,1fr)_minmax(90px,1fr)_140px_130px_auto_auto] items-center gap-3 rounded-[12px] border border-border bg-surface-2 px-3.5 py-2.5";
 
+  function parseRecurrence(value: string): number | null {
+    if (value === "none") return null;
+    return Number(value);
+  }
+
   function handleAdd() {
-    if (!title.trim()) return;
+    if (!title.trim() || recurrence === "none") return;
     onAdd({
       title: title.trim(),
       description: description.trim() || null,
       department_id: departmentId || null,
-      recurrence_weekday: recurrence === "none" ? null : Number(recurrence),
+      recurrence_weekday: parseRecurrence(recurrence),
     });
     setTitle("");
     setDescription("");
     setDepartmentId("");
-    setRecurrence("none");
+    setRecurrence(String(RECURRENCE_EVERY_DAY));
   }
 
   return (
@@ -842,12 +853,14 @@ function FixedTasksPanel({
         משימות קבועות
       </div>
       <p className="mb-4 text-[13px] text-text-2">
-        משימה קבועה מוגדרת פעם אחת ומופיעה אוטומטית אצל עובדי המחלקה שבחרת — או אצל כולם, אם בחרת
-        &quot;כל העסק&quot;. אין שיוך לעובד מסוים; לשיוך אישי השתמשו במשימה חד-פעמית.
+        משימה קבועה מוגדרת פעם אחת ומופיעה אוטומטית אצל עובדי המחלקה שבחרת — או אצל כולם, אם לא
+        בחרת מחלקה. ניתן לקבוע תדירות יומית או לפי יום בשבוע. אין שיוך לעובד מסוים; לשיוך אישי
+        השתמשו במשימה חד-פעמית.
       </p>
 
       {templates.length === 0 ? (
         <EmptyState
+          embedded
           icon="event_repeat"
           title="אין משימות קבועות עדיין"
           description="הוסיפו את המשימות הקבועות של העסק — למשל ניקוי, ספירת מלאי, פתיחת קופה."
@@ -885,7 +898,7 @@ function FixedTasksPanel({
                 }}
                 disabled={!t.active}
               >
-                <option value="">כל העסק</option>
+                <option value="">כל העסק (ללא מחלקה)</option>
                 {departments.map((d) => (
                   <option key={d.id} value={d.id}>
                     {d.name}
@@ -894,14 +907,15 @@ function FixedTasksPanel({
               </Select>
               <Select
                 className="!bg-surface"
-                value={t.recurrence_weekday == null ? "none" : String(t.recurrence_weekday)}
+                value={recurrenceSelectValue(t.recurrence_weekday)}
                 onChange={(e) => {
-                  const v = e.target.value === "none" ? null : Number(e.target.value);
+                  const v = parseRecurrence(e.target.value);
                   if (v !== t.recurrence_weekday) onUpdate({ id: t.id, recurrence_weekday: v });
                 }}
                 disabled={!t.active}
               >
                 <option value="none">לא קבועה</option>
+                <option value={String(RECURRENCE_EVERY_DAY)}>כל יום</option>
                 {HE_DAYS.map((d, i) => (
                   <option key={i} value={String(i)}>
                     כל {d}
@@ -929,8 +943,8 @@ function FixedTasksPanel({
             onChange={(e) => setDescription(e.target.value)}
             placeholder="תיאור (אופציונלי)"
           />
-          <Select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
-            <option value="">כל העסק</option>
+          <Select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} title="מחלקה (אופציונלי)">
+            <option value="">כל העסק (ללא מחלקה)</option>
             {departments.map((d) => (
               <option key={d.id} value={d.id}>
                 {d.name}
@@ -938,7 +952,7 @@ function FixedTasksPanel({
             ))}
           </Select>
           <Select value={recurrence} onChange={(e) => setRecurrence(e.target.value)}>
-            <option value="none">לא קבועה</option>
+            <option value={String(RECURRENCE_EVERY_DAY)}>כל יום</option>
             {HE_DAYS.map((d, i) => (
               <option key={i} value={String(i)}>
                 כל {d}

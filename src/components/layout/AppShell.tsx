@@ -107,8 +107,22 @@ export function AppShell() {
       {/* Main */}
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Topbar */}
-        <header className="sticky top-0 z-30 flex h-[66px] flex-none items-center gap-4 border-b border-border bg-surface px-4 md:px-[26px]">
-          <div className="flex-1" />
+        <header className="sticky top-0 z-30 flex h-[66px] flex-none items-center gap-4 border-0 bg-surface px-4 shadow-header md:px-[26px]">
+          {/* Mobile brand — fills the otherwise-empty header on phones */}
+          <div className="flex min-w-0 items-center gap-2.5 md:hidden">
+            <div className="grid h-9 w-9 flex-none place-items-center rounded-[10px] [background:var(--accent)]">
+              <Icon name="hub" size={19} className="text-white" />
+            </div>
+            <div className="min-w-0">
+              <div className="truncate text-[14.5px] font-extrabold leading-tight tracking-tight">
+                {isSuperAdmin ? "אופק" : business?.name ?? "—"}
+              </div>
+              <div className="text-[10.5px] leading-tight text-text-3">ניהול עסקים</div>
+            </div>
+          </div>
+
+          <div className="hidden flex-1 md:block" />
+          <div className="flex-1 md:hidden" />
 
           <button onClick={toggle} title="מצב תצוגה" className="grid h-10 w-10 place-items-center rounded-[11px] border border-border bg-surface text-text-2 hover:bg-surface-2">
             <Icon name={theme === "light" ? "dark_mode" : "light_mode"} size={21} />
@@ -140,6 +154,12 @@ export function AppShell() {
                     <div className="mt-px text-[12px] text-text-3">{ROLE_LABELS[role]}</div>
                   </div>
                   <div className="p-1.5">
+                    <button
+                      onClick={() => { setProfileOpen(false); navigate("/profile"); }}
+                      className="flex w-full items-center gap-3 rounded-[9px] px-3 py-2.5 text-right text-[13.5px] hover:bg-surface-2"
+                    >
+                      <Icon name="person" size={19} /> הפרופיל שלי
+                    </button>
                     <button onClick={handleLogout} className="flex w-full items-center gap-3 rounded-[9px] px-3 py-2.5 text-right text-[13.5px] text-danger hover:[background:var(--danger-bg)]">
                       <Icon name="logout" size={19} /> התנתקות
                     </button>
@@ -150,23 +170,27 @@ export function AppShell() {
           </div>
         </header>
 
-        <main className="flex-1 overflow-auto px-4 pb-24 pt-[18px] md:px-[30px] md:pb-7 md:pt-7">
+        <main className="flex-1 overflow-auto bg-bg px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] pt-[18px] md:px-[30px] md:pb-7 md:pt-7">
           <Outlet />
         </main>
       </div>
 
       {/* Mobile bottom nav */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 flex h-[66px] items-stretch justify-around border-t border-border bg-surface px-1.5 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] md:hidden">
+      <nav className="mobile-nav md:hidden" aria-label="ניווט ראשי">
         {navItems.slice(0, 5).map((item) => {
-          const active = currentKey === item.key;
+          const active = currentKey === item.key || (item.key === "dashboard" && currentKey === "");
           return (
             <NavLink
               key={item.key}
               to={`/${item.key}`}
-              className={`flex flex-1 flex-col items-center justify-center gap-0.5 ${active ? "text-text" : "text-text-3"}`}
+              className="mobile-nav-item"
+              data-active={active}
+              aria-current={active ? "page" : undefined}
             >
-              <Icon name={item.icon} size={23} />
-              <span className="text-[10.5px] font-semibold">{item.label}</span>
+              <span className="mobile-nav-icon">
+                <Icon name={item.icon} size={24} fill={active} />
+              </span>
+              <span className="mobile-nav-label">{item.label}</span>
             </NavLink>
           );
         })}
