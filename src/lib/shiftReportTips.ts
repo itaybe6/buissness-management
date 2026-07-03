@@ -28,6 +28,10 @@ function attendanceHoursOnDate(attendance: Attendance[], employeeId: string, dat
     }, 0);
 }
 
+export function getAttendanceHoursOnDate(attendance: Attendance[], employeeId: string, dateISO: string): number {
+  return Math.round(attendanceHoursOnDate(attendance, employeeId, dateISO) * 100) / 100;
+}
+
 /**
  * Build tip participants from shift assignments for a given date/template.
  * Only includes employees whose wage_type is "tips".
@@ -56,9 +60,9 @@ export function buildTipParticipantsFromShift(input: {
     if (seen.has(a.employee_id)) continue;
     seen.add(a.employee_id);
 
-    const attHrs = attendanceHoursOnDate(attendance, a.employee_id, reportDate);
-    const hours = attHrs > 0 ? Math.round(attHrs * 100) / 100 : defaultHours;
-    result.push({ employee_id: a.employee_id, hours });
+    const attHrs = getAttendanceHoursOnDate(attendance, a.employee_id, reportDate);
+    const hours = attHrs > 0 ? attHrs : defaultHours;
+    result.push({ employee_id: a.employee_id, hours, attendance_hours: attHrs });
   }
 
   return result;

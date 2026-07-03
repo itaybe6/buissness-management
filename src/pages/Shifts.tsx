@@ -364,11 +364,8 @@ function EmployeeSchedule({ templates }: { templates: NonNullable<ReturnType<typ
 function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<typeof useActiveShiftTemplates>["data"]> }) {
   const businessId = useBusinessId();
   const { profile } = useAuth();
-<<<<<<< HEAD
   const reduceMotion = useReducedMotion();
-=======
   const { data: business } = useBusiness(businessId);
->>>>>>> 0da8c298dcac68eaedd310a6b1341c8017f1354f
   const nextWk = addDays(weekStart(), 7);
   const [wk, setWk] = useState(nextWk);
   const [dayIdx, setDayIdx] = useState(0);
@@ -453,7 +450,12 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
 
   const savingBar = (
     <div className="flex flex-wrap items-center gap-2 border-t border-border px-5 py-3.5 text-[12.5px] text-text-3">
-      {setPref.isPending || clearPref.isPending ? (
+      {!canEdit ? (
+        <>
+          <Icon name="lock" size={16} />
+          הזמינות לשבוע זה נעולה — לא ניתן לערוך
+        </>
+      ) : setPref.isPending || clearPref.isPending ? (
         <>
           <Icon name="sync" size={16} className="animate-spin" />
           שומר...
@@ -489,63 +491,6 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
         </div>
       )}
 
-<<<<<<< HEAD
-      {/* Phone: pick a day, mark availability per shift */}
-      <div className="md:hidden">
-        <DayStrip wk={wk} value={dayIdx} onChange={setDayIdx} stripId="constraints" />
-        <motion.div
-          key={`${wk}-${dayIdx}`}
-          initial={reduceMotion ? false : { opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ type: "spring", stiffness: 340, damping: 32 }}
-        >
-          <Card className="overflow-hidden !p-0">
-            {templates.map((t) => {
-              const date = addDays(wk, dayIdx);
-              const key = `${t.id}_${date}`;
-              return (
-                <div key={t.id} className="shift-mobile-shift" style={{ "--shift-color": t.color ?? "var(--accent)" } as CSSProperties}>
-                  <div className="shift-mobile-shift-head">
-                    <span className="shift-mobile-shift-name">{t.name}</span>
-                    <span className="shift-shift-time">
-                      {t.start_time?.slice(0, 5)}–{t.end_time?.slice(0, 5)}
-                    </span>
-                  </div>
-                  <div className="mt-2.5">
-                    <AvailabilityCell
-                      horizontal
-                      value={prefMap.get(key) ?? null}
-                      saving={pending.has(key)}
-                      onSet={(v) => setAvailability(t.id, date, v)}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-            <div className="flex items-center justify-between gap-2 border-t border-border px-4 py-3">
-              <button
-                type="button"
-                onClick={() => fillDay(dayIdx, "available")}
-                className="rounded-[9px] px-2.5 py-1.5 text-[12px] font-bold text-info transition hover:[background:var(--info-bg)]"
-              >
-                סמן הכל — יכול
-              </button>
-              <button
-                type="button"
-                onClick={() => clearDay(dayIdx)}
-                className="rounded-[9px] px-2.5 py-1.5 text-[12px] font-bold text-text-3 transition hover:bg-surface-2"
-              >
-                נקה יום
-              </button>
-            </div>
-            {savingBar}
-          </Card>
-        </motion.div>
-      </div>
-
-      {/* Desktop: full week grid */}
-      <Card className="hidden overflow-hidden !p-0 shadow-sm md:block">
-=======
       {hasWindow && windowStatus.state === "closed" && (
         <div className="mb-3 flex items-center gap-2 rounded-[11px] border border-warning/30 [background:var(--warning-bg)] px-3.5 py-2.5 text-[13px] font-semibold text-warning">
           <Icon name="lock" size={18} />
@@ -578,8 +523,64 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
         </div>
       )}
 
-      <Card className="overflow-hidden !p-0 shadow-sm">
->>>>>>> 0da8c298dcac68eaedd310a6b1341c8017f1354f
+      {/* Phone: pick a day, mark availability per shift */}
+      <div className="md:hidden">
+        <DayStrip wk={wk} value={dayIdx} onChange={setDayIdx} stripId="constraints" />
+        <motion.div
+          key={`${wk}-${dayIdx}`}
+          initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ type: "spring", stiffness: 340, damping: 32 }}
+        >
+          <Card className="overflow-hidden !p-0">
+            {templates.map((t) => {
+              const date = addDays(wk, dayIdx);
+              const key = `${t.id}_${date}`;
+              return (
+                <div key={t.id} className="shift-mobile-shift" style={{ "--shift-color": t.color ?? "var(--accent)" } as CSSProperties}>
+                  <div className="shift-mobile-shift-head">
+                    <span className="shift-mobile-shift-name">{t.name}</span>
+                    <span className="shift-shift-time">
+                      {t.start_time?.slice(0, 5)}–{t.end_time?.slice(0, 5)}
+                    </span>
+                  </div>
+                  <div className="mt-2.5">
+                    <AvailabilityCell
+                      horizontal
+                      value={prefMap.get(key) ?? null}
+                      saving={pending.has(key)}
+                      disabled={!canEdit}
+                      onSet={(v) => setAvailability(t.id, date, v)}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+            <div className="flex items-center justify-between gap-2 border-t border-border px-4 py-3">
+              <button
+                type="button"
+                disabled={!canEdit}
+                onClick={() => fillDay(dayIdx, "available")}
+                className="rounded-[9px] px-2.5 py-1.5 text-[12px] font-bold text-info transition hover:[background:var(--info-bg)] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                סמן הכל — יכול
+              </button>
+              <button
+                type="button"
+                disabled={!canEdit}
+                onClick={() => clearDay(dayIdx)}
+                className="rounded-[9px] px-2.5 py-1.5 text-[12px] font-bold text-text-3 transition hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                נקה יום
+              </button>
+            </div>
+            {savingBar}
+          </Card>
+        </motion.div>
+      </div>
+
+      {/* Desktop: full week grid */}
+      <Card className="hidden overflow-hidden !p-0 shadow-sm md:block">
         <div className="shift-grid-wrap">
           <div className="shift-grid min-w-[720px]">
             <div className="shift-grid-head">
@@ -649,29 +650,7 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
             ))}
           </div>
         </div>
-<<<<<<< HEAD
         {savingBar}
-=======
-
-        <div className="flex flex-wrap items-center gap-2 border-t border-border px-5 py-3.5 text-[12.5px] text-text-3">
-          {!canEdit ? (
-            <>
-              <Icon name="lock" size={16} />
-              הזמינות לשבוע זה נעולה — לא ניתן לערוך
-            </>
-          ) : setPref.isPending || clearPref.isPending ? (
-            <>
-              <Icon name="sync" size={16} className="animate-spin" />
-              שומר...
-            </>
-          ) : (
-            <>
-              <Icon name="cloud_done" size={16} />
-              האילוצים נשמרים אוטומטית
-            </>
-          )}
-        </div>
->>>>>>> 0da8c298dcac68eaedd310a6b1341c8017f1354f
       </Card>
     </div>
   );
@@ -696,11 +675,7 @@ function AvailabilityCell({
 
   return (
     <div
-<<<<<<< HEAD
-      className={`flex gap-1 rounded-[10px] border p-1 transition ${horizontal ? "flex-row" : "min-h-[52px] flex-col"} ${saving ? "opacity-60" : ""}`}
-=======
-      className={`flex min-h-[52px] flex-col gap-1 rounded-[10px] border p-1 transition ${locked ? "opacity-60" : ""}`}
->>>>>>> 0da8c298dcac68eaedd310a6b1341c8017f1354f
+      className={`flex gap-1 rounded-[10px] border p-1 transition ${horizontal ? "flex-row" : "min-h-[52px] flex-col"} ${locked ? "opacity-60" : ""}`}
       style={{
         background: isAvail ? AVAIL_META.available.bg : isCannot ? AVAIL_META.cannot.bg : "var(--surface)",
         borderColor: isAvail ? AVAIL_META.available.border : isCannot ? AVAIL_META.cannot.border : "var(--border)",

@@ -17,7 +17,7 @@ import {
 import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId, formatCurrency, formatDateShort, todayISO, weekStart, addDays } from "@/lib/db";
-import { buildTipParticipantsFromShift } from "@/lib/shiftReportTips";
+import { buildTipParticipantsFromShift, getAttendanceHoursOnDate } from "@/lib/shiftReportTips";
 import { useProfiles } from "@/api/users";
 import { useActiveShiftTemplates, useShiftAssignments } from "@/api/shifts";
 import { useAttendanceMonth } from "@/api/attendance";
@@ -295,10 +295,34 @@ function ReportEditor({
     templates,
   ]);
 
+  useEffect(() => {
+    if (assignmentsLoading || attendanceLoading || !s.report_date) return;
+    setS((prev) => {
+      let changed = false;
+      const next = prev.participants.map((p) => {
+        if (!p.employee_id || p.attendance_hours != null) return p;
+        const attHrs = getAttendanceHoursOnDate(attendance ?? [], p.employee_id, prev.report_date);
+        changed = true;
+        return { ...p, attendance_hours: attHrs };
+      });
+      return changed ? { ...prev, participants: next } : prev;
+    });
+  }, [attendance, attendanceLoading, s.report_date, assignmentsLoading]);
+
   const totalTips = Number(s.total_tips) || 0;
   const totalHours = s.participants.reduce((sum, p) => sum + (Number(p.hours) || 0), 0);
   const tipsHourly = totalHours > 0 ? totalTips / totalHours : 0;
   const participantsLoading = assignmentsLoading || attendanceLoading;
+  const availableUsers = users.filter((u) => !s.participants.some((p) => p.employee_id === u.id));
+
+  function updateParticipant(idx: number, patch: Partial<ShiftReportParticipant>) {
+    const next = [...s.participants];
+    next[idx] = { ...next[idx], ...patch };
+    if (patch.employee_id) {
+      next[idx].attendance_hours = getAttendanceHoursOnDate(attendance ?? [], patch.employee_id, s.report_date);
+    }
+    set("participants", next);
+  }
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -403,58 +427,94 @@ function ReportEditor({
           </div>
 
           <div className="mt-1 text-[12.5px] text-text-2">
-            העובדים נטענים אוטומטית מהשיבוץ במשמרת — עדכנו שעות במידת הצורך. הטיפים יתחלקו לפי שעות ויופיעו במסך השכר.
+            העובדים נטענים מהשיבוץ והנוכחות — ניתן לתקן שעות (למשל אם עובד שכח לדווח כניסה). הטיפים יתחלקו לפי השעות המעודכנות.
           </div>
 
           {participantsLoading ? (
             <div className="rounded-[11px] border border-border bg-surface-2 px-3.5 py-4 text-center text-[13px] text-text-2">
               טוען עובדים מהמשמרת...
             </div>
-          ) : !s.shift_template_id ? (
+          ) : !s.shift_template_id && s.participants.length === 0 ? (
             <div className="rounded-[11px] border border-dashed border-border px-3.5 py-4 text-center text-[13px] text-text-2">
-              בחרו משמרת כדי לטעון את עובדי הטיפים.
+              בחרו משמרת כדי לטעון עובדים אוטומטית, או הוסיפו ידנית.
             </div>
-          ) : s.participants.length === 0 ? (
+          ) : s.shift_template_id && s.participants.length === 0 ? (
             <div className="rounded-[11px] border border-dashed border-border px-3.5 py-4 text-center text-[13px] text-text-2">
-              לא נמצאו עובדי טיפים משובצים למשמרת זו בתאריך שנבחר.
+              לא נמצאו עובדי טיפים משובצים למשמרת זו — ניתן להוסיף ידנית.
             </div>
-          ) : (
+          ) : null}
+
+          {s.participants.length > 0 && (
             <div className="overflow-hidden rounded-[11px] border border-border">
-              <div className="grid grid-cols-[1fr_90px_auto_36px] items-center gap-2 border-b border-border bg-surface-2 px-3 py-2 text-[11.5px] font-bold text-text-3">
+              <div className="grid grid-cols-[1fr_72px_90px_auto_36px] items-center gap-2 border-b border-border bg-surface-2 px-3 py-2 text-[11.5px] font-bold text-text-3">
                 <span>עובד</span>
-                <span>שעות</span>
+                <span>נוכחות</span>
+                <span>שעות לחלוקה</span>
                 <span>חלק בטיפים</span>
                 <span />
               </div>
               <div className="flex flex-col divide-y divide-border-2">
-                {s.participants.map((p, idx) => (
-                  <div key={p.employee_id} className="grid grid-cols-[1fr_90px_auto_36px] items-center gap-2 px-3 py-2.5">
-                    <span className="truncate text-[14px] font-semibold">{userName(p.employee_id)}</span>
-                    <Input
-                      type="number"
-                      inputMode="decimal"
-                      placeholder="שעות"
-                      value={p.hours || ""}
-                      onChange={(e) => {
-                        const next = [...s.participants];
-                        next[idx] = { ...next[idx], hours: Number(e.target.value) || 0 };
-                        set("participants", next);
-                      }}
-                    />
-                    <span className="whitespace-nowrap text-[12.5px] font-bold text-accent-2">
-                      {formatCurrency(tipsHourly * (Number(p.hours) || 0))}
-                    </span>
-                    <button
-                      onClick={() => set("participants", s.participants.filter((_, i) => i !== idx))}
-                      className="grid h-9 w-9 place-items-center rounded-lg text-text-3 hover:[background:var(--danger-bg)] hover:text-danger"
-                      title="הסרה מהרשימה"
-                    >
-                      <Icon name="close" size={18} />
-                    </button>
-                  </div>
-                ))}
+                {s.participants.map((p, idx) => {
+                  const attHrs = p.attendance_hours ?? null;
+                  const edited = attHrs != null && Math.abs((Number(p.hours) || 0) - attHrs) > 0.01;
+                  return (
+                    <div key={p.employee_id || `new-${idx}`} className="grid grid-cols-[1fr_72px_90px_auto_36px] items-center gap-2 px-3 py-2.5">
+                      {p.employee_id ? (
+                        <div className="min-w-0">
+                          <span className="block truncate text-[14px] font-semibold">{userName(p.employee_id)}</span>
+                          {edited && (
+                            <span className="text-[11px] font-semibold text-amber-600">שונה מנוכחות</span>
+                          )}
+                        </div>
+                      ) : (
+                        <Select
+                          value={p.employee_id}
+                          onChange={(e) => updateParticipant(idx, { employee_id: e.target.value })}
+                        >
+                          <option value="">— בחר עובד —</option>
+                          {availableUsers.map((u) => (
+                            <option key={u.id} value={u.id}>{u.full_name}</option>
+                          ))}
+                        </Select>
+                      )}
+                      <span className={`text-[13px] tabular-nums ${attHrs != null ? "text-text-2" : "text-text-3"}`}>
+                        {attHrs != null ? attHrs : "—"}
+                      </span>
+                      <Input
+                        type="number"
+                        inputMode="decimal"
+                        step={0.25}
+                        min={0}
+                        placeholder="שעות"
+                        value={p.hours || ""}
+                        onChange={(e) => updateParticipant(idx, { hours: Number(e.target.value) || 0 })}
+                      />
+                      <span className="whitespace-nowrap text-[12.5px] font-bold text-accent-2">
+                        {formatCurrency(tipsHourly * (Number(p.hours) || 0))}
+                      </span>
+                      <button
+                        onClick={() => set("participants", s.participants.filter((_, i) => i !== idx))}
+                        className="grid h-9 w-9 place-items-center rounded-lg text-text-3 hover:[background:var(--danger-bg)] hover:text-danger"
+                        title="הסרה מהרשימה"
+                      >
+                        <Icon name="close" size={18} />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             </div>
+          )}
+
+          {availableUsers.length > 0 && (
+            <Button
+              variant="secondary"
+              icon="person_add"
+              onClick={() => set("participants", [...s.participants, { employee_id: "", hours: 0 }])}
+              className="self-start"
+            >
+              הוספת עובד
+            </Button>
           )}
         </Section>
 

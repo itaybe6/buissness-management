@@ -237,7 +237,10 @@ export interface Tip {
 /** A single tip participant inside a shift report (saved into extra.tip_participants and tips). */
 export interface ShiftReportParticipant {
   employee_id: string;
+  /** Hours used for tip split (manager may correct attendance). */
   hours: number;
+  /** Hours recorded from clock-in/out — display only, not saved to tips. */
+  attendance_hours?: number;
 }
 
 /** A dynamic sales counter line (e.g. "קוקטיילים": 36). */

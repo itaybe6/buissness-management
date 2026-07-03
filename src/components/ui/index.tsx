@@ -19,11 +19,7 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const buttonBase =
-<<<<<<< HEAD
-  "ui-btn inline-flex items-center justify-center gap-2 rounded-[11px] font-bold text-[13.5px] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed";
-=======
-  "btn-press inline-flex items-center justify-center gap-2 rounded-[11px] font-bold text-[13.5px] cursor-pointer transition-[transform,filter,background-color,border-color] duration-[160ms] [transition-timing-function:var(--ease-out)] disabled:opacity-60 disabled:cursor-not-allowed";
->>>>>>> 0da8c298dcac68eaedd310a6b1341c8017f1354f
+  "ui-btn inline-flex items-center justify-center gap-2 rounded-[11px] font-bold text-[13.5px] cursor-pointer transition-[transform,filter,background-color,border-color] duration-[160ms] [transition-timing-function:var(--ease-out)] disabled:opacity-60 disabled:cursor-not-allowed";
 
 const buttonVariants: Record<ButtonVariant, string> = {
   primary: "ui-btn--primary px-4 py-3",

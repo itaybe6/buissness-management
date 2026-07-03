@@ -4849,3 +4849,201 @@ select {
     transition: none;
   }
 }
+
+/* ============================================================
+   Manager dashboard v2 — living hero, KPI hairlines, breathing
+   panels, chart glow. Appended after merge; overrides earlier.
+   ============================================================ */
+.dash-hero-aurora {
+  position: absolute;
+  width: 55%;
+  height: 160%;
+  border-radius: 999px;
+  background: radial-gradient(ellipse at center, color-mix(in srgb, var(--accent) 38%, transparent), transparent 65%);
+  filter: blur(30px);
+  pointer-events: none;
+  animation: dash-aurora 16s ease-in-out infinite alternate;
+}
+
+.dash-hero-aurora--1 {
+  inset-block-start: -70%;
+  inset-inline-end: -12%;
+}
+
+.dash-hero-aurora--2 {
+  inset-block-end: -90%;
+  inset-inline-start: -15%;
+  width: 45%;
+  background: radial-gradient(ellipse at center, color-mix(in srgb, #38bdf8 20%, transparent), transparent 65%);
+  animation-duration: 22s;
+  animation-delay: -8s;
+}
+
+@keyframes dash-aurora {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(-6%, 10%, 0) scale(1.15); }
+}
+
+.dash-hero-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.42rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid rgb(255 255 255 / 0.14);
+  background: rgb(255 255 255 / 0.09);
+  color: rgb(255 255 255 / 0.88);
+  font-size: 12.5px;
+  font-weight: 700;
+  text-decoration: none;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  transition:
+    background 180ms var(--ease-out),
+    transform 200ms var(--ease-spring),
+    border-color 180ms var(--ease-out);
+}
+
+.dash-hero-chip:hover {
+  background: rgb(255 255 255 / 0.16);
+  transform: translateY(-1px);
+}
+
+.dash-hero-chip:active {
+  transform: scale(0.97);
+}
+
+.dash-hero-chip strong {
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.dash-hero-chip[data-tone="danger"] {
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  background: color-mix(in srgb, var(--danger) 22%, transparent);
+}
+
+.dash-hero-chip[data-tone="warning"] {
+  border-color: color-mix(in srgb, var(--warning) 45%, transparent);
+  background: color-mix(in srgb, var(--warning) 20%, transparent);
+}
+
+/* KPI — colored hairline + icon pop on hover */
+.dash-kpi::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 2.5px;
+  background: linear-gradient(90deg, transparent 5%, var(--kpi-color, var(--accent)) 50%, transparent 95%);
+  opacity: 0;
+  transition: opacity 260ms var(--ease-out);
+  pointer-events: none;
+}
+
+.dash-kpi:hover::after {
+  opacity: 1;
+}
+
+.dash-kpi-icon {
+  transition: transform 260ms var(--ease-spring);
+}
+
+.dash-kpi:hover .dash-kpi-icon {
+  transform: scale(1.1) rotate(-4deg);
+}
+
+.dash-kpi-go {
+  transition: transform 220ms var(--ease-spring), color 180ms var(--ease-out);
+}
+
+.dash-kpi:hover .dash-kpi-go {
+  transform: translateX(-3px);
+  color: var(--accent-2);
+}
+
+/* Panels breathe on hover */
+.dash-panel {
+  transition: box-shadow 240ms var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .dash-panel:hover {
+    box-shadow:
+      var(--shadow),
+      0 18px 44px -30px color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+}
+
+.dash-panel-icon {
+  display: grid;
+  place-items: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  flex: none;
+  border-radius: 9px;
+  color: var(--accent-2);
+  background: var(--accent-tint);
+}
+
+.dash-panel-more {
+  transition: transform 200ms var(--ease-spring);
+}
+
+.dash-panel-more:hover {
+  transform: translateX(-2px);
+}
+
+/* Quick links — arrow reveals on hover */
+.dash-quick-arrow {
+  display: grid;
+  place-items: center;
+  margin-inline-start: auto;
+  color: var(--text-3);
+  opacity: 0;
+  transform: translateX(6px);
+  transition:
+    opacity 200ms var(--ease-out),
+    transform 240ms var(--ease-spring),
+    color 180ms var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .dash-quick:hover .dash-quick-arrow {
+    opacity: 1;
+    transform: translateX(0);
+    color: var(--accent-2);
+  }
+}
+
+@media (hover: none) {
+  .dash-quick-arrow {
+    opacity: 0.6;
+    transform: none;
+  }
+}
+
+/* Area chart — pulsing peak marker */
+.chart-peak-pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: chart-peak 2.4s ease-out infinite;
+}
+
+@keyframes chart-peak {
+  0% { transform: scale(0.5); opacity: 0.55; }
+  70%, 100% { transform: scale(2); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-hero-aurora,
+  .chart-peak-pulse {
+    animation: none;
+  }
+
+  .dash-hero-chip:hover,
+  .dash-kpi:hover .dash-kpi-icon,
+  .dash-kpi:hover .dash-kpi-go {
+    transform: none;
+  }
+}
