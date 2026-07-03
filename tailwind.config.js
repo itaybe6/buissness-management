@@ -45,7 +45,7 @@ export default {
       keyframes: {
         fadeUp: { from: { opacity: "0", transform: "translateY(10px)" }, to: { opacity: "1", transform: "none" } },
         fadeIn: { from: { opacity: "0" }, to: { opacity: "1" } },
-        pop: { from: { opacity: "0", transform: "scale(.95)" }, to: { opacity: "1", transform: "none" } },
+        pop: { from: { opacity: "0", transform: "translateY(6px) scale(.96)" }, to: { opacity: "1", transform: "none" } },
         pulse2: { "0%,100%": { opacity: "1" }, "50%": { opacity: ".45" } },
         shimmer: { "100%": { transform: "translateX(-100%)" } },
         riseIn: { from: { opacity: "0", transform: "translateY(16px) scale(.97)" }, to: { opacity: "1", transform: "none" } },
@@ -54,7 +54,7 @@ export default {
       animation: {
         fadeUp: "fadeUp .35s ease",
         fadeIn: "fadeIn .3s ease",
-        pop: "pop .15s ease",
+        pop: "pop .32s cubic-bezier(0.26,1.12,0.4,1)",
         riseIn: "riseIn .5s cubic-bezier(0.16,1,0.3,1) both",
         shimmer: "shimmer 1.4s infinite",
       },

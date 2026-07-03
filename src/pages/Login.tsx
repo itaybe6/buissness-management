@@ -41,10 +41,10 @@ export function Login() {
         className="relative hidden flex-1 flex-col justify-between overflow-hidden p-[60px] text-white md:flex"
         style={{ background: "linear-gradient(155deg,#251836,#0d0a16 80%)" }}
       >
-        <div className="absolute -left-[90px] -top-[130px] h-[400px] w-[400px] rounded-full" style={{ background: "radial-gradient(circle,rgba(124,58,237,.18),transparent 70%)" }} />
-        <div className="absolute -bottom-[160px] -right-[80px] h-[340px] w-[340px] rounded-full bg-white/[0.04]" />
+        <div className="login-blob absolute -left-[90px] -top-[130px] h-[400px] w-[400px] rounded-full" style={{ background: "radial-gradient(circle,rgba(124,58,237,.18),transparent 70%)" }} />
+        <div className="login-blob login-blob--slow absolute -bottom-[160px] -right-[80px] h-[340px] w-[340px] rounded-full bg-white/[0.04]" />
         <div className="relative flex items-center gap-3">
-          <div className="grid h-[46px] w-[46px] place-items-center rounded-[13px] [background:var(--accent)]">
+          <div className="grid h-[46px] w-[46px] place-items-center avatar-chip rounded-[13px]">
             <Icon name="hub" size={26} className="text-white" />
           </div>
           <div>
@@ -75,7 +75,7 @@ export function Login() {
 
       {/* Form */}
       <div className="flex flex-[0_0_100%] items-center justify-center bg-surface px-9 py-10 md:flex-[0_0_clamp(360px,42%,560px)]">
-        <div className="w-full max-w-[380px]">
+        <div className="login-stagger w-full max-w-[380px]">
           <div className="mb-[30px] flex items-center gap-3">
             <div className="grid h-10 w-10 place-items-center rounded-[11px] [background:var(--ink)]">
               <Icon name="hub" size={23} className="text-accent" />
@@ -148,7 +148,7 @@ export function Login() {
             <button
               type="submit"
               disabled={loading}
-              className="mt-1 flex w-full items-center justify-center gap-2 rounded-[11px] py-3.5 text-[15px] font-bold text-white shadow-sm transition hover:brightness-[1.05] disabled:opacity-70 [background:var(--primary-bg)]"
+              className="ui-btn ui-btn--primary mt-1 flex w-full items-center justify-center gap-2 rounded-[11px] py-3.5 text-[15px] font-bold disabled:opacity-70"
             >
               {loading ? <Spinner size={20} /> : null}
               התחברות

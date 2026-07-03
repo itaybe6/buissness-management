@@ -23,30 +23,29 @@ export function Modal({ open, onClose, title, subtitle, icon, children, footer, 
   if (!open) return null;
 
   return (
-    <div
-      onClick={onClose}
-      className="fixed inset-0 z-[100] grid animate-fadeIn place-items-center bg-black/55 p-5 backdrop-blur-[2px]"
-    >
+    <div onClick={onClose} className="modal-overlay">
       <div
         onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[90vh] w-full animate-pop flex-col overflow-hidden rounded-[18px] bg-surface shadow-lg"
+        className="modal-card"
         style={{ maxWidth }}
       >
+        <span className="modal-handle" aria-hidden="true" />
         <div className="flex items-center justify-between border-b border-border px-[22px] py-5">
           <div className="flex items-center gap-3">
             {icon && (
-              <span className="grid h-10 w-10 place-items-center rounded-[11px] [background:var(--accent)]">
+              <span className="avatar-chip h-10 w-10 rounded-[11px]">
                 <Icon name={icon} size={23} className="text-white" />
               </span>
             )}
             <div>
-              <div className="text-[18px] font-extrabold">{title}</div>
+              <div className="text-[18px] font-extrabold tracking-tight">{title}</div>
               {subtitle && <div className="text-[12.5px] text-text-3">{subtitle}</div>}
             </div>
           </div>
           <button
             onClick={onClose}
-            className="grid h-[34px] w-[34px] place-items-center rounded-[9px] bg-surface-2 text-text-2 hover:bg-border"
+            aria-label="סגירה"
+            className="icon-btn !h-[34px] !w-[34px] !rounded-[10px]"
           >
             <Icon name="close" size={20} />
           </button>

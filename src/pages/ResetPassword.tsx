@@ -30,7 +30,7 @@ export function ResetPassword() {
     <div className="grid min-h-screen place-items-center bg-bg p-5">
       <div className="w-full max-w-[400px] rounded-[18px] border border-border bg-surface p-8 shadow-lg">
         <div className="mb-5 flex items-center gap-3">
-          <div className="grid h-11 w-11 place-items-center rounded-[12px] [background:var(--accent)]">
+          <div className="avatar-chip h-11 w-11 rounded-[12px]">
             <Icon name="lock_reset" size={24} className="text-white" />
           </div>
           <div>

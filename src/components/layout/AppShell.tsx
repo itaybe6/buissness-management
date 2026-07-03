@@ -44,12 +44,8 @@ export function AppShell() {
     navigate("/login", { replace: true });
   }
 
-  const navLinkClass = (key: string) => {
-    const active = currentKey === key || (key === "dashboard" && currentKey === "");
-    return `flex items-center gap-3 rounded-[11px] px-3 py-2.5 text-[14.5px] transition ${
-      active ? "font-bold text-white [background:var(--accent)]" : "font-medium text-[#aeb4bf] hover:bg-white/[0.07]"
-    }`;
-  };
+  const isNavActive = (key: string) =>
+    currentKey === key || (key === "dashboard" && currentKey === "");
 
   return (
     <div className="flex min-h-screen">
@@ -59,44 +55,53 @@ export function AppShell() {
         style={{ background: "linear-gradient(178deg, var(--sidebar-plum), var(--sidebar-plum-deep))" }}
       >
         <div className="flex items-center gap-3 px-[18px] pb-4 pt-5">
-          <div className="grid h-[38px] w-[38px] flex-none place-items-center rounded-[11px] [background:var(--accent)]">
+          <div className="grid h-[38px] w-[38px] flex-none place-items-center rounded-[11px] avatar-chip">
             <Icon name="hub" size={22} className="text-white" />
           </div>
           <div className="min-w-0">
             <div className="truncate text-[16px] font-extrabold tracking-tight text-white">
               {isSuperAdmin ? "אופק" : business?.name ?? "—"}
             </div>
-            <div className="text-[11.5px] text-[#8b919c]">ניהול עסקים</div>
+            <div className="text-[11.5px] text-white/45">ניהול עסקים</div>
           </div>
         </div>
 
         <div className="px-3.5 pb-2">
           <div className="flex items-center gap-2.5 rounded-[12px] border border-white/[0.09] bg-white/[0.06] px-3 py-2.5">
-            <span className="grid h-[30px] w-[30px] flex-none place-items-center rounded-[8px] [background:var(--accent)]">
+            <span className="grid h-[30px] w-[30px] flex-none place-items-center rounded-[8px] avatar-chip">
               <Icon name={isSuperAdmin ? "apps" : "storefront"} size={18} className="text-white" />
             </span>
             <div className="min-w-0 flex-1">
               <div className="truncate text-[13.5px] font-bold text-white">
                 {profile?.full_name ?? "משתמש"}
               </div>
-              <div className="text-[11px] text-[#8b919c]">{ROLE_LABELS[role]}</div>
+              <div className="text-[11px] text-white/45">{ROLE_LABELS[role]}</div>
             </div>
           </div>
         </div>
 
         <nav className="flex flex-1 flex-col gap-0.5 overflow-auto px-3 py-2">
-          {navItems.map((item) => (
-            <NavLink key={item.key} to={`/${item.key}`} className={navLinkClass(item.key)}>
-              <Icon name={item.icon} size={21} />
-              <span className="flex-1 text-right">{item.label}</span>
-            </NavLink>
-          ))}
+          {navItems.map((item) => {
+            const active = isNavActive(item.key);
+            return (
+              <NavLink
+                key={item.key}
+                to={`/${item.key}`}
+                className="side-nav-item"
+                data-active={active}
+                aria-current={active ? "page" : undefined}
+              >
+                <Icon name={item.icon} size={21} fill={active} />
+                <span className="flex-1 text-right">{item.label}</span>
+              </NavLink>
+            );
+          })}
         </nav>
 
         <div className="border-t border-white/[0.08] p-3">
           <button
             onClick={handleLogout}
-            className="flex w-full items-center gap-3 rounded-[11px] px-3 py-2.5 text-right text-[14px] font-semibold text-[#aeb4bf] transition hover:[background:var(--danger-bg)] hover:text-danger"
+            className="flex w-full items-center gap-3 rounded-[11px] px-3 py-2.5 text-right text-[14px] font-semibold text-white/60 transition hover:text-[#fda4af] hover:[background:color-mix(in_srgb,var(--danger)_16%,transparent)]"
           >
             <Icon name="logout" size={21} />
             התנתקות
@@ -107,10 +112,10 @@ export function AppShell() {
       {/* Main */}
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Topbar */}
-        <header className="sticky top-0 z-30 flex h-[66px] flex-none items-center gap-4 border-0 bg-surface px-4 shadow-header md:px-[26px]">
+        <header className="app-header sticky top-0 z-30 flex h-[66px] flex-none items-center gap-4 px-4 md:px-[26px]">
           {/* Mobile brand — fills the otherwise-empty header on phones */}
           <div className="flex min-w-0 items-center gap-2.5 md:hidden">
-            <div className="grid h-9 w-9 flex-none place-items-center rounded-[10px] [background:var(--accent)]">
+            <div className="grid h-9 w-9 flex-none place-items-center rounded-[10px] avatar-chip">
               <Icon name="hub" size={19} className="text-white" />
             </div>
             <div className="min-w-0">
@@ -124,11 +129,11 @@ export function AppShell() {
           <div className="hidden flex-1 md:block" />
           <div className="flex-1 md:hidden" />
 
-          <button onClick={toggle} title="מצב תצוגה" className="grid h-10 w-10 place-items-center rounded-[11px] border border-border bg-surface text-text-2 hover:bg-surface-2">
+          <button onClick={toggle} title="מצב תצוגה" className="icon-btn">
             <Icon name={theme === "light" ? "dark_mode" : "light_mode"} size={21} />
           </button>
 
-          <button className="relative grid h-10 w-10 place-items-center rounded-[11px] border border-border bg-surface text-text-2 hover:bg-surface-2">
+          <button className="icon-btn relative" title="התראות">
             <Icon name="notifications" size={21} />
           </button>
 
@@ -136,7 +141,7 @@ export function AppShell() {
 
           <div className="relative">
             <button onClick={() => setProfileOpen((v) => !v)} className="flex items-center gap-2.5 rounded-[10px] p-1 hover:bg-surface-2">
-              <div className="grid h-9 w-9 flex-none place-items-center rounded-[10px] text-[14px] font-bold text-white [background:var(--ink)]">
+              <div className="avatar-chip h-9 w-9 rounded-[10px] text-[14px] font-bold">
                 {initialsOf(profile?.full_name)}
               </div>
               <div className="hidden text-right leading-tight sm:block">
@@ -171,7 +176,9 @@ export function AppShell() {
         </header>
 
         <main className="flex-1 overflow-auto bg-bg px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] pt-[18px] md:px-[30px] md:pb-7 md:pt-7">
-          <Outlet />
+          <div key={location.pathname} className="page-enter">
+            <Outlet />
+          </div>
         </main>
       </div>
 

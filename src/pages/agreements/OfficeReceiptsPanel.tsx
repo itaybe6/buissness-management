@@ -317,7 +317,7 @@ function UploadForm({
     <Card className="receipt-upload overflow-hidden shadow-[var(--shadow)]">
       <div className="border-b border-border bg-gradient-to-l from-[var(--accent-tint)] to-transparent px-5 py-4">
         <div className="flex items-center gap-3">
-          <span className="grid h-11 w-11 place-items-center rounded-[12px] [background:var(--accent)] text-white shadow-sm">
+          <span className="avatar-chip h-11 w-11 rounded-[12px]">
             <Icon name="upload_file" size={23} />
           </span>
           <div>

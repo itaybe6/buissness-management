@@ -19,15 +19,13 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const buttonBase =
-  "inline-flex items-center justify-center gap-2 rounded-[11px] font-bold text-[13.5px] cursor-pointer transition active:scale-[0.97] disabled:opacity-60 disabled:cursor-not-allowed disabled:active:scale-100";
+  "ui-btn inline-flex items-center justify-center gap-2 rounded-[11px] font-bold text-[13.5px] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed";
 
 const buttonVariants: Record<ButtonVariant, string> = {
-  primary:
-    "px-4 py-3 text-white shadow-sm hover:brightness-[1.05] [background:var(--primary-bg)]",
-  secondary:
-    "px-4 py-3 border border-border bg-surface text-text-2 hover:bg-surface-2",
-  ghost: "px-3 py-2 bg-transparent text-text-2 hover:bg-surface-2",
-  danger: "px-4 py-3 text-white shadow-sm [background:var(--danger)] hover:brightness-[1.05]",
+  primary: "ui-btn--primary px-4 py-3",
+  secondary: "ui-btn--secondary px-4 py-3 text-text-2",
+  ghost: "ui-btn--ghost px-3 py-2 text-text-2",
+  danger: "ui-btn--danger px-4 py-3",
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
