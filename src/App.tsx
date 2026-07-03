@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import { getHomePath } from "@/lib/constants";
@@ -18,10 +19,12 @@ import { ShiftReports } from "@/pages/ShiftReports";
 import { Faults } from "@/pages/Faults";
 import { Tasks } from "@/pages/Tasks";
 import { Attendance } from "@/pages/Attendance";
+import { MyShifts } from "@/pages/MyShifts";
 import { Payroll } from "@/pages/Payroll";
 import { Inventory } from "@/pages/Inventory";
 import { Waste } from "@/pages/Waste";
-import { Agreements } from "@/pages/Agreements";
+// Lazy — pulls in the PDF rendering/stamping libraries only when opened.
+const Agreements = lazy(() => import("@/pages/Agreements").then((m) => ({ default: m.Agreements })));
 import { Events } from "@/pages/Events";
 import { Profile } from "@/pages/Profile";
 import { FeatureGate } from "@/components/FeatureGate";
@@ -65,11 +68,12 @@ export function App() {
         <Route path="shift-reports" element={<FeatureGate feature="shift_reports"><ShiftReports /></FeatureGate>} />
         <Route path="tasks" element={<FeatureGate feature="tasks"><Tasks /></FeatureGate>} />
         <Route path="attendance" element={<FeatureGate feature="attendance"><Attendance /></FeatureGate>} />
+        <Route path="my-shifts" element={<MyShifts />} />
         <Route path="payroll" element={<FeatureGate feature="payroll"><Payroll /></FeatureGate>} />
         <Route path="inventory" element={<FeatureGate feature="inventory"><Inventory /></FeatureGate>} />
         <Route path="waste" element={<FeatureGate feature="waste"><Waste /></FeatureGate>} />
         <Route path="faults" element={<FeatureGate feature="faults"><Faults /></FeatureGate>} />
-        <Route path="agreements" element={<FeatureGate feature="agreements"><Agreements /></FeatureGate>} />
+        <Route path="agreements" element={<FeatureGate feature="agreements"><Suspense fallback={<PageLoader />}><Agreements /></Suspense></FeatureGate>} />
         <Route path="events" element={<FeatureGate feature="events"><Events /></FeatureGate>} />
         <Route path="settings" element={<Settings />} />
         <Route path="profile" element={<Profile />} />

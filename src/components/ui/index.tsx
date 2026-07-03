@@ -19,7 +19,11 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const buttonBase =
+<<<<<<< HEAD
   "ui-btn inline-flex items-center justify-center gap-2 rounded-[11px] font-bold text-[13.5px] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed";
+=======
+  "btn-press inline-flex items-center justify-center gap-2 rounded-[11px] font-bold text-[13.5px] cursor-pointer transition-[transform,filter,background-color,border-color] duration-[160ms] [transition-timing-function:var(--ease-out)] disabled:opacity-60 disabled:cursor-not-allowed";
+>>>>>>> 0da8c298dcac68eaedd310a6b1341c8017f1354f
 
 const buttonVariants: Record<ButtonVariant, string> = {
   primary: "ui-btn--primary px-4 py-3",
@@ -93,7 +97,7 @@ export function Card({
 }: { children: ReactNode; className?: string } & React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={`rounded-card border-0 bg-surface shadow-card ${className}`}
+      className={`rounded-card border border-border/80 bg-surface shadow-sm transition-[box-shadow,border-color] duration-[200ms] [transition-timing-function:var(--ease-out)] ${className}`}
       {...rest}
     >
       {children}
@@ -131,16 +135,24 @@ export function Badge({
 
 /* ----------------------------- PageHeader ----------------------------- */
 export function PageHeader({
+  title,
+  subtitle,
   actions,
 }: {
   title?: string;
   subtitle?: string;
   actions?: ReactNode;
 }) {
-  if (!actions) return null;
+  if (!title && !actions) return null;
   return (
-    <div className="mb-5 flex flex-wrap items-center justify-end gap-2.5">
-      {actions}
+    <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between sm:gap-3.5">
+      {title && (
+        <div className="min-w-0">
+          <div className="text-[clamp(1.25rem,4vw,1.5rem)] font-extrabold tracking-tight">{title}</div>
+          {subtitle && <div className="mt-1 text-[13.5px] text-text-2 sm:text-[14.5px]">{subtitle}</div>}
+        </div>
+      )}
+      {actions && <div className="flex flex-wrap gap-2 sm:gap-2.5">{actions}</div>}
     </div>
   );
 }
@@ -197,10 +209,14 @@ export function EmptyState({
 /* ----------------------------- PageLoader ----------------------------- */
 export function PageLoader({ label = "טוען..." }: { label?: string }) {
   return (
-    <div className="grid min-h-[60vh] place-items-center text-text-3">
-      <div className="flex flex-col items-center gap-3">
-        <Spinner size={32} />
-        <span className="text-[13.5px]">{label}</span>
+    <div className="grid min-h-[50dvh] place-items-center text-text-3 md:min-h-[60vh]">
+      <div className="flex w-full max-w-xs flex-col items-center gap-4 px-4">
+        <div className="flex w-full flex-col gap-2">
+          <div className="skeleton-shimmer h-3 w-3/4 rounded-md" />
+          <div className="skeleton-shimmer h-3 w-1/2 rounded-md" />
+        </div>
+        <Spinner size={28} />
+        <span className="text-[13px] font-medium">{label}</span>
       </div>
     </div>
   );

@@ -12,7 +12,7 @@ export type Availability = "prefer" | "available" | "cannot";
 /** How an employee's pay is computed. hourly = hours×rate; tips = tip pool, floored at their hourly_rate. */
 export type WageType = "hourly" | "tips";
 export type FaultStatus = "needs_handling" | "in_progress" | "handled";
-export type AgreementType = "work" | "sexual_harassment" | "other";
+export type AgreementType = "work" | "sexual_harassment" | "other" | "form_101";
 export type TaskType = "one_time" | "recurring";
 export type TaskStatus = "open" | "in_progress" | "done";
 /** Manager-approval state for maintenance tasks. null = no approval needed. */
@@ -42,8 +42,18 @@ export interface Business {
   location_lng: number | null;
   location_address: string | null;
   location_radius_m: number | null;
+  /** When true, employees must clock in within location_radius_m of the business address. */
+  attendance_geofence_enabled: boolean;
   /** Require manager approval for tasks a shift manager assigns to a maintenance worker. */
   maintenance_task_approval: boolean;
+  /** Day of week (0=Sun … 6=Sat) when next-week availability closes. null = no limit. */
+  shift_prefs_deadline_dow: number | null;
+  /** Time on shift_prefs_deadline_dow when submissions close (e.g. "20:00:00"). */
+  shift_prefs_deadline_time: string | null;
+  /** Day of week when submissions open. null = open immediately. Sat eve before the week when dow > close dow. */
+  shift_prefs_open_dow: number | null;
+  /** Time on shift_prefs_open_dow when submissions open (e.g. "21:00:00"). */
+  shift_prefs_open_time: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -98,6 +108,20 @@ export interface ShiftTemplate {
   created_at: string;
 }
 
+/**
+ * A signature box the manager marks on a PDF page. Coordinates are normalized
+ * (0..1) relative to the page size, so they render correctly at any zoom.
+ */
+export interface SignatureField {
+  id: string;
+  /** 0-based page index in the PDF */
+  page: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface AgreementTemplate {
   id: string;
   business_id: string;
@@ -105,6 +129,8 @@ export interface AgreementTemplate {
   title: string;
   content: string;
   file_url: string | null;
+  /** signature boxes the manager placed on the PDF, per page */
+  signature_fields: SignatureField[];
   /** null = fixed template for all employees; set = dynamic per-employee agreement */
   employee_id: string | null;
   is_editable: boolean;
@@ -120,6 +146,10 @@ export interface AgreementSignature {
   employee_id: string;
   agreed: boolean;
   signature_data: string | null;
+  /** map of SignatureField.id -> signature image (PNG dataURL) */
+  field_signatures: Record<string, string>;
+  /** flattened, signed PDF with signatures stamped in */
+  signed_file_url: string | null;
   signed_at: string | null;
   created_at: string;
 }

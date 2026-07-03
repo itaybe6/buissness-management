@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Badge,
   Button,
@@ -16,9 +16,11 @@ import {
 } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/lib/auth";
-import { useBusinessId, formatCurrency, formatDateShort, todayISO } from "@/lib/db";
+import { useBusinessId, formatCurrency, formatDateShort, todayISO, weekStart, addDays } from "@/lib/db";
+import { buildTipParticipantsFromShift } from "@/lib/shiftReportTips";
 import { useProfiles } from "@/api/users";
-import { useActiveShiftTemplates } from "@/api/shifts";
+import { useActiveShiftTemplates, useShiftAssignments } from "@/api/shifts";
+import { useAttendanceMonth } from "@/api/attendance";
 import {
   useShiftReports,
   useSaveShiftReport,
@@ -249,14 +251,54 @@ function ReportEditor({
   const [error, setError] = useState<string | null>(null);
   const save = useSaveShiftReport(businessId);
 
+  const reportMonth = s.report_date.slice(0, 7);
+  const reportWeekStart = weekStart(new Date(s.report_date + "T12:00:00"));
+  const { data: assignments, isLoading: assignmentsLoading } = useShiftAssignments(
+    businessId,
+    reportWeekStart,
+    addDays(reportWeekStart, 6),
+  );
+  const { data: attendance, isLoading: attendanceLoading } = useAttendanceMonth(businessId, reportMonth);
+
+  const tipEmployeeIds = useMemo(() => new Set(users.map((u) => u.id)), [users]);
+  const participantsKeyRef = useRef(
+    report ? `${report.report_date}|${report.shift_template_id ?? ""}` : "",
+  );
+
   const set = <K extends keyof EditorState>(key: K, value: EditorState[K]) =>
     setS((prev) => ({ ...prev, [key]: value }));
+
+  useEffect(() => {
+    if (!s.report_date || !s.shift_template_id || assignmentsLoading || attendanceLoading) return;
+
+    const key = `${s.report_date}|${s.shift_template_id}`;
+    if (participantsKeyRef.current === key) return;
+    participantsKeyRef.current = key;
+
+    const built = buildTipParticipantsFromShift({
+      reportDate: s.report_date,
+      shiftTemplateId: s.shift_template_id,
+      assignments: assignments ?? [],
+      tipEmployeeIds,
+      attendance: attendance ?? [],
+      templates,
+    });
+    set("participants", built);
+  }, [
+    s.report_date,
+    s.shift_template_id,
+    assignments,
+    attendance,
+    assignmentsLoading,
+    attendanceLoading,
+    tipEmployeeIds,
+    templates,
+  ]);
 
   const totalTips = Number(s.total_tips) || 0;
   const totalHours = s.participants.reduce((sum, p) => sum + (Number(p.hours) || 0), 0);
   const tipsHourly = totalHours > 0 ? totalTips / totalHours : 0;
-
-  const availableUsers = users.filter((u) => !s.participants.some((p) => p.employee_id === u.id));
+  const participantsLoading = assignmentsLoading || attendanceLoading;
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -361,55 +403,59 @@ function ReportEditor({
           </div>
 
           <div className="mt-1 text-[12.5px] text-text-2">
-            הוסיפו את העובדים שעבדו על טיפים ואת שעותיהם — הטיפים יתחלקו לפי שעות ויופיעו אוטומטית במסך השכר.
+            העובדים נטענים אוטומטית מהשיבוץ במשמרת — עדכנו שעות במידת הצורך. הטיפים יתחלקו לפי שעות ויופיעו במסך השכר.
           </div>
 
-          <div className="flex flex-col gap-2">
-            {s.participants.map((p, idx) => (
-              <div key={idx} className="grid grid-cols-[1fr_90px_auto_36px] items-center gap-2">
-                <Select
-                  value={p.employee_id}
-                  onChange={(e) => {
-                    const next = [...s.participants];
-                    next[idx] = { ...next[idx], employee_id: e.target.value };
-                    set("participants", next);
-                  }}
-                >
-                  <option value="">— בחר עובד —</option>
-                  {p.employee_id && <option value={p.employee_id}>{userName(p.employee_id)}</option>}
-                  {availableUsers.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}
-                </Select>
-                <Input
-                  type="number"
-                  inputMode="decimal"
-                  placeholder="שעות"
-                  value={p.hours || ""}
-                  onChange={(e) => {
-                    const next = [...s.participants];
-                    next[idx] = { ...next[idx], hours: Number(e.target.value) || 0 };
-                    set("participants", next);
-                  }}
-                />
-                <span className="whitespace-nowrap text-[12.5px] font-bold text-accent-2">
-                  {formatCurrency(tipsHourly * (Number(p.hours) || 0))}
-                </span>
-                <button
-                  onClick={() => set("participants", s.participants.filter((_, i) => i !== idx))}
-                  className="grid h-9 w-9 place-items-center rounded-lg text-text-3 hover:[background:var(--danger-bg)] hover:text-danger"
-                >
-                  <Icon name="close" size={18} />
-                </button>
+          {participantsLoading ? (
+            <div className="rounded-[11px] border border-border bg-surface-2 px-3.5 py-4 text-center text-[13px] text-text-2">
+              טוען עובדים מהמשמרת...
+            </div>
+          ) : !s.shift_template_id ? (
+            <div className="rounded-[11px] border border-dashed border-border px-3.5 py-4 text-center text-[13px] text-text-2">
+              בחרו משמרת כדי לטעון את עובדי הטיפים.
+            </div>
+          ) : s.participants.length === 0 ? (
+            <div className="rounded-[11px] border border-dashed border-border px-3.5 py-4 text-center text-[13px] text-text-2">
+              לא נמצאו עובדי טיפים משובצים למשמרת זו בתאריך שנבחר.
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-[11px] border border-border">
+              <div className="grid grid-cols-[1fr_90px_auto_36px] items-center gap-2 border-b border-border bg-surface-2 px-3 py-2 text-[11.5px] font-bold text-text-3">
+                <span>עובד</span>
+                <span>שעות</span>
+                <span>חלק בטיפים</span>
+                <span />
               </div>
-            ))}
-            <Button
-              variant="secondary"
-              icon="person_add"
-              onClick={() => set("participants", [...s.participants, { employee_id: "", hours: 0 }])}
-              className="self-start"
-            >
-              הוספת עובד
-            </Button>
-          </div>
+              <div className="flex flex-col divide-y divide-border-2">
+                {s.participants.map((p, idx) => (
+                  <div key={p.employee_id} className="grid grid-cols-[1fr_90px_auto_36px] items-center gap-2 px-3 py-2.5">
+                    <span className="truncate text-[14px] font-semibold">{userName(p.employee_id)}</span>
+                    <Input
+                      type="number"
+                      inputMode="decimal"
+                      placeholder="שעות"
+                      value={p.hours || ""}
+                      onChange={(e) => {
+                        const next = [...s.participants];
+                        next[idx] = { ...next[idx], hours: Number(e.target.value) || 0 };
+                        set("participants", next);
+                      }}
+                    />
+                    <span className="whitespace-nowrap text-[12.5px] font-bold text-accent-2">
+                      {formatCurrency(tipsHourly * (Number(p.hours) || 0))}
+                    </span>
+                    <button
+                      onClick={() => set("participants", s.participants.filter((_, i) => i !== idx))}
+                      className="grid h-9 w-9 place-items-center rounded-lg text-text-3 hover:[background:var(--danger-bg)] hover:text-danger"
+                      title="הסרה מהרשימה"
+                    >
+                      <Icon name="close" size={18} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </Section>
 
         {/* הצוות */}

@@ -45,18 +45,30 @@ export default {
       keyframes: {
         fadeUp: { from: { opacity: "0", transform: "translateY(10px)" }, to: { opacity: "1", transform: "none" } },
         fadeIn: { from: { opacity: "0" }, to: { opacity: "1" } },
+<<<<<<< HEAD
         pop: { from: { opacity: "0", transform: "translateY(6px) scale(.96)" }, to: { opacity: "1", transform: "none" } },
+=======
+        pop: { from: { opacity: "0", transform: "scale(0.97)" }, to: { opacity: "1", transform: "none" } },
+>>>>>>> 0da8c298dcac68eaedd310a6b1341c8017f1354f
         pulse2: { "0%,100%": { opacity: "1" }, "50%": { opacity: ".45" } },
-        shimmer: { "100%": { transform: "translateX(-100%)" } },
-        riseIn: { from: { opacity: "0", transform: "translateY(16px) scale(.97)" }, to: { opacity: "1", transform: "none" } },
+        shimmer: { "100%": { transform: "translateX(100%)" } },
+        riseIn: { from: { opacity: "0", transform: "translateY(16px) scale(0.97)" }, to: { opacity: "1", transform: "none" } },
         bumpUp: { "0%": { transform: "scale(1)" }, "40%": { transform: "scale(1.18)" }, "100%": { transform: "scale(1)" } },
+        slideUp: { from: { opacity: "0", transform: "translateY(100%)" }, to: { opacity: "1", transform: "none" } },
       },
       animation: {
+<<<<<<< HEAD
         fadeUp: "fadeUp .35s ease",
         fadeIn: "fadeIn .3s ease",
         pop: "pop .32s cubic-bezier(0.26,1.12,0.4,1)",
+=======
+        fadeUp: "fadeUp .35s cubic-bezier(0.23,1,0.32,1)",
+        fadeIn: "fadeIn .3s cubic-bezier(0.23,1,0.32,1)",
+        pop: "pop .2s cubic-bezier(0.23,1,0.32,1)",
+>>>>>>> 0da8c298dcac68eaedd310a6b1341c8017f1354f
         riseIn: "riseIn .5s cubic-bezier(0.16,1,0.3,1) both",
         shimmer: "shimmer 1.4s infinite",
+        slideUp: "slideUp .32s cubic-bezier(0.23,1,0.32,1)",
       },
     },
   },

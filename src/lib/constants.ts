@@ -38,6 +38,9 @@ export const OFFICE_RECEIPTS_ROLES: UserRole[] = ["manager", "office_manager"];
 /** Roles that can build/edit the work schedule and view all departments' schedules. */
 export const SCHEDULER_ROLES: UserRole[] = ["manager", "shift_manager"];
 
+/** Roles that see the manager tasks UI (fixed templates + assignment). */
+export const MANAGER_ROLES: UserRole[] = ["manager", "shift_manager"];
+
 export const ALL_FEATURES: { key: FeatureKey; label: string; icon: string; desc: string }[] = [
   { key: "agreements", label: "הסכמים וחתימה דיגיטלית", icon: "draw", desc: "העלאת הסכמים לחתימה דיגיטלית של העובדים" },
   { key: "shifts", label: "הגשת משמרות וסידור", icon: "calendar_month", desc: "אילוצים שבועיים ובניית סידור עבודה" },
@@ -77,8 +80,10 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "users", label: "משתמשים", icon: "group", roles: ["manager"] },
   { key: "shifts", label: "משמרות", icon: "calendar_month", roles: ["manager", "shift_manager", "employee"], feature: "shifts" },
   { key: "shift-reports", label: "דוח משמרת", icon: "receipt_long", roles: ["manager", "shift_manager"], feature: "shift_reports" },
-  { key: "tasks", label: "משימות", icon: "checklist", roles: ["manager", "shift_manager", "office_manager", "employee", "maintenance"], feature: "tasks" },
+  { key: "tasks", label: "בית", icon: "home", roles: ["employee"], feature: "tasks" },
+  { key: "tasks", label: "משימות", icon: "checklist", roles: ["manager", "shift_manager", "office_manager", "maintenance"], feature: "tasks" },
   { key: "attendance", label: "שעון נוכחות", icon: "schedule", roles: ["manager", "shift_manager", "employee"], feature: "attendance" },
+  { key: "my-shifts", label: "המשמרות שלי", icon: "event_available", roles: ["manager", "shift_manager", "office_manager", "employee", "maintenance"] },
   { key: "payroll", label: "שכר", icon: "payments", roles: ["manager", "office_manager"], feature: "payroll" },
   { key: "inventory", label: "סחורות", icon: "inventory_2", roles: ["manager", "shift_manager", "office_manager", "employee", "maintenance"], feature: "inventory" },
   { key: "faults", label: "תקלות", icon: "build", roles: ["manager", "shift_manager", "employee"], feature: "faults" },

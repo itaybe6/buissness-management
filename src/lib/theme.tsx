@@ -12,7 +12,11 @@ const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>(() => {
     try {
-      return (localStorage.getItem("ofek_theme") as Theme) || "light";
+      return (
+        (localStorage.getItem("avichai_theme") as Theme) ||
+        (localStorage.getItem("ofek_theme") as Theme) ||
+        "light"
+      );
     } catch {
       return "light";
     }
@@ -21,7 +25,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
     try {
-      localStorage.setItem("ofek_theme", theme);
+      localStorage.setItem("avichai_theme", theme);
     } catch {
       /* ignore */
     }

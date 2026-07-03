@@ -4,6 +4,7 @@ import { Badge, Card, EmptyState, ErrorState, Icon, PageLoader } from "@/compone
 import { useAuth } from "@/lib/auth";
 import { useBusinessId, HE_DAYS, addDays, formatDateShort, weekStart, todayISO, colorFor, initialsOf } from "@/lib/db";
 import { useDepartments } from "@/api/departments";
+import { useBusiness } from "@/api/businesses";
 import { useProfiles } from "@/api/users";
 import {
   useActiveShiftTemplates,
@@ -15,6 +16,14 @@ import {
   useRemoveAssignment,
 } from "@/api/shifts";
 import { SCHEDULER_ROLES } from "@/lib/constants";
+import {
+  formatShiftPrefsClose,
+  formatShiftPrefsCloseRule,
+  formatShiftPrefsOpen,
+  formatShiftPrefsWindowRule,
+  getShiftPrefsWindowStatus,
+  isShiftPrefsOpenForWeek,
+} from "@/lib/shift-deadline";
 import type { Availability, Profile } from "@/types/database";
 
 const AVAIL_META: Record<"available" | "cannot", { label: string; short: string; bg: string; color: string; border: string }> = {
@@ -355,7 +364,11 @@ function EmployeeSchedule({ templates }: { templates: NonNullable<ReturnType<typ
 function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<typeof useActiveShiftTemplates>["data"]> }) {
   const businessId = useBusinessId();
   const { profile } = useAuth();
+<<<<<<< HEAD
   const reduceMotion = useReducedMotion();
+=======
+  const { data: business } = useBusiness(businessId);
+>>>>>>> 0da8c298dcac68eaedd310a6b1341c8017f1354f
   const nextWk = addDays(weekStart(), 7);
   const [wk, setWk] = useState(nextWk);
   const [dayIdx, setDayIdx] = useState(0);
@@ -364,6 +377,14 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
   const clearPref = useClearPreference(businessId);
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  const closeDow = business?.shift_prefs_deadline_dow;
+  const closeTime = business?.shift_prefs_deadline_time;
+  const openDow = business?.shift_prefs_open_dow;
+  const openTime = business?.shift_prefs_open_time;
+  const windowStatus = getShiftPrefsWindowStatus(wk, closeDow, closeTime, openDow, openTime);
+  const canEdit = isShiftPrefsOpenForWeek(wk, closeDow, closeTime, openDow, openTime);
+  const hasWindow = closeDow != null && closeTime != null;
 
   const prefMap = useMemo(() => {
     const m = new Map<string, "available" | "cannot">();
@@ -391,7 +412,7 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
   }
 
   async function setAvailability(templateId: string, date: string, value: Availability | null) {
-    if (!profile?.id || !businessId) return;
+    if (!profile?.id || !businessId || !canEdit) return;
     const key = `${templateId}_${date}`;
     setPending((s) => new Set(s).add(key));
     setSaveError(null);
@@ -468,6 +489,7 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
         </div>
       )}
 
+<<<<<<< HEAD
       {/* Phone: pick a day, mark availability per shift */}
       <div className="md:hidden">
         <DayStrip wk={wk} value={dayIdx} onChange={setDayIdx} stripId="constraints" />
@@ -523,6 +545,41 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
 
       {/* Desktop: full week grid */}
       <Card className="hidden overflow-hidden !p-0 shadow-sm md:block">
+=======
+      {hasWindow && windowStatus.state === "closed" && (
+        <div className="mb-3 flex items-center gap-2 rounded-[11px] border border-warning/30 [background:var(--warning-bg)] px-3.5 py-2.5 text-[13px] font-semibold text-warning">
+          <Icon name="lock" size={18} />
+          המועד להגשת זמינות לשבוע זה הסתיים ({formatShiftPrefsClose(wk, closeDow!, closeTime!)}).
+        </div>
+      )}
+
+      {hasWindow && windowStatus.state === "not_yet_open" && openDow != null && openTime != null && (
+        <div className="mb-3 flex items-center gap-2 rounded-[11px] border border-warning/30 [background:var(--warning-bg)] px-3.5 py-2.5 text-[13px] font-semibold text-warning">
+          <Icon name="hourglass_empty" size={18} />
+          חלון ההגשה לשבוע זה עדיין לא נפתח — ייפתח ב-
+          {formatShiftPrefsOpen(wk, openDow, openTime, closeDow!)}.
+        </div>
+      )}
+
+      {hasWindow && canEdit && wk === nextWk && (
+        <div className="mb-3 flex items-center gap-2 rounded-[11px] border border-info/30 [background:var(--info-bg)] px-3.5 py-2.5 text-[13px] font-semibold text-info">
+          <Icon name="schedule" size={18} />
+          {openDow != null && openTime != null ? (
+            <>
+              חלון פתוח: {formatShiftPrefsWindowRule(openDow, openTime, closeDow!, closeTime!)} · נסגר ב-
+              {formatShiftPrefsClose(wk, closeDow!, closeTime!)}
+            </>
+          ) : (
+            <>
+              ניתן לעדכן עד {formatShiftPrefsClose(wk, closeDow!, closeTime!)} ·{" "}
+              {formatShiftPrefsCloseRule(closeDow!, closeTime!)}
+            </>
+          )}
+        </div>
+      )}
+
+      <Card className="overflow-hidden !p-0 shadow-sm">
+>>>>>>> 0da8c298dcac68eaedd310a6b1341c8017f1354f
         <div className="shift-grid-wrap">
           <div className="shift-grid min-w-[720px]">
             <div className="shift-grid-head">
@@ -538,16 +595,18 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
                       <button
                         type="button"
                         title="כל המשמרות ביום זה — יכול"
+                        disabled={!canEdit}
                         onClick={() => fillDay(i, "available")}
-                        className="rounded-md px-1.5 py-0.5 text-[10px] font-bold text-info transition hover:[background:var(--info-bg)]"
+                        className="rounded-md px-1.5 py-0.5 text-[10px] font-bold text-info transition hover:[background:var(--info-bg)] disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         הכל יכול
                       </button>
                       <button
                         type="button"
                         title="נקה יום"
+                        disabled={!canEdit}
                         onClick={() => clearDay(i)}
-                        className="rounded-md px-1.5 py-0.5 text-[10px] font-bold text-text-3 transition hover:bg-surface-2"
+                        className="rounded-md px-1.5 py-0.5 text-[10px] font-bold text-text-3 transition hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         נקה
                       </button>
@@ -580,6 +639,7 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
                       <AvailabilityCell
                         value={cur}
                         saving={isSaving}
+                        disabled={!canEdit}
                         onSet={(v) => setAvailability(t.id, date, v)}
                       />
                     </div>
@@ -589,7 +649,29 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
             ))}
           </div>
         </div>
+<<<<<<< HEAD
         {savingBar}
+=======
+
+        <div className="flex flex-wrap items-center gap-2 border-t border-border px-5 py-3.5 text-[12.5px] text-text-3">
+          {!canEdit ? (
+            <>
+              <Icon name="lock" size={16} />
+              הזמינות לשבוע זה נעולה — לא ניתן לערוך
+            </>
+          ) : setPref.isPending || clearPref.isPending ? (
+            <>
+              <Icon name="sync" size={16} className="animate-spin" />
+              שומר...
+            </>
+          ) : (
+            <>
+              <Icon name="cloud_done" size={16} />
+              האילוצים נשמרים אוטומטית
+            </>
+          )}
+        </div>
+>>>>>>> 0da8c298dcac68eaedd310a6b1341c8017f1354f
       </Card>
     </div>
   );
@@ -598,20 +680,27 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
 function AvailabilityCell({
   value,
   saving,
+  disabled,
   onSet,
   horizontal = false,
 }: {
   value: "available" | "cannot" | null;
   saving?: boolean;
+  disabled?: boolean;
   onSet: (v: Availability | null) => void;
   horizontal?: boolean;
 }) {
   const isAvail = value === "available";
   const isCannot = value === "cannot";
+  const locked = disabled || saving;
 
   return (
     <div
+<<<<<<< HEAD
       className={`flex gap-1 rounded-[10px] border p-1 transition ${horizontal ? "flex-row" : "min-h-[52px] flex-col"} ${saving ? "opacity-60" : ""}`}
+=======
+      className={`flex min-h-[52px] flex-col gap-1 rounded-[10px] border p-1 transition ${locked ? "opacity-60" : ""}`}
+>>>>>>> 0da8c298dcac68eaedd310a6b1341c8017f1354f
       style={{
         background: isAvail ? AVAIL_META.available.bg : isCannot ? AVAIL_META.cannot.bg : "var(--surface)",
         borderColor: isAvail ? AVAIL_META.available.border : isCannot ? AVAIL_META.cannot.border : "var(--border)",
@@ -619,7 +708,7 @@ function AvailabilityCell({
     >
       <button
         type="button"
-        disabled={saving}
+        disabled={locked}
         onClick={() => onSet(isAvail ? null : "available")}
         className={`seg-btn flex flex-1 items-center justify-center gap-1 rounded-[7px] text-[11.5px] font-bold transition ${horizontal ? "py-2 text-[12.5px]" : "py-1.5"}`}
         style={
@@ -633,7 +722,7 @@ function AvailabilityCell({
       </button>
       <button
         type="button"
-        disabled={saving}
+        disabled={locked}
         onClick={() => onSet(isCannot ? null : "cannot")}
         className={`seg-btn flex flex-1 items-center justify-center gap-1 rounded-[7px] text-[11.5px] font-bold transition ${horizontal ? "py-2 text-[12.5px]" : "py-1.5"}`}
         style={

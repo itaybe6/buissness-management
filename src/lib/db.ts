@@ -52,7 +52,7 @@ export function initialsOf(name: string | null | undefined): string {
   return (parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "");
 }
 
-const PALETTE = ["#0d9488", "#7c3aed", "#db2777", "#2563eb", "#d97706", "#16a34a", "#0891b2", "#dc2626"];
+const PALETTE = ["#7c3aed", "#db2777", "#2563eb", "#d97706", "#16a34a", "#0891b2", "#dc2626", "#0d9488"];
 export function colorFor(id: string): string {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
