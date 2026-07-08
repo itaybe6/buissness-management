@@ -8,6 +8,7 @@ import { useProfiles } from "@/api/users";
 import { useAttendanceMonth } from "@/api/attendance";
 import { useTips, useAddTip, useShiftBonuses } from "@/api/payroll";
 import { useActiveShiftTemplates } from "@/api/shifts";
+import { computeEmployeePayroll, sumAttendanceHours } from "@/lib/payrollCompute";
 
 function monthNow() {
   return new Date().toISOString().slice(0, 7);
@@ -36,25 +37,16 @@ export function Payroll() {
       const myBonuses = (bonuses ?? []).filter((b) => b.employee_id === u.id);
       const bonusSum = myBonuses.reduce((s, b) => s + Number(b.amount), 0);
 
-      if (wageType === "tips") {
-        // השכר מגיע מקופת הטיפים, עם רצפת מינימום לכל משמרת בנפרד:
-        // לכל משמרת השכר = שעות × max(תעריף-טיפים-של-המשמרת, התעריף השעתי שלו).
-        const hours = myTips.reduce((s, t) => s + (Number(t.hours) || 0), 0);
-        const tipSum = myTips.reduce((s, t) => s + Number(t.amount), 0);
-        const guaranteed = myTips.reduce((s, t) => {
-          const h = Number(t.hours) || 0;
-          return s + h * Math.max(Number(t.hourly_from_tips) || 0, rate);
-        }, 0);
-        const topup = Math.max(0, guaranteed - tipSum);
-        return { id: u.id, name: u.full_name, wageType, rate, hours, base: tipSum, tips: tipSum, topup, bonus: bonusSum, total: guaranteed + bonusSum };
-      }
-
+      // עובד טיפים: השכר מקופת הטיפים עם רצפת מינימום לכל משמרת בנפרד.
       // עובד שעתי: שעות נוכחות × תעריף, ללא טיפים.
-      const hours = (attendance ?? [])
-        .filter((a) => a.employee_id === u.id && a.clock_in && a.clock_out)
-        .reduce((sum, a) => sum + (new Date(a.clock_out!).getTime() - new Date(a.clock_in!).getTime()) / 3.6e6, 0);
-      const base = hours * rate;
-      return { id: u.id, name: u.full_name, wageType, rate, hours, base, tips: 0, topup: 0, bonus: bonusSum, total: base + bonusSum };
+      const pay = computeEmployeePayroll({
+        wageType,
+        rate,
+        tips: myTips,
+        bonusSum,
+        attendanceHours: sumAttendanceHours(attendance ?? [], u.id),
+      });
+      return { id: u.id, name: u.full_name, ...pay };
     });
   }, [users, attendance, tips, bonuses, isPayrollManager, profile?.id]);
 

@@ -7,7 +7,9 @@
     "dev": "vite --config vite.config.mjs",
     "build": "tsc && vite build --config vite.config.mjs",
     "preview": "vite preview --config vite.config.mjs",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "vitest run --config vitest.config.mjs",
+    "test:watch": "vitest --config vitest.config.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
@@ -28,6 +30,7 @@
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.13",
     "typescript": "^5.6.2",
-    "vite": "^5.4.8"
+    "vite": "^5.4.8",
+    "vitest": "^4.1.10"
   }
 }

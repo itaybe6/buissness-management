@@ -2,7 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { compressImage } from "@/lib/compressImage";
 import { supabase } from "@/lib/supabase";
 import { computeShiftBonusAmounts, filterBonusParticipantsToWorkedShift } from "@/lib/shiftReportBonuses";
-import type { Attendance, ShiftAssignment, ShiftReport, ShiftReportExtra, ShiftReportParticipant, ShiftTemplate } from "@/types/database";
+import { computeTipsHourly, distributeTips } from "@/lib/shiftReportTips";
+import type { Attendance, ShiftAssignment, ShiftReport, ShiftReportExtra, ShiftTemplate } from "@/types/database";
 
 /** Shift reports within a month (yyyy-mm), newest first. */
 export function useShiftReports(businessId: string | null, monthISO: string) {
@@ -69,13 +70,6 @@ export interface SaveShiftReportInput {
   extra: ShiftReportExtra;
   invoice_urls: string[];
   created_by: string | null;
-}
-
-/** Compute hourly-from-tips for the pool of tip participants. */
-function computeTipsHourly(totalTips: number, participants: ShiftReportParticipant[]): number {
-  const totalHours = participants.reduce((s, p) => s + (Number(p.hours) || 0), 0);
-  if (totalHours <= 0) return 0;
-  return totalTips / totalHours;
 }
 
 async function resolveWorkedBonusEmployeeIds(input: SaveShiftReportInput): Promise<string[]> {
@@ -163,18 +157,16 @@ export function useSaveShiftReport(businessId: string | null) {
 
       // Re-sync tips: clear previous ones for this report, then insert fresh.
       await supabase.from("tips").delete().eq("shift_report_id", reportId);
-      const tipRows = participants
-        .filter((p) => p.employee_id && (Number(p.hours) || 0) > 0)
-        .map((p) => ({
-          business_id: input.business_id,
-          employee_id: p.employee_id,
-          shift_date: input.report_date,
-          shift_template_id: input.shift_template_id,
-          shift_report_id: reportId,
-          amount: Math.round(tipsHourly * (Number(p.hours) || 0) * 100) / 100,
-          hours: Number(p.hours) || 0,
-          hourly_from_tips: Math.round(tipsHourly * 100) / 100,
-        }));
+      const tipRows = distributeTips(Number(input.total_tips) || 0, participants).map((t) => ({
+        business_id: input.business_id,
+        employee_id: t.employee_id,
+        shift_date: input.report_date,
+        shift_template_id: input.shift_template_id,
+        shift_report_id: reportId,
+        amount: t.amount,
+        hours: t.hours,
+        hourly_from_tips: t.hourly_from_tips,
+      }));
       if (tipRows.length) {
         const { error } = await supabase.from("tips").insert(tipRows);
         if (error) throw error;
