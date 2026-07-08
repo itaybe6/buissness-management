@@ -132,6 +132,8 @@ create table public.businesses (
   location_radius_m integer default 100,
   -- מתג: לדרוש מיקום GPS ברדיוס בהחתמת נוכחות
   attendance_geofence_enabled boolean not null default true,
+  -- תפקידים שפטורים מבדיקת רדיוס (כניסה מכל מקום)
+  attendance_geofence_exempt_roles public.user_role[] not null default '{}',
   -- מתג: לדרוש אישור מנהל למשימות שאחראי משמרת מוריד לאיש אחזקה
   maintenance_task_approval boolean not null default false,
   -- חלון הגשת זמינות לשבוע הבא (יום+שעה; null = ללא הגבלה / פתוח מההתחלה)
@@ -177,6 +179,7 @@ create table public.profiles (
   business_id uuid references public.businesses(id) on delete cascade, -- null עבור super_admin
   department_id uuid references public.departments(id) on delete set null, -- שיוך למחלקה
   full_name   text,
+  avatar_url  text,                   -- תמונת פרופיל ב-Storage
   email       text,
   phone       text,
   role        public.user_role not null default 'employee',
@@ -399,6 +402,7 @@ create table public.inventory_items (
   business_id   uuid not null references public.businesses(id) on delete cascade,
   name          text not null,
   unit          text,                 -- יחידה (יחידות, ארגז, ק"ג, ליטר)
+  units_per_package numeric(12,2) check (units_per_package is null or units_per_package > 0),  -- יחידים ביחידת מידה (למשל 24 בארגז)
   image_url     text,                 -- תמונת המוצר ב-Storage
   min_quantity  numeric(12,2) not null default 0,  -- סף מלאי נמוך
   supplier_delivery_day smallint check (supplier_delivery_day between 0 and 6),  -- יום אספקה מהספק
@@ -768,6 +772,38 @@ create policy "task_templates_tenant" on public.task_templates
 -- tasks
 create policy "tasks_tenant" on public.tasks
   for all using (public.can_access(business_id)) with check (public.can_access(business_id));
+
+-- ----------------------------------------------------------------------------
+-- מחיקת עובד — ניקוי הפניות לפני מחיקת auth.users
+-- ----------------------------------------------------------------------------
+
+create or replace function public.prep_delete_profile(p_user_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update public.agreement_templates set created_by = null where created_by = p_user_id;
+  update public.shift_assignments set assigned_by = null where assigned_by = p_user_id;
+  update public.shift_reports set created_by = null where created_by = p_user_id;
+  update public.payroll_records set created_by = null where created_by = p_user_id;
+  update public.inventory_counts set employee_id = null where employee_id = p_user_id;
+  update public.inventory_orders set ordered_by = null where ordered_by = p_user_id;
+  update public.inventory_waste set employee_id = null where employee_id = p_user_id;
+  update public.inventory_logs set employee_id = null where employee_id = p_user_id;
+  update public.faults set reported_by = null where reported_by = p_user_id;
+  update public.faults set assigned_to = null where assigned_to = p_user_id;
+  update public.events set created_by = null where created_by = p_user_id;
+  update public.tasks set assigned_to = null where assigned_to = p_user_id;
+  update public.tasks set assigned_by = null where assigned_by = p_user_id;
+
+  if to_regclass('public.office_receipts') is not null then
+    execute 'update public.office_receipts set created_by = null where created_by = $1'
+      using p_user_id;
+  end if;
+end;
+$$;
 
 -- ============================================================================
 -- סיום. הערות:

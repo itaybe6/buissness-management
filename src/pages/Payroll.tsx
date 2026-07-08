@@ -70,7 +70,7 @@ export function Payroll() {
   );
 
   return (
-    <div className="mx-auto max-w-[1100px] animate-fadeUp">
+    <div className="w-full animate-fadeUp">
       <PageHeader
         title="שכר וטיפים"
         subtitle="חישוב לפי שעות נוכחות + טיפים"

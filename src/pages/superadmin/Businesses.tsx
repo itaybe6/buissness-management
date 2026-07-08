@@ -47,7 +47,7 @@ export function Businesses() {
   if (isError) return <ErrorState onRetry={refetch} />;
 
   return (
-    <div className="mx-auto max-w-[1220px] animate-fadeUp">
+    <div className="w-full animate-fadeUp">
       <PageHeader
         title="עסקים"
         subtitle={`${data?.length ?? 0} עסקים · ניהול מנויים ומודולים`}

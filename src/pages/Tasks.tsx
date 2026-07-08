@@ -32,6 +32,7 @@ import {
 import { useDepartments } from "@/api/departments";
 import { useProfiles } from "@/api/users";
 import { useBusiness } from "@/api/businesses";
+import { MANAGER_ROLES, TASK_CREATE_ROLES } from "@/lib/constants";
 import { EmployeeShiftPunch } from "@/components/attendance/EmployeeShiftPunch";
 import { TaskWeekSchedule } from "@/components/tasks/TaskWeekSchedule";
 import { DailyTasksChecklist, useDailyTaskActions, taskMedia, isVideoUrl } from "@/components/tasks/DailyTasksChecklist";
@@ -52,7 +53,7 @@ export function Tasks() {
   const businessId = useBusinessId();
   const { profile } = useAuth();
 
-  if (profile?.role === "manager") {
+  if (profile && MANAGER_ROLES.includes(profile.role)) {
     return <ManagerTasksView businessId={businessId!} profileId={profile.id} />;
   }
   return <EmployeeTasksView businessId={businessId!} profileId={profile!.id} />;
@@ -82,7 +83,7 @@ function EmployeeTasksView({ businessId, profileId }: { businessId: string; prof
   const firstName = (profile?.full_name ?? "").split(/\s+/)[0];
 
   return (
-    <div className="employee-home mx-auto max-w-[640px] animate-fadeUp pb-2">
+    <div className="employee-home w-full animate-fadeUp pb-2">
       <header className="employee-home-hero mb-5 overflow-hidden rounded-[22px] border border-border/70 px-4 py-5 sm:px-5">
         <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-text-3">{business?.name ?? "העסק שלך"}</p>
         <h1 className="mt-1 text-[clamp(1.35rem,5vw,1.75rem)] font-extrabold tracking-tight text-text">
@@ -128,8 +129,9 @@ function EmployeeTasksView({ businessId, profileId }: { businessId: string; prof
           <Icon name={weekOpen ? "expand_less" : "expand_more"} size={22} className="text-text-3" />
         </button>
         {weekOpen && (
-          <div className="mt-3 overflow-hidden rounded-[18px] border border-border/70 bg-surface p-2 sm:p-3">
+          <div className="mt-3">
             <TaskWeekSchedule
+              embedded
               tasks={mine}
               templates={templates ?? []}
               employees={users ?? []}
@@ -150,6 +152,7 @@ function EmployeeTasksView({ businessId, profileId }: { businessId: string; prof
 
 function ManagerTasksView({ businessId, profileId }: { businessId: string; profileId: string }) {
   const { profile } = useAuth();
+  const canCreateTasks = !!(profile && TASK_CREATE_ROLES.includes(profile.role));
   const { data: tasks, isLoading: tasksLoading, isError: tasksError, refetch: refetchTasks } = useTasks(businessId);
   const { data: templates, isLoading: tplLoading, isError: tplError, refetch: refetchTpl } = useTaskTemplates(businessId);
   const { data: departments, isLoading: deptLoading } = useDepartments(businessId);
@@ -163,6 +166,10 @@ function ManagerTasksView({ businessId, profileId }: { businessId: string; profi
   const delTpl = useDeleteTaskTemplate(businessId);
 
   const [managerTab, setManagerTab] = useState<ManagerTab>("assign");
+
+  useEffect(() => {
+    if (!canCreateTasks && managerTab === "templates") setManagerTab("assign");
+  }, [canCreateTasks, managerTab]);
 
   const userById = useMemo(() => {
     const m = new Map<string, string>();
@@ -188,16 +195,15 @@ function ManagerTasksView({ businessId, profileId }: { businessId: string; profi
     ? (tasks ?? []).filter((t) => t.approval_status === "pending")
     : [];
 
-  // משימה שאחראי משמרת מוריד לאיש אחזקה דורשת אישור מנהל (כשהמתג דלוק)
+  // משימה לאיש אחזקה דורשת אישור מנהל (כשהמתג של העסק דלוק)
   function approvalForAssignee(assignedTo: string | null | undefined): "pending" | null {
-    if (!approvalEnabled || profile?.role !== "shift_manager" || !assignedTo) return null;
+    if (!approvalEnabled || !canCreateTasks || !assignedTo) return null;
     const target = (users ?? []).find((u) => u.id === assignedTo);
     return target?.role === "maintenance" ? "pending" : null;
   }
 
   const scheduleBlock = (
-    <>
-      <div className="my-8 border-t border-border" />
+    <div className="mt-10">
       <TaskWeekSchedule
         tasks={tasks ?? []}
         templates={templates ?? []}
@@ -207,11 +213,11 @@ function ManagerTasksView({ businessId, profileId }: { businessId: string; profi
           updateTask.mutate({ id, status: done ? "open" : "done", completed_at: done ? null : new Date().toISOString() })
         }
       />
-    </>
+    </div>
   );
 
   return (
-    <div className="mx-auto max-w-[1100px] animate-fadeUp">
+    <div className="w-full animate-fadeUp">
       <PageHeader
         title="משימות"
         subtitle="משימות קבועות · שיוך לעובדים · חד-פעמיות"
@@ -235,7 +241,7 @@ function ManagerTasksView({ businessId, profileId }: { businessId: string; profi
         {(
           [
             ["assign", "שיוך משימות", "person_add"],
-            ["templates", "משימות קבועות", "event_repeat"],
+            ...(canCreateTasks ? ([["templates", "משימות קבועות", "event_repeat"]] as const) : []),
           ] as const
         ).map(([k, label, icon]) => (
           <button
@@ -251,7 +257,7 @@ function ManagerTasksView({ businessId, profileId }: { businessId: string; profi
         ))}
       </div>
 
-      {managerTab === "templates" ? (
+      {managerTab === "templates" && canCreateTasks ? (
         <FixedTasksPanel
           templates={templates ?? []}
           departments={departments ?? []}
@@ -271,21 +277,37 @@ function ManagerTasksView({ businessId, profileId }: { businessId: string; profi
         />
       ) : (
         <div className="flex flex-col gap-5">
-          <QuickAssignPanel
-            users={users ?? []}
-            saving={createTask.isPending}
-            onAssign={async (input) => {
-              const approval = approvalForAssignee(input.assigned_to);
-              const id = await createTask.mutateAsync({
-                business_id: businessId,
-                assigned_by: profileId,
-                approval_status: approval,
-                ...input,
-              });
-              // משימה שהגיעה ישירות לעובד (לא ממתינה לאישור) → מייל התראה
-              if (!approval && input.assigned_to) notifyTaskAssigned(id);
-            }}
-          />
+          {canCreateTasks && (
+            <QuickAssignPanel
+              users={users ?? []}
+              saving={createTask.isPending}
+              onAssign={async (input) => {
+                const approval = approvalForAssignee(input.assigned_to);
+                const id = await createTask.mutateAsync({
+                  business_id: businessId,
+                  assigned_by: profileId,
+                  approval_status: approval,
+                  ...input,
+                });
+                // משימה שהגיעה ישירות לעובד (לא ממתינה לאישור) → מייל התראה
+                if (!approval && input.assigned_to) notifyTaskAssigned(id);
+              }}
+            />
+          )}
+
+          {!canCreateTasks && (
+            <Card className="p-5">
+              <div className="flex items-start gap-3">
+                <Icon name="info" size={22} className="mt-0.5 text-text-3" />
+                <div>
+                  <div className="text-[15px] font-bold text-text">צפייה בלבד</div>
+                  <p className="mt-1 text-[13px] leading-relaxed text-text-2">
+                    רק מנהל העסק יכול ליצור משימות חדשות ולהגדיר משימות קבועות.
+                  </p>
+                </div>
+              </div>
+            </Card>
+          )}
 
           <div>
             <div className="mb-3 text-[15px] font-bold">משימות חד-פעמיות שהוקצו</div>
@@ -295,11 +317,11 @@ function ManagerTasksView({ businessId, profileId }: { businessId: string; profi
               userById={userById}
               templateById={templateById}
               showAssignee
-              showDelete
+              showDelete={canCreateTasks}
               onToggle={(id, done) =>
                 updateTask.mutate({ id, status: done ? "open" : "done", completed_at: done ? null : new Date().toISOString() })
               }
-              onDelete={(id) => delTask.mutate(id)}
+              onDelete={canCreateTasks ? (id) => delTask.mutate(id) : undefined}
             />
           </div>
         </div>

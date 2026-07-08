@@ -24,7 +24,7 @@ export function Agreements() {
       : "מילוי וחתימה על המסמכים שלך";
 
   return (
-    <div className="mx-auto max-w-[1100px] animate-fadeUp">
+    <div className="w-full animate-fadeUp">
       <header className="mb-5">
         <h1 className="text-[22px] font-extrabold tracking-tight">{canReceipts && !canEdit ? "מסמכים" : "מסמכי עובדים"}</h1>
         <p className="mt-0.5 text-[13.5px] text-text-2">{subtitle}</p>

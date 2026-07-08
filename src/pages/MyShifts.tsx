@@ -130,7 +130,7 @@ export function MyShifts() {
   const atCurrentMonth = month >= monthNow();
 
   return (
-    <div className="mx-auto max-w-[760px] animate-fadeUp">
+    <div className="w-full animate-fadeUp">
       {/* Header + month stepper */}
       <header className="mb-4 flex items-center justify-between gap-3">
         <div className="min-w-0">

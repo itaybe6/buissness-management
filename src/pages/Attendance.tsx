@@ -96,6 +96,10 @@ export function Attendance() {
   const shiftElapsed = myOpen?.clock_in ? formatElapsed(now.getTime() - new Date(myOpen.clock_in).getTime()) : null;
   const locationReady = biz.location_lat != null && biz.location_lng != null;
   const geofenceEnabled = biz.attendance_geofence_enabled;
+  const geofenceExempt = Boolean(
+    profile && biz.attendance_geofence_exempt_roles?.includes(profile.role),
+  );
+  const geofenceRequired = geofenceEnabled && !geofenceExempt;
   const radiusM = biz.location_radius_m ?? ATTENDANCE_RADIUS_M;
   const timeStr = now.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const dateStr = now.toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long" });
@@ -122,11 +126,14 @@ export function Attendance() {
       return;
     }
 
-    if (!geofenceEnabled) {
+    if (!geofenceRequired) {
       setBusy(true);
       try {
         await clockInRecord(null, null, false);
-        setStatus({ ok: true, text: "כניסה הוחתמה" });
+        setStatus({
+          ok: true,
+          text: geofenceExempt ? "כניסה הוחתמה · ללא בדיקת מיקום" : "כניסה הוחתמה",
+        });
       } catch {
         setStatus({ ok: false, text: "החתמה נכשלה" });
       } finally {
@@ -167,7 +174,7 @@ export function Attendance() {
   }
 
   return (
-    <div className="mx-auto max-w-[1200px] animate-fadeUp px-1">
+    <div className="w-full animate-fadeUp px-1">
       <header className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div className="max-w-xl">
           <p className="text-[12px] font-bold uppercase tracking-[0.14em] text-text-3">נוכחות · היום</p>
@@ -175,9 +182,11 @@ export function Attendance() {
             שעון נוכחות
           </h1>
           <p className="mt-2 max-w-[52ch] text-[14.5px] leading-relaxed text-text-2">
-            {geofenceEnabled
-              ? `החתמה מותנית במיקום GPS בתוך רדיוס של ${radiusM} מטרים ממקום העבודה.`
-              : "בדיקת מיקום כבויה — ניתן להחתים נוכחות מכל מקום."}
+            {geofenceExempt
+              ? "התפקיד שלך פטור מבדיקת מיקום — ניתן להחתים נוכחות מכל מקום."
+              : geofenceEnabled
+                ? `החתמה מותנית במיקום GPS בתוך רדיוס של ${radiusM} מטרים ממקום העבודה.`
+                : "בדיקת מיקום כבויה — ניתן להחתים נוכחות מכל מקום."}
           </p>
         </div>
         <div className="attendance-summary shrink-0">
@@ -210,19 +219,32 @@ export function Attendance() {
               <div className="mt-6 space-y-3">
                 <PunchButton onShift={onShift} busy={busy} onClick={handleClock} />
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[12.5px] text-text-3">
-                  {geofenceEnabled && (
+                  {geofenceRequired && (
                     <span className="inline-flex items-center gap-1.5">
                       <Icon name="radar" size={16} />
                       רדיוס מאושר: {radiusM} מ׳
                     </span>
                   )}
                   <span className="inline-flex items-center gap-1.5">
-                    <Icon name={geofenceEnabled ? (locationReady ? "location_on" : "location_off") : "location_disabled"} size={16} />
-                    {geofenceEnabled
-                      ? locationReady
-                        ? "מיקום העסק מוגדר"
-                        : "מיקום העסק חסר"
-                      : "בדיקת מיקום כבויה"}
+                    <Icon
+                      name={
+                        geofenceExempt
+                          ? "travel_explore"
+                          : geofenceEnabled
+                            ? locationReady
+                              ? "location_on"
+                              : "location_off"
+                            : "location_disabled"
+                      }
+                      size={16}
+                    />
+                    {geofenceExempt
+                      ? "פטור/ה מבדיקת מיקום"
+                      : geofenceEnabled
+                        ? locationReady
+                          ? "מיקום העסק מוגדר"
+                          : "מיקום העסק חסר"
+                        : "בדיקת מיקום כבויה"}
                   </span>
                 </div>
               </div>

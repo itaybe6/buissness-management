@@ -44,6 +44,8 @@ export interface Business {
   location_radius_m: number | null;
   /** When true, employees must clock in within location_radius_m of the business address. */
   attendance_geofence_enabled: boolean;
+  /** Roles that may clock in without geofence validation when attendance_geofence_enabled is true. */
+  attendance_geofence_exempt_roles: UserRole[];
   /** Require manager approval for tasks a shift manager assigns to a maintenance worker. */
   maintenance_task_approval: boolean;
   /** Day of week (0=Sun … 6=Sat) when next-week availability closes. null = no limit. */
@@ -81,6 +83,7 @@ export interface Profile {
   business_id: string | null;
   department_id: string | null;
   full_name: string | null;
+  avatar_url: string | null;
   email: string | null;
   phone: string | null;
   role: UserRole;
@@ -307,6 +310,8 @@ export interface InventoryItem {
   business_id: string;
   name: string;
   unit: string | null;
+  /** Individual pieces per main unit (e.g. 24 units per box). null when unit is יחידות. */
+  units_per_package: number | null;
   image_url: string | null;
   min_quantity: number;
   /** 0=Sunday … 6=Saturday (JS getDay). null = not set */

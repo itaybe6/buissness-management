@@ -44,6 +44,7 @@ export function DashboardPresenceCard() {
     shiftElapsed,
     pending,
     geofenceEnabled,
+    geofenceExempt,
     radiusM,
     clockStatus,
     busy,
@@ -79,7 +80,11 @@ export function DashboardPresenceCard() {
           <div className="mx-auto max-w-md space-y-3">
             <PunchButton onShift={onShift} busy={busy} onClick={handleClock} />
             <div className="text-center text-[11.5px] text-text-3">
-              {geofenceEnabled ? `רדיוס מאושר: ${radiusM} מ׳` : "בדיקת מיקום כבויה"}
+              {geofenceExempt
+                ? "פטור/ה מבדיקת מיקום — ניתן להחתים מכל מקום"
+                : geofenceEnabled
+                  ? `רדיוס מאושר: ${radiusM} מ׳`
+                  : "בדיקת מיקום כבויה"}
             </div>
           </div>
 

@@ -1,11 +1,12 @@
-import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { Button, Field, Icon, Input, PageLoader } from "@/components/ui";
+import { UserAvatar } from "@/components/ui/UserAvatar";
 import { useAuth } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
-import { useBusinessId, formatCurrency, initialsOf, colorFor } from "@/lib/db";
+import { useBusinessId, formatCurrency } from "@/lib/db";
 import { ROLE_LABELS } from "@/lib/constants";
-import { useUpdateProfile } from "@/api/users";
+import { uploadProfileAvatar, useUpdateProfile } from "@/api/users";
 import { useAttendanceMonth } from "@/api/attendance";
 import { useTips } from "@/api/payroll";
 import { useDepartments } from "@/api/departments";
@@ -82,18 +83,12 @@ export function Profile() {
   if (!profile) return <PageLoader />;
 
   return (
-    <div className="profile-page mx-auto max-w-[1100px] animate-fadeUp">
+    <div className="profile-page w-full animate-fadeUp">
       <motion.header className="page-hero profile-hero" {...motionProps}>
         <div className="profile-hero-glow" />
         <div className="page-hero-inner">
           <div className="profile-hero-main">
-            <div className="profile-avatar-wrap">
-              <div className="profile-avatar-ring" />
-              <div className="profile-avatar-ring profile-avatar-ring--inner" />
-              <span className="profile-avatar" style={{ background: colorFor(profile.id) }}>
-                {initialsOf(profile.full_name)}
-              </span>
-            </div>
+            <ProfileAvatarUpload profile={profile} onSaved={refresh} />
             <div className="min-w-0">
               <h1 className="page-hero-title">{profile.full_name ?? "משתמש"}</h1>
               <p className="page-hero-sub">
@@ -270,6 +265,74 @@ export function Profile() {
         <EditDetailsCard profile={profile} onSaved={refresh} reduceMotion={!!reduceMotion} />
         <ChangePasswordCard reduceMotion={!!reduceMotion} />
       </div>
+    </div>
+  );
+}
+
+function ProfileAvatarUpload({
+  profile,
+  onSaved,
+}: {
+  profile: ProfileType;
+  onSaved: () => Promise<void>;
+}) {
+  const updateProfile = useUpdateProfile();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+
+  async function handleFileChange(file: File | undefined) {
+    if (!file) return;
+    setError(null);
+    setPreview(URL.createObjectURL(file));
+    setUploading(true);
+    try {
+      const avatar_url = await uploadProfileAvatar(profile.id, file);
+      await updateProfile.mutateAsync({ id: profile.id, avatar_url });
+      await onSaved();
+    } catch (err) {
+      setPreview(null);
+      setError(err instanceof Error ? err.message : "שגיאה בהעלאת התמונה");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  const displayUrl = preview ?? profile.avatar_url;
+
+  return (
+    <div className="profile-avatar-wrap">
+      <div className="profile-avatar-ring" />
+      <div className="profile-avatar-ring profile-avatar-ring--inner" />
+      <button
+        type="button"
+        onClick={() => fileRef.current?.click()}
+        disabled={uploading}
+        className="profile-avatar profile-avatar-btn"
+        aria-label="העלאת תמונת פרופיל"
+      >
+        {displayUrl ? (
+          <img src={displayUrl} alt={profile.full_name ?? "משתמש"} className="profile-avatar-img" />
+        ) : (
+          <UserAvatar userId={profile.id} name={profile.full_name} size={88} rounded="circle" />
+        )}
+        <span className="profile-avatar-overlay">
+          {uploading ? <Icon name="hourglass_top" size={22} /> : <Icon name="add_a_photo" size={22} />}
+        </span>
+      </button>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          void handleFileChange(file);
+          e.target.value = "";
+        }}
+      />
+      {error && <p className="profile-avatar-error">{error}</p>}
     </div>
   );
 }

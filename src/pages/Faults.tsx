@@ -239,7 +239,7 @@ export function Faults() {
   }
 
   return (
-    <div className="mx-auto max-w-[1100px] animate-fadeUp">
+    <div className="w-full animate-fadeUp">
       <PageHeader
         title="דיווח תקלות"
         subtitle="מעקב וטיפול בתקלות · עדכון סטטוס ישיר מהכרטיס"

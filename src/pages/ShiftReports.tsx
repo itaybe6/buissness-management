@@ -67,7 +67,7 @@ export function ShiftReports() {
   if (isError) return <ErrorState onRetry={refetch} />;
 
   return (
-    <div className="mx-auto max-w-[1100px] animate-fadeUp">
+    <div className="w-full animate-fadeUp">
       <PageHeader
         title="דוח סגירת משמרת"
         subtitle="סיכום משמרת, סגירת קופה, חשבוניות וטיפים"

@@ -227,7 +227,7 @@ function SuperAdminDashboard() {
   const timeStr = now.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
 
   return (
-    <PageEnter className="mx-auto max-w-[1280px]">
+    <PageEnter className="w-full">
       <header className="dashboard-hero mb-6 overflow-hidden rounded-[28px] border border-border/60 p-5 sm:p-8 md:mb-8">
         <div className="relative flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
@@ -306,7 +306,7 @@ function BusinessDashboard() {
   const showAttendance = hasFeature("attendance");
 
   return (
-    <PageEnter className="mx-auto max-w-[1280px]">
+    <PageEnter className="w-full">
       {/* Hero */}
       <header className="dashboard-hero relative mb-5 overflow-hidden rounded-[28px] border border-border/60 p-5 sm:p-7 md:mb-6">
         <div className="pointer-events-none absolute inset-0 opacity-60" aria-hidden>

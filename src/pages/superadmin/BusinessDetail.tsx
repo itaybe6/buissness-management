@@ -44,7 +44,7 @@ export function BusinessDetail() {
   const nameValue = name ?? biz.name;
 
   return (
-    <div className="mx-auto max-w-[1060px] animate-fadeUp">
+    <div className="w-full animate-fadeUp">
       <button
         onClick={() => navigate("/businesses")}
         className="mb-3.5 flex items-center gap-1.5 text-[13.5px] font-semibold text-text-2 hover:text-text"

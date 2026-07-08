@@ -76,6 +76,10 @@ export function useShiftPunch() {
     : [];
 
   const geofenceEnabled = biz?.attendance_geofence_enabled ?? false;
+  const geofenceExempt = Boolean(
+    profile && biz?.attendance_geofence_exempt_roles?.includes(profile.role),
+  );
+  const geofenceRequired = geofenceEnabled && !geofenceExempt;
   const radiusM = biz?.location_radius_m ?? ATTENDANCE_RADIUS_M;
 
   async function clockInRecord(lat: number | null, lng: number | null, within: boolean) {
@@ -108,11 +112,14 @@ export function useShiftPunch() {
       return;
     }
 
-    if (!geofenceEnabled) {
+    if (!geofenceRequired) {
       setBusy(true);
       try {
         await clockInRecord(null, null, false);
-        setClockStatus({ ok: true, text: "כניסה הוחתמה" });
+        setClockStatus({
+          ok: true,
+          text: geofenceExempt ? "כניסה הוחתמה · ללא בדיקת מיקום" : "כניסה הוחתמה",
+        });
       } catch {
         setClockStatus({ ok: false, text: "החתמה נכשלה" });
       } finally {
@@ -163,6 +170,8 @@ export function useShiftPunch() {
     shiftElapsed,
     pending,
     geofenceEnabled,
+    geofenceExempt,
+    geofenceRequired,
     radiusM,
     clockStatus,
     busy,

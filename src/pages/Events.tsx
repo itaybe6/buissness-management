@@ -25,7 +25,7 @@ export function Events() {
   const past = (events ?? []).filter((e) => e.event_date.slice(0, 10) < now);
 
   return (
-    <div className="mx-auto max-w-[820px] animate-fadeUp">
+    <div className="w-full animate-fadeUp">
       <PageHeader
         title="אירועים"
         subtitle="אירועים מיוחדים והזמנות"

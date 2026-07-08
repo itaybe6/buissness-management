@@ -3,6 +3,15 @@ import type { FeatureKey, UserRole, WageType } from "@/types/database";
 /** Fixed geofence radius for attendance clock-in (meters). */
 export const ATTENDANCE_RADIUS_M = 15;
 
+/** Roles a manager can mark as exempt from attendance geofence checks. */
+export const ATTENDANCE_GEOFENCE_EXEMPT_ROLE_OPTIONS: UserRole[] = [
+  "manager",
+  "shift_manager",
+  "office_manager",
+  "employee",
+  "maintenance",
+];
+
 export const ROLE_LABELS: Record<UserRole, string> = {
   super_admin: "סופר אדמין",
   manager: "מנהל",
@@ -40,6 +49,9 @@ export const SCHEDULER_ROLES: UserRole[] = ["manager", "shift_manager"];
 
 /** Roles that see the manager tasks UI (fixed templates + assignment). */
 export const MANAGER_ROLES: UserRole[] = ["manager", "shift_manager"];
+
+/** Roles that can create fixed templates and assign one-time tasks. */
+export const TASK_CREATE_ROLES: UserRole[] = ["manager"];
 
 export const ALL_FEATURES: { key: FeatureKey; label: string; icon: string; desc: string }[] = [
   { key: "agreements", label: "הסכמים וחתימה דיגיטלית", icon: "draw", desc: "העלאת הסכמים לחתימה דיגיטלית של העובדים" },

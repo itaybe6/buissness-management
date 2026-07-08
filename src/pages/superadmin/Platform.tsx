@@ -21,7 +21,7 @@ export function Platform() {
   ];
 
   return (
-    <div className="mx-auto max-w-[1220px] animate-fadeUp">
+    <div className="w-full animate-fadeUp">
       <PageHeader
         title="סקירת פלטפורמה"
         subtitle="ניהול כל העסקים, המנויים והמודולים במקום אחד"
