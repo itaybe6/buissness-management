@@ -18,6 +18,7 @@ import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId, formatCurrency, formatDateShort, todayISO, weekStart, addDays } from "@/lib/db";
 import { buildTipParticipantsFromShift, getAttendanceHoursOnDate } from "@/lib/shiftReportTips";
+import { buildBonusCandidatesFromShift, computeShiftBonusAmounts } from "@/lib/shiftReportBonuses";
 import { useProfiles } from "@/api/users";
 import { useActiveShiftTemplates, useShiftAssignments } from "@/api/shifts";
 import { useAttendanceMonth } from "@/api/attendance";
@@ -31,6 +32,7 @@ import {
 import type {
   Profile,
   ShiftReport,
+  ShiftReportBonusParticipant,
   ShiftReportParticipant,
   ShiftReportSalesItem,
   ShiftTemplate,
@@ -124,7 +126,7 @@ export function ShiftReports() {
                     </button>
                     <button
                       onClick={() => {
-                        if (confirm("למחוק את הדוח? הטיפים שנוצרו ממנו יימחקו גם הם.")) del.mutate(r.id);
+                        if (confirm("למחוק את הדוח? הטיפים והתוספות שכר שנוצרו ממנו יימחקו גם הם.")) del.mutate(r.id);
                       }}
                       className="grid h-8 w-8 place-items-center rounded-lg text-text-3 hover:[background:var(--danger-bg)] hover:text-danger"
                       title="מחיקה"
@@ -145,6 +147,7 @@ export function ShiftReports() {
           businessId={businessId!}
           createdBy={profile?.id ?? null}
           users={(users ?? []).filter((u) => u.active && (u.wage_type ?? "hourly") === "tips")}
+          allUsers={(users ?? []).filter((u) => u.active)}
           templates={templates ?? []}
           userName={userName}
           onClose={() => setEditing(null)}
@@ -175,6 +178,7 @@ interface EditorState {
   faults_maintenance: string;
   top_seller: string;
   participants: ShiftReportParticipant[];
+  bonus_participants: ShiftReportBonusParticipant[];
   sales_items: ShiftReportSalesItem[];
   invoice_urls: string[];
 }
@@ -199,6 +203,7 @@ function blankState(): EditorState {
     faults_maintenance: "",
     top_seller: "",
     participants: [],
+    bonus_participants: [],
     sales_items: [],
     invoice_urls: [],
   };
@@ -224,6 +229,7 @@ function fromReport(r: ShiftReport): EditorState {
     faults_maintenance: r.faults_maintenance ?? "",
     top_seller: r.extra?.top_seller ?? "",
     participants: r.extra?.tip_participants ?? [],
+    bonus_participants: r.extra?.bonus_participants ?? [],
     sales_items: r.extra?.sales_items ?? [],
     invoice_urls: r.invoice_urls ?? [],
   };
@@ -234,6 +240,7 @@ function ReportEditor({
   businessId,
   createdBy,
   users,
+  allUsers,
   templates,
   userName,
   onClose,
@@ -242,6 +249,7 @@ function ReportEditor({
   businessId: string;
   createdBy: string | null;
   users: Profile[];
+  allUsers: Profile[];
   templates: ShiftTemplate[];
   userName: (id: string) => string;
   onClose: () => void;
@@ -310,8 +318,46 @@ function ReportEditor({
   }, [attendance, attendanceLoading, s.report_date, assignmentsLoading]);
 
   const totalTips = Number(s.total_tips) || 0;
+  const totalSales = Number(s.total_sales) || 0;
+  const servicePct = Number(s.service_pct) || 0;
   const totalHours = s.participants.reduce((sum, p) => sum + (Number(p.hours) || 0), 0);
   const tipsHourly = totalHours > 0 ? totalTips / totalHours : 0;
+  const bonusEmployeeIds = s.bonus_participants.map((p) => p.employee_id).filter(Boolean);
+  const { pool: bonusPool, perEmployee: bonusPerEmployee } = computeShiftBonusAmounts(
+    totalSales,
+    servicePct,
+    bonusEmployeeIds,
+  );
+  const bonusCandidateIds = useMemo(
+    () =>
+      buildBonusCandidatesFromShift({
+        reportDate: s.report_date,
+        shiftTemplateId: s.shift_template_id,
+        assignments: assignments ?? [],
+        attendance: attendance ?? [],
+        templates,
+      }),
+    [s.report_date, s.shift_template_id, assignments, attendance, templates],
+  );
+  const bonusCandidates = useMemo(
+    () => allUsers.filter((u) => bonusCandidateIds.includes(u.id)),
+    [allUsers, bonusCandidateIds],
+  );
+  const selectedBonusIds = useMemo(
+    () => new Set(s.bonus_participants.map((p) => p.employee_id).filter(Boolean)),
+    [s.bonus_participants],
+  );
+
+  // Drop bonus selections for employees who did not work this shift.
+  useEffect(() => {
+    if (assignmentsLoading || attendanceLoading) return;
+    const valid = new Set(bonusCandidateIds);
+    setS((prev) => {
+      const filtered = prev.bonus_participants.filter((p) => valid.has(p.employee_id));
+      if (filtered.length === prev.bonus_participants.length) return prev;
+      return { ...prev, bonus_participants: filtered };
+    });
+  }, [bonusCandidateIds, assignmentsLoading, attendanceLoading]);
   const participantsLoading = assignmentsLoading || attendanceLoading;
   const availableUsers = users.filter((u) => !s.participants.some((p) => p.employee_id === u.id));
 
@@ -338,6 +384,19 @@ function ReportEditor({
     }
   }
 
+  function toggleBonusEmployee(employeeId: string) {
+    const next = new Set(selectedBonusIds);
+    if (next.has(employeeId)) {
+      next.delete(employeeId);
+    } else {
+      next.add(employeeId);
+    }
+    set(
+      "bonus_participants",
+      Array.from(next).map((id) => ({ employee_id: id })),
+    );
+  }
+
   async function submit() {
     setError(null);
     const payload: SaveShiftReportInput = {
@@ -361,6 +420,9 @@ function ReportEditor({
       faults_maintenance: s.faults_maintenance.trim() || null,
       extra: {
         tip_participants: s.participants.filter((p) => p.employee_id),
+        bonus_participants: s.bonus_participants.filter(
+          (p) => p.employee_id && bonusCandidateIds.includes(p.employee_id),
+        ),
         sales_items: s.sales_items.filter((i) => i.label.trim()),
         top_seller: s.top_seller.trim(),
       },
@@ -413,8 +475,83 @@ function ReportEditor({
             <Field label='סה"כ מכירות (₪)'><Input type="number" inputMode="decimal" value={s.total_sales} onChange={(e) => set("total_sales", e.target.value)} /></Field>
             <Field label="משלוחים / וולט (₪)"><Input type="number" inputMode="decimal" value={s.delivery_sales} onChange={(e) => set("delivery_sales", e.target.value)} /></Field>
             <Field label="ממוצע לסועד (₪)"><Input type="number" inputMode="decimal" value={s.avg_per_diner} onChange={(e) => set("avg_per_diner", e.target.value)} /></Field>
-            <Field label="אחוז שירות (%)"><Input type="number" inputMode="decimal" value={s.service_pct} onChange={(e) => set("service_pct", e.target.value)} /></Field>
+            <Field label="אחוז שירות (%)">
+              <Input type="number" inputMode="decimal" value={s.service_pct} onChange={(e) => set("service_pct", e.target.value)} />
+              <span className="mt-1 block text-[11.5px] text-text-3">משמש גם לחישוב תוספת שכר מאחוז הקופה</span>
+            </Field>
           </div>
+        </Section>
+
+        {/* תוספת שכר מאחוז קופה */}
+        <Section icon="percent" title="תוספת שכר מאחוז קופה">
+          <div className="rounded-[11px] border border-border bg-surface-2 px-3.5 py-3 text-[12.5px] text-text-2">
+            בחרו עובדים (בדרך כלל עד 5) שעבדו במשמרת זו ויקבלו חלק שווה מ-
+            <span className="font-bold text-text"> {servicePct || 0}% </span>
+            מסכום הקופה (
+            <span className="font-bold tabular-nums text-text">{formatCurrency(totalSales)}</span>
+            ). רק עובדים משובצים למשמרת עם נוכחות מאושרת מופיעים ברשימה.
+            {bonusPool > 0 ? (
+              <>
+                {" "}סה״כ תוספת:{" "}
+                <span className="font-bold tabular-nums text-accent">{formatCurrency(bonusPool)}</span>
+                {bonusEmployeeIds.length > 0 && (
+                  <>
+                    {" "}· לעובד:{" "}
+                    <span className="font-bold tabular-nums text-accent">{formatCurrency(bonusPerEmployee)}</span>
+                  </>
+                )}
+              </>
+            ) : (
+              <> הזינו מכירות ואחוז שירות כדי לראות את הסכום.</>
+            )}
+          </div>
+
+          {participantsLoading ? (
+            <div className="rounded-[11px] border border-border bg-surface-2 px-3.5 py-4 text-center text-[13px] text-text-2">
+              טוען עובדים מהמשמרת...
+            </div>
+          ) : !s.shift_template_id ? (
+            <div className="rounded-[11px] border border-dashed border-border px-3.5 py-4 text-center text-[13px] text-text-2">
+              בחרו משמרת כדי לראות את העובדים המשובצים.
+            </div>
+          ) : bonusCandidates.length === 0 ? (
+            <div className="rounded-[11px] border border-dashed border-border px-3.5 py-4 text-center text-[13px] text-text-2">
+              לא נמצאו עובדים שעבדו במשמרת זו (שיבוץ + נוכחות).
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              {bonusCandidates.map((u) => {
+                const checked = selectedBonusIds.has(u.id);
+                const attHrs = getAttendanceHoursOnDate(attendance ?? [], u.id, s.report_date);
+                return (
+                  <label
+                    key={u.id}
+                    className={`flex cursor-pointer items-center justify-between gap-3 rounded-[11px] border px-3.5 py-2.5 transition-colors ${
+                      checked ? "border-accent/40 bg-accent/5" : "border-border hover:bg-surface-2"
+                    }`}
+                  >
+                    <span className="flex min-w-0 items-center gap-2.5">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleBonusEmployee(u.id)}
+                        className="h-4 w-4 flex-none accent-[var(--accent)]"
+                      />
+                      <span className="min-w-0">
+                        <span className="block truncate text-[14px] font-semibold">{u.full_name}</span>
+                        <span className="text-[11px] font-semibold text-text-3">{attHrs} שעות נוכחות</span>
+                      </span>
+                    </span>
+                    {checked && bonusPerEmployee > 0 && (
+                      <span className="flex-none text-[12.5px] font-bold tabular-nums text-accent">
+                        {formatCurrency(bonusPerEmployee)}
+                      </span>
+                    )}
+                  </label>
+                );
+              })}
+            </div>
+          )}
         </Section>
 
         {/* טיפים */}

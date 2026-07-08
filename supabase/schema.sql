@@ -19,7 +19,7 @@ drop table if exists
   public.tasks, public.task_templates, public.events, public.faults, public.inventory_logs,
   public.inventory_waste, public.inventory_orders, public.inventory_counts, public.inventory_items,
   public.payroll_records,
-  public.tips, public.shift_reports, public.attendance, public.shift_assignments, public.shift_preferences,
+  public.tips, public.shift_bonuses, public.shift_reports, public.attendance, public.shift_assignments, public.shift_preferences,
   public.shift_templates, public.departments,
   public.form_101, public.agreement_signatures, public.agreement_templates,
   public.business_features, public.profiles, public.businesses cascade;
@@ -377,6 +377,21 @@ create table public.tips (
   created_at  timestamptz not null default now()
 );
 
+-- תוספת שכר מאחוז קופה לעובדים נבחרים בדוח משמרת
+create table public.shift_bonuses (
+  id                uuid primary key default gen_random_uuid(),
+  business_id       uuid not null references public.businesses(id) on delete cascade,
+  employee_id       uuid not null references public.profiles(id) on delete cascade,
+  shift_report_id   uuid not null references public.shift_reports(id) on delete cascade,
+  shift_date        date not null,
+  shift_template_id uuid references public.shift_templates(id) on delete set null,
+  amount            numeric(10,2) not null default 0,
+  bonus_pct         numeric(5,2) not null default 0,
+  sales_base        numeric(12,2) not null default 0,
+  created_at        timestamptz not null default now(),
+  unique (shift_report_id, employee_id)
+);
+
 -- סיכום שכר חודשי לעובד (מנהלת המשרד)
 create table public.payroll_records (
   id            uuid primary key default gen_random_uuid(),
@@ -600,6 +615,9 @@ create index idx_shift_reports_business      on public.shift_reports(business_id
 create index idx_shift_reports_date          on public.shift_reports(business_id, report_date);
 create index idx_tips_business              on public.tips(business_id);
 create index idx_tips_shift_report           on public.tips(shift_report_id);
+create index idx_shift_bonuses_business      on public.shift_bonuses(business_id);
+create index idx_shift_bonuses_employee      on public.shift_bonuses(business_id, employee_id, shift_date);
+create index idx_shift_bonuses_report        on public.shift_bonuses(shift_report_id);
 create index idx_payroll_business           on public.payroll_records(business_id);
 create index idx_inv_items_business         on public.inventory_items(business_id);
 create index idx_inv_counts_business        on public.inventory_counts(business_id);
@@ -635,6 +653,7 @@ alter table public.shift_assignments    enable row level security;
 alter table public.attendance           enable row level security;
 alter table public.shift_reports        enable row level security;
 alter table public.tips                 enable row level security;
+alter table public.shift_bonuses        enable row level security;
 alter table public.payroll_records      enable row level security;
 alter table public.inventory_items      enable row level security;
 alter table public.inventory_counts     enable row level security;
@@ -741,6 +760,9 @@ create policy "shift_reports_tenant" on public.shift_reports
   for all using (public.can_access(business_id)) with check (public.can_access(business_id));
 -- tips
 create policy "tips_tenant" on public.tips
+  for all using (public.can_access(business_id)) with check (public.can_access(business_id));
+-- shift_bonuses
+create policy "shift_bonuses_tenant" on public.shift_bonuses
   for all using (public.can_access(business_id)) with check (public.can_access(business_id));
 -- payroll_records
 create policy "payroll_tenant" on public.payroll_records

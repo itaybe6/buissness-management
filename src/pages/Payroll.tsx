@@ -6,7 +6,7 @@ import { WAGE_TYPE_LABELS } from "@/lib/constants";
 import { useBusinessId, formatCurrency, initialsOf, colorFor, todayISO } from "@/lib/db";
 import { useProfiles } from "@/api/users";
 import { useAttendanceMonth } from "@/api/attendance";
-import { useTips, useAddTip } from "@/api/payroll";
+import { useTips, useAddTip, useShiftBonuses } from "@/api/payroll";
 import { useActiveShiftTemplates } from "@/api/shifts";
 
 function monthNow() {
@@ -20,6 +20,7 @@ export function Payroll() {
   const { data: users, isLoading, isError, refetch } = useProfiles(businessId);
   const { data: attendance } = useAttendanceMonth(businessId, month);
   const { data: tips } = useTips(businessId, month);
+  const { data: bonuses } = useShiftBonuses(businessId, month);
   const { data: templates } = useActiveShiftTemplates(businessId);
   const addTip = useAddTip(businessId);
   const [tipOpen, setTipOpen] = useState(false);
@@ -32,6 +33,8 @@ export function Payroll() {
       const rate = Number(u.hourly_rate ?? 0);
       const wageType = u.wage_type ?? "hourly";
       const myTips = (tips ?? []).filter((t) => t.employee_id === u.id);
+      const myBonuses = (bonuses ?? []).filter((b) => b.employee_id === u.id);
+      const bonusSum = myBonuses.reduce((s, b) => s + Number(b.amount), 0);
 
       if (wageType === "tips") {
         // השכר מגיע מקופת הטיפים, עם רצפת מינימום לכל משמרת בנפרד:
@@ -43,7 +46,7 @@ export function Payroll() {
           return s + h * Math.max(Number(t.hourly_from_tips) || 0, rate);
         }, 0);
         const topup = Math.max(0, guaranteed - tipSum);
-        return { id: u.id, name: u.full_name, wageType, rate, hours, base: tipSum, tips: tipSum, topup, total: guaranteed };
+        return { id: u.id, name: u.full_name, wageType, rate, hours, base: tipSum, tips: tipSum, topup, bonus: bonusSum, total: guaranteed + bonusSum };
       }
 
       // עובד שעתי: שעות נוכחות × תעריף, ללא טיפים.
@@ -51,9 +54,9 @@ export function Payroll() {
         .filter((a) => a.employee_id === u.id && a.clock_in && a.clock_out)
         .reduce((sum, a) => sum + (new Date(a.clock_out!).getTime() - new Date(a.clock_in!).getTime()) / 3.6e6, 0);
       const base = hours * rate;
-      return { id: u.id, name: u.full_name, wageType, rate, hours, base, tips: 0, topup: 0, total: base };
+      return { id: u.id, name: u.full_name, wageType, rate, hours, base, tips: 0, topup: 0, bonus: bonusSum, total: base + bonusSum };
     });
-  }, [users, attendance, tips, isPayrollManager, profile?.id]);
+  }, [users, attendance, tips, bonuses, isPayrollManager, profile?.id]);
 
   if (isLoading) return <PageLoader />;
   if (isError) return <ErrorState onRetry={refetch} />;
@@ -64,16 +67,17 @@ export function Payroll() {
       base: acc.base + (r.wageType === "hourly" ? r.base : 0),
       tips: acc.tips + r.tips,
       topup: acc.topup + r.topup,
+      bonus: acc.bonus + r.bonus,
       total: acc.total + r.total,
     }),
-    { hours: 0, base: 0, tips: 0, topup: 0, total: 0 },
+    { hours: 0, base: 0, tips: 0, topup: 0, bonus: 0, total: 0 },
   );
 
   return (
     <div className="w-full animate-fadeUp">
       <PageHeader
         title="שכר וטיפים"
-        subtitle="חישוב לפי שעות נוכחות + טיפים"
+        subtitle="חישוב לפי שעות נוכחות + טיפים + תוספת מאחוז קופה"
         actions={
           <div className="flex items-center gap-2.5">
             <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="!w-[150px]" />
@@ -82,12 +86,13 @@ export function Payroll() {
         }
       />
 
-      <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-5">
+      <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-6">
         {[
           { label: "סה״כ שעות", value: Math.round(totals.hours).toLocaleString("he-IL"), icon: "schedule" },
           { label: "שכר שעתי", value: formatCurrency(totals.base), icon: "payments" },
           { label: "טיפים", value: formatCurrency(totals.tips), icon: "savings" },
           { label: "השלמות למינימום", value: formatCurrency(totals.topup), icon: "add_card" },
+          { label: "תוספת מאחוז קופה", value: formatCurrency(totals.bonus), icon: "percent" },
           { label: "סה״כ לתשלום", value: formatCurrency(totals.total), icon: "account_balance_wallet" },
         ].map((k) => (
           <Card key={k.label} className="p-[18px]">
@@ -101,11 +106,11 @@ export function Payroll() {
       <Card className="overflow-hidden">
         <div className="overflow-auto">
           <div className="min-w-[720px]">
-            <div className="grid grid-cols-[1.7fr_0.8fr_0.7fr_0.8fr_1fr_0.9fr_1fr] gap-2 border-b border-border bg-surface-2 px-5 py-3 text-[12px] font-bold text-text-3">
-              <span>עובד</span><span>סוג</span><span>שעות</span><span>תעריף</span><span>בסיס / טיפים</span><span>השלמה</span><span>סה״כ</span>
+            <div className="grid grid-cols-[1.7fr_0.8fr_0.7fr_0.8fr_1fr_0.9fr_0.9fr_1fr] gap-2 border-b border-border bg-surface-2 px-5 py-3 text-[12px] font-bold text-text-3">
+              <span>עובד</span><span>סוג</span><span>שעות</span><span>תעריף</span><span>בסיס / טיפים</span><span>השלמה</span><span>תוספת קופה</span><span>סה״כ</span>
             </div>
             {rows.map((r) => (
-              <div key={r.id} className="grid grid-cols-[1.7fr_0.8fr_0.7fr_0.8fr_1fr_0.9fr_1fr] items-center gap-2 border-b border-border-2 px-5 py-3 text-[13.5px]">
+              <div key={r.id} className="grid grid-cols-[1.7fr_0.8fr_0.7fr_0.8fr_1fr_0.9fr_0.9fr_1fr] items-center gap-2 border-b border-border-2 px-5 py-3 text-[13.5px]">
                 <span className="flex min-w-0 items-center gap-2.5">
                   <span className="grid h-8 w-8 flex-none place-items-center rounded-[9px] text-[12px] font-bold text-white" style={{ background: colorFor(r.id) }}>{initialsOf(r.name)}</span>
                   <span className="truncate font-bold">{r.name}</span>
@@ -115,6 +120,7 @@ export function Payroll() {
                 <span>{r.rate ? formatCurrency(r.rate) : "—"}</span>
                 <span className={r.wageType === "tips" ? "text-accent-2" : undefined}>{formatCurrency(r.wageType === "tips" ? r.tips : r.base)}</span>
                 <span className="text-text-2">{r.topup > 0 ? formatCurrency(r.topup) : "—"}</span>
+                <span className={r.bonus > 0 ? "text-accent" : "text-text-2"}>{r.bonus > 0 ? formatCurrency(r.bonus) : "—"}</span>
                 <span className="font-extrabold">{formatCurrency(r.total)}</span>
               </div>
             ))}

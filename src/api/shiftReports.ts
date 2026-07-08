@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { compressImage } from "@/lib/compressImage";
 import { supabase } from "@/lib/supabase";
-import type { ShiftReport, ShiftReportExtra, ShiftReportParticipant } from "@/types/database";
+import { computeShiftBonusAmounts, filterBonusParticipantsToWorkedShift } from "@/lib/shiftReportBonuses";
+import type { Attendance, ShiftAssignment, ShiftReport, ShiftReportExtra, ShiftReportParticipant, ShiftTemplate } from "@/types/database";
 
 /** Shift reports within a month (yyyy-mm), newest first. */
 export function useShiftReports(businessId: string | null, monthISO: string) {
@@ -77,6 +78,38 @@ function computeTipsHourly(totalTips: number, participants: ShiftReportParticipa
   return totalTips / totalHours;
 }
 
+async function resolveWorkedBonusEmployeeIds(input: SaveShiftReportInput): Promise<string[]> {
+  const requested = (input.extra.bonus_participants ?? []).map((p) => p.employee_id).filter(Boolean);
+  if (!input.shift_template_id || requested.length === 0) return [];
+
+  const nextDay = new Date(input.report_date + "T12:00:00");
+  nextDay.setDate(nextDay.getDate() + 1);
+  const nextDayISO = nextDay.toISOString().slice(0, 10);
+
+  const [{ data: dayAssignments }, { data: dayAttendance }, { data: templateRow }] = await Promise.all([
+    supabase
+      .from("shift_assignments")
+      .select("*")
+      .eq("business_id", input.business_id)
+      .eq("shift_date", input.report_date),
+    supabase
+      .from("attendance")
+      .select("*")
+      .eq("business_id", input.business_id)
+      .gte("clock_in", `${input.report_date}T00:00:00`)
+      .lt("clock_in", `${nextDayISO}T00:00:00`),
+    supabase.from("shift_templates").select("*").eq("id", input.shift_template_id).maybeSingle(),
+  ]);
+
+  return filterBonusParticipantsToWorkedShift(requested, {
+    reportDate: input.report_date,
+    shiftTemplateId: input.shift_template_id,
+    assignments: (dayAssignments ?? []) as ShiftAssignment[],
+    attendance: (dayAttendance ?? []) as Attendance[],
+    templates: templateRow ? [templateRow as ShiftTemplate] : [],
+  });
+}
+
 /**
  * Upsert a shift report and sync its per-employee tips into the `tips` table
  * (so they flow into Payroll). Tips are re-generated from the report's
@@ -88,6 +121,11 @@ export function useSaveShiftReport(businessId: string | null) {
     mutationFn: async (input: SaveShiftReportInput): Promise<string> => {
       const participants = input.extra.tip_participants ?? [];
       const tipsHourly = computeTipsHourly(Number(input.total_tips) || 0, participants);
+      const bonusIds = await resolveWorkedBonusEmployeeIds(input);
+      const extra: ShiftReportExtra = {
+        ...input.extra,
+        bonus_participants: bonusIds.map((employee_id) => ({ employee_id })),
+      };
 
       const row = {
         business_id: input.business_id,
@@ -108,7 +146,7 @@ export function useSaveShiftReport(businessId: string | null) {
         daily_tasks_done: input.daily_tasks_done,
         urgent_inventory: input.urgent_inventory,
         faults_maintenance: input.faults_maintenance,
-        extra: input.extra,
+        extra,
         invoice_urls: input.invoice_urls,
         created_by: input.created_by,
       };
@@ -142,11 +180,35 @@ export function useSaveShiftReport(businessId: string | null) {
         if (error) throw error;
       }
 
+      // Re-sync kupah-percentage bonuses — only employees who worked this shift.
+      const { perEmployee } = computeShiftBonusAmounts(
+        Number(input.total_sales) || 0,
+        Number(input.service_pct) || 0,
+        bonusIds,
+      );
+
+      await supabase.from("shift_bonuses").delete().eq("shift_report_id", reportId);
+      if (bonusIds.length > 0 && perEmployee > 0) {
+        const bonusRows = bonusIds.map((employeeId) => ({
+          business_id: input.business_id,
+          employee_id: employeeId,
+          shift_report_id: reportId,
+          shift_date: input.report_date,
+          shift_template_id: input.shift_template_id,
+          amount: perEmployee,
+          bonus_pct: Number(input.service_pct) || 0,
+          sales_base: Number(input.total_sales) || 0,
+        }));
+        const { error } = await supabase.from("shift_bonuses").insert(bonusRows);
+        if (error) throw error;
+      }
+
       return reportId!;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["shift_reports", businessId] });
       qc.invalidateQueries({ queryKey: ["tips", businessId] });
+      qc.invalidateQueries({ queryKey: ["shift_bonuses", businessId] });
     },
   });
 }
@@ -162,6 +224,7 @@ export function useDeleteShiftReport(businessId: string | null) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["shift_reports", businessId] });
       qc.invalidateQueries({ queryKey: ["tips", businessId] });
+      qc.invalidateQueries({ queryKey: ["shift_bonuses", businessId] });
     },
   });
 }

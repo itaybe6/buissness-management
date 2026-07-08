@@ -76,7 +76,13 @@ export function AppShell() {
 
   const currentKey = location.pathname.replace(/^\//, "").split("/")[0] || "dashboard";
 
-  const pageTitle = navItems.find((i) => i.key === currentKey)?.label ?? "אביחי";
+  const currentNavItem = navItems.find((i) => i.key === currentKey);
+
+  const pageTitle = currentNavItem?.label ?? "אביחי";
+
+  const pageIcon = currentNavItem?.icon ?? "hub";
+
+  const businessLabel = isSuperAdmin ? "אביחי" : business?.name ?? ROLE_LABELS[role];
 
   const isProfileActive = currentKey === "profile";
 
@@ -229,7 +235,7 @@ export function AppShell() {
 
       <div className="flex min-w-0 flex-1 flex-col">
 
-        <header className="app-header sticky top-0 z-30 flex h-[66px] flex-none items-center gap-4 px-4 md:px-[26px]">
+        <header className="app-header mobile-header sticky top-0 z-30 flex flex-none items-center gap-3 px-4 md:h-[66px] md:gap-4 md:px-[26px]">
 
           <button
 
@@ -241,7 +247,7 @@ export function AppShell() {
 
             aria-expanded={menuOpen}
 
-            className="icon-btn md:hidden"
+            className="mobile-header-menu btn-press md:hidden"
 
           >
 
@@ -251,25 +257,67 @@ export function AppShell() {
 
 
 
-          <div className="flex min-w-0 flex-1 items-center gap-2.5 md:hidden">
+          <div className="mobile-header-brand min-w-0 flex-1 md:hidden">
+
+            <div className="mobile-header-icon" aria-hidden>
+
+              <Icon name={pageIcon} size={20} fill />
+
+            </div>
 
             <div className="min-w-0 flex-1">
 
-              <div className="truncate text-[14.5px] font-extrabold leading-tight tracking-tight">
+              <div className="mobile-header-title truncate">{pageTitle}</div>
 
-                {pageTitle}
+              <div className="mt-0.5 truncate">
 
-              </div>
-
-              <div className="truncate text-[11px] text-text-3">
-
-                {isSuperAdmin ? "אביחי" : business?.name ?? ROLE_LABELS[role]}
+                <span className="mobile-header-pill">{businessLabel}</span>
 
               </div>
 
             </div>
 
           </div>
+
+
+
+          <NavLink
+
+            to="/profile"
+
+            aria-label="פרופיל"
+
+            className="mobile-header-avatar btn-press md:hidden"
+
+            data-active={isProfileActive}
+
+            aria-current={isProfileActive ? "page" : undefined}
+
+          >
+
+            {profile ? (
+
+              <UserAvatar
+
+                userId={profile.id}
+
+                name={profile.full_name}
+
+                avatarUrl={profile.avatar_url}
+
+                size={34}
+
+                rounded="square"
+
+              />
+
+            ) : (
+
+              <Icon name="person" size={20} />
+
+            )}
+
+          </NavLink>
 
 
 

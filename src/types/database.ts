@@ -246,6 +246,25 @@ export interface ShiftReportParticipant {
   attendance_hours?: number;
 }
 
+/** Employee selected for kupah-percentage salary bonus on a shift report. */
+export interface ShiftReportBonusParticipant {
+  employee_id: string;
+}
+
+/** Persisted bonus payout per employee per shift report (shift_bonuses table). */
+export interface ShiftBonus {
+  id: string;
+  business_id: string;
+  employee_id: string;
+  shift_report_id: string;
+  shift_date: string;
+  shift_template_id: string | null;
+  amount: number;
+  bonus_pct: number;
+  sales_base: number;
+  created_at: string;
+}
+
 /** A dynamic sales counter line (e.g. "קוקטיילים": 36). */
 export interface ShiftReportSalesItem {
   label: string;
@@ -255,6 +274,8 @@ export interface ShiftReportSalesItem {
 /** Free-form extra payload stored as jsonb on shift_reports. */
 export interface ShiftReportExtra {
   tip_participants?: ShiftReportParticipant[];
+  /** Employees who receive an equal share of total_sales × service_pct / 100. */
+  bonus_participants?: ShiftReportBonusParticipant[];
   sales_items?: ShiftReportSalesItem[];
   top_seller?: string;
   [key: string]: unknown;

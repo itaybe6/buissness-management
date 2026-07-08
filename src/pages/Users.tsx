@@ -115,13 +115,14 @@ export function Users() {
                 className="!h-11 !w-11 shrink-0 !p-0 !bg-ink shadow-sm hover:brightness-110 active:scale-[0.97] md:hidden"
               />
             </div>
-            <div className="flex gap-1 overflow-x-auto rounded-[12px] border border-border bg-surface-2 p-1">
+            <div className="users-role-filter">
               {FILTER_ROLES.map((r) => (
                 <button
                   key={r}
                   type="button"
+                  data-active={roleFilter === r}
                   onClick={() => setRoleFilter(r)}
-                  className={`shrink-0 rounded-[10px] px-3.5 py-2 text-[13px] font-bold transition ${roleFilter === r ? "text-white [background:var(--ink)]" : "text-text-2 hover:text-text"}`}
+                  className="users-role-chip"
                 >
                   {r === "all" ? "הכל" : ROLE_LABELS[r]}
                 </button>
