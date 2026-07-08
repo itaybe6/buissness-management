@@ -15,13 +15,20 @@ import {
 } from "@/components/attendance/attendance-motion";
 import { useAuth } from "@/lib/auth";
 import { ATTENDANCE_RADIUS_M } from "@/lib/constants";
-import { useBusinessId, initialsOf, colorFor } from "@/lib/db";
+import { useBusinessId, initialsOf, colorFor, todayISO, weekStart, addDays } from "@/lib/db";
 import { pendingTasksForEmployee } from "@/lib/pendingTasks";
+import {
+  filterAttendanceForTodayShift,
+  formatPunchTime,
+  groupAttendanceByEmployee,
+} from "@/lib/attendanceFeed";
 import { useBusiness } from "@/api/businesses";
 import { useProfiles } from "@/api/users";
 import { useTasks } from "@/api/tasks";
 import { useTaskTemplates } from "@/api/taskTemplates";
 import { useAttendanceToday, useClockIn, useClockOut } from "@/api/attendance";
+import { useActiveShiftTemplates, useShiftAssignments } from "@/api/shifts";
+import { AttendanceMobileView } from "@/components/attendance/AttendanceMobileView";
 
 function distanceM(lat1: number, lng1: number, lat2: number, lng2: number) {
   const R = 6371000;
@@ -53,12 +60,16 @@ function useLiveClock() {
 
 export function Attendance() {
   const businessId = useBusinessId();
-  const { profile } = useAuth();
+  const { profile, hasFeature } = useAuth();
   const { data: biz, isLoading, isError, refetch } = useBusiness(businessId);
   const { data: records } = useAttendanceToday(businessId);
   const { data: users } = useProfiles(businessId);
   const { data: tasks } = useTasks(businessId);
   const { data: templates } = useTaskTemplates(businessId);
+  const { data: shiftTemplates } = useActiveShiftTemplates(businessId);
+  const today = todayISO();
+  const wk = weekStart();
+  const { data: assignments } = useShiftAssignments(businessId, wk, addDays(wk, 6));
   const clockIn = useClockIn(businessId);
   const clockOut = useClockOut(businessId);
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
@@ -73,8 +84,21 @@ export function Attendance() {
   }, [users]);
 
   const list = records ?? [];
-  const onShiftCount = list.filter((r) => r.clock_in && !r.clock_out).length;
-  const completedCount = list.filter((r) => r.clock_out).length;
+  const shiftsEnabled = hasFeature("shifts");
+  const todayFeed = useMemo(() => {
+    const filtered = filterAttendanceForTodayShift({
+      records: list,
+      today,
+      assignments: assignments ?? [],
+      templates: shiftTemplates ?? [],
+      shiftsEnabled,
+      now,
+    });
+    return groupAttendanceByEmployee(filtered);
+  }, [list, today, assignments, shiftTemplates, shiftsEnabled]);
+
+  const onShiftCount = todayFeed.filter((g) => g.onShift).length;
+  const completedCount = todayFeed.filter((g) => !g.onShift).length;
 
   const myOpen = list.find((r) => r.employee_id === profile?.id && r.clock_in && !r.clock_out);
 
@@ -174,9 +198,34 @@ export function Attendance() {
   }
 
   return (
-    <div className="w-full animate-fadeUp px-1">
+    <div className="w-full animate-fadeUp">
+      {/* ── Mobile: app-like punch screen ── */}
+      <div className="md:hidden">
+        <AttendanceMobileView
+          onShiftCount={onShiftCount}
+          completedCount={completedCount}
+          totalCount={todayFeed.length}
+          timeStr={timeStr}
+          dateStr={dateStr}
+          onShift={onShift}
+          shiftElapsed={shiftElapsed}
+          status={status}
+          busy={busy}
+          geofenceExempt={geofenceExempt}
+          geofenceEnabled={geofenceEnabled}
+          locationReady={locationReady}
+          radiusM={radiusM}
+          shiftsEnabled={shiftsEnabled}
+          todayFeed={todayFeed}
+          userById={userById}
+          onPunch={handleClock}
+        />
+      </div>
+
+      {/* ── Desktop ── */}
+      <div className="hidden px-1 md:block">
       <header className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div className="max-w-xl">
+        <div className="hidden max-w-xl md:block">
           <p className="text-[12px] font-bold uppercase tracking-[0.14em] text-text-3">נוכחות · היום</p>
           <h1 className="mt-1 text-[clamp(1.75rem,4vw,2.35rem)] font-extrabold tracking-tight leading-none text-text">
             שעון נוכחות
@@ -192,7 +241,7 @@ export function Attendance() {
         <div className="attendance-summary shrink-0">
           <AttendanceSummaryCell value={onShiftCount} label="במשמרת עכשיו" accent="var(--success)" index={0} />
           <AttendanceSummaryCell value={completedCount} label="סיימו היום" index={1} />
-          <AttendanceSummaryCell value={list.length} label="סה״כ רשומות" index={2} />
+          <AttendanceSummaryCell value={todayFeed.length} label="עובדים היום" index={2} />
         </div>
       </header>
 
@@ -261,47 +310,46 @@ export function Attendance() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-[16px] font-bold text-text">נוכחות היום</h2>
-                <p className="mt-0.5 text-[12.5px] text-text-3">עדכון לפי החתמות בזמן אמת</p>
+                <p className="mt-0.5 text-[12.5px] text-text-3">
+                  {shiftsEnabled ? "עובדי משמרת היום · כניסות ויציאות מרוכזות" : "עדכון לפי החתמות בזמן אמת"}
+                </p>
               </div>
               <span className="rounded-full bg-surface-2 px-3 py-1 font-mono text-[12px] font-bold tabular-nums text-text-2">
-                {list.length}
+                {todayFeed.length}
               </span>
             </div>
           </div>
 
           <div className="max-h-[min(520px,58vh)] overflow-y-auto">
-            {list.length === 0 ? (
+            {todayFeed.length === 0 ? (
               <AttendanceFeedEmpty />
             ) : (
               <div>
-                {list.map((r, index) => {
-                  const u = userById.get(r.employee_id);
-                  const open = Boolean(r.clock_in && !r.clock_out);
-                  const inTime = r.clock_in
-                    ? new Date(r.clock_in).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })
-                    : "—";
-                  const outTime = r.clock_out
-                    ? new Date(r.clock_out).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })
-                    : null;
+                {todayFeed.map((group, index) => {
+                  const u = userById.get(group.employeeId);
 
                   return (
-                    <AttendanceFeedRow key={r.id} index={index}>
+                    <AttendanceFeedRow key={group.employeeId} index={index}>
                       <span
                         className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] text-[13px] font-bold text-white"
-                        style={{ background: colorFor(r.employee_id) }}
+                        style={{ background: colorFor(group.employeeId) }}
                       >
                         {initialsOf(u?.name)}
                       </span>
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-[14px] font-bold text-text">{u?.name ?? "עובד/ת"}</div>
-                        <div className="mt-0.5 font-mono text-[12px] tabular-nums text-text-3">
-                          {inTime}
-                          <span className="mx-1 text-text-3">←</span>
-                          {outTime ?? "…"}
+                        <div className="mt-0.5 space-y-0.5">
+                          {group.sessions.map((session) => (
+                            <div key={session.id} className="font-mono text-[12px] tabular-nums text-text-3">
+                              {formatPunchTime(session.clockIn)}
+                              <span className="mx-1 text-text-3">←</span>
+                              {session.clockOut ? formatPunchTime(session.clockOut) : "…"}
+                            </div>
+                          ))}
                         </div>
                       </div>
                       <div className="shrink-0 text-left">
-                        {open ? (
+                        {group.onShift ? (
                           <span className="inline-flex items-center gap-1.5 rounded-full bg-success-bg px-2.5 py-1 text-[11px] font-bold text-success">
                             <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse2" />
                             במשמרת
@@ -317,6 +365,7 @@ export function Attendance() {
             )}
           </div>
         </AttendancePanel>
+      </div>
       </div>
 
       <Modal

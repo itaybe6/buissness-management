@@ -53,7 +53,7 @@ export function BusinessDetail() {
       </button>
 
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3.5">
-        <div className="flex items-center gap-3">
+        <div className="hidden items-center gap-3 md:flex">
           <span
             className="grid h-12 w-12 flex-none place-items-center rounded-[13px] text-[16px] font-bold text-white"
             style={{ background: colorFor(biz.id) }}

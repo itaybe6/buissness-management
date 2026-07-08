@@ -334,7 +334,7 @@ export function ManagerDashboard() {
         <div className="dash-hero-glow" />
         <div className="dash-hero-grid" />
         <div className="relative flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
-          <div className="min-w-0">
+          <div className="hidden min-w-0 md:block">
             <div className="flex items-center gap-2 text-[12.5px] font-bold text-white/60">
               <Icon name="calendar_today" size={15} />
               {heToday}

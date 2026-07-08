@@ -230,7 +230,7 @@ function SuperAdminDashboard() {
     <PageEnter className="w-full">
       <header className="dashboard-hero mb-6 overflow-hidden rounded-[28px] border border-border/60 p-5 sm:p-8 md:mb-8">
         <div className="relative flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div>
+          <div className="hidden md:block">
             <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-accent-2">סקירת פלטפורמה</p>
             <h1 className="mt-1 text-[clamp(1.5rem,5vw,2.1rem)] font-extrabold tracking-tight">מרכז הבקרה</h1>
             <p className="mt-2 max-w-md text-[14px] text-text-2">כל העסקים, המשתמשים והצמיחה — בזמן אמת</p>
@@ -314,7 +314,7 @@ function BusinessDashboard() {
           <div className="absolute -bottom-16 -right-10 h-40 w-40 rounded-full blur-3xl" style={{ background: "rgba(109,40,217,0.1)" }} />
         </div>
         <div className="relative grid grid-cols-1 gap-4 md:grid-cols-[1fr_auto] md:items-end">
-          <div>
+          <div className="hidden md:block">
             <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-text-3">{business?.name ?? "העסק שלך"}</p>
             <h1 className="mt-1 text-[clamp(1.45rem,4.5vw,2rem)] font-extrabold tracking-tight">
               {greeting()}

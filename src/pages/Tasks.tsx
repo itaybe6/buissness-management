@@ -84,15 +84,21 @@ function EmployeeTasksView({ businessId, profileId }: { businessId: string; prof
 
   return (
     <div className="employee-home w-full animate-fadeUp pb-2">
-      <header className="employee-home-hero mb-5 overflow-hidden rounded-[22px] border border-border/70 px-4 py-5 sm:px-5">
-        <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-text-3">{business?.name ?? "העסק שלך"}</p>
-        <h1 className="mt-1 text-[clamp(1.35rem,5vw,1.75rem)] font-extrabold tracking-tight text-text">
-          {greeting()}
-          {firstName ? `, ${firstName}` : ""}
-        </h1>
-        <p className="mt-1 text-[13px] text-text-2">{todayLabel}</p>
+      <header
+        className={`employee-home-hero mb-5 overflow-hidden rounded-[22px] border border-border/70 px-4 py-5 sm:px-5 ${
+          total === 0 ? "hidden md:block" : ""
+        }`}
+      >
+        <div className="hidden md:block">
+          <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-text-3">{business?.name ?? "העסק שלך"}</p>
+          <h1 className="mt-1 text-[clamp(1.35rem,5vw,1.75rem)] font-extrabold tracking-tight text-text">
+            {greeting()}
+            {firstName ? `, ${firstName}` : ""}
+          </h1>
+          <p className="mt-1 text-[13px] text-text-2">{todayLabel}</p>
+        </div>
         {total > 0 && (
-          <div className="mt-4 flex items-center gap-3 rounded-[14px] border border-border/60 bg-surface/80 px-3 py-2.5">
+          <div className="mt-0 flex items-center gap-3 rounded-[14px] border border-border/60 bg-surface/80 px-3 py-2.5 md:mt-4">
             <span
               className="grid h-10 w-10 flex-none place-items-center rounded-full text-[12px] font-extrabold tabular-nums"
               style={{

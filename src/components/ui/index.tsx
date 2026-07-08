@@ -141,9 +141,13 @@ export function PageHeader({
 }) {
   if (!title && !actions) return null;
   return (
-    <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between sm:gap-3.5">
+    <div
+      className={`flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between sm:gap-3.5 ${
+        actions ? "mb-3 md:mb-5" : "mb-0 md:mb-5"
+      }`}
+    >
       {title && (
-        <div className="min-w-0">
+        <div className="hidden min-w-0 md:block">
           <div className="text-[clamp(1.25rem,4vw,1.5rem)] font-extrabold tracking-tight">{title}</div>
           {subtitle && <div className="mt-1 text-[13.5px] text-text-2 sm:text-[14.5px]">{subtitle}</div>}
         </div>

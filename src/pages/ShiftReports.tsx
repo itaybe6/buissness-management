@@ -53,6 +53,7 @@ export function ShiftReports() {
 
   // null = list view; object = editor (new when no id)
   const [editing, setEditing] = useState<ShiftReport | "new" | null>(null);
+  const [viewing, setViewing] = useState<ShiftReport | null>(null);
 
   const canManage = !!profile && ["manager", "shift_manager"].includes(profile.role);
 
@@ -115,30 +116,53 @@ export function ShiftReports() {
 
               <div className="mt-auto flex items-center justify-between border-t border-border-2 pt-3">
                 <span className="text-[12px] text-text-3">{(r.invoice_urls ?? []).length} חשבוניות</span>
-                {canManage && (
-                  <div className="flex gap-1">
-                    <button
-                      onClick={() => setEditing(r)}
-                      className="grid h-8 w-8 place-items-center rounded-lg text-text-3 hover:bg-surface-2 hover:text-text"
-                      title="עריכה"
-                    >
-                      <Icon name="edit" size={18} />
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (confirm("למחוק את הדוח? הטיפים והתוספות שכר שנוצרו ממנו יימחקו גם הם.")) del.mutate(r.id);
-                      }}
-                      className="grid h-8 w-8 place-items-center rounded-lg text-text-3 hover:[background:var(--danger-bg)] hover:text-danger"
-                      title="מחיקה"
-                    >
-                      <Icon name="delete" size={18} />
-                    </button>
-                  </div>
-                )}
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => setViewing(r)}
+                    className="grid h-8 w-8 place-items-center rounded-lg text-text-3 hover:bg-surface-2 hover:text-text"
+                    title="צפייה בדוח"
+                  >
+                    <Icon name="visibility" size={18} />
+                  </button>
+                  {canManage && (
+                    <>
+                      <button
+                        onClick={() => setEditing(r)}
+                        className="grid h-8 w-8 place-items-center rounded-lg text-text-3 hover:bg-surface-2 hover:text-text"
+                        title="עריכה"
+                      >
+                        <Icon name="edit" size={18} />
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (confirm("למחוק את הדוח? הטיפים והתוספות שכר שנוצרו ממנו יימחקו גם הם.")) del.mutate(r.id);
+                        }}
+                        className="grid h-8 w-8 place-items-center rounded-lg text-text-3 hover:[background:var(--danger-bg)] hover:text-danger"
+                        title="מחיקה"
+                      >
+                        <Icon name="delete" size={18} />
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
             </Card>
           ))}
         </div>
+      )}
+
+      {viewing && (
+        <ReportViewer
+          report={viewing}
+          templateName={templateName(viewing.shift_template_id)}
+          userName={userName}
+          canManage={canManage}
+          onClose={() => setViewing(null)}
+          onEdit={() => {
+            setViewing(null);
+            setEditing(viewing);
+          }}
+        />
       )}
 
       {editing && (
@@ -788,5 +812,203 @@ function Section({ icon, title, children }: { icon: string; title: string; child
       </div>
       {children}
     </div>
+  );
+}
+
+function DetailGrid({ children }: { children: React.ReactNode }) {
+  return <div className="grid grid-cols-2 gap-2.5">{children}</div>;
+}
+
+function DetailCell({ label, value, span }: { label: string; value: React.ReactNode; span?: boolean }) {
+  return (
+    <div className={`rounded-[10px] bg-surface-2 px-3 py-2.5 ${span ? "col-span-2" : ""}`}>
+      <div className="text-[11px] text-text-3">{label}</div>
+      <div className="mt-0.5 text-[14px] font-semibold text-text">{value || "—"}</div>
+    </div>
+  );
+}
+
+function DetailText({ label, value }: { label: string; value: string | null | undefined }) {
+  if (!value?.trim()) return null;
+  return (
+    <div className="rounded-[10px] border border-border bg-surface-2 px-3.5 py-3">
+      <div className="text-[11px] font-bold text-text-3">{label}</div>
+      <div className="mt-1 whitespace-pre-wrap text-[13.5px] leading-relaxed text-text">{value}</div>
+    </div>
+  );
+}
+
+function ReportViewer({
+  report,
+  templateName,
+  userName,
+  canManage,
+  onClose,
+  onEdit,
+}: {
+  report: ShiftReport;
+  templateName: string;
+  userName: (id: string) => string;
+  canManage: boolean;
+  onClose: () => void;
+  onEdit: () => void;
+}) {
+  const participants = report.extra?.tip_participants ?? [];
+  const bonusParticipants = report.extra?.bonus_participants ?? [];
+  const salesItems = report.extra?.sales_items ?? [];
+  const totalTips = Number(report.total_tips) || 0;
+  const totalHours = participants.reduce((sum, p) => sum + (Number(p.hours) || 0), 0);
+  const tipsHourly = totalHours > 0 ? totalTips / totalHours : Number(report.tips_hourly) || 0;
+  const { pool: bonusPool, perEmployee: bonusPerEmployee } = computeShiftBonusAmounts(
+    Number(report.total_sales) || 0,
+    Number(report.service_pct) || 0,
+    bonusParticipants.map((p) => p.employee_id),
+  );
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="צפייה בדוח משמרת"
+      subtitle={`${formatDateShort(report.report_date)} · ${templateName}`}
+      icon="visibility"
+      maxWidth={720}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>סגירה</Button>
+          {canManage && <Button icon="edit" onClick={onEdit}>עריכה</Button>}
+        </>
+      }
+    >
+      <div className="flex flex-col gap-6">
+        <Section icon="event" title="פרטי משמרת">
+          <DetailGrid>
+            <DetailCell label="תאריך" value={formatDateShort(report.report_date)} />
+            <DetailCell label="משמרת" value={templateName} />
+            <DetailCell label='אחמ"ש' value={report.manager_names} span />
+          </DetailGrid>
+        </Section>
+
+        <Section icon="payments" title="סגירת קופה">
+          <DetailGrid>
+            <DetailCell label='סה"כ מכירות' value={formatCurrency(Number(report.total_sales))} />
+            <DetailCell label="משלוחים / וולט" value={formatCurrency(Number(report.delivery_sales))} />
+            <DetailCell label="ממוצע לסועד" value={formatCurrency(Number(report.avg_per_diner))} />
+            <DetailCell label="אחוז שירות" value={`${Number(report.service_pct) || 0}%`} />
+          </DetailGrid>
+        </Section>
+
+        {bonusParticipants.length > 0 && (
+          <Section icon="percent" title="תוספת שכר מאחוז קופה">
+            <div className="rounded-[11px] border border-border bg-surface-2 px-3.5 py-3 text-[12.5px] text-text-2">
+              סה״כ תוספת: <span className="font-bold text-text">{formatCurrency(bonusPool)}</span>
+              {bonusPerEmployee > 0 && (
+                <> · לעובד: <span className="font-bold text-accent">{formatCurrency(bonusPerEmployee)}</span></>
+              )}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              {bonusParticipants.map((p) => (
+                <div key={p.employee_id} className="flex items-center justify-between rounded-[11px] border border-border px-3.5 py-2.5">
+                  <span className="text-[14px] font-semibold">{userName(p.employee_id)}</span>
+                  {bonusPerEmployee > 0 && (
+                    <span className="text-[12.5px] font-bold text-accent">{formatCurrency(bonusPerEmployee)}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
+
+        <Section icon="savings" title="טיפים">
+          <DetailGrid>
+            <DetailCell label='סה"כ טיפים' value={formatCurrency(totalTips)} />
+            <DetailCell label="שכר שעתי מטיפים" value={formatCurrency(tipsHourly)} />
+          </DetailGrid>
+          {participants.length > 0 && (
+            <div className="overflow-hidden rounded-[11px] border border-border">
+              <div className="grid grid-cols-[1fr_72px_auto] items-center gap-2 border-b border-border bg-surface-2 px-3 py-2 text-[11.5px] font-bold text-text-3">
+                <span>עובד</span>
+                <span>שעות</span>
+                <span>חלק בטיפים</span>
+              </div>
+              <div className="flex flex-col divide-y divide-border-2">
+                {participants.map((p) => (
+                  <div key={p.employee_id} className="grid grid-cols-[1fr_72px_auto] items-center gap-2 px-3 py-2.5">
+                    <span className="truncate text-[14px] font-semibold">{userName(p.employee_id)}</span>
+                    <span className="text-[13px] tabular-nums text-text-2">{Number(p.hours) || 0}</span>
+                    <span className="text-[12.5px] font-bold text-accent-2">
+                      {formatCurrency(tipsHourly * (Number(p.hours) || 0))}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </Section>
+
+        <Section icon="groups" title="הצוות">
+          <DetailGrid>
+            <DetailCell label="שחרור ראשון" value={report.first_release} />
+            <DetailCell label="אנרגיות בצוות" value={report.energy_level != null ? `${report.energy_level}/10` : null} />
+          </DetailGrid>
+          <DetailText label="אירועים חריגים" value={report.unusual_events} />
+          <DetailText label="שיחות במשמרת" value={report.team_talks} />
+          <DetailText label="הקול של הצוות" value={report.team_voice} />
+        </Section>
+
+        {(salesItems.length > 0 || report.extra?.top_seller) && (
+          <Section icon="local_bar" title="מכירות">
+            {salesItems.length > 0 && (
+              <div className="flex flex-col gap-1.5">
+                {salesItems.map((item, idx) => (
+                  <div key={idx} className="flex items-center justify-between rounded-[10px] bg-surface-2 px-3 py-2">
+                    <span className="text-[14px] font-semibold">{item.label}</span>
+                    <span className="text-[13px] font-bold tabular-nums text-text-2">{item.count}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {report.extra?.top_seller && (
+              <DetailCell label="מי מכר הכי הרבה" value={report.extra.top_seller} span />
+            )}
+          </Section>
+        )}
+
+        <Section icon="inventory_2" title="לוגיסטיקה ותחזוקה">
+          <DetailCell
+            label="משימות יומיות"
+            value={report.daily_tasks_done ? "בוצעו" : "לא בוצעו"}
+            span
+          />
+          <DetailText label="מלאי דחוף" value={report.urgent_inventory} />
+          <DetailText label="תקלות ותחזוקה" value={report.faults_maintenance} />
+        </Section>
+
+        {(report.invoice_urls ?? []).length > 0 && (
+          <Section icon="receipt" title="חשבוניות">
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+              {(report.invoice_urls ?? []).map((url, idx) => (
+                <a
+                  key={idx}
+                  href={url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="overflow-hidden rounded-[11px] border border-border hover:opacity-90"
+                >
+                  {/\.(png|jpe?g|webp|gif)(\?|$)/i.test(url) ? (
+                    <img src={url} alt="חשבונית" className="h-28 w-full object-cover" />
+                  ) : (
+                    <div className="flex h-28 w-full flex-col items-center justify-center gap-1 bg-surface-2 text-text-2">
+                      <Icon name="description" size={26} />
+                      <span className="text-[11px]">קובץ</span>
+                    </div>
+                  )}
+                </a>
+              ))}
+            </div>
+          </Section>
+        )}
+      </div>
+    </Modal>
   );
 }
