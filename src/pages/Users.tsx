@@ -91,30 +91,39 @@ export function Users() {
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
-            <div className="flex gap-1 overflow-x-auto rounded-[12px] border border-border bg-surface-2 p-1">
-              {FILTER_ROLES.map((r) => (
-                <button
-                  key={r}
-                  type="button"
-                  onClick={() => setRoleFilter(r)}
-                  className={`shrink-0 rounded-[10px] px-3.5 py-2 text-[13px] font-bold transition ${roleFilter === r ? "text-white [background:var(--ink)]" : "text-text-2 hover:text-text"}`}
-                >
-                  {r === "all" ? "הכל" : ROLE_LABELS[r]}
-                </button>
-              ))}
+            <div className="filter-pill-bar">
+              {FILTER_ROLES.map((r) => {
+                const active = roleFilter === r;
+                return (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setRoleFilter(r)}
+                    data-active={active}
+                    className="filter-pill"
+                  >
+                    {active && <span className="filter-pill-thumb" />}
+                    <span>{r === "all" ? "הכל" : ROLE_LABELS[r]}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          <Card className="overflow-hidden">
+          <Card className="overflow-hidden !p-0 shadow-card">
             <div className="overflow-auto">
               <div className="min-w-[760px]">
-                <div className="grid grid-cols-[2fr_1.3fr_1.2fr_1.6fr_1fr_0.5fr] gap-2 border-b border-border bg-surface-2 px-5 py-3 text-[12px] font-bold text-text-3">
+                <div className="grid grid-cols-[2fr_1.3fr_1.2fr_1.6fr_1fr_0.5fr] gap-2 border-b border-border bg-surface-2 px-5 py-3 text-[11.5px] font-bold uppercase tracking-wide text-text-3">
                   <span>עובד</span><span>תפקיד</span><span>מחלקה</span><span>אימייל</span><span>סטטוס</span><span></span>
                 </div>
-                {filtered.map((u) => (
-                  <div key={u.id} className="grid grid-cols-[2fr_1.3fr_1.2fr_1.6fr_1fr_0.5fr] items-center gap-2 border-b border-border-2 px-5 py-3 text-[13.5px] hover:bg-surface-2">
+                {filtered.map((u, i) => (
+                  <div
+                    key={u.id}
+                    className="data-row dash-rise grid grid-cols-[2fr_1.3fr_1.2fr_1.6fr_1fr_0.5fr] items-center gap-2 border-b border-border-2 px-5 py-3 text-[13.5px]"
+                    style={{ "--rise-delay": `${Math.min(i, 10) * 25}ms` } as React.CSSProperties}
+                  >
                     <span className="flex min-w-0 items-center gap-3">
-                      <span className="grid h-9 w-9 flex-none place-items-center rounded-[10px] text-[13px] font-bold text-white" style={{ background: colorFor(u.id) }}>
+                      <span className="person-chip h-9 w-9 rounded-[10px] text-[13px]" style={{ background: colorFor(u.id) }}>
                         {initialsOf(u.full_name)}
                       </span>
                       <span className="truncate font-bold">{u.full_name}</span>
@@ -124,8 +133,8 @@ export function Users() {
                     <span className="truncate text-text-2" style={{ direction: "ltr", textAlign: "right" }}>{u.email}</span>
                     <span>{u.active ? <Badge tone="success">פעיל</Badge> : <Badge tone="neutral">מושבת</Badge>}</span>
                     <span className="text-left">
-                      <button onClick={() => setEdit(u)} className="grid h-8 w-8 place-items-center rounded-lg text-text-3 hover:bg-surface-2 hover:text-text">
-                        <Icon name="edit" size={19} />
+                      <button onClick={() => setEdit(u)} className="data-row-action">
+                        <Icon name="edit" size={18} />
                       </button>
                     </span>
                   </div>

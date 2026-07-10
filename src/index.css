@@ -5047,3 +5047,214 @@ select {
     transform: none;
   }
 }
+
+/* ============================================================
+   Shared admin-page kit — stat tiles, filter pills, table rows,
+   person chips. Used by Payroll, Users, Faults and similar
+   data-heavy manager screens to match the dashboard/shifts look.
+   ============================================================ */
+.stat-tile {
+  position: relative;
+  overflow: hidden;
+  padding: 1.05rem 1.15rem;
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  transition: transform 220ms var(--ease-out), box-shadow 220ms var(--ease-out);
+}
+
+.stat-tile::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 2.5px;
+  background: linear-gradient(90deg, transparent 5%, var(--tile-color, var(--accent)) 50%, transparent 95%);
+  opacity: 0;
+  transition: opacity 260ms var(--ease-out);
+  pointer-events: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .stat-tile:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow);
+  }
+
+  .stat-tile:hover::after {
+    opacity: 1;
+  }
+
+  .stat-tile:hover .stat-tile-icon {
+    transform: scale(1.1) rotate(-4deg);
+  }
+}
+
+.stat-tile-icon {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: none;
+  border-radius: 11px;
+  background: var(--tile-tint, var(--surface-2));
+  color: var(--tile-color, var(--text-2));
+  transition: transform 260ms var(--ease-spring);
+}
+
+.stat-tile-value {
+  margin-top: 0.7rem;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.stat-tile-label {
+  margin-top: 0.1rem;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+/* --- Filter pill bar (role filters, status tabs, etc.) --- */
+.filter-pill-bar {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.3rem;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.filter-pill-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.filter-pill {
+  position: relative;
+  flex: none;
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 200ms var(--ease-out);
+}
+
+.filter-pill:hover {
+  color: var(--text);
+}
+
+.filter-pill[data-active="true"] {
+  color: #fff;
+}
+
+.filter-pill-thumb {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.2),
+    0 6px 16px -6px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.filter-pill > span {
+  position: relative;
+  z-index: 1;
+}
+
+/* --- Data table rows (Payroll, Users, etc.) --- */
+.data-row {
+  transition: background-color 160ms var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .data-row:hover {
+    background: var(--surface-2);
+  }
+}
+
+.data-row-action {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 9px;
+  color: var(--text-3);
+  transition:
+    background-color 160ms var(--ease-out),
+    color 160ms var(--ease-out),
+    transform 200ms var(--ease-spring);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.data-row-action:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.data-row-action:active {
+  transform: scale(0.92);
+}
+
+.data-row-action[data-tone="danger"]:hover {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+/* --- Person chip: colored initials avatar, reused across rosters --- */
+.person-chip {
+  display: grid;
+  place-items: center;
+  flex: none;
+  font-weight: 800;
+  color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.25),
+    0 2px 6px -2px rgb(16 24 40 / 0.25);
+}
+
+/* --- Fault / report cards --- */
+.report-card {
+  transition: transform 220ms var(--ease-out), box-shadow 220ms var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .report-card:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow);
+  }
+
+  .report-card:hover .report-card-icon {
+    transform: scale(1.08) rotate(-4deg);
+  }
+}
+
+.report-card-icon {
+  transition: transform 260ms var(--ease-spring);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stat-tile:hover,
+  .report-card:hover {
+    transform: none;
+  }
+
+  .stat-tile:hover .stat-tile-icon,
+  .report-card:hover .report-card-icon,
+  .data-row-action:active {
+    transform: none;
+  }
+}

@@ -247,16 +247,20 @@ export function Faults() {
       />
 
       <div className="mb-5 grid grid-cols-3 gap-4">
-        {(Object.keys(STATUS_META) as FaultStatus[]).map((s) => (
-          <Card key={s} className="flex items-center gap-3.5 p-[18px]">
-            <span className="grid h-11 w-11 flex-none place-items-center rounded-[12px]" style={{ background: `var(--${STATUS_META[s].tone}-bg)` }}>
-              <Icon name={STATUS_META[s].icon} size={24} style={{ color: STATUS_META[s].color }} />
+        {(Object.keys(STATUS_META) as FaultStatus[]).map((s, i) => (
+          <div
+            key={s}
+            className="stat-tile dash-rise flex items-center gap-3.5"
+            style={{ "--tile-color": STATUS_META[s].color, "--tile-tint": `var(--${STATUS_META[s].tone}-bg)`, "--rise-delay": `${i * 60}ms` } as React.CSSProperties}
+          >
+            <span className="stat-tile-icon !h-11 !w-11 !rounded-[12px]">
+              <Icon name={STATUS_META[s].icon} size={24} />
             </span>
             <div>
-              <div className="text-[26px] font-extrabold tracking-tight">{counts[s]}</div>
-              <div className="text-[12.5px] text-text-2">{STATUS_META[s].label}</div>
+              <div className="stat-tile-value !mt-0 text-[26px]">{counts[s]}</div>
+              <div className="stat-tile-label">{STATUS_META[s].label}</div>
             </div>
-          </Card>
+          </div>
         ))}
       </div>
 
@@ -264,16 +268,20 @@ export function Faults() {
         <EmptyState icon="build" title="אין תקלות פתוחות" description="כל הכבוד! לא דווחו תקלות." />
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {(faults ?? []).map((f) => {
+          {(faults ?? []).map((f, i) => {
             const meta = STATUS_META[f.status];
             const mediaUrls = f.photo_urls ?? [];
             return (
-              <Card key={f.id} className="flex flex-col overflow-hidden p-0">
+              <Card
+                key={f.id}
+                className="report-card dash-rise flex flex-col overflow-hidden !p-0"
+                style={{ "--rise-delay": `${Math.min(i, 8) * 40}ms` } as React.CSSProperties}
+              >
                 <div className="h-1.5" style={{ background: meta.color }} />
                 <FaultMediaCarousel urls={mediaUrls} />
                 <div className="flex flex-1 flex-col p-4">
                   <div className="flex items-start justify-between">
-                    <span className="grid h-11 w-11 place-items-center rounded-[12px]" style={{ background: `var(--${meta.tone}-bg)` }}>
+                    <span className="report-card-icon grid h-11 w-11 place-items-center rounded-[12px]" style={{ background: `var(--${meta.tone}-bg)` }}>
                       <Icon name={meta.icon} size={24} style={{ color: meta.color }} />
                     </span>
                   </div>

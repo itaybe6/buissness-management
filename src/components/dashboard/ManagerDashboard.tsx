@@ -69,10 +69,10 @@ function KpiCard({ kpi, delay }: { kpi: Kpi; delay: number }) {
         </div>
       )}
       <div className="relative flex items-center justify-between">
-        <span className="grid h-10 w-10 place-items-center rounded-[11px]" style={{ background: kpi.tint, color: kpi.color }}>
+        <span className="dash-kpi-icon grid h-10 w-10 place-items-center rounded-[11px]" style={{ background: kpi.tint, color: kpi.color }}>
           <Icon name={kpi.icon} size={21} />
         </span>
-        {kpi.to && <Icon name="chevron_left" size={18} className="text-text-3" />}
+        {kpi.to && <Icon name="chevron_left" size={18} className="dash-kpi-go text-text-3" />}
       </div>
       <div className="relative mt-3">
         <div className="text-[12px] font-bold text-text-3">{kpi.label}</div>
@@ -84,7 +84,10 @@ function KpiCard({ kpi, delay }: { kpi: Kpi; delay: number }) {
     </>
   );
   const className = "dash-kpi dash-rise p-4";
-  const style = { ["--rise-delay" as string]: `${delay}ms` } as React.CSSProperties;
+  const style = {
+    ["--rise-delay" as string]: `${delay}ms`,
+    ["--kpi-color" as string]: kpi.color,
+  } as React.CSSProperties;
   return kpi.to ? (
     <Link to={kpi.to} className={className} style={style}>
       {body}
@@ -115,12 +118,14 @@ function Panel({
   return (
     <section className={`dash-panel dash-rise ${span}`} style={{ ["--rise-delay" as string]: `${delay}ms` } as React.CSSProperties}>
       <div className="flex items-center justify-between gap-3 px-5 pt-4">
-        <div className="flex items-center gap-2">
-          <Icon name={icon} size={19} className="text-accent-2" />
+        <div className="flex items-center gap-2.5">
+          <span className="dash-panel-icon">
+            <Icon name={icon} size={17} />
+          </span>
           <h3 className="text-[14.5px] font-extrabold tracking-tight text-text">{title}</h3>
         </div>
         {to && (
-          <Link to={to} className="flex items-center gap-0.5 text-[12px] font-bold text-text-3 transition-colors hover:text-accent-2">
+          <Link to={to} className="dash-panel-more flex items-center gap-0.5 text-[12px] font-bold text-text-3 transition-colors hover:text-accent-2">
             הצג הכל
             <Icon name="chevron_left" size={16} />
           </Link>
@@ -332,6 +337,8 @@ export function ManagerDashboard() {
       {/* ---------------- Hero ---------------- */}
       <header className="dash-hero dash-rise p-5 sm:p-6 md:p-7 xl:p-8">
         <div className="dash-hero-glow" />
+        <div className="dash-hero-aurora dash-hero-aurora--1" />
+        <div className="dash-hero-aurora dash-hero-aurora--2" />
         <div className="dash-hero-grid" />
         <div className="relative flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
@@ -345,6 +352,32 @@ export function ManagerDashboard() {
             <p className="mt-1 text-[13.5px] font-medium text-white/65">
               הנה התמונה המלאה של {business?.name ?? "העסק"} — מבט-על על הביצועים ב{heMonth}.
             </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {on("attendance") && (
+                <Link to="/attendance" className="dash-hero-chip">
+                  <span className="dash-live-dot" />
+                  <strong>{onShiftPeople.length}</strong> במשמרת כעת
+                </Link>
+              )}
+              {on("tasks") && taskOpen + taskProg > 0 && (
+                <Link to="/tasks" className="dash-hero-chip">
+                  <Icon name="checklist" size={15} />
+                  <strong>{taskOpen + taskProg}</strong> משימות פתוחות
+                </Link>
+              )}
+              {on("faults") && faultOpen > 0 && (
+                <Link to="/faults" className="dash-hero-chip" data-tone="danger">
+                  <Icon name="build" size={15} />
+                  <strong>{faultOpen}</strong> תקלות
+                </Link>
+              )}
+              {on("inventory") && lowStock.length > 0 && (
+                <Link to="/inventory" className="dash-hero-chip" data-tone="warning">
+                  <Icon name="inventory_2" size={15} />
+                  <strong>{lowStock.length}</strong> במלאי נמוך
+                </Link>
+              )}
+            </div>
           </div>
 
           {on("shift_reports") && (

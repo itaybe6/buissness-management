@@ -189,6 +189,20 @@ export function AreaChart({
           />
         )}
 
+        {/* soft glow under the line */}
+        {line && !reduce && (
+          <path
+            d={line}
+            fill="none"
+            stroke={color}
+            strokeWidth="7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            opacity="0.16"
+            style={{ filter: "blur(5px)" }}
+          />
+        )}
+
         {/* line */}
         {line && (
           <path
@@ -210,6 +224,24 @@ export function AreaChart({
             }
           />
         )}
+
+        {/* peak marker — pulses on the best day */}
+        {(() => {
+          if (n === 0) return null;
+          let peak = 0;
+          data.forEach((d, i) => {
+            if (d.value > data[peak].value) peak = i;
+          });
+          if (data[peak].value <= 0) return null;
+          const px = xAt(peak);
+          const py = yAt(data[peak].value);
+          return (
+            <g>
+              <circle className="chart-peak-pulse" cx={px} cy={py} r="7" fill={color} opacity="0.4" />
+              <circle cx={px} cy={py} r="4" fill={color} stroke="var(--surface)" strokeWidth="2" />
+            </g>
+          );
+        })()}
 
         {/* hover guide */}
         {hi && (
