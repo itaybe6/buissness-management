@@ -41,6 +41,7 @@ export function EmployeeShiftPunch() {
     shiftElapsed,
     pending,
     geofenceEnabled,
+    geofenceExempt,
     radiusM,
     clockStatus,
     busy,
@@ -85,7 +86,11 @@ export function EmployeeShiftPunch() {
           <div className="relative mt-4">
             <PunchButton onShift={onShift} busy={busy} onClick={handleClock} />
             <p className="mt-2.5 text-center text-[11px] text-text-3">
-              {geofenceEnabled ? `רדיוס מאושר: ${radiusM} מ׳ מהעסק` : "בדיקת מיקום כבויה"}
+              {geofenceExempt
+                ? "פטור/ה מבדיקת מיקום — ניתן להחתים מכל מקום"
+                : geofenceEnabled
+                  ? `רדיוס מאושר: ${radiusM} מ׳ מהעסק`
+                  : "בדיקת מיקום כבויה"}
             </p>
           </div>
 

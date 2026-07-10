@@ -67,3 +67,50 @@ export function buildTipParticipantsFromShift(input: {
 
   return result;
 }
+
+/**
+ * Hourly tip rate for a shift: the whole tip pool divided by the total hours of
+ * all tip participants. Every participant is paid this same per-hour rate, so
+ * the pool is split proportionally to how many hours each person worked.
+ * Returns 0 when nobody logged hours (avoids division by zero).
+ */
+export function computeTipsHourly(totalTips: number, participants: ShiftReportParticipant[]): number {
+  const total = Number(totalTips) || 0;
+  const totalHours = participants.reduce((s, p) => s + (Number(p.hours) || 0), 0);
+  if (totalHours <= 0) return 0;
+  return total / totalHours;
+}
+
+/** A single participant's share of a tip pool, as persisted into the `tips` table. */
+export interface DistributedTip {
+  employee_id: string;
+  hours: number;
+  /** Participant's share of the pool = round(tipsHourly × hours), 2 decimals. */
+  amount: number;
+  /** The shared per-hour tip rate, rounded to 2 decimals. */
+  hourly_from_tips: number;
+}
+
+/**
+ * Split a shift's total tips across its participants by hours worked.
+ * Participants without an employee id or with zero hours are dropped (they get
+ * no tips). Amounts are rounded to agorot (2 decimals), matching what is stored.
+ */
+export function distributeTips(
+  totalTips: number,
+  participants: ShiftReportParticipant[],
+): DistributedTip[] {
+  const tipsHourly = computeTipsHourly(totalTips, participants);
+  const roundedHourly = Math.round(tipsHourly * 100) / 100;
+  return participants
+    .filter((p) => p.employee_id && (Number(p.hours) || 0) > 0)
+    .map((p) => {
+      const hours = Number(p.hours) || 0;
+      return {
+        employee_id: p.employee_id,
+        hours,
+        amount: Math.round(tipsHourly * hours * 100) / 100,
+        hourly_from_tips: roundedHourly,
+      };
+    });
+}

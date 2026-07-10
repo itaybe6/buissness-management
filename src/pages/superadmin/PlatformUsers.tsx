@@ -29,7 +29,7 @@ export function PlatformUsers() {
   );
 
   return (
-    <div className="mx-auto max-w-[1220px] animate-fadeUp">
+    <div className="w-full animate-fadeUp">
       <PageHeader
         title="משתמשים"
         subtitle={`${users?.length ?? 0} משתמשים בכל הפלטפורמה`}

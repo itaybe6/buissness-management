@@ -12,12 +12,12 @@ import {
   EmptyState,
 } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
-import { useProfiles, useUpdateProfile } from "@/api/users";
+import { useProfiles, useUpdateProfile, useDeleteUser } from "@/api/users";
 import { useDepartments } from "@/api/departments";
 import { AddUserModal } from "@/components/AddUserModal";
-import { useBusinessId } from "@/lib/db";
+import { useBusinessId, colorFor, initialsOf, formatCurrency } from "@/lib/db";
+import { useAuth } from "@/lib/auth";
 import { ROLE_LABELS, WAGE_TYPE_LABELS } from "@/lib/constants";
-import { colorFor, initialsOf } from "@/lib/db";
 import type { Profile, UserRole, WageType } from "@/types/database";
 
 const ASSIGNABLE_ROLES: UserRole[] = [
@@ -29,13 +29,24 @@ const ASSIGNABLE_ROLES: UserRole[] = [
 
 const FILTER_ROLES: (UserRole | "all")[] = ["all", "manager", ...ASSIGNABLE_ROLES];
 
+function wageSummary(u: Profile): string {
+  const type = WAGE_TYPE_LABELS[u.wage_type ?? "hourly"];
+  const rate = u.hourly_rate ?? 0;
+  if (u.wage_type === "tips") return `${type} · מינ׳ ${formatCurrency(rate)}`;
+  return `${type} · ${formatCurrency(rate)}/שע׳`;
+}
+
 export function Users() {
+  const { profile: currentUser } = useAuth();
   const businessId = useBusinessId();
   const { data: users, isLoading, isError, refetch } = useProfiles(businessId);
   const { data: departments } = useDepartments(businessId);
   const update = useUpdateProfile();
+  const del = useDeleteUser();
   const [add, setAdd] = useState(false);
   const [edit, setEdit] = useState<Profile | null>(null);
+  const [toDelete, setToDelete] = useState<Profile | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<UserRole | "all">("all");
 
@@ -51,8 +62,9 @@ export function Users() {
       if (!q) return true;
       const name = (u.full_name ?? "").toLowerCase();
       const email = (u.email ?? "").toLowerCase();
+      const phone = (u.phone ?? "").toLowerCase();
       const dept = deptName(u.department_id).toLowerCase();
-      return name.includes(q) || email.includes(q) || dept.includes(q);
+      return name.includes(q) || email.includes(q) || phone.includes(q) || dept.includes(q);
     });
   }, [users, search, roleFilter, deptName]);
 
@@ -70,11 +82,15 @@ export function Users() {
   if (isError) return <ErrorState onRetry={refetch} />;
 
   return (
-    <div className="mx-auto max-w-[1100px] animate-fadeUp">
+    <div className="w-full animate-fadeUp">
       <PageHeader
         title="משתמשים וצוות"
         subtitle="ניהול עובדי העסק והרשאות גישה"
-        actions={<Button icon="person_add" onClick={() => setAdd(true)}>הוספת משתמש</Button>}
+        actions={
+          <Button icon="person_add" onClick={() => setAdd(true)} className="hidden md:inline-flex">
+            הוספת משתמש
+          </Button>
+        }
       />
 
       {users && users.length === 0 ? (
@@ -82,15 +98,24 @@ export function Users() {
       ) : (
         <>
           <div className="mb-4 flex flex-col gap-3">
-            <div className="relative max-w-[360px]">
-              <Icon name="search" size={19} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-3" />
-              <Input
-                className="pr-10"
-                placeholder="חיפוש משתמש..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
+            <div className="flex items-center gap-2">
+              <div className="relative min-w-0 flex-1 md:max-w-[360px]">
+                <Icon name="search" size={19} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-3" />
+                <Input
+                  className="pr-10"
+                  placeholder="חיפוש משתמש..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+              <Button
+                icon="add"
+                onClick={() => setAdd(true)}
+                aria-label="הוספת משתמש"
+                className="!h-11 !w-11 shrink-0 !p-0 !bg-ink shadow-sm hover:brightness-110 active:scale-[0.97] md:hidden"
               />
             </div>
+<<<<<<< HEAD
             <div className="filter-pill-bar">
               {FILTER_ROLES.map((r) => {
                 const active = roleFilter === r;
@@ -107,11 +132,26 @@ export function Users() {
                   </button>
                 );
               })}
+=======
+            <div className="users-role-filter">
+              {FILTER_ROLES.map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  data-active={roleFilter === r}
+                  onClick={() => setRoleFilter(r)}
+                  className="users-role-chip"
+                >
+                  {r === "all" ? "הכל" : ROLE_LABELS[r]}
+                </button>
+              ))}
+>>>>>>> 6df25a794822348c0586c09d1d825cf46f6db1de
             </div>
           </div>
 
           <Card className="overflow-hidden !p-0 shadow-card">
             <div className="overflow-auto">
+<<<<<<< HEAD
               <div className="min-w-[760px]">
                 <div className="grid grid-cols-[2fr_1.3fr_1.2fr_1.6fr_1fr_0.5fr] gap-2 border-b border-border bg-surface-2 px-5 py-3 text-[11.5px] font-bold uppercase tracking-wide text-text-3">
                   <span>עובד</span><span>תפקיד</span><span>מחלקה</span><span>אימייל</span><span>סטטוס</span><span></span>
@@ -124,10 +164,28 @@ export function Users() {
                   >
                     <span className="flex min-w-0 items-center gap-3">
                       <span className="person-chip h-9 w-9 rounded-[10px] text-[13px]" style={{ background: colorFor(u.id) }}>
+=======
+              <div className="min-w-[1040px]">
+                <div className="grid grid-cols-[2fr_1.1fr_1fr_1.3fr_minmax(200px,2.4fr)_1fr_0.9fr_0.7fr] gap-2 border-b border-border bg-surface-2 px-5 py-3 text-[12px] font-bold text-text-3">
+                  <span>עובד</span>
+                  <span>תפקיד</span>
+                  <span>מחלקה</span>
+                  <span>שכר</span>
+                  <span>אימייל</span>
+                  <span>טלפון</span>
+                  <span>סטטוס</span>
+                  <span></span>
+                </div>
+                {filtered.map((u) => (
+                  <div key={u.id} className="grid grid-cols-[2fr_1.1fr_1fr_1.3fr_minmax(200px,2.4fr)_1fr_0.9fr_0.7fr] items-start gap-2 border-b border-border-2 px-5 py-3 text-[13.5px] hover:bg-surface-2">
+                    <span className="flex min-w-0 items-center gap-3 self-center">
+                      <span className="grid h-9 w-9 flex-none place-items-center rounded-[10px] text-[13px] font-bold text-white" style={{ background: colorFor(u.id) }}>
+>>>>>>> 6df25a794822348c0586c09d1d825cf46f6db1de
                         {initialsOf(u.full_name)}
                       </span>
                       <span className="truncate font-bold">{u.full_name}</span>
                     </span>
+<<<<<<< HEAD
                     <span><Badge tone="neutral">{ROLE_LABELS[u.role]}</Badge></span>
                     <span className="text-text-2">{deptName(u.department_id)}</span>
                     <span className="truncate text-text-2" style={{ direction: "ltr", textAlign: "right" }}>{u.email}</span>
@@ -135,7 +193,38 @@ export function Users() {
                     <span className="text-left">
                       <button onClick={() => setEdit(u)} className="data-row-action">
                         <Icon name="edit" size={18} />
+=======
+                    <span className="self-center"><Badge tone="neutral">{ROLE_LABELS[u.role]}</Badge></span>
+                    <span className="self-center text-text-2">{deptName(u.department_id)}</span>
+                    <span className="self-center text-text-2">{wageSummary(u)}</span>
+                    <span
+                      className="break-all text-[12.5px] leading-snug text-text-2"
+                      style={{ direction: "ltr", textAlign: "left", unicodeBidi: "plaintext" }}
+                    >
+                      {u.email ?? "—"}
+                    </span>
+                    <span className="self-center whitespace-nowrap text-text-2" style={{ direction: "ltr", textAlign: "left" }}>{u.phone ?? "—"}</span>
+                    <span className="self-center">{u.active ? <Badge tone="success">פעיל</Badge> : <Badge tone="neutral">מושבת</Badge>}</span>
+                    <span className="flex items-center justify-end gap-0.5 self-center">
+                      <button
+                        type="button"
+                        onClick={() => setEdit(u)}
+                        className="grid h-8 w-8 place-items-center rounded-lg text-text-3 hover:bg-surface-2 hover:text-text"
+                        aria-label="עריכה"
+                      >
+                        <Icon name="edit" size={19} />
+>>>>>>> 6df25a794822348c0586c09d1d825cf46f6db1de
                       </button>
+                      {u.id !== currentUser?.id && (
+                        <button
+                          type="button"
+                          onClick={() => { setDeleteError(null); setToDelete(u); }}
+                          className="grid h-8 w-8 place-items-center rounded-lg text-text-3 transition hover:[background:var(--danger-bg)] hover:text-danger"
+                          aria-label="מחיקה"
+                        >
+                          <Icon name="delete" size={19} />
+                        </button>
+                      )}
                     </span>
                   </div>
                 ))}
@@ -162,6 +251,48 @@ export function Users() {
           saving={update.isPending}
         />
       )}
+
+      {toDelete && (
+        <Modal
+          open
+          onClose={() => !del.isPending && setToDelete(null)}
+          title="מחיקת עובד"
+          subtitle={toDelete.full_name ?? ""}
+          icon="person_remove"
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setToDelete(null)} disabled={del.isPending}>ביטול</Button>
+              <Button
+                className="flex-1 !bg-danger"
+                loading={del.isPending}
+                onClick={async () => {
+                  setDeleteError(null);
+                  try {
+                    await del.mutateAsync(toDelete.id);
+                    setToDelete(null);
+                  } catch (e) {
+                    setDeleteError(e instanceof Error ? e.message : "שגיאה במחיקה");
+                  }
+                }}
+              >
+                מחק לצמיתות
+              </Button>
+            </>
+          }
+        >
+          <div className="flex flex-col gap-3">
+            <p className="text-[14px] leading-relaxed text-text-2">
+              פעולה זו תמחק את <span className="font-bold text-text">{toDelete.full_name}</span> ואת כל הנתונים הקשורים אליו:
+              נוכחות, משמרות, טיפים, שכר, הסכמים, טפסים, משימות ועוד. לא ניתן לשחזר.
+            </p>
+            {deleteError && (
+              <div className="flex items-start gap-2 rounded-[11px] [background:var(--danger-bg)] px-3 py-2.5 text-[13px] font-semibold text-danger">
+                <Icon name="error" size={18} /> {deleteError}
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -181,6 +312,7 @@ function EditUserModal({
 }) {
   const [role, setRole] = useState<UserRole>(user.role);
   const [departmentId, setDepartmentId] = useState(user.department_id ?? "");
+  const [phone, setPhone] = useState(user.phone ?? "");
   const [wageType, setWageType] = useState<WageType>(user.wage_type ?? "hourly");
   const [hourly, setHourly] = useState(String(user.hourly_rate ?? 0));
   const [active, setActive] = useState(user.active);
@@ -191,7 +323,7 @@ function EditUserModal({
       open
       onClose={onClose}
       title={user.full_name ?? "עריכת עובד"}
-      subtitle="עדכון תפקיד, מחלקה ושכר"
+      subtitle="עדכון תפקיד, מחלקה, פרטי קשר ושכר"
       icon="manage_accounts"
       footer={
         <>
@@ -202,7 +334,14 @@ function EditUserModal({
             onClick={async () => {
               setError(null);
               try {
-                await onSave({ role, department_id: role === "employee" ? departmentId || null : null, hourly_rate: Number(hourly) || 0, wage_type: wageType, active });
+                await onSave({
+                  role,
+                  department_id: role === "employee" ? departmentId || null : null,
+                  phone: phone.trim() || null,
+                  hourly_rate: Number(hourly) || 0,
+                  wage_type: wageType,
+                  active,
+                });
               } catch (e) {
                 setError(e instanceof Error ? e.message : "שגיאה בשמירה");
               }
@@ -237,6 +376,9 @@ function EditUserModal({
             </Select>
           </label>
         )}
+        <label className="block"><span className="label-text">טלפון</span>
+          <Input className="mt-1.5" value={phone} onChange={(e) => setPhone(e.target.value)} style={{ direction: "ltr", textAlign: "right" }} placeholder="050-0000000" />
+        </label>
         <div className="grid grid-cols-2 gap-3">
           <label className="block"><span className="label-text">סוג שכר</span>
             <Select className="mt-1.5" value={wageType} onChange={(e) => setWageType(e.target.value as WageType)}>

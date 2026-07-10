@@ -90,7 +90,23 @@ export function useUpdateTask(businessId: string | null) {
       const { error } = await supabase.from("tasks").update(rest).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["tasks", businessId] }),
+    onMutate: async (input) => {
+      if (!businessId) return;
+      await qc.cancelQueries({ queryKey: ["tasks", businessId] });
+      const prev = qc.getQueryData<Task[]>(["tasks", businessId]);
+      if (prev) {
+        const { id, ...rest } = input;
+        qc.setQueryData<Task[]>(
+          ["tasks", businessId],
+          prev.map((t) => (t.id === id ? { ...t, ...rest, updated_at: new Date().toISOString() } : t)),
+        );
+      }
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => {
+      if (businessId && ctx?.prev) qc.setQueryData(["tasks", businessId], ctx.prev);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["tasks", businessId] }),
   });
 }
 

@@ -18,6 +18,7 @@ import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId, formatCurrency, formatDateShort, todayISO, weekStart, addDays } from "@/lib/db";
 import { buildTipParticipantsFromShift, getAttendanceHoursOnDate } from "@/lib/shiftReportTips";
+import { buildBonusCandidatesFromShift, computeShiftBonusAmounts } from "@/lib/shiftReportBonuses";
 import { useProfiles } from "@/api/users";
 import { useActiveShiftTemplates, useShiftAssignments } from "@/api/shifts";
 import { useAttendanceMonth } from "@/api/attendance";
@@ -31,6 +32,7 @@ import {
 import type {
   Profile,
   ShiftReport,
+  ShiftReportBonusParticipant,
   ShiftReportParticipant,
   ShiftReportSalesItem,
   ShiftTemplate,
@@ -51,6 +53,7 @@ export function ShiftReports() {
 
   // null = list view; object = editor (new when no id)
   const [editing, setEditing] = useState<ShiftReport | "new" | null>(null);
+  const [viewing, setViewing] = useState<ShiftReport | null>(null);
 
   const canManage = !!profile && ["manager", "shift_manager"].includes(profile.role);
 
@@ -67,7 +70,7 @@ export function ShiftReports() {
   if (isError) return <ErrorState onRetry={refetch} />;
 
   return (
-    <div className="mx-auto max-w-[1100px] animate-fadeUp">
+    <div className="w-full animate-fadeUp">
       <PageHeader
         title="דוח סגירת משמרת"
         subtitle="סיכום משמרת, סגירת קופה, חשבוניות וטיפים"
@@ -113,30 +116,53 @@ export function ShiftReports() {
 
               <div className="mt-auto flex items-center justify-between border-t border-border-2 pt-3">
                 <span className="text-[12px] text-text-3">{(r.invoice_urls ?? []).length} חשבוניות</span>
-                {canManage && (
-                  <div className="flex gap-1">
-                    <button
-                      onClick={() => setEditing(r)}
-                      className="grid h-8 w-8 place-items-center rounded-lg text-text-3 hover:bg-surface-2 hover:text-text"
-                      title="עריכה"
-                    >
-                      <Icon name="edit" size={18} />
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (confirm("למחוק את הדוח? הטיפים שנוצרו ממנו יימחקו גם הם.")) del.mutate(r.id);
-                      }}
-                      className="grid h-8 w-8 place-items-center rounded-lg text-text-3 hover:[background:var(--danger-bg)] hover:text-danger"
-                      title="מחיקה"
-                    >
-                      <Icon name="delete" size={18} />
-                    </button>
-                  </div>
-                )}
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => setViewing(r)}
+                    className="grid h-8 w-8 place-items-center rounded-lg text-text-3 hover:bg-surface-2 hover:text-text"
+                    title="צפייה בדוח"
+                  >
+                    <Icon name="visibility" size={18} />
+                  </button>
+                  {canManage && (
+                    <>
+                      <button
+                        onClick={() => setEditing(r)}
+                        className="grid h-8 w-8 place-items-center rounded-lg text-text-3 hover:bg-surface-2 hover:text-text"
+                        title="עריכה"
+                      >
+                        <Icon name="edit" size={18} />
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (confirm("למחוק את הדוח? הטיפים והתוספות שכר שנוצרו ממנו יימחקו גם הם.")) del.mutate(r.id);
+                        }}
+                        className="grid h-8 w-8 place-items-center rounded-lg text-text-3 hover:[background:var(--danger-bg)] hover:text-danger"
+                        title="מחיקה"
+                      >
+                        <Icon name="delete" size={18} />
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
             </Card>
           ))}
         </div>
+      )}
+
+      {viewing && (
+        <ReportViewer
+          report={viewing}
+          templateName={templateName(viewing.shift_template_id)}
+          userName={userName}
+          canManage={canManage}
+          onClose={() => setViewing(null)}
+          onEdit={() => {
+            setViewing(null);
+            setEditing(viewing);
+          }}
+        />
       )}
 
       {editing && (
@@ -145,6 +171,7 @@ export function ShiftReports() {
           businessId={businessId!}
           createdBy={profile?.id ?? null}
           users={(users ?? []).filter((u) => u.active && (u.wage_type ?? "hourly") === "tips")}
+          allUsers={(users ?? []).filter((u) => u.active)}
           templates={templates ?? []}
           userName={userName}
           onClose={() => setEditing(null)}
@@ -175,6 +202,7 @@ interface EditorState {
   faults_maintenance: string;
   top_seller: string;
   participants: ShiftReportParticipant[];
+  bonus_participants: ShiftReportBonusParticipant[];
   sales_items: ShiftReportSalesItem[];
   invoice_urls: string[];
 }
@@ -199,6 +227,7 @@ function blankState(): EditorState {
     faults_maintenance: "",
     top_seller: "",
     participants: [],
+    bonus_participants: [],
     sales_items: [],
     invoice_urls: [],
   };
@@ -224,6 +253,7 @@ function fromReport(r: ShiftReport): EditorState {
     faults_maintenance: r.faults_maintenance ?? "",
     top_seller: r.extra?.top_seller ?? "",
     participants: r.extra?.tip_participants ?? [],
+    bonus_participants: r.extra?.bonus_participants ?? [],
     sales_items: r.extra?.sales_items ?? [],
     invoice_urls: r.invoice_urls ?? [],
   };
@@ -234,6 +264,7 @@ function ReportEditor({
   businessId,
   createdBy,
   users,
+  allUsers,
   templates,
   userName,
   onClose,
@@ -242,6 +273,7 @@ function ReportEditor({
   businessId: string;
   createdBy: string | null;
   users: Profile[];
+  allUsers: Profile[];
   templates: ShiftTemplate[];
   userName: (id: string) => string;
   onClose: () => void;
@@ -310,8 +342,46 @@ function ReportEditor({
   }, [attendance, attendanceLoading, s.report_date, assignmentsLoading]);
 
   const totalTips = Number(s.total_tips) || 0;
+  const totalSales = Number(s.total_sales) || 0;
+  const servicePct = Number(s.service_pct) || 0;
   const totalHours = s.participants.reduce((sum, p) => sum + (Number(p.hours) || 0), 0);
   const tipsHourly = totalHours > 0 ? totalTips / totalHours : 0;
+  const bonusEmployeeIds = s.bonus_participants.map((p) => p.employee_id).filter(Boolean);
+  const { pool: bonusPool, perEmployee: bonusPerEmployee } = computeShiftBonusAmounts(
+    totalSales,
+    servicePct,
+    bonusEmployeeIds,
+  );
+  const bonusCandidateIds = useMemo(
+    () =>
+      buildBonusCandidatesFromShift({
+        reportDate: s.report_date,
+        shiftTemplateId: s.shift_template_id,
+        assignments: assignments ?? [],
+        attendance: attendance ?? [],
+        templates,
+      }),
+    [s.report_date, s.shift_template_id, assignments, attendance, templates],
+  );
+  const bonusCandidates = useMemo(
+    () => allUsers.filter((u) => bonusCandidateIds.includes(u.id)),
+    [allUsers, bonusCandidateIds],
+  );
+  const selectedBonusIds = useMemo(
+    () => new Set(s.bonus_participants.map((p) => p.employee_id).filter(Boolean)),
+    [s.bonus_participants],
+  );
+
+  // Drop bonus selections for employees who did not work this shift.
+  useEffect(() => {
+    if (assignmentsLoading || attendanceLoading) return;
+    const valid = new Set(bonusCandidateIds);
+    setS((prev) => {
+      const filtered = prev.bonus_participants.filter((p) => valid.has(p.employee_id));
+      if (filtered.length === prev.bonus_participants.length) return prev;
+      return { ...prev, bonus_participants: filtered };
+    });
+  }, [bonusCandidateIds, assignmentsLoading, attendanceLoading]);
   const participantsLoading = assignmentsLoading || attendanceLoading;
   const availableUsers = users.filter((u) => !s.participants.some((p) => p.employee_id === u.id));
 
@@ -338,6 +408,19 @@ function ReportEditor({
     }
   }
 
+  function toggleBonusEmployee(employeeId: string) {
+    const next = new Set(selectedBonusIds);
+    if (next.has(employeeId)) {
+      next.delete(employeeId);
+    } else {
+      next.add(employeeId);
+    }
+    set(
+      "bonus_participants",
+      Array.from(next).map((id) => ({ employee_id: id })),
+    );
+  }
+
   async function submit() {
     setError(null);
     const payload: SaveShiftReportInput = {
@@ -361,6 +444,9 @@ function ReportEditor({
       faults_maintenance: s.faults_maintenance.trim() || null,
       extra: {
         tip_participants: s.participants.filter((p) => p.employee_id),
+        bonus_participants: s.bonus_participants.filter(
+          (p) => p.employee_id && bonusCandidateIds.includes(p.employee_id),
+        ),
         sales_items: s.sales_items.filter((i) => i.label.trim()),
         top_seller: s.top_seller.trim(),
       },
@@ -413,8 +499,83 @@ function ReportEditor({
             <Field label='סה"כ מכירות (₪)'><Input type="number" inputMode="decimal" value={s.total_sales} onChange={(e) => set("total_sales", e.target.value)} /></Field>
             <Field label="משלוחים / וולט (₪)"><Input type="number" inputMode="decimal" value={s.delivery_sales} onChange={(e) => set("delivery_sales", e.target.value)} /></Field>
             <Field label="ממוצע לסועד (₪)"><Input type="number" inputMode="decimal" value={s.avg_per_diner} onChange={(e) => set("avg_per_diner", e.target.value)} /></Field>
-            <Field label="אחוז שירות (%)"><Input type="number" inputMode="decimal" value={s.service_pct} onChange={(e) => set("service_pct", e.target.value)} /></Field>
+            <Field label="אחוז שירות (%)">
+              <Input type="number" inputMode="decimal" value={s.service_pct} onChange={(e) => set("service_pct", e.target.value)} />
+              <span className="mt-1 block text-[11.5px] text-text-3">משמש גם לחישוב תוספת שכר מאחוז הקופה</span>
+            </Field>
           </div>
+        </Section>
+
+        {/* תוספת שכר מאחוז קופה */}
+        <Section icon="percent" title="תוספת שכר מאחוז קופה">
+          <div className="rounded-[11px] border border-border bg-surface-2 px-3.5 py-3 text-[12.5px] text-text-2">
+            בחרו עובדים (בדרך כלל עד 5) שעבדו במשמרת זו ויקבלו חלק שווה מ-
+            <span className="font-bold text-text"> {servicePct || 0}% </span>
+            מסכום הקופה (
+            <span className="font-bold tabular-nums text-text">{formatCurrency(totalSales)}</span>
+            ). רק עובדים משובצים למשמרת עם נוכחות מאושרת מופיעים ברשימה.
+            {bonusPool > 0 ? (
+              <>
+                {" "}סה״כ תוספת:{" "}
+                <span className="font-bold tabular-nums text-accent">{formatCurrency(bonusPool)}</span>
+                {bonusEmployeeIds.length > 0 && (
+                  <>
+                    {" "}· לעובד:{" "}
+                    <span className="font-bold tabular-nums text-accent">{formatCurrency(bonusPerEmployee)}</span>
+                  </>
+                )}
+              </>
+            ) : (
+              <> הזינו מכירות ואחוז שירות כדי לראות את הסכום.</>
+            )}
+          </div>
+
+          {participantsLoading ? (
+            <div className="rounded-[11px] border border-border bg-surface-2 px-3.5 py-4 text-center text-[13px] text-text-2">
+              טוען עובדים מהמשמרת...
+            </div>
+          ) : !s.shift_template_id ? (
+            <div className="rounded-[11px] border border-dashed border-border px-3.5 py-4 text-center text-[13px] text-text-2">
+              בחרו משמרת כדי לראות את העובדים המשובצים.
+            </div>
+          ) : bonusCandidates.length === 0 ? (
+            <div className="rounded-[11px] border border-dashed border-border px-3.5 py-4 text-center text-[13px] text-text-2">
+              לא נמצאו עובדים שעבדו במשמרת זו (שיבוץ + נוכחות).
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              {bonusCandidates.map((u) => {
+                const checked = selectedBonusIds.has(u.id);
+                const attHrs = getAttendanceHoursOnDate(attendance ?? [], u.id, s.report_date);
+                return (
+                  <label
+                    key={u.id}
+                    className={`flex cursor-pointer items-center justify-between gap-3 rounded-[11px] border px-3.5 py-2.5 transition-colors ${
+                      checked ? "border-accent/40 bg-accent/5" : "border-border hover:bg-surface-2"
+                    }`}
+                  >
+                    <span className="flex min-w-0 items-center gap-2.5">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleBonusEmployee(u.id)}
+                        className="h-4 w-4 flex-none accent-[var(--accent)]"
+                      />
+                      <span className="min-w-0">
+                        <span className="block truncate text-[14px] font-semibold">{u.full_name}</span>
+                        <span className="text-[11px] font-semibold text-text-3">{attHrs} שעות נוכחות</span>
+                      </span>
+                    </span>
+                    {checked && bonusPerEmployee > 0 && (
+                      <span className="flex-none text-[12.5px] font-bold tabular-nums text-accent">
+                        {formatCurrency(bonusPerEmployee)}
+                      </span>
+                    )}
+                  </label>
+                );
+              })}
+            </div>
+          )}
         </Section>
 
         {/* טיפים */}
@@ -651,5 +812,203 @@ function Section({ icon, title, children }: { icon: string; title: string; child
       </div>
       {children}
     </div>
+  );
+}
+
+function DetailGrid({ children }: { children: React.ReactNode }) {
+  return <div className="grid grid-cols-2 gap-2.5">{children}</div>;
+}
+
+function DetailCell({ label, value, span }: { label: string; value: React.ReactNode; span?: boolean }) {
+  return (
+    <div className={`rounded-[10px] bg-surface-2 px-3 py-2.5 ${span ? "col-span-2" : ""}`}>
+      <div className="text-[11px] text-text-3">{label}</div>
+      <div className="mt-0.5 text-[14px] font-semibold text-text">{value || "—"}</div>
+    </div>
+  );
+}
+
+function DetailText({ label, value }: { label: string; value: string | null | undefined }) {
+  if (!value?.trim()) return null;
+  return (
+    <div className="rounded-[10px] border border-border bg-surface-2 px-3.5 py-3">
+      <div className="text-[11px] font-bold text-text-3">{label}</div>
+      <div className="mt-1 whitespace-pre-wrap text-[13.5px] leading-relaxed text-text">{value}</div>
+    </div>
+  );
+}
+
+function ReportViewer({
+  report,
+  templateName,
+  userName,
+  canManage,
+  onClose,
+  onEdit,
+}: {
+  report: ShiftReport;
+  templateName: string;
+  userName: (id: string) => string;
+  canManage: boolean;
+  onClose: () => void;
+  onEdit: () => void;
+}) {
+  const participants = report.extra?.tip_participants ?? [];
+  const bonusParticipants = report.extra?.bonus_participants ?? [];
+  const salesItems = report.extra?.sales_items ?? [];
+  const totalTips = Number(report.total_tips) || 0;
+  const totalHours = participants.reduce((sum, p) => sum + (Number(p.hours) || 0), 0);
+  const tipsHourly = totalHours > 0 ? totalTips / totalHours : Number(report.tips_hourly) || 0;
+  const { pool: bonusPool, perEmployee: bonusPerEmployee } = computeShiftBonusAmounts(
+    Number(report.total_sales) || 0,
+    Number(report.service_pct) || 0,
+    bonusParticipants.map((p) => p.employee_id),
+  );
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="צפייה בדוח משמרת"
+      subtitle={`${formatDateShort(report.report_date)} · ${templateName}`}
+      icon="visibility"
+      maxWidth={720}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>סגירה</Button>
+          {canManage && <Button icon="edit" onClick={onEdit}>עריכה</Button>}
+        </>
+      }
+    >
+      <div className="flex flex-col gap-6">
+        <Section icon="event" title="פרטי משמרת">
+          <DetailGrid>
+            <DetailCell label="תאריך" value={formatDateShort(report.report_date)} />
+            <DetailCell label="משמרת" value={templateName} />
+            <DetailCell label='אחמ"ש' value={report.manager_names} span />
+          </DetailGrid>
+        </Section>
+
+        <Section icon="payments" title="סגירת קופה">
+          <DetailGrid>
+            <DetailCell label='סה"כ מכירות' value={formatCurrency(Number(report.total_sales))} />
+            <DetailCell label="משלוחים / וולט" value={formatCurrency(Number(report.delivery_sales))} />
+            <DetailCell label="ממוצע לסועד" value={formatCurrency(Number(report.avg_per_diner))} />
+            <DetailCell label="אחוז שירות" value={`${Number(report.service_pct) || 0}%`} />
+          </DetailGrid>
+        </Section>
+
+        {bonusParticipants.length > 0 && (
+          <Section icon="percent" title="תוספת שכר מאחוז קופה">
+            <div className="rounded-[11px] border border-border bg-surface-2 px-3.5 py-3 text-[12.5px] text-text-2">
+              סה״כ תוספת: <span className="font-bold text-text">{formatCurrency(bonusPool)}</span>
+              {bonusPerEmployee > 0 && (
+                <> · לעובד: <span className="font-bold text-accent">{formatCurrency(bonusPerEmployee)}</span></>
+              )}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              {bonusParticipants.map((p) => (
+                <div key={p.employee_id} className="flex items-center justify-between rounded-[11px] border border-border px-3.5 py-2.5">
+                  <span className="text-[14px] font-semibold">{userName(p.employee_id)}</span>
+                  {bonusPerEmployee > 0 && (
+                    <span className="text-[12.5px] font-bold text-accent">{formatCurrency(bonusPerEmployee)}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
+
+        <Section icon="savings" title="טיפים">
+          <DetailGrid>
+            <DetailCell label='סה"כ טיפים' value={formatCurrency(totalTips)} />
+            <DetailCell label="שכר שעתי מטיפים" value={formatCurrency(tipsHourly)} />
+          </DetailGrid>
+          {participants.length > 0 && (
+            <div className="overflow-hidden rounded-[11px] border border-border">
+              <div className="grid grid-cols-[1fr_72px_auto] items-center gap-2 border-b border-border bg-surface-2 px-3 py-2 text-[11.5px] font-bold text-text-3">
+                <span>עובד</span>
+                <span>שעות</span>
+                <span>חלק בטיפים</span>
+              </div>
+              <div className="flex flex-col divide-y divide-border-2">
+                {participants.map((p) => (
+                  <div key={p.employee_id} className="grid grid-cols-[1fr_72px_auto] items-center gap-2 px-3 py-2.5">
+                    <span className="truncate text-[14px] font-semibold">{userName(p.employee_id)}</span>
+                    <span className="text-[13px] tabular-nums text-text-2">{Number(p.hours) || 0}</span>
+                    <span className="text-[12.5px] font-bold text-accent-2">
+                      {formatCurrency(tipsHourly * (Number(p.hours) || 0))}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </Section>
+
+        <Section icon="groups" title="הצוות">
+          <DetailGrid>
+            <DetailCell label="שחרור ראשון" value={report.first_release} />
+            <DetailCell label="אנרגיות בצוות" value={report.energy_level != null ? `${report.energy_level}/10` : null} />
+          </DetailGrid>
+          <DetailText label="אירועים חריגים" value={report.unusual_events} />
+          <DetailText label="שיחות במשמרת" value={report.team_talks} />
+          <DetailText label="הקול של הצוות" value={report.team_voice} />
+        </Section>
+
+        {(salesItems.length > 0 || report.extra?.top_seller) && (
+          <Section icon="local_bar" title="מכירות">
+            {salesItems.length > 0 && (
+              <div className="flex flex-col gap-1.5">
+                {salesItems.map((item, idx) => (
+                  <div key={idx} className="flex items-center justify-between rounded-[10px] bg-surface-2 px-3 py-2">
+                    <span className="text-[14px] font-semibold">{item.label}</span>
+                    <span className="text-[13px] font-bold tabular-nums text-text-2">{item.count}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {report.extra?.top_seller && (
+              <DetailCell label="מי מכר הכי הרבה" value={report.extra.top_seller} span />
+            )}
+          </Section>
+        )}
+
+        <Section icon="inventory_2" title="לוגיסטיקה ותחזוקה">
+          <DetailCell
+            label="משימות יומיות"
+            value={report.daily_tasks_done ? "בוצעו" : "לא בוצעו"}
+            span
+          />
+          <DetailText label="מלאי דחוף" value={report.urgent_inventory} />
+          <DetailText label="תקלות ותחזוקה" value={report.faults_maintenance} />
+        </Section>
+
+        {(report.invoice_urls ?? []).length > 0 && (
+          <Section icon="receipt" title="חשבוניות">
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+              {(report.invoice_urls ?? []).map((url, idx) => (
+                <a
+                  key={idx}
+                  href={url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="overflow-hidden rounded-[11px] border border-border hover:opacity-90"
+                >
+                  {/\.(png|jpe?g|webp|gif)(\?|$)/i.test(url) ? (
+                    <img src={url} alt="חשבונית" className="h-28 w-full object-cover" />
+                  ) : (
+                    <div className="flex h-28 w-full flex-col items-center justify-center gap-1 bg-surface-2 text-text-2">
+                      <Icon name="description" size={26} />
+                      <span className="text-[11px]">קובץ</span>
+                    </div>
+                  )}
+                </a>
+              ))}
+            </div>
+          </Section>
+        )}
+      </div>
+    </Modal>
   );
 }

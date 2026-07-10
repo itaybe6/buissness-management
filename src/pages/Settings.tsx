@@ -1,9 +1,9 @@
-import { useState, type ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import { Badge, Button, EmptyState, Icon, Input, PageLoader, ErrorState, Switch } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { useBusiness, useUpdateBusiness } from "@/api/businesses";
-import { ATTENDANCE_RADIUS_M } from "@/lib/constants";
+import { ATTENDANCE_RADIUS_M, ATTENDANCE_GEOFENCE_EXEMPT_ROLE_OPTIONS, ROLE_LABELS } from "@/lib/constants";
 import {
   useDepartments,
   useCreateDepartment,
@@ -23,6 +23,7 @@ import {
   formatShiftPrefsWindowRule,
 } from "@/lib/shift-deadline";
 import { PageEnter, StaggerGrid, StaggerItem } from "@/components/motion/shared-motion";
+import type { UserRole } from "@/types/database";
 
 const SHIFT_COLORS = ["#eab308", "#fdab3d", "#ef4444", "#7c3aed", "#0d9488", "#2563eb"];
 
@@ -51,117 +52,111 @@ export function Settings() {
 
   const activeShifts = (templates ?? []).filter((t) => t.active).length;
   const deptCount = departments?.length ?? 0;
+  const exemptCount = biz.attendance_geofence_exempt_roles?.length ?? 0;
+  const locationSub = !biz.attendance_geofence_enabled
+    ? "בדיקת GPS כבויה"
+    : exemptCount > 0
+      ? `בדיקת GPS פעילה · ${exemptCount} תפקידים פטורים`
+      : "בדיקת GPS פעילה";
 
   return (
-    <PageEnter className="mx-auto max-w-[1100px]">
-      <header className="page-hero">
-        <div className="page-hero-inner">
-          <div>
-            <h1 className="page-hero-title">הגדרות עסק</h1>
-            <p className="page-hero-sub">
-              שם העסק, מיקום לשעון נוכחות, מחלקות ושעות משמרת. לחצו על קובייה לעריכה.
-            </p>
-          </div>
-          <div className="page-hero-stats">
-            <div className="page-hero-stat">
-              <Icon name="store" size={18} style={{ color: "var(--accent-2)" }} />
-              <span className="truncate max-w-[180px]">
-                <strong>{biz.name}</strong>
-              </span>
-            </div>
-            {biz.location_address && (
-              <div className="page-hero-stat">
-                <Icon name="location_on" size={18} style={{ color: "var(--info)" }} />
-                <span className="truncate max-w-[200px]">{biz.location_address}</span>
-              </div>
-            )}
-          </div>
-        </div>
+    <PageEnter className="settings-page w-full">
+      <header className="settings-page-head hidden md:block">
+        <h1 className="settings-page-title">הגדרות עסק</h1>
+        <p className="settings-page-desc">נהלו את פרטי העסק, המיקום, המחלקות ושעות המשמרת</p>
       </header>
 
-      <StaggerGrid className="settings-grid mt-6">
-        <SettingsTile
-          icon="store"
-          label="שם העסק"
-          value={biz.name}
-          sub="דשבורד, דוחות וממשק עובדים"
-          tint="var(--accent-tint)"
-          color="var(--accent-2)"
-          delay={0}
-          onClick={() => setPanel("name")}
-        />
-        <SettingsTile
-          icon="location_on"
-          label="כתובת לשעון נוכחות"
-          value={biz.location_address?.split(",")[0] ?? "לא הוגדרה"}
-          sub={biz.attendance_geofence_enabled ? "בדיקת GPS פעילה" : "בדיקת GPS כבויה"}
-          tint="var(--info-bg)"
-          color="var(--info)"
-          delay={60}
-          onClick={() => setPanel("location")}
-        />
-        <SettingsTile
-          icon="verified_user"
-          label="אישור משימות אחזקה"
-          value={biz.maintenance_task_approval ? "דרוש אישור" : "ללא אישור"}
-          sub="משימות מאחראי משמרת"
-          tint="var(--success-bg)"
-          color="var(--success)"
-          delay={120}
-          onClick={() => setPanel("maintenance")}
-        />
-        <SettingsTile
-          icon="event_available"
-          label="חלון הגשה לשבוע הבא"
-          value={
-            biz.shift_prefs_deadline_dow != null
-              ? biz.shift_prefs_open_dow != null
-                ? formatShiftPrefsWindowRule(
-                    biz.shift_prefs_open_dow,
-                    biz.shift_prefs_open_time?.slice(0, 5) ?? "21:00",
-                    biz.shift_prefs_deadline_dow,
-                    biz.shift_prefs_deadline_time?.slice(0, 5) ?? "20:00"
-                  )
-                : formatShiftPrefsCloseRule(
-                    biz.shift_prefs_deadline_dow,
-                    biz.shift_prefs_deadline_time?.slice(0, 5) ?? "20:00"
-                  )
-              : "ללא הגבלה"
-          }
-          sub="זמינות עובדים למשמרות"
-          tint="var(--warning-bg)"
-          color="var(--warning)"
-          delay={180}
-          onClick={() => setPanel("deadline")}
-        />
-        <SettingsTile
-          icon="category"
-          label="מחלקות"
-          value={deptCount > 0 ? `${deptCount} מחלקות` : "אין מחלקות"}
-          sub={
-            deptCount > 0
-              ? (departments ?? [])
-                  .slice(0, 2)
-                  .map((d) => d.name)
-                  .join(" · ")
-              : "הוסיפו מטבח, בר, מלצרות…"
-          }
-          tint="color-mix(in srgb, #fdab3d 14%, var(--surface))"
-          color="#c27803"
-          delay={240}
-          onClick={() => setPanel("departments")}
-        />
-        <SettingsTile
-          icon="schedule"
-          label="שעות משמרת"
-          value={`${activeShifts} פעילות`}
-          sub={`${templates?.length ?? 0} משמרות מוגדרות`}
-          tint="var(--accent-tint)"
-          color="var(--accent-2)"
-          delay={300}
-          onClick={() => setPanel("shifts")}
-        />
-      </StaggerGrid>
+      <div className="settings-groups">
+        <SettingsGroup title="פרטי העסק" hint="זיהוי ומיקום">
+          <SettingsItem
+            icon="store"
+            label="שם העסק"
+            value={biz.name}
+            sub="דשבורד, דוחות וממשק עובדים"
+            tint="var(--accent-tint)"
+            color="var(--accent-2)"
+            delay={0}
+            onEdit={() => setPanel("name")}
+          />
+          <SettingsItem
+            icon="location_on"
+            label="כתובת לשעון נוכחות"
+            value={biz.location_address?.split(",")[0] ?? "לא הוגדרה"}
+            sub={locationSub}
+            tint="var(--info-bg)"
+            color="var(--info)"
+            delay={40}
+            onEdit={() => setPanel("location")}
+          />
+        </SettingsGroup>
+
+        <SettingsGroup title="כללים ומדיניות" hint="אישורים וחלונות">
+          <SettingsItem
+            icon="verified_user"
+            label="אישור משימות אחזקה"
+            value={biz.maintenance_task_approval ? "דרוש אישור" : "ללא אישור"}
+            sub="משימות מאחראי משמרת"
+            tint="var(--success-bg)"
+            color="var(--success)"
+            delay={80}
+            onEdit={() => setPanel("maintenance")}
+          />
+          <SettingsItem
+            icon="event_available"
+            label="חלון הגשה לשבוע הבא"
+            value={
+              biz.shift_prefs_deadline_dow != null
+                ? biz.shift_prefs_open_dow != null
+                  ? formatShiftPrefsWindowRule(
+                      biz.shift_prefs_open_dow,
+                      biz.shift_prefs_open_time?.slice(0, 5) ?? "21:00",
+                      biz.shift_prefs_deadline_dow,
+                      biz.shift_prefs_deadline_time?.slice(0, 5) ?? "20:00"
+                    )
+                  : formatShiftPrefsCloseRule(
+                      biz.shift_prefs_deadline_dow,
+                      biz.shift_prefs_deadline_time?.slice(0, 5) ?? "20:00"
+                    )
+                : "ללא הגבלה"
+            }
+            sub="זמינות עובדים למשמרות"
+            tint="var(--warning-bg)"
+            color="var(--warning)"
+            delay={120}
+            onEdit={() => setPanel("deadline")}
+          />
+        </SettingsGroup>
+
+        <SettingsGroup title="מבנה ומשמרות" hint="מחלקות ושעות">
+          <SettingsItem
+            icon="category"
+            label="מחלקות"
+            value={deptCount > 0 ? `${deptCount} מחלקות` : "אין מחלקות"}
+            sub={
+              deptCount > 0
+                ? (departments ?? [])
+                    .slice(0, 2)
+                    .map((d) => d.name)
+                    .join(" · ")
+                : "הוסיפו מטבח, בר, מלצרות…"
+            }
+            tint="color-mix(in srgb, #fdab3d 14%, var(--surface))"
+            color="#c27803"
+            delay={160}
+            onEdit={() => setPanel("departments")}
+          />
+          <SettingsItem
+            icon="schedule"
+            label="שעות משמרת"
+            value={`${activeShifts} פעילות`}
+            sub={`${templates?.length ?? 0} משמרות מוגדרות`}
+            tint="var(--accent-tint)"
+            color="var(--accent-2)"
+            delay={200}
+            onEdit={() => setPanel("shifts")}
+          />
+        </SettingsGroup>
+      </div>
 
       <BusinessNameModal businessId={businessId} open={panel === "name"} onClose={close} />
       <LocationModal businessId={businessId} open={panel === "location"} onClose={close} />
@@ -173,7 +168,27 @@ export function Settings() {
   );
 }
 
-function SettingsTile({
+function SettingsGroup({
+  title,
+  hint,
+  children,
+}: {
+  title: string;
+  hint: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="settings-group">
+      <div className="settings-group-head">
+        <h2 className="settings-group-title">{title}</h2>
+        <span className="settings-group-hint">{hint}</span>
+      </div>
+      <StaggerGrid className="settings-group-list">{children}</StaggerGrid>
+    </section>
+  );
+}
+
+function SettingsItem({
   icon,
   label,
   value,
@@ -181,7 +196,7 @@ function SettingsTile({
   tint,
   color,
   delay,
-  onClick,
+  onEdit,
 }: {
   icon: string;
   label: string;
@@ -190,35 +205,38 @@ function SettingsTile({
   tint: string;
   color: string;
   delay: number;
-  onClick: () => void;
+  onEdit: () => void;
 }) {
   return (
     <StaggerItem>
-      <button
-        type="button"
-        onClick={onClick}
-        className="settings-tile dash-kpi dash-rise group w-full p-4 text-start sm:p-[18px]"
-        style={{ ["--rise-delay" as string]: `${delay}ms` }}
+      <article
+        className="settings-item dash-rise"
+        style={
+          {
+            ["--rise-delay" as string]: `${delay}ms`,
+            ["--settings-accent" as string]: color,
+          } as CSSProperties
+        }
       >
-        <div className="relative flex items-center justify-between gap-2">
-          <span
-            className="grid h-10 w-10 shrink-0 place-items-center rounded-[11px]"
-            style={{ background: tint, color }}
-          >
-            <Icon name={icon} size={21} />
-          </span>
-          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-surface-2 text-text-3 opacity-0 transition-opacity group-hover:opacity-100">
-            <Icon name="chevron_left" size={17} />
-          </span>
+        <span
+          className="settings-item-icon"
+          style={{ background: tint, color }}
+          aria-hidden
+        >
+          <Icon name={icon} size={22} />
+        </span>
+
+        <div className="settings-item-body">
+          <div className="settings-item-label">{label}</div>
+          <div className="settings-item-value">{value}</div>
+          <div className="settings-item-sub">{sub}</div>
         </div>
-        <div className="relative mt-3 min-w-0">
-          <div className="text-[11.5px] font-bold uppercase tracking-wide text-text-3">{label}</div>
-          <div className="mt-1 line-clamp-2 text-[19px] font-extrabold leading-snug tracking-tight text-text sm:text-[21px]">
-            {value}
-          </div>
-          <div className="mt-1.5 truncate text-[12px] font-semibold text-text-2">{sub}</div>
-        </div>
-      </button>
+
+        <button type="button" onClick={onEdit} className="settings-item-edit">
+          <Icon name="edit" size={16} />
+          <span>עריכה</span>
+        </button>
+      </article>
     </StaggerItem>
   );
 }
@@ -332,7 +350,13 @@ function LocationModal({
   const lngV = lng ?? (addressDirty ? null : biz.location_lng);
   const hasCoords = latV != null && lngV != null;
   const geofenceEnabled = biz.attendance_geofence_enabled;
+  const exemptRoles = biz.attendance_geofence_exempt_roles ?? [];
   const radiusM = biz.location_radius_m ?? ATTENDANCE_RADIUS_M;
+
+  function toggleExemptRole(role: UserRole, checked: boolean) {
+    const next = checked ? [...exemptRoles, role] : exemptRoles.filter((r) => r !== role);
+    update.mutate({ id: businessId, attendance_geofence_exempt_roles: next });
+  }
 
   function handleSave() {
     setMsg(null);
@@ -398,6 +422,31 @@ function LocationModal({
             onChange={(v) => update.mutate({ id: businessId, attendance_geofence_enabled: v })}
           />
         </div>
+        {geofenceEnabled && (
+          <div className="rounded-[14px] border border-border/70 bg-surface-2/60 px-4 py-3.5">
+            <div className="text-[13.5px] font-bold text-text">פטור מבדיקת רדיוס לפי תפקיד</div>
+            <p className="mt-1 text-[12.5px] leading-relaxed text-text-3">
+              תפקידים שנבחרו יוכלו להחתים נוכחות מכל מקום, גם כשבדיקת GPS פעילה.
+            </p>
+            <div className="mt-3 flex flex-col gap-2.5">
+              {ATTENDANCE_GEOFENCE_EXEMPT_ROLE_OPTIONS.map((role) => (
+                <label
+                  key={role}
+                  className="flex cursor-pointer items-center gap-2.5 rounded-[10px] border border-border/60 bg-surface px-3 py-2.5"
+                >
+                  <input
+                    type="checkbox"
+                    checked={exemptRoles.includes(role)}
+                    onChange={(e) => toggleExemptRole(role, e.target.checked)}
+                    className="h-[17px] w-[17px]"
+                    style={{ accentColor: "var(--accent-2)" }}
+                  />
+                  <span className="text-[13.5px] font-semibold text-text">{ROLE_LABELS[role]}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
         <label className="block">
           <span className="label-text">כתובת העסק</span>
           <div className="mt-1.5">

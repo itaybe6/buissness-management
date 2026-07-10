@@ -4,12 +4,14 @@ import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId } from "@/lib/db";
 import type { ItemWithQty } from "@/api/inventory";
+import { mainUnitToPieces, supportsPieceInput } from "@/api/inventory";
+import { DualUnitQtyInput } from "@/components/inventory/DualUnitQtyInput";
 import { useWaste, useCreateWaste } from "@/api/waste";
 import { useProfiles } from "@/api/users";
 import type { InventoryWaste } from "@/types/database";
 
-type WasteForm = { itemId: string; qty: string; note: string };
-const EMPTY_FORM: WasteForm = { itemId: "", qty: "1", note: "" };
+type WasteForm = { itemId: string; qty: number; note: string };
+const EMPTY_FORM: WasteForm = { itemId: "", qty: 1, note: "" };
 
 type StockStatus = "empty" | "low" | "ok";
 
@@ -293,12 +295,18 @@ function WasteEmptyState({ onReport }: { onReport: () => void }) {
 
 export function WastePanel({
   items,
+  records,
+  totalRecords,
   reportOpen,
   onReportOpenChange,
+  onClearFilters,
 }: {
   items: ItemWithQty[];
+  records?: InventoryWaste[];
+  totalRecords?: number;
   reportOpen: boolean;
   onReportOpenChange: (open: boolean) => void;
+  onClearFilters?: () => void;
 }) {
   const businessId = useBusinessId();
   const { profile } = useAuth();
@@ -312,7 +320,8 @@ export function WastePanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const wasteList = waste ?? [];
+  const wasteList = records ?? waste ?? [];
+  const hasAnyRecords = (totalRecords ?? waste?.length ?? 0) > 0;
 
   const reporterById = useMemo(() => {
     const map = new Map<string, string>();
@@ -331,9 +340,8 @@ export function WastePanel({
     setError(null);
     const item = items.find((i) => i.id === form.itemId);
     if (!item) return setError("נא לבחור מוצר");
-    const qty = Number(form.qty);
-    if (!qty || qty <= 0) return setError("נא להזין כמות גדולה מ-0");
-    setPending({ item, qty, note: form.note.trim() });
+    if (!form.qty || form.qty <= 0) return setError("נא להזין כמות גדולה מ-0");
+    setPending({ item, qty: form.qty, note: form.note.trim() });
     onReportOpenChange(false);
     setConfirmOpen(true);
   }
@@ -374,8 +382,21 @@ export function WastePanel({
 
   return (
     <>
-      {wasteList.length === 0 ? (
+      {!hasAnyRecords ? (
         <WasteEmptyState onReport={() => onReportOpenChange(true)} />
+      ) : wasteList.length === 0 ? (
+        <EmptyState
+          icon="search_off"
+          title="לא נמצאו דיווחי בלאי"
+          description="נסו מילת חיפוש אחרת או שנו את הסינון."
+          action={
+            onClearFilters ? (
+              <Button variant="secondary" onClick={onClearFilters}>
+                ניקוי סינון
+              </Button>
+            ) : undefined
+          }
+        />
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {wasteList.map((w, idx) => (
@@ -412,17 +433,24 @@ export function WastePanel({
               key={reportOpen ? "open" : "closed"}
               items={items}
               value={form.itemId}
-              onChange={(id) => setForm((f) => ({ ...f, itemId: id }))}
+              onChange={(id) => setForm((f) => ({ ...f, itemId: id, qty: 1 }))}
             />
           </Field>
 
           <Field label="כמות בלאי">
-            <Input
-              type="number"
-              min={1}
-              value={form.qty}
-              onChange={(e) => setForm((f) => ({ ...f, qty: e.target.value }))}
-            />
+            {(() => {
+              const item = items.find((i) => i.id === form.itemId);
+              return (
+                <DualUnitQtyInput
+                  value={form.qty}
+                  mainUnit={item?.unit ?? null}
+                  unitsPerPackage={item?.units_per_package ?? null}
+                  onCommit={(q) => setForm((f) => ({ ...f, qty: q }))}
+                  variant="input"
+                  min={0.01}
+                />
+              );
+            })()}
           </Field>
 
           <Field label="סיבה (אופציונלי)">
@@ -465,6 +493,9 @@ export function WastePanel({
               <span className="font-bold text-text">
                 {pending.qty}
                 {pending.item.unit ? ` ${pending.item.unit}` : ""} {pending.item.name}
+                {supportsPieceInput(pending.item.unit) && pending.item.units_per_package
+                  ? ` (${mainUnitToPieces(pending.qty, pending.item.units_per_package)} יח׳)`
+                  : ""}
               </span>
               . האם להפחית את הכמות הזו מהמלאי?
             </p>

@@ -12,7 +12,7 @@ import { useWaste } from "@/api/waste";
 import { useAttendanceToday } from "@/api/attendance";
 import { Icon } from "@/components/ui";
 import type { FeatureKey } from "@/types/database";
-import { AreaChart, BarChart, CountUp, DonutChart, RadialGauge, Sparkline } from "./charts";
+import { AreaChart, BarChart, CountUp, DonutChart, RadialGauge } from "./charts";
 
 /* ----------------------------- helpers ----------------------------- */
 function monthKey(d: Date): string {
@@ -56,18 +56,12 @@ interface Kpi {
   color: string;
   tint: string;
   sub?: ReactNode;
-  spark?: number[];
   to?: string;
 }
 
 function KpiCard({ kpi, delay }: { kpi: Kpi; delay: number }) {
   const body = (
     <>
-      {kpi.spark && kpi.spark.some((v) => v > 0) && (
-        <div className="dash-kpi-spark">
-          <Sparkline data={kpi.spark} width={220} height={38} color={kpi.color} />
-        </div>
-      )}
       <div className="relative flex items-center justify-between">
         <span className="dash-kpi-icon grid h-10 w-10 place-items-center rounded-[11px]" style={{ background: kpi.tint, color: kpi.color }}>
           <Icon name={kpi.icon} size={21} />
@@ -187,15 +181,6 @@ export function ManagerDashboard() {
     });
     return arr;
   }, [reports, upTo]);
-  const dailyTips = useMemo(() => {
-    const arr = Array.from({ length: upTo }, () => 0);
-    reports.forEach((r) => {
-      const d = new Date(r.report_date + "T00:00:00").getDate();
-      if (d >= 1 && d <= upTo) arr[d - 1] += Number(r.total_tips) || 0;
-    });
-    return arr;
-  }, [reports, upTo]);
-
   // sales by weekday (average)
   const weekdayBars = useMemo(() => {
     const sum = Array(7).fill(0);
@@ -254,7 +239,6 @@ export function ManagerDashboard() {
       format: formatCurrency,
       color: "var(--success)",
       tint: "var(--success-bg)",
-      spark: dailyTips,
       sub: <span>ממוצע {compactCurrency(avgPerShift)} למשמרת</span>,
     });
     kpis.push({
@@ -341,7 +325,7 @@ export function ManagerDashboard() {
         <div className="dash-hero-aurora dash-hero-aurora--2" />
         <div className="dash-hero-grid" />
         <div className="relative flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
-          <div className="min-w-0">
+          <div className="hidden min-w-0 md:block">
             <div className="flex items-center gap-2 text-[12.5px] font-bold text-white/60">
               <Icon name="calendar_today" size={15} />
               {heToday}
@@ -394,9 +378,6 @@ export function ManagerDashboard() {
                   {revenueTrend != null
                     ? `${revenueTrend >= 0 ? "עלייה" : "ירידה"} לעומת ${compactCurrency(prevRevenue)} בחודש שעבר`
                     : "אין נתוני השוואה לחודש קודם"}
-                </div>
-                <div className="mt-2 max-w-[220px] opacity-90">
-                  <Sparkline data={dailyRevenue} width={220} height={40} color="#ffffff" />
                 </div>
               </div>
             </div>

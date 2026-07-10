@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Badge, Button, EmptyState, Field, Icon, Input, ErrorState, Select, Spinner } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { WastePanel } from "@/components/waste/WastePanel";
+import { DualUnitQtyInput } from "@/components/inventory/DualUnitQtyInput";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId, HE_DAYS } from "@/lib/db";
 import {
@@ -19,12 +20,16 @@ import {
   useItemLogs,
   uploadItemImage,
   INVENTORY_UNITS,
+  INVENTORY_CATEGORIES,
+  inventoryCategoryLabel,
   inventorySaveError,
+  supportsPieceInput,
+  mainUnitToPieces,
   type ItemWithQty,
   type ItemLog,
 } from "@/api/inventory";
 import { useWaste } from "@/api/waste";
-import type { InventoryAction } from "@/types/database";
+import type { InventoryAction, InventoryWaste } from "@/types/database";
 
 type InventoryTab = "items" | "orders" | "waste";
 
@@ -66,7 +71,9 @@ function batchOrderedByLabel(batch: OrderBatch): string {
 
 type ItemForm = {
   name: string;
+  category: string;
   unit: string;
+  unitsPerPackage: string;
   qty: string;
   minQty: string;
   deliveryDay: string;
@@ -74,7 +81,7 @@ type ItemForm = {
   file: File | null;
 };
 
-const EMPTY_FORM: ItemForm = { name: "", unit: "יחידות", qty: "0", minQty: "0", deliveryDay: "", imageUrl: null, file: null };
+const EMPTY_FORM: ItemForm = { name: "", category: "", unit: "יחידות", unitsPerPackage: "", qty: "0", minQty: "0", deliveryDay: "", imageUrl: null, file: null };
 
 function formatDeliveryDay(day: number | null | undefined): string {
   if (day == null || day < 0 || day > 6) return "לא הוגדר";
@@ -135,87 +142,34 @@ const STOCK_META: Record<StockStatus, { label: string; dot: string; bar: string 
 function QtyStepper({
   value,
   unit,
+  unitsPerPackage,
   disabled,
   onCommit,
+  compact,
 }: {
   value: number;
   unit: string | null;
+  unitsPerPackage: number | null;
   disabled?: boolean;
   onCommit: (qty: number) => void;
+  compact?: boolean;
 }) {
-  const [local, setLocal] = useState(value);
-  const [bump, setBump] = useState(false);
-
-  useEffect(() => setLocal(value), [value]);
-
-  function commit(next: number) {
-    const v = Math.max(0, next);
-    setLocal(v);
-    setBump(true);
-    if (v !== value) onCommit(v);
-  }
-
-  const stepBtn =
-    "grid h-7 w-7 place-items-center rounded-md text-text-3 transition-[transform,background-color,color] duration-[160ms] [transition-timing-function:var(--ease-out)] hover:bg-surface-2 hover:text-text active:scale-[0.97] disabled:opacity-35";
-
   return (
-    <div className="flex items-center gap-2.5">
-      <div className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-surface px-1 py-0.5">
-        <button type="button" disabled={disabled} onClick={() => commit(local - 1)} className={stepBtn} aria-label="הפחתה">
-          <Icon name="remove" size={16} />
-        </button>
-        <input
-          type="number"
-          value={local}
-          disabled={disabled}
-          onChange={(e) => setLocal(Number(e.target.value))}
-          onBlur={() => local !== value && onCommit(Math.max(0, local))}
-          onAnimationEnd={() => setBump(false)}
-          className={`w-10 bg-transparent text-center text-[15px] font-bold tabular-nums text-text outline-none ${bump ? "inventory-qty-bump" : ""}`}
-        />
-        <button type="button" disabled={disabled} onClick={() => commit(local + 1)} className={stepBtn} aria-label="הוספה">
-          <Icon name="add" size={16} />
-        </button>
-      </div>
-      {unit && <span className="text-[12px] font-medium text-text-3">{unit}</span>}
-    </div>
-  );
-}
-
-function SummaryStrip({
-  total,
-  inStock,
-  outOfStock,
-  pending,
-  showOrders,
-}: {
-  total: number;
-  inStock: number;
-  outOfStock: number;
-  pending: number;
-  showOrders: boolean;
-}) {
-  const cells = [
-    { value: total, label: "סך פריטים" },
-    { value: inStock, label: "במלאי" },
-    { value: outOfStock, label: "אזלו מהמלאי" },
-    ...(showOrders ? [{ value: pending, label: "הזמנות פתוחות" }] : []),
-  ];
-
-  return (
-    <div className="inventory-summary mb-6">
-      {cells.map((cell) => (
-        <div key={cell.label} className="inventory-summary-cell">
-          <div className="text-[26px] font-extrabold leading-none tabular-nums tracking-tight">{cell.value}</div>
-          <div className="mt-1.5 text-[12px] font-medium text-text-3">{cell.label}</div>
-        </div>
-      ))}
-    </div>
+    <DualUnitQtyInput
+      value={value}
+      mainUnit={unit}
+      unitsPerPackage={unitsPerPackage}
+      disabled={disabled}
+      onCommit={onCommit}
+      variant="stepper"
+      compact={compact}
+    />
   );
 }
 
 function TabBar({
   tab,
+  total,
   pending,
   wasteCount,
   showOrders,
@@ -223,6 +177,7 @@ function TabBar({
   onChange,
 }: {
   tab: InventoryTab;
+  total: number;
   pending: number;
   wasteCount: number;
   showOrders: boolean;
@@ -230,41 +185,195 @@ function TabBar({
   onChange: (tab: InventoryTab) => void;
 }) {
   const tabs = [
-    { key: "items" as const, label: "מלאי", icon: "grid_view" },
+    { key: "items" as const, label: "מלאי", count: total },
     ...(showOrders
-      ? [{ key: "orders" as const, label: "הזמנות", icon: "local_shipping", count: pending }]
+      ? [{ key: "orders" as const, label: "הזמנות", count: pending }]
       : []),
     ...(showWaste
-      ? [{ key: "waste" as const, label: "בלאי", icon: "delete_sweep", count: wasteCount }]
+      ? [{ key: "waste" as const, label: "בלאי", count: wasteCount }]
       : []),
   ];
 
   return (
-    <div className="mb-6 flex items-center gap-5 border-b border-border-2">
-      {tabs.map(({ key, label, icon, count }) => (
+    <div
+      className="inventory-summary mb-4 md:mb-6"
+      style={{ gridTemplateColumns: `repeat(${tabs.length}, 1fr)` }}
+    >
+      {tabs.map(({ key, label, count }) => (
         <button
           key={key}
           type="button"
           data-active={tab === key}
           onClick={() => onChange(key)}
-          className="inventory-tab inline-flex items-center gap-1.5 pb-3"
+          className="inventory-summary-cell inventory-tab-cell"
         >
-          <Icon name={icon} size={17} />
-          {label}
-          {count != null && count > 0 && (
-            <span
-              className={`grid h-[18px] min-w-[18px] place-items-center rounded-full px-1 text-[10px] font-extrabold tabular-nums ${
-                tab === key ? "bg-ink text-white" : "bg-surface-2 text-text-2"
-              }`}
-            >
-              {count}
-            </span>
-          )}
-          <span className="inventory-tab-indicator" aria-hidden />
+          <div className="text-[18px] font-extrabold leading-none tabular-nums tracking-tight md:text-[26px]">{count}</div>
+          <div className="inventory-tab-cell-label mt-1 text-[10px] font-medium text-text-3 md:mt-1.5 md:text-[12px]">{label}</div>
         </button>
       ))}
     </div>
   );
+}
+
+function TabSearchBar<T extends string>({
+  query,
+  onQueryChange,
+  filter,
+  onFilterChange,
+  filters,
+  placeholder,
+  resultCount,
+  totalCount,
+  resultUnit,
+  onAdd,
+  showAdd,
+  addIcon = "add",
+  addAriaLabel = "הוספה",
+  addDisabled,
+}: {
+  query: string;
+  onQueryChange: (q: string) => void;
+  filter: T;
+  onFilterChange: (f: T) => void;
+  filters: { key: T; label: string }[];
+  placeholder: string;
+  resultCount: number;
+  totalCount: number;
+  resultUnit: string;
+  onAdd?: () => void;
+  showAdd?: boolean;
+  addIcon?: string;
+  addAriaLabel?: string;
+  addDisabled?: boolean;
+}) {
+  const hasFilter = query.trim() || (filters.length > 0 && filter !== filters[0]?.key);
+
+  return (
+    <div className="inventory-search mb-4 space-y-2.5">
+      <div className="flex items-center gap-2">
+        <div className="relative min-w-0 flex-1">
+          <Icon
+            name="search"
+            size={18}
+            className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-text-3"
+          />
+          <Input
+            value={query}
+            onChange={(e) => onQueryChange(e.target.value)}
+            placeholder={placeholder}
+            className="!pr-10"
+          />
+          {query && (
+            <button
+              type="button"
+              onClick={() => onQueryChange("")}
+              aria-label="ניקוי חיפוש"
+              className="absolute left-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-md text-text-3 transition-colors hover:bg-surface-2 hover:text-text"
+            >
+              <Icon name="close" size={16} />
+            </button>
+          )}
+        </div>
+        {showAdd && onAdd && (
+          <Button
+            icon={addIcon}
+            onClick={onAdd}
+            disabled={addDisabled}
+            aria-label={addAriaLabel}
+            className="!h-11 !w-11 shrink-0 !p-0 !bg-ink shadow-sm hover:brightness-110 active:scale-[0.97] md:hidden"
+          />
+        )}
+      </div>
+
+      {filters.length > 0 && (
+        <div className="inventory-search-filters flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {filters.map(({ key, label }) => (
+            <button
+              key={key}
+              type="button"
+              data-active={filter === key}
+              onClick={() => onFilterChange(key)}
+              className="inventory-search-chip shrink-0"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {hasFilter && (
+        <p className="text-[11px] font-medium text-text-3">
+          {resultCount} מתוך {totalCount} {resultUnit}
+        </p>
+      )}
+    </div>
+  );
+}
+
+type OrderFilter = "all" | "today" | "week";
+type WasteFilter = "all" | "deducted" | "not_deducted";
+
+const ORDER_FILTERS: { key: OrderFilter; label: string }[] = [
+  { key: "all", label: "הכל" },
+  { key: "today", label: "היום" },
+  { key: "week", label: "השבוע" },
+];
+
+const WASTE_FILTERS: { key: WasteFilter; label: string }[] = [
+  { key: "all", label: "הכל" },
+  { key: "deducted", label: "הופחת מהמלאי" },
+  { key: "not_deducted", label: "לא הופחת" },
+];
+
+function isWithinDays(iso: string, days: number): boolean {
+  const d = new Date(iso);
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1));
+  return d >= start;
+}
+
+function isToday(iso: string): boolean {
+  const d = new Date(iso);
+  const now = new Date();
+  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+}
+
+function filterWasteRecords(
+  records: InventoryWaste[],
+  items: ItemWithQty[],
+  query: string,
+  filter: WasteFilter,
+): InventoryWaste[] {
+  const q = query.trim().toLowerCase();
+  return records.filter((w) => {
+    if (filter === "deducted" && !w.deducted) return false;
+    if (filter === "not_deducted" && w.deducted) return false;
+    if (q) {
+      const item = items.find((i) => i.id === w.item_id);
+      const haystack = [item?.name ?? "", w.note ?? ""].join(" ").toLowerCase();
+      if (!haystack.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function filterOrderBatches(batches: OrderBatch[], query: string, filter: OrderFilter): OrderBatch[] {
+  const q = query.trim().toLowerCase();
+  return batches.filter((batch) => {
+    if (filter === "today" && !isToday(batch.created_at)) return false;
+    if (filter === "week" && !isWithinDays(batch.created_at, 7)) return false;
+    if (q) {
+      const haystack = [
+        orderPreviewLabel(batch.lines),
+        batchOrderedByLabel(batch),
+        ...batch.lines.map((l) => l.item?.name ?? ""),
+      ]
+        .join(" ")
+        .toLowerCase();
+      if (!haystack.includes(q)) return false;
+    }
+    return true;
+  });
 }
 
 function StockBar({ item }: { item: ItemWithQty }) {
@@ -308,91 +417,199 @@ function ItemCard({
   onOrder: () => void;
   onSetQty: (qty: number) => void;
 }) {
+  const status = stockStatus(item);
+  const meta = STOCK_META[status];
+
   return (
     <article
-      className="inventory-card inventory-item-enter flex flex-col overflow-hidden rounded-card border-0 bg-surface"
+      className="inventory-card inventory-product-card inventory-item-enter flex flex-col overflow-hidden rounded-[14px] border border-border/60 bg-surface md:rounded-card md:border-0"
       style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }}
     >
-      <div className="inventory-card-image relative aspect-[5/4] overflow-hidden bg-surface-2">
-        {item.image_url ? (
-          <img
-            src={item.image_url}
-            alt={item.name}
-            className="h-full w-full object-cover transition-transform duration-[400ms] [transition-timing-function:var(--ease-out)]"
-          />
-        ) : (
-          <div className="grid h-full place-items-center text-text-3/70">
-            <Icon name="inventory_2" size={36} />
-          </div>
-        )}
-      </div>
-
-      <div className="flex flex-1 flex-col p-4">
-        <div className="flex items-start justify-between gap-2">
-          <h3 className="text-[15px] font-bold leading-snug tracking-tight">{item.name}</h3>
-          {isManager && (
-            <button
-              type="button"
-              onClick={onHistory}
-              aria-label="היסטוריית עדכונים"
-              title="היסטוריית עדכונים"
-              className="-mt-0.5 -ml-1 grid h-7 w-7 flex-none place-items-center rounded-md text-text-3 transition-[background-color,color] duration-[160ms] [transition-timing-function:var(--ease-out)] hover:bg-surface-2 hover:text-text active:scale-[0.97]"
-            >
-              <Icon name="history" size={17} />
-            </button>
+      {/* Mobile — compact product tile */}
+      <div className="flex flex-col md:hidden">
+        <div className="inventory-product-image relative aspect-square overflow-hidden bg-surface-2">
+          {item.image_url ? (
+            <img src={item.image_url} alt={item.name} className="h-full w-full object-cover" />
+          ) : (
+            <div className="grid h-full place-items-center text-text-3/60">
+              <Icon name="inventory_2" size={28} />
+            </div>
+          )}
+          <span
+            className="inventory-product-badge absolute top-1.5 right-1.5 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-bold backdrop-blur-sm"
+            style={{ background: `color-mix(in srgb, ${meta.dot} 18%, var(--surface))`, color: meta.dot }}
+          >
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: meta.dot }} />
+            {meta.label}
+          </span>
+          {item.ordered_qty > 0 && (
+            <span className="absolute top-1.5 left-1.5 rounded-full bg-[var(--info)] px-1.5 py-0.5 text-[9px] font-extrabold text-white">
+              +{item.ordered_qty}
+            </span>
           )}
         </div>
-        <StockBar item={item} />
 
-        <div className="mt-3 flex items-center gap-1.5 text-[12px] text-text-3">
-          <Icon name="local_shipping" size={15} className="flex-none opacity-80" />
-          <span>
-            אספקה מהספק:{" "}
-            <span className={item.supplier_delivery_day != null ? "font-semibold text-text-2" : ""}>
-              {formatDeliveryDay(item.supplier_delivery_day)}
-            </span>
-          </span>
-        </div>
+        <div className="flex flex-1 flex-col p-2">
+          <h3 className="line-clamp-2 min-h-[2.4em] text-[12px] font-bold leading-snug tracking-tight">{item.name}</h3>
+          {inventoryCategoryLabel(item.category) && (
+            <span className="mt-0.5 text-[10px] font-semibold text-text-3">{inventoryCategoryLabel(item.category)}</span>
+          )}
 
-        <div className="mt-4 flex items-end justify-between gap-3">
-          <div className="flex items-end gap-5">
-            <div>
-              <div className="text-[10px] font-semibold uppercase tracking-wide text-text-3">כמות</div>
-              <div className="mt-1 text-[22px] font-extrabold tabular-nums leading-none">{item.current_qty}</div>
-              {item.ordered_qty > 0 && (
-                <div className="mt-1 text-[12px] font-bold tabular-nums text-[var(--info)]">+{item.ordered_qty} בהזמנה</div>
+          <div className="mt-1.5 flex items-baseline justify-between gap-1">
+            <div className="min-w-0">
+              <span className="text-[20px] font-extrabold tabular-nums leading-none">{item.current_qty}</span>
+              {item.unit && <span className="mr-0.5 text-[10px] font-semibold text-text-3">{item.unit}</span>}
+              {supportsPieceInput(item.unit) && item.units_per_package ? (
+                <span className="block text-[9px] font-medium text-text-3">
+                  ({mainUnitToPieces(item.current_qty, item.units_per_package)} יח׳)
+                </span>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="mt-2 w-full">
+            <QtyStepper
+              value={item.current_qty}
+              unit={item.unit}
+              unitsPerPackage={item.units_per_package}
+              disabled={!isManager}
+              onCommit={onSetQty}
+              compact
+            />
+          </div>
+
+          {isManager && (
+            <div className="mt-2 flex gap-1 border-t border-border-2 pt-2">
+              <button
+                type="button"
+                onClick={onEdit}
+                className="inventory-product-action flex-1"
+                aria-label="עריכה"
+              >
+                <Icon name="edit" size={15} />
+              </button>
+              <button
+                type="button"
+                onClick={onHistory}
+                className="inventory-product-action flex-1"
+                aria-label="היסטוריה"
+              >
+                <Icon name="history" size={15} />
+              </button>
+              {canManageOrders && (
+                <button
+                  type="button"
+                  onClick={onOrder}
+                  className="inventory-product-action inventory-product-action--primary flex-1"
+                  aria-label="הזמנה"
+                >
+                  <Icon name="add_shopping_cart" size={15} />
+                </button>
               )}
             </div>
-            <div>
-              <div className="text-[10px] font-semibold uppercase tracking-wide text-text-3">מינימום</div>
-              <div
-                className={`mt-1 text-[22px] font-extrabold tabular-nums leading-none ${item.min_quantity > 0 ? "text-text" : "text-text-3"}`}
-              >
-                {item.min_quantity}
-                {item.unit ? <span className="mr-0.5 text-[12px] font-semibold text-text-3">{item.unit}</span> : null}
-              </div>
+          )}
+        </div>
+      </div>
+
+      {/* Desktop — detailed card */}
+      <div className="hidden flex-col md:flex">
+        <div className="inventory-card-image relative aspect-[5/4] overflow-hidden bg-surface-2">
+          {item.image_url ? (
+            <img
+              src={item.image_url}
+              alt={item.name}
+              className="h-full w-full object-cover transition-transform duration-[400ms] [transition-timing-function:var(--ease-out)]"
+            />
+          ) : (
+            <div className="grid h-full place-items-center text-text-3/70">
+              <Icon name="inventory_2" size={36} />
             </div>
-          </div>
-          <QtyStepper value={item.current_qty} unit={item.unit} disabled={!isManager} onCommit={onSetQty} />
+          )}
         </div>
 
-        {isManager && (
-          <div className="inventory-card-actions mt-4 flex gap-2 border-t border-border-2 pt-3">
-            <Button variant="secondary" icon="edit" className="flex-1 !py-2.5 active:scale-[0.97]" onClick={onEdit}>
-              עריכה
-            </Button>
-            {canManageOrders && (
-              <Button
-                variant="ghost"
-                icon="add_shopping_cart"
-                onClick={onOrder}
-                className="!bg-ink !py-2.5 !text-white hover:brightness-110 active:scale-[0.97]"
+        <div className="flex flex-1 flex-col p-4">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h3 className="text-[15px] font-bold leading-snug tracking-tight">{item.name}</h3>
+              {inventoryCategoryLabel(item.category) && (
+                <span className="mt-0.5 block text-[11px] font-semibold text-text-3">{inventoryCategoryLabel(item.category)}</span>
+              )}
+            </div>
+            {isManager && (
+              <button
+                type="button"
+                onClick={onHistory}
+                aria-label="היסטוריית עדכונים"
+                title="היסטוריית עדכונים"
+                className="-mt-0.5 -ml-1 grid h-7 w-7 flex-none place-items-center rounded-md text-text-3 transition-[background-color,color] duration-[160ms] [transition-timing-function:var(--ease-out)] hover:bg-surface-2 hover:text-text active:scale-[0.97]"
               >
-                הזמנה
-              </Button>
+                <Icon name="history" size={17} />
+              </button>
             )}
           </div>
-        )}
+          <StockBar item={item} />
+
+          <div className="mt-3 flex items-center gap-1.5 text-[12px] text-text-3">
+            <Icon name="local_shipping" size={15} className="flex-none opacity-80" />
+            <span>
+              אספקה מהספק:{" "}
+              <span className={item.supplier_delivery_day != null ? "font-semibold text-text-2" : ""}>
+                {formatDeliveryDay(item.supplier_delivery_day)}
+              </span>
+            </span>
+          </div>
+
+          <div className="mt-4 flex items-end justify-between gap-3">
+            <div className="flex items-end gap-5">
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-text-3">כמות</div>
+                <div className="mt-1 text-[22px] font-extrabold tabular-nums leading-none">{item.current_qty}</div>
+                {supportsPieceInput(item.unit) && item.units_per_package ? (
+                  <div className="mt-0.5 text-[11px] font-medium text-text-3">
+                    ({mainUnitToPieces(item.current_qty, item.units_per_package)} יח׳)
+                  </div>
+                ) : null}
+                {item.ordered_qty > 0 && (
+                  <div className="mt-1 text-[12px] font-bold tabular-nums text-[var(--info)]">+{item.ordered_qty} בהזמנה</div>
+                )}
+              </div>
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-text-3">מינימום</div>
+                <div
+                  className={`mt-1 text-[22px] font-extrabold tabular-nums leading-none ${item.min_quantity > 0 ? "text-text" : "text-text-3"}`}
+                >
+                  {item.min_quantity}
+                  {item.unit ? <span className="mr-0.5 text-[12px] font-semibold text-text-3">{item.unit}</span> : null}
+                </div>
+              </div>
+            </div>
+            <QtyStepper
+              value={item.current_qty}
+              unit={item.unit}
+              unitsPerPackage={item.units_per_package}
+              disabled={!isManager}
+              onCommit={onSetQty}
+            />
+          </div>
+
+          {isManager && (
+            <div className="inventory-card-actions mt-4 flex gap-2 border-t border-border-2 pt-3">
+              <Button variant="secondary" icon="edit" className="flex-1 !py-2.5 active:scale-[0.97]" onClick={onEdit}>
+                עריכה
+              </Button>
+              {canManageOrders && (
+                <Button
+                  variant="ghost"
+                  icon="add_shopping_cart"
+                  onClick={onOrder}
+                  className="!bg-ink !py-2.5 !text-white hover:brightness-110 active:scale-[0.97]"
+                >
+                  הזמנה
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </article>
   );
@@ -434,38 +651,56 @@ function OrderDetailLine({
 
   return (
     <div className="inventory-order-detail-line inventory-item-enter" style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}>
-      <div className="inventory-order-detail-thumb">
-        {item?.image_url ? (
-          <img src={item.image_url} alt={item.name} />
-        ) : (
-          <span className="grid h-full place-items-center text-text-3">
-            <Icon name="inventory_2" size={20} />
-          </span>
-        )}
-      </div>
-      <div className="inventory-order-detail-info">
-        <div className="inventory-order-detail-name">{item?.name ?? "פריט"}</div>
-        <div className="inventory-order-detail-sub flex items-center gap-1">
-          <Icon name="event" size={12} />
-          אמורה להגיע: {formatDeliveryDay(item?.supplier_delivery_day)}
+      <div className="inventory-order-detail-main">
+        <div className="inventory-order-detail-thumb">
+          {item?.image_url ? (
+            <img src={item.image_url} alt={item.name} />
+          ) : (
+            <span className="grid h-full place-items-center text-text-3">
+              <Icon name="inventory_2" size={20} />
+            </span>
+          )}
+        </div>
+        <div className="inventory-order-detail-info">
+          <div className="inventory-order-detail-name">{item?.name ?? "פריט"}</div>
+          <div className="inventory-order-detail-sub">
+            <Icon name="event" size={12} />
+            אמורה להגיע: {formatDeliveryDay(item?.supplier_delivery_day)}
+          </div>
+          <div className="inventory-order-detail-qty-mobile">
+            <span className="inventory-order-detail-qty-value">{line.quantity}</span>
+            {item?.unit ? <span className="inventory-order-detail-qty-unit">{item.unit}</span> : null}
+            {item && supportsPieceInput(item.unit) && item.units_per_package ? (
+              <span className="inventory-order-detail-qty-pieces">
+                ({mainUnitToPieces(Number(line.quantity), item.units_per_package)} יח׳)
+              </span>
+            ) : null}
+          </div>
+        </div>
+        <div className="inventory-order-detail-qty inventory-order-detail-qty-desktop">
+          {line.quantity}
+          {item?.unit ? <span className="mr-0.5 text-[10px] font-semibold text-text-3">{item.unit}</span> : null}
+          {item && supportsPieceInput(item.unit) && item.units_per_package ? (
+            <span className="block text-[10px] font-medium text-text-3">
+              ({mainUnitToPieces(Number(line.quantity), item.units_per_package)} יח׳)
+            </span>
+          ) : null}
         </div>
       </div>
-      <div className="inventory-order-detail-qty">
-        {line.quantity}
-        {item?.unit ? <span className="mr-0.5 text-[10px] font-semibold text-text-3">{item.unit}</span> : null}
+      <div className="inventory-order-detail-action">
+        {pending ? (
+          <Button
+            variant="secondary"
+            icon="check_circle"
+            className="inventory-order-receive-btn !w-full !bg-ink !py-2.5 !px-3 !text-[13px] !text-white hover:brightness-110 active:scale-[0.97] md:!w-auto"
+            onClick={onReceive}
+          >
+            סמן כהתקבל
+          </Button>
+        ) : (
+          <Badge tone="success">במלאי</Badge>
+        )}
       </div>
-      {pending ? (
-        <Button
-          variant="secondary"
-          icon="check_circle"
-          className="inventory-order-receive-btn !bg-ink !py-2 !px-3 !text-[12px] !text-white hover:brightness-110 active:scale-[0.97]"
-          onClick={onReceive}
-        >
-          התקבל
-        </Button>
-      ) : (
-        <Badge tone="success">במלאי</Badge>
-      )}
     </div>
   );
 }
@@ -487,70 +722,92 @@ function OrderBatchRow({
 }) {
   const totalQty = batch.lines.reduce((sum, l) => sum + Number(l.quantity), 0);
   const date = formatOrderDate(batch.created_at);
+  const deliveryLabel = orderDeliveryDaysLabel(batch.lines);
 
   return (
-    <div className="inventory-order-row inventory-item-enter" style={{ animationDelay: `${Math.min(index, 10) * 45}ms` }}>
-      <div className="inventory-order-date">
-        <span className="inventory-order-date-day">{date.day}</span>
-        <span className="inventory-order-date-month">{date.month}</span>
+    <article
+      className="inventory-order-card inventory-item-enter"
+      style={{ animationDelay: `${Math.min(index, 10) * 45}ms` }}
+    >
+      <div className="inventory-order-card-head">
+        <div className="inventory-order-date">
+          <span className="inventory-order-date-day">{date.day}</span>
+          <span className="inventory-order-date-month">{date.month}</span>
+        </div>
+        <span className="inventory-order-status">
+          <span className="inventory-order-status-dot" aria-hidden />
+          בהזמנה
+        </span>
       </div>
 
-      <div className="inventory-order-body">
-        <div className="inventory-order-title">{orderPreviewLabel(batch.lines)}</div>
-        <div className="inventory-order-meta">
-          {batch.lines.length} פריטים · {totalQty} יחידות · {date.time}
-        </div>
-        <div className="inventory-order-meta inventory-order-by">
-          <Icon name="person" size={13} />
-          <span>
-            הוזמן על ידי: <strong>{batchOrderedByLabel(batch)}</strong>
-          </span>
-        </div>
-        <div className="inventory-order-delivery">
-          <Icon name="event" size={14} />
-          <span>
-            אמורה להגיע: <strong>{orderDeliveryDaysLabel(batch.lines)}</strong>
-          </span>
-        </div>
+      <button type="button" className="inventory-order-card-main" onClick={onDetails}>
+        <h3 className="inventory-order-title">{orderPreviewLabel(batch.lines)}</h3>
         <OrderPreviewStack lines={batch.lines} />
-      </div>
 
-      <span className="inventory-order-status">
-        <span className="inventory-order-status-dot" aria-hidden />
-        בהזמנה
-      </span>
+        <div className="inventory-order-card-stats">
+          <div className="inventory-order-stat">
+            <span className="inventory-order-stat-value">{batch.lines.length}</span>
+            <span className="inventory-order-stat-label">פריטים</span>
+          </div>
+          <div className="inventory-order-stat">
+            <span className="inventory-order-stat-value">{totalQty}</span>
+            <span className="inventory-order-stat-label">יחידות</span>
+          </div>
+          <div className="inventory-order-stat">
+            <span className="inventory-order-stat-value">{date.time}</span>
+            <span className="inventory-order-stat-label">הוזמן</span>
+          </div>
+        </div>
 
-      <div className="inventory-order-actions">
+        <div className="inventory-order-card-infos">
+          <div className="inventory-order-info-row">
+            <Icon name="event" size={15} />
+            <span>
+              אמורה להגיע: <strong>{deliveryLabel}</strong>
+            </span>
+          </div>
+          <div className="inventory-order-info-row">
+            <Icon name="person" size={15} />
+            <span>
+              {batchOrderedByLabel(batch)}
+            </span>
+          </div>
+        </div>
+      </button>
+
+      <div className="inventory-order-card-actions">
         <Button
           variant="secondary"
           icon="visibility"
-          className="inventory-order-details-btn !py-2 !px-3 text-[12px] active:scale-[0.97]"
+          className="inventory-order-details-btn active:scale-[0.97]"
           onClick={onDetails}
         >
           פרטים
         </Button>
         {canManageOrders && (
           <>
-            <Button
-              variant="secondary"
-              icon="edit"
-              className="!py-2 !px-2.5 text-[12px] active:scale-[0.97]"
+            <button
+              type="button"
+              className="inventory-order-icon-btn"
               onClick={onEdit}
               aria-label="עריכת הזמנה"
               title="עריכה"
-            />
-            <Button
-              variant="secondary"
-              icon="delete"
-              className="inventory-order-delete-btn !py-2 !px-2.5 text-[12px] active:scale-[0.97]"
+            >
+              <Icon name="edit" size={18} />
+            </button>
+            <button
+              type="button"
+              className="inventory-order-icon-btn inventory-order-icon-btn-danger"
               onClick={onDelete}
               aria-label="מחיקת הזמנה"
               title="מחיקה"
-            />
+            >
+              <Icon name="delete" size={18} />
+            </button>
           </>
         )}
       </div>
-    </div>
+    </article>
   );
 }
 
@@ -621,7 +878,7 @@ function OrdersEmptyState({ onCreate }: { onCreate: () => void }) {
       <p className="mt-2 max-w-[34ch] text-[13px] leading-relaxed text-text-3">
         צרו הזמנה חדשה, בחרו מוצרים וכמויות. הפריטים יסומנו כ«בהזמנה» עד שיסומנו כהתקבלו במלאי.
       </p>
-      <Button icon="add_shopping_cart" onClick={onCreate} className="mt-5 !bg-ink shadow-sm hover:brightness-110 active:scale-[0.97]">
+      <Button icon="add_shopping_cart" onClick={onCreate} className="mt-5 w-full !bg-ink shadow-sm hover:brightness-110 active:scale-[0.97] md:w-auto">
         הזמנה חדשה
       </Button>
     </div>
@@ -701,13 +958,13 @@ function NewOrderModal({
                     {it.ordered_qty > 0 ? ` · ${it.ordered_qty} בהזמנה` : ""}
                   </div>
                 </div>
-                <Input
-                  type="number"
-                  min={0}
-                  className="inventory-order-picker-qty"
-                  value={lines[it.id] ?? ""}
-                  placeholder="0"
-                  onChange={(e) => onChange(it.id, e.target.value)}
+                <DualUnitQtyInput
+                  value={qty}
+                  mainUnit={it.unit}
+                  unitsPerPackage={it.units_per_package}
+                  onCommit={(mainQty) => onChange(it.id, mainQty > 0 ? String(mainQty) : "")}
+                  variant="input"
+                  className="inventory-order-picker-qty-wrap min-w-[120px]"
                 />
               </div>
             );
@@ -869,6 +1126,11 @@ export function Inventory() {
   const [form, setForm] = useState<ItemForm>(EMPTY_FORM);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [orderSearchQuery, setOrderSearchQuery] = useState("");
+  const [orderFilter, setOrderFilter] = useState<OrderFilter>("all");
+  const [wasteSearchQuery, setWasteSearchQuery] = useState("");
+  const [wasteFilter, setWasteFilter] = useState<WasteFilter>("all");
   const fileRef = useRef<HTMLInputElement>(null);
 
   const isManager = !!(profile && ["manager", "shift_manager", "office_manager"].includes(profile.role));
@@ -888,9 +1150,32 @@ export function Inventory() {
     if (!showWaste && tab === "waste") changeTab("items");
   }, [canManageOrders, showWaste, tab]);
 
+  const list = items ?? [];
+  const filteredList = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return list.filter((item) => {
+      if (q && !item.name.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [list, searchQuery]);
+
+  const orderList = orders ?? [];
+  const openBatches = groupOpenOrders(orderList, list);
+  const filteredOrderBatches = useMemo(
+    () => filterOrderBatches(openBatches, orderSearchQuery, orderFilter),
+    [openBatches, orderSearchQuery, orderFilter],
+  );
+  const detailBatch = detailBatchId ? openBatches.find((b) => b.id === detailBatchId) ?? null : null;
+  const pending = orderList.filter((o) => o.status !== "received").length;
+  const wasteCount = wasteRecords?.length ?? 0;
+  const filteredWasteRecords = useMemo(
+    () => filterWasteRecords(wasteRecords ?? [], list, wasteSearchQuery, wasteFilter),
+    [wasteRecords, list, wasteSearchQuery, wasteFilter],
+  );
+
   if (isLoading) {
     return (
-      <div className="mx-auto max-w-[1080px]">
+      <div className="w-full">
         <header className="mb-6">
           <div className="h-8 w-40 rounded-md bg-surface-2" />
           <div className="mt-2 h-4 w-28 rounded-md bg-surface-2" />
@@ -917,7 +1202,9 @@ export function Inventory() {
     setEditing(item);
     setForm({
       name: item.name,
+      category: item.category ?? "",
       unit: item.unit ?? "יחידות",
+      unitsPerPackage: item.units_per_package != null ? String(item.units_per_package) : "",
       qty: String(item.current_qty),
       minQty: String(item.min_quantity),
       deliveryDay: item.supplier_delivery_day != null ? String(item.supplier_delivery_day) : "",
@@ -1035,13 +1322,19 @@ export function Inventory() {
       const quantity = Number(form.qty) || 0;
       const min_quantity = Math.max(0, Number(form.minQty) || 0);
       const supplier_delivery_day = form.deliveryDay === "" ? null : Number(form.deliveryDay);
+      const category = form.category || null;
+      const units_per_package = supportsPieceInput(form.unit)
+        ? Math.max(0, Number(form.unitsPerPackage) || 0) || null
+        : null;
 
       if (editing) {
         const changed: string[] = [];
         if (form.name.trim() !== editing.name) changed.push("שם");
         if (form.unit !== (editing.unit ?? "יחידות")) changed.push("יחידת מידה");
+        if (units_per_package !== editing.units_per_package) changed.push("יחידים ביחידת מידה");
         if (min_quantity !== editing.min_quantity) changed.push("כמות מינימום");
         if (supplier_delivery_day !== editing.supplier_delivery_day) changed.push("יום אספקה");
+        if (category !== editing.category) changed.push("קטגוריה");
         if (image_url !== editing.image_url) changed.push("תמונה");
         await updateItem.mutateAsync({
           id: editing.id,
@@ -1050,9 +1343,11 @@ export function Inventory() {
           changes: {
             name: form.name.trim(),
             unit: form.unit,
+            units_per_package,
             image_url,
             min_quantity,
             supplier_delivery_day,
+            category,
           },
           note: changed.length ? `עודכן: ${changed.join(", ")}` : null,
         });
@@ -1070,9 +1365,11 @@ export function Inventory() {
           business_id: businessId!,
           name: form.name.trim(),
           unit: form.unit,
+          units_per_package,
           image_url,
           min_quantity,
           supplier_delivery_day,
+          category,
           quantity,
           employee_id: profile?.id ?? null,
         });
@@ -1085,20 +1382,12 @@ export function Inventory() {
     }
   }
 
-  const list = items ?? [];
-  const orderList = orders ?? [];
-  const openBatches = groupOpenOrders(orderList, list);
-  const detailBatch = detailBatchId ? openBatches.find((b) => b.id === detailBatchId) ?? null : null;
-  const inStock = list.filter((i) => i.current_qty > 0).length;
-  const outOfStock = list.filter((i) => i.current_qty === 0).length;
-  const pending = orderList.filter((o) => o.status !== "received").length;
-  const wasteCount = wasteRecords?.length ?? 0;
   const showTabActions = (isManager && tab === "items") || (canManageOrders && tab === "orders") || (showWaste && tab === "waste");
 
   return (
-    <div className="mx-auto max-w-[1080px] animate-fadeUp">
+    <div className="w-full animate-fadeUp">
       {showTabActions && (
-        <header className="mb-6 flex flex-wrap items-center justify-end gap-4">
+        <header className="mb-4 hidden w-full flex-wrap items-center justify-end gap-4 md:mb-6 md:flex">
           {tab === "items" && isManager ? (
             <Button icon="add" onClick={openCreate} className="!bg-ink shadow-sm hover:brightness-110 active:scale-[0.97]">
               פריט חדש
@@ -1120,10 +1409,9 @@ export function Inventory() {
         </header>
       )}
 
-      <SummaryStrip total={list.length} inStock={inStock} outOfStock={outOfStock} pending={pending} showOrders={canManageOrders} />
-
       <TabBar
         tab={tab}
+        total={list.length}
         pending={pending}
         wasteCount={wasteCount}
         showOrders={canManageOrders}
@@ -1132,32 +1420,87 @@ export function Inventory() {
       />
 
       {tab === "waste" && showWaste ? (
-        <WastePanel items={list} reportOpen={wasteReportOpen} onReportOpenChange={setWasteReportOpen} />
+        <>
+          <TabSearchBar
+            query={wasteSearchQuery}
+            onQueryChange={setWasteSearchQuery}
+            filter={wasteFilter}
+            onFilterChange={setWasteFilter}
+            filters={WASTE_FILTERS}
+            placeholder="חיפוש בלאי..."
+            resultCount={filteredWasteRecords.length}
+            totalCount={wasteCount}
+            resultUnit="דיווחים"
+            onAdd={() => setWasteReportOpen(true)}
+            showAdd
+            addIcon="add"
+            addAriaLabel="דיווח בלאי"
+            addDisabled={list.length === 0}
+          />
+          <WastePanel
+            items={list}
+            records={filteredWasteRecords}
+            totalRecords={wasteCount}
+            reportOpen={wasteReportOpen}
+            onReportOpenChange={setWasteReportOpen}
+            onClearFilters={() => { setWasteSearchQuery(""); setWasteFilter("all"); }}
+          />
+        </>
       ) : tab === "orders" && canManageOrders ? (
-        openBatches.length === 0 ? (
-          <OrdersEmptyState onCreate={() => openNewOrder()} />
-        ) : (
-          <div className="inventory-orders-panel">
-            <div className="inventory-orders-panel-head">
-              <div className="inventory-orders-panel-title">
-                <Icon name="local_shipping" size={18} />
-                הזמנות פתוחות
+        <>
+          <TabSearchBar
+            query={orderSearchQuery}
+            onQueryChange={setOrderSearchQuery}
+            filter={orderFilter}
+            onFilterChange={setOrderFilter}
+            filters={ORDER_FILTERS}
+            placeholder="חיפוש הזמנה..."
+            resultCount={filteredOrderBatches.length}
+            totalCount={openBatches.length}
+            resultUnit="הזמנות"
+            onAdd={() => openNewOrder()}
+            showAdd
+            addIcon="add_shopping_cart"
+            addAriaLabel="הזמנה חדשה"
+          />
+          {openBatches.length === 0 ? (
+            <OrdersEmptyState onCreate={() => openNewOrder()} />
+          ) : filteredOrderBatches.length === 0 ? (
+            <EmptyState
+              icon="search_off"
+              title="לא נמצאו הזמנות"
+              description="נסו מילת חיפוש אחרת או שנו את הסינון."
+              action={
+                <Button variant="secondary" onClick={() => { setOrderSearchQuery(""); setOrderFilter("all"); }}>
+                  ניקוי סינון
+                </Button>
+              }
+            />
+          ) : (
+            <div className="inventory-orders-list">
+              <div className="inventory-orders-list-head">
+                <div className="inventory-orders-list-title">
+                  <Icon name="local_shipping" size={18} />
+                  הזמנות פתוחות
+                </div>
+                <span className="inventory-orders-panel-count">{filteredOrderBatches.length}</span>
               </div>
-              <span className="inventory-orders-panel-count">{openBatches.length}</span>
+              <div className="inventory-orders-cards">
+                {filteredOrderBatches.map((batch, idx) => (
+                  <OrderBatchRow
+                    key={batch.id}
+                    batch={batch}
+                    index={idx}
+                    canManageOrders={canManageOrders}
+                    onDetails={() => setDetailBatchId(batch.id)}
+                    onEdit={() => openEditOrder(batch)}
+                    onDelete={() => handleDeleteOrder(batch)}
+                  />
+                ))}
+              </div>
             </div>
-            {openBatches.map((batch, idx) => (
-              <OrderBatchRow
-                key={batch.id}
-                batch={batch}
-                index={idx}
-                canManageOrders={canManageOrders}
-                onDetails={() => setDetailBatchId(batch.id)}
-                onEdit={() => openEditOrder(batch)}
-                onDelete={() => handleDeleteOrder(batch)}
-              />
-            ))}
-          </div>
-        )
+          )}
+        </>
       ) : list.length === 0 ? (
           <EmptyState
             icon="inventory_2"
@@ -1166,29 +1509,59 @@ export function Inventory() {
             action={isManager ? <Button icon="add" onClick={openCreate}>פריט חדש</Button> : undefined}
           />
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {list.map((it, idx) => (
-              <ItemCard
-                key={it.id}
-                item={it}
-                index={idx}
-                isManager={isManager}
-                canManageOrders={canManageOrders}
-                onEdit={() => openEdit(it)}
-                onHistory={() => setHistoryItem(it)}
-                onOrder={() => openNewOrder(it.id)}
-                onSetQty={(quantity) =>
-                  setCount.mutate({
-                    business_id: businessId!,
-                    item_id: it.id,
-                    employee_id: profile?.id ?? null,
-                    quantity,
-                    previous_qty: it.current_qty,
-                  })
+          <>
+            <TabSearchBar
+              query={searchQuery}
+              onQueryChange={setSearchQuery}
+              filter="all"
+              onFilterChange={() => {}}
+              filters={[]}
+              placeholder="חיפוש מוצר..."
+              resultCount={filteredList.length}
+              totalCount={list.length}
+              resultUnit="פריטים"
+              onAdd={openCreate}
+              showAdd={isManager}
+              addIcon="add"
+              addAriaLabel="פריט חדש"
+            />
+            {filteredList.length === 0 ? (
+              <EmptyState
+                icon="search_off"
+                title="לא נמצאו מוצרים"
+                description="נסו מילת חיפוש אחרת."
+                action={
+                  <Button variant="secondary" onClick={() => setSearchQuery("")}>
+                    ניקוי חיפוש
+                  </Button>
                 }
               />
-            ))}
-          </div>
+            ) : (
+              <div className="inventory-product-grid grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3 lg:gap-4">
+                {filteredList.map((it, idx) => (
+                  <ItemCard
+                    key={it.id}
+                    item={it}
+                    index={idx}
+                    isManager={isManager}
+                    canManageOrders={canManageOrders}
+                    onEdit={() => openEdit(it)}
+                    onHistory={() => setHistoryItem(it)}
+                    onOrder={() => openNewOrder(it.id)}
+                    onSetQty={(quantity) =>
+                      setCount.mutate({
+                        business_id: businessId!,
+                        item_id: it.id,
+                        employee_id: profile?.id ?? null,
+                        quantity,
+                        previous_qty: it.current_qty,
+                      })
+                    }
+                  />
+                ))}
+              </div>
+            )}
+          </>
         )
       }
 
@@ -1244,9 +1617,30 @@ export function Inventory() {
             <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="לדוגמה: חלב 3%" />
           </Field>
 
+          <Field label="קטגוריה">
+            <Select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}>
+              <option value="">ללא קטגוריה</option>
+              {INVENTORY_CATEGORIES.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+
           <div className="grid grid-cols-2 gap-3">
             <Field label="יחידת מידה">
-              <Select value={form.unit} onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))}>
+              <Select
+                value={form.unit}
+                onChange={(e) => {
+                  const unit = e.target.value;
+                  setForm((f) => ({
+                    ...f,
+                    unit,
+                    unitsPerPackage: unit === "יחידות" ? "" : f.unitsPerPackage,
+                  }));
+                }}
+              >
                 {INVENTORY_UNITS.map((u) => (
                   <option key={u.value} value={u.value}>
                     {u.label}
@@ -1255,9 +1649,30 @@ export function Inventory() {
               </Select>
             </Field>
             <Field label="כמות נוכחית">
-              <Input type="number" min={0} value={form.qty} onChange={(e) => setForm((f) => ({ ...f, qty: e.target.value }))} />
+              <DualUnitQtyInput
+                value={Number(form.qty) || 0}
+                mainUnit={form.unit}
+                unitsPerPackage={supportsPieceInput(form.unit) ? Number(form.unitsPerPackage) || null : null}
+                onCommit={(q) => setForm((f) => ({ ...f, qty: String(q) }))}
+                variant="input"
+              />
             </Field>
           </div>
+
+          {supportsPieceInput(form.unit) && (
+            <Field label={`כמה ${form.unit === "ארגז" ? "יחידות" : "יחידים"} ב${form.unit}?`}>
+              <Input
+                type="number"
+                min={1}
+                value={form.unitsPerPackage}
+                onChange={(e) => setForm((f) => ({ ...f, unitsPerPackage: e.target.value }))}
+                placeholder="לדוגמה: 24"
+              />
+              <p className="mt-1 text-[12px] text-text-3">
+                מאפשר להזין כמויות גם ב{form.unit} וגם ביחידים בודדים בעדכון מלאי, הזמנות ובלאי
+              </p>
+            </Field>
+          )}
 
           <Field label="כמות מינימום">
             <Input type="number" min={0} value={form.minQty} onChange={(e) => setForm((f) => ({ ...f, minQty: e.target.value }))} placeholder="0" />

@@ -55,7 +55,9 @@ export function useShiftPunch() {
   const now = useLiveClock();
 
   const showShifts = hasFeature("shifts");
-  const showAttendance = hasFeature("attendance");
+  const showAttendance =
+    hasFeature("attendance") ||
+    Boolean(profile && ["employee", "shift_manager"].includes(profile.role));
 
   const todayShifts = useMemo(() => {
     if (!showShifts) return [];
@@ -72,10 +74,21 @@ export function useShiftPunch() {
   const shiftElapsed = myOpen?.clock_in ? formatShiftElapsed(now.getTime() - new Date(myOpen.clock_in).getTime()) : null;
 
   const pending = profile
-    ? pendingTasksForEmployee(tasks ?? [], templates ?? [], profile.id, profile.department_id ?? null, new Date().getDay())
+    ? pendingTasksForEmployee(
+        tasks ?? [],
+        templates ?? [],
+        profile.id,
+        profile.department_id ?? null,
+        new Date().getDay(),
+        profile.role,
+      )
     : [];
 
   const geofenceEnabled = biz?.attendance_geofence_enabled ?? false;
+  const geofenceExempt = Boolean(
+    profile && biz?.attendance_geofence_exempt_roles?.includes(profile.role),
+  );
+  const geofenceRequired = geofenceEnabled && !geofenceExempt;
   const radiusM = biz?.location_radius_m ?? ATTENDANCE_RADIUS_M;
 
   async function clockInRecord(lat: number | null, lng: number | null, within: boolean) {
@@ -108,11 +121,14 @@ export function useShiftPunch() {
       return;
     }
 
-    if (!geofenceEnabled) {
+    if (!geofenceRequired) {
       setBusy(true);
       try {
         await clockInRecord(null, null, false);
-        setClockStatus({ ok: true, text: "כניסה הוחתמה" });
+        setClockStatus({
+          ok: true,
+          text: geofenceExempt ? "כניסה הוחתמה · ללא בדיקת מיקום" : "כניסה הוחתמה",
+        });
       } catch {
         setClockStatus({ ok: false, text: "החתמה נכשלה" });
       } finally {
@@ -163,6 +179,8 @@ export function useShiftPunch() {
     shiftElapsed,
     pending,
     geofenceEnabled,
+    geofenceExempt,
+    geofenceRequired,
     radiusM,
     clockStatus,
     busy,

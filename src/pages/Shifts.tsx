@@ -1,4 +1,5 @@
-import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Badge, Card, EmptyState, ErrorState, Icon, PageLoader } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
@@ -15,6 +16,7 @@ import {
   useAddAssignment,
   useRemoveAssignment,
 } from "@/api/shifts";
+import { useIsMdUp } from "@/hooks/useMediaQuery";
 import { SCHEDULER_ROLES } from "@/lib/constants";
 import {
   formatShiftPrefsClose,
@@ -24,11 +26,17 @@ import {
   getShiftPrefsWindowStatus,
   isShiftPrefsOpenForWeek,
 } from "@/lib/shift-deadline";
-import type { Availability, Profile } from "@/types/database";
+import type { Availability, Profile, ShiftAssignment } from "@/types/database";
 
 const AVAIL_META: Record<"available" | "cannot", { label: string; short: string; bg: string; color: string; border: string }> = {
   available: { label: "יכול", short: "יכול", bg: "var(--info-bg)", color: "var(--info)", border: "#bcd0ff" },
   cannot: { label: "לא יכול", short: "לא", bg: "var(--danger-bg)", color: "var(--danger)", border: "#f6caca" },
+};
+
+const PREF_STATUS: Record<"available" | "cannot" | "none", { label: string; color: string }> = {
+  available: { label: "יכול", color: "var(--info)" },
+  cannot: { label: "לא יכול", color: "var(--danger)" },
+  none: { label: "לא סימן עדיין", color: "var(--text-3)" },
 };
 
 function normalizeAvailability(pref: Availability | undefined): Availability | null {
@@ -70,14 +78,16 @@ function WeekNav({ wkStart, onShift, onToday }: { wkStart: string; onShift: (d: 
   const end = addDays(wkStart, 6);
   const isCurrentWeek = wkStart === weekStart();
   return (
-    <div className="shift-week-nav">
-      <button type="button" onClick={() => onShift(7)} className="shift-week-nav-btn" aria-label="שבוע קודם">
-        <Icon name="chevron_right" size={20} />
-      </button>
-      <span className="shift-week-nav-label">{formatDateShort(wkStart)} – {formatDateShort(end)}</span>
-      <button type="button" onClick={() => onShift(-7)} className="shift-week-nav-btn" aria-label="שבוע הבא">
-        <Icon name="chevron_left" size={20} />
-      </button>
+    <div className="shift-week-nav-group">
+      <div className="shift-week-nav">
+        <button type="button" onClick={() => onShift(7)} className="shift-week-nav-btn" aria-label="שבוע קודם">
+          <Icon name="chevron_right" size={20} />
+        </button>
+        <span className="shift-week-nav-label">{formatDateShort(wkStart)} – {formatDateShort(end)}</span>
+        <button type="button" onClick={() => onShift(-7)} className="shift-week-nav-btn" aria-label="שבוע הבא">
+          <Icon name="chevron_left" size={20} />
+        </button>
+      </div>
       {onToday && !isCurrentWeek && (
         <button type="button" onClick={onToday} className="shift-week-today">
           היום
@@ -106,7 +116,7 @@ function ShiftPageHero({
   stats?: ReactNode;
 }) {
   return (
-    <header className="page-hero">
+    <header className="page-hero page-hero--plain">
       <div className="page-hero-inner">
         <div>
           <h1 className="page-hero-title">{title}</h1>
@@ -132,7 +142,7 @@ function DayStrip({
 }) {
   const reduceMotion = useReducedMotion();
   return (
-    <div className="shift-day-strip md:hidden">
+    <div className="shift-day-strip">
       {HE_DAYS.map((d, i) => {
         const meta = dayMeta(wk, i);
         const active = i === value;
@@ -175,7 +185,6 @@ function AssignChip({
   const reduceMotion = useReducedMotion();
   return (
     <motion.div
-      layout
       initial={reduceMotion ? false : { opacity: 0, scale: 0.8, y: 5 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       exit={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.8 }}
@@ -201,14 +210,14 @@ function EmployeeView() {
   if (isLoading) return <PageLoader />;
   if (!templates || templates.length === 0) {
     return (
-      <div className="mx-auto max-w-[900px] animate-fadeUp">
+      <div className="w-full animate-fadeUp">
         <EmptyState icon="schedule" title="אין משמרות פעילות" description="מנהל העסק צריך להפעיל משמרות בהגדרות העסק." />
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-[1240px] animate-fadeUp">
+    <div className="w-full animate-fadeUp">
       <ShiftPageHero
         title="משמרות"
         subtitle="צפייה בשיבוצים שלך ועדכון זמינות לשבוע הבא."
@@ -226,6 +235,7 @@ function EmployeeSchedule({ templates }: { templates: NonNullable<ReturnType<typ
   const businessId = useBusinessId();
   const { profile } = useAuth();
   const reduceMotion = useReducedMotion();
+  const isDesktop = useIsMdUp();
   const [wk, setWk] = useState(weekStart());
   const [wkDir, setWkDir] = useState(1);
   const { data: assignments, isLoading } = useShiftAssignments(businessId, wk, addDays(wk, 6), profile?.id);
@@ -259,103 +269,103 @@ function EmployeeSchedule({ templates }: { templates: NonNullable<ReturnType<typ
         animate={{ opacity: 1, x: 0 }}
         transition={{ type: "spring", stiffness: 320, damping: 32 }}
       >
-        {/* Phone: the week as a vertical rundown */}
-        <div className="flex flex-col gap-2.5 md:hidden">
-          {HE_DAYS.map((d, i) => {
-            const meta = dayMeta(wk, i);
-            const dayTemplates = templates.filter((t) => assignMap.has(`${t.id}_${meta.date}`));
-            return (
-              <div key={i} className="flex items-center gap-3 rounded-card bg-surface px-4 py-3 shadow-card">
-                <div
-                  className="flex w-11 flex-none flex-col items-center rounded-xl py-1.5"
-                  style={{ background: meta.isToday ? "var(--accent-tint)" : "var(--surface-2)" }}
-                >
-                  <span
-                    className="text-[10.5px] font-bold"
-                    style={{ color: meta.isToday ? "var(--accent-2)" : "var(--text-2)" }}
+        {!isDesktop ? (
+          <div className="flex flex-col gap-2.5">
+            {HE_DAYS.map((d, i) => {
+              const meta = dayMeta(wk, i);
+              const dayTemplates = templates.filter((t) => assignMap.has(`${t.id}_${meta.date}`));
+              return (
+                <div key={i} className="flex items-center gap-3 rounded-card bg-surface px-4 py-3 shadow-card">
+                  <div
+                    className="flex w-11 flex-none flex-col items-center rounded-xl py-1.5"
+                    style={{ background: meta.isToday ? "var(--accent-tint)" : "var(--surface-2)" }}
                   >
-                    {d}
-                  </span>
-                  <span className="text-[15px] font-extrabold leading-tight [font-variant-numeric:tabular-nums]">
-                    {meta.date.slice(8, 10)}
-                  </span>
-                </div>
-                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-                  {dayTemplates.length === 0 ? (
-                    <span className="text-[12.5px] font-semibold text-text-3">אין שיבוץ</span>
-                  ) : (
-                    dayTemplates.map((t) => (
-                      <span key={t.id} className="shift-assigned-badge">
-                        <Icon name="check_circle" size={14} />
-                        {t.name} · {t.start_time?.slice(0, 5)}
-                      </span>
-                    ))
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Desktop: week grid */}
-        <Card className="hidden overflow-hidden !p-0 shadow-sm md:block">
-          <div className="shift-grid-wrap">
-            <div className="shift-grid min-w-[680px]">
-              <div className="shift-grid-head">
-                <div className="shift-grid-corner">משמרת</div>
-                {HE_DAYS.map((d, i) => {
-                  const meta = dayMeta(wk, i);
-                  return (
-                    <div key={i} className="shift-grid-day" data-today={meta.isToday} data-weekend={meta.isWeekend}>
-                      <span className="shift-grid-day-name">{d}</span>
-                      <span className="shift-grid-day-date">{formatDateShort(meta.date)}</span>
-                      {meta.isToday && <span className="shift-grid-day-today">היום</span>}
-                    </div>
-                  );
-                })}
-              </div>
-              {templates.map((t) => (
-                <div key={t.id} className="shift-grid-row">
-                  <div className="shift-grid-row-label">
-                    <div className="shift-shift-name">
-                      <span className="shift-shift-dot" style={colorDotStyle(t.color, 2)} />
-                      {t.name}
-                    </div>
-                    <span className="shift-shift-time">
-                      {t.start_time?.slice(0, 5)}–{t.end_time?.slice(0, 5)}
+                    <span
+                      className="text-[10.5px] font-bold"
+                      style={{ color: meta.isToday ? "var(--accent-2)" : "var(--text-2)" }}
+                    >
+                      {d}
+                    </span>
+                    <span className="text-[15px] font-extrabold leading-tight [font-variant-numeric:tabular-nums]">
+                      {meta.date.slice(8, 10)}
                     </span>
                   </div>
-                  {HE_DAYS.map((_, i) => {
+                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+                    {dayTemplates.length === 0 ? (
+                      <span className="text-[12.5px] font-semibold text-text-3">אין שיבוץ</span>
+                    ) : (
+                      dayTemplates.map((t) => (
+                        <span key={t.id} className="shift-assigned-badge">
+                          <Icon name="check_circle" size={14} />
+                          {t.name} · {t.start_time?.slice(0, 5)}
+                        </span>
+                      ))
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <Card className="overflow-hidden !p-0 shadow-sm">
+            <div className="shift-grid-wrap">
+              <div className="shift-grid min-w-[680px]">
+                <div className="shift-grid-head">
+                  <div className="shift-grid-corner">משמרת</div>
+                  {HE_DAYS.map((d, i) => {
                     const meta = dayMeta(wk, i);
-                    const assigned = assignMap.has(`${t.id}_${meta.date}`);
                     return (
-                      <div
-                        key={i}
-                        className="shift-grid-cell flex items-center justify-center !min-h-[3.25rem]"
-                        data-today={meta.isToday}
-                        data-weekend={meta.isWeekend}
-                      >
-                        {assigned ? (
-                          <span className="shift-assigned-badge">
-                            <Icon name="check_circle" size={15} />
-                            משובץ
-                          </span>
-                        ) : (
-                          <span className="text-[12px] font-semibold text-text-3">—</span>
-                        )}
+                      <div key={i} className="shift-grid-day" data-today={meta.isToday} data-weekend={meta.isWeekend}>
+                        <span className="shift-grid-day-name">{d}</span>
+                        <span className="shift-grid-day-date">{formatDateShort(meta.date)}</span>
+                        {meta.isToday && <span className="shift-grid-day-today">היום</span>}
                       </div>
                     );
                   })}
                 </div>
-              ))}
+                {templates.map((t) => (
+                  <div key={t.id} className="shift-grid-row">
+                    <div className="shift-grid-row-label">
+                      <div className="shift-shift-name">
+                        <span className="shift-shift-dot" style={colorDotStyle(t.color, 2)} />
+                        {t.name}
+                      </div>
+                      <span className="shift-shift-time">
+                        {t.start_time?.slice(0, 5)}–{t.end_time?.slice(0, 5)}
+                      </span>
+                    </div>
+                    {HE_DAYS.map((_, i) => {
+                      const meta = dayMeta(wk, i);
+                      const assigned = assignMap.has(`${t.id}_${meta.date}`);
+                      return (
+                        <div
+                          key={i}
+                          className="shift-grid-cell flex items-center justify-center !min-h-[3.25rem]"
+                          data-today={meta.isToday}
+                          data-weekend={meta.isWeekend}
+                        >
+                          {assigned ? (
+                            <span className="shift-assigned-badge">
+                              <Icon name="check_circle" size={15} />
+                              משובץ
+                            </span>
+                          ) : (
+                            <span className="text-[12px] font-semibold text-text-3">—</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-          {(assignments ?? []).length === 0 && (
-            <div className="border-t border-border px-5 py-4 text-[13px] text-text-3">
-              אין משמרות משובצות לשבוע זה.
-            </div>
-          )}
-        </Card>
+            {(assignments ?? []).length === 0 && (
+              <div className="border-t border-border px-5 py-4 text-[13px] text-text-3">
+                אין משמרות משובצות לשבוע זה.
+              </div>
+            )}
+          </Card>
+        )}
       </motion.div>
     </div>
   );
@@ -365,6 +375,7 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
   const businessId = useBusinessId();
   const { profile } = useAuth();
   const reduceMotion = useReducedMotion();
+  const isDesktop = useIsMdUp();
   const { data: business } = useBusiness(businessId);
   const nextWk = addDays(weekStart(), 7);
   const [wk, setWk] = useState(nextWk);
@@ -524,7 +535,8 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
       )}
 
       {/* Phone: pick a day, mark availability per shift */}
-      <div className="md:hidden">
+      {!isDesktop ? (
+      <div>
         <DayStrip wk={wk} value={dayIdx} onChange={setDayIdx} stripId="constraints" />
         <motion.div
           key={`${wk}-${dayIdx}`}
@@ -578,9 +590,9 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
           </Card>
         </motion.div>
       </div>
-
-      {/* Desktop: full week grid */}
-      <Card className="hidden overflow-hidden !p-0 shadow-sm md:block">
+      ) : (
+      /* Desktop: full week grid */
+      <Card className="overflow-hidden !p-0 shadow-sm">
         <div className="shift-grid-wrap">
           <div className="shift-grid min-w-[720px]">
             <div className="shift-grid-head">
@@ -652,6 +664,7 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
         </div>
         {savingBar}
       </Card>
+      )}
     </div>
   );
 }
@@ -715,20 +728,414 @@ function AvailabilityCell({
 
 /* ------------------------------- Scheduler ------------------------------- */
 type PickerState = { dept: string | null; templateId: string; date: string };
+type SchedulerTab = "assignments" | "constraints";
+
+function SchedulerModeToggle({ value, onChange }: { value: SchedulerTab; onChange: (v: SchedulerTab) => void }) {
+  const reduceMotion = useReducedMotion();
+  const tabs: { key: SchedulerTab; label: string; icon: string }[] = [
+    { key: "assignments", label: "שיבוץ", icon: "calendar_month" },
+    { key: "constraints", label: "אילוצים", icon: "event_busy" },
+  ];
+
+  return (
+    <div className="shift-mode-toggle" role="tablist" aria-label="תצוגת סידור">
+      {tabs.map(({ key, label, icon }) => {
+        const active = value === key;
+        return (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            data-active={active}
+            onClick={() => onChange(key)}
+            className="shift-mode-toggle-btn"
+          >
+            {active && (
+              <motion.span
+                layoutId={reduceMotion ? undefined : "shift-mode-thumb"}
+                className="shift-mode-toggle-thumb"
+                transition={reduceMotion ? { duration: 0 } : { type: "spring", stiffness: 520, damping: 38 }}
+              />
+            )}
+            <Icon name={icon} size={18} />
+            <span>{label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ConstraintChip({
+  employeeId,
+  name,
+  status,
+  compact,
+}: {
+  employeeId: string;
+  name?: string | null;
+  status: "available" | "cannot";
+  compact?: boolean;
+}) {
+  const meta = AVAIL_META[status];
+  return (
+    <div
+      className={`shift-constraint-chip${compact ? " shift-constraint-chip--compact" : ""}`}
+      data-status={status}
+      style={{ borderColor: meta.border, background: meta.bg }}
+    >
+      <span className="shift-assign-avatar" style={{ background: colorFor(employeeId) }}>
+        {initialsOf(name)}
+      </span>
+      <span className="shift-constraint-name">{name?.split(" ")[0] ?? "עובד"}</span>
+      <Icon name={status === "available" ? "check" : "close"} size={compact ? 12 : 13} style={{ color: meta.color }} />
+    </div>
+  );
+}
+
+function MobileConstraintShiftRow({
+  template,
+  available,
+  cannot,
+}: {
+  template: NonNullable<ReturnType<typeof useActiveShiftTemplates>["data"]>[number];
+  available: Profile[];
+  cannot: Profile[];
+}) {
+  const total = available.length + cannot.length;
+  const shiftColor = template.color ?? "var(--accent)";
+
+  return (
+    <div className="shift-mobile-constraint-row" style={{ "--shift-color": shiftColor } as CSSProperties}>
+      <div className="shift-mobile-constraint-head">
+        <div className="shift-mobile-constraint-title">
+          <span className="shift-mobile-constraint-dot" style={colorDotStyle(shiftColor, 2)} />
+          <span className="shift-mobile-constraint-name">{template.name}</span>
+          <span className="shift-mobile-constraint-time">
+            {template.start_time?.slice(0, 5)}–{template.end_time?.slice(0, 5)}
+          </span>
+        </div>
+        {total > 0 && <span className="shift-mobile-constraint-badge">{total}</span>}
+      </div>
+
+      {total === 0 ? (
+        <p className="shift-mobile-constraint-empty">אין אילוצים מסומנים</p>
+      ) : (
+        <div
+          className="shift-mobile-constraint-cols"
+          data-cols={available.length > 0 && cannot.length > 0 ? "2" : "1"}
+        >
+          {available.length > 0 && (
+            <div className="shift-mobile-constraint-col" data-tone="available">
+              <div className="shift-mobile-constraint-col-head">
+                <Icon name="check_circle" size={14} />
+                <span>יכול</span>
+                <span className="shift-mobile-constraint-col-count">{available.length}</span>
+              </div>
+              <div className="shift-mobile-constraint-chips">
+                {available.map((employee) => (
+                  <ConstraintChip
+                    key={employee.id}
+                    employeeId={employee.id}
+                    name={employee.full_name}
+                    status="available"
+                    compact
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+          {cannot.length > 0 && (
+            <div className="shift-mobile-constraint-col" data-tone="cannot">
+              <div className="shift-mobile-constraint-col-head">
+                <Icon name="cancel" size={14} />
+                <span>לא יכול</span>
+                <span className="shift-mobile-constraint-col-count">{cannot.length}</span>
+              </div>
+              <div className="shift-mobile-constraint-chips">
+                {cannot.map((employee) => (
+                  <ConstraintChip
+                    key={employee.id}
+                    employeeId={employee.id}
+                    name={employee.full_name}
+                    status="cannot"
+                    compact
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SchedulerConstraintsBoard({
+  wk,
+  wkDir,
+  dayIdx,
+  setDayIdx,
+  scheduleSections,
+  templates,
+  employees,
+  prefMap,
+  reduceMotion,
+  isDesktop,
+}: {
+  wk: string;
+  wkDir: number;
+  dayIdx: number;
+  setDayIdx: (i: number) => void;
+  scheduleSections: { id: string | null; name: string; color: string }[];
+  templates: NonNullable<ReturnType<typeof useActiveShiftTemplates>["data"]>;
+  employees: Profile[];
+  prefMap: Map<string, "available" | "cannot">;
+  reduceMotion: boolean | null;
+  isDesktop: boolean;
+}) {
+  const [search, setSearch] = useState("");
+  const q = search.trim().toLowerCase();
+
+  const employeesBySection = useMemo(() => {
+    const m = new Map<string, Profile[]>();
+    for (const section of scheduleSections) {
+      const key = section.id ?? "null";
+      m.set(
+        key,
+        employees.filter((e) => {
+          if (!e.active) return false;
+          if (section.id === null) return !e.department_id;
+          return e.department_id === section.id;
+        })
+      );
+    }
+    return m;
+  }, [scheduleSections, employees]);
+
+  const cellConstraints = useMemo(() => {
+    const m = new Map<string, { available: Profile[]; cannot: Profile[] }>();
+    for (const section of scheduleSections) {
+      const sectionKey = section.id ?? "null";
+      const list = employeesBySection.get(sectionKey) ?? [];
+      for (const t of templates) {
+        for (let i = 0; i < 7; i++) {
+          const date = addDays(wk, i);
+          const available: Profile[] = [];
+          const cannot: Profile[] = [];
+          for (const e of list) {
+            if (q && !(e.full_name ?? "").toLowerCase().includes(q)) continue;
+            const status = prefMap.get(`${e.id}_${t.id}_${date}`);
+            if (status === "available") available.push(e);
+            else if (status === "cannot") cannot.push(e);
+          }
+          m.set(`${sectionKey}_${t.id}_${date}`, { available, cannot });
+        }
+      }
+    }
+    return m;
+  }, [scheduleSections, employeesBySection, templates, wk, prefMap, q]);
+
+  const sectionWeekCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const section of scheduleSections) {
+      const sectionKey = section.id ?? "null";
+      let n = 0;
+      for (const t of templates) {
+        for (let i = 0; i < 7; i++) {
+          const cell = cellConstraints.get(`${sectionKey}_${t.id}_${addDays(wk, i)}`);
+          if (cell) n += cell.available.length + cell.cannot.length;
+        }
+      }
+      m.set(sectionKey, n);
+    }
+    return m;
+  }, [scheduleSections, templates, cellConstraints, wk]);
+
+  const constraintsFor = (deptId: string | null, templateId: string, date: string) =>
+    cellConstraints.get(`${deptId ?? "null"}_${templateId}_${date}`) ?? { available: [], cannot: [] };
+
+  return (
+    <>
+      <div className="shift-constraints-search-wrap">
+        <div className="shift-constraints-search">
+          <Icon name="search" size={17} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-text-3" />
+          <input
+            className="field !py-2.5 !pr-9"
+            placeholder="חיפוש עובד..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {!isDesktop ? (
+      <div className="shift-constraints-mobile">
+        <DayStrip wk={wk} value={dayIdx} onChange={setDayIdx} stripId="constraints-board" />
+        <motion.div
+          key={`${wk}-${dayIdx}-constraints`}
+          initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ type: "spring", stiffness: 340, damping: 32 }}
+          className="flex flex-col gap-3"
+        >
+          {scheduleSections.map((section) => {
+            const date = addDays(wk, dayIdx);
+            const dayMarked = templates.reduce((n, t) => {
+              const { available, cannot } = constraintsFor(section.id, t.id, date);
+              return n + available.length + cannot.length;
+            }, 0);
+            return (
+              <div
+                key={section.id ?? "general"}
+                className="shift-dept-card"
+                style={{ "--dept-color": section.color } as CSSProperties}
+              >
+                <div className="shift-dept-header" style={{ cursor: "default" }}>
+                  <span className="shift-dept-dot" style={colorDotStyle(section.color)} />
+                  <span className="shift-dept-name">{section.name}</span>
+                  <div className="shift-dept-stats">
+                    <span className="shift-dept-stat">
+                      <strong>{dayMarked}</strong> אילוצים היום
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  {templates.map((t) => {
+                    const { available, cannot } = constraintsFor(section.id, t.id, date);
+                    return (
+                      <MobileConstraintShiftRow
+                        key={t.id}
+                        template={t}
+                        available={available}
+                        cannot={cannot}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </motion.div>
+      </div>
+      ) : (
+      <motion.div
+        key={`${wk}-constraints`}
+        initial={reduceMotion ? false : { opacity: 0, x: wkDir * 26 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ type: "spring", stiffness: 320, damping: 32 }}
+        className="flex flex-col gap-5"
+      >
+        {scheduleSections.map((section, sectionIndex) => (
+          <div
+            key={section.id ?? "general"}
+            className="shift-dept-card shift-section-enter"
+            style={{ "--dept-color": section.color, "--enter-delay": `${sectionIndex * 70}ms` } as CSSProperties}
+          >
+            <div className="shift-dept-header" style={{ cursor: "default" }}>
+              <span className="shift-dept-dot" style={colorDotStyle(section.color)} />
+              <span className="shift-dept-name">{section.name}</span>
+              <div className="shift-dept-stats">
+                <span className="shift-dept-stat">
+                  <strong>{employeesBySection.get(section.id ?? "null")?.length ?? 0}</strong> עובדים
+                </span>
+                <span className="shift-dept-stat">
+                  <strong>{sectionWeekCounts.get(section.id ?? "null") ?? 0}</strong> אילוצים השבוע
+                </span>
+              </div>
+            </div>
+            <div className="shift-grid-wrap">
+              <div className="shift-grid">
+                <div className="shift-grid-head">
+                  <div className="shift-grid-corner">משמרת</div>
+                  {HE_DAYS.map((d, i) => {
+                    const meta = dayMeta(wk, i);
+                    return (
+                      <div key={i} className="shift-grid-day" data-today={meta.isToday} data-weekend={meta.isWeekend}>
+                        <span className="shift-grid-day-name">{d}</span>
+                        <span className="shift-grid-day-date">{formatDateShort(meta.date)}</span>
+                        {meta.isToday && <span className="shift-grid-day-today">היום</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+                {templates.map((t) => (
+                  <div key={t.id} className="shift-grid-row">
+                    <div className="shift-grid-row-label">
+                      <div className="shift-shift-name">
+                        <span className="shift-shift-dot" style={colorDotStyle(t.color, 2)} />
+                        {t.name}
+                      </div>
+                      <span className="shift-shift-time">
+                        {t.start_time?.slice(0, 5)}–{t.end_time?.slice(0, 5)}
+                      </span>
+                    </div>
+                    {HE_DAYS.map((_, i) => {
+                      const date = addDays(wk, i);
+                      const { available, cannot } = constraintsFor(section.id, t.id, date);
+                      const meta = dayMeta(wk, i);
+                      const empty = available.length === 0 && cannot.length === 0;
+                      return (
+                        <div
+                          key={i}
+                          className="shift-grid-cell shift-constraint-cell"
+                          data-today={meta.isToday}
+                          data-weekend={meta.isWeekend}
+                          data-empty={empty}
+                        >
+                          {empty ? (
+                            <span className="text-[11px] font-semibold text-text-3">—</span>
+                          ) : (
+                            <div className="flex w-full flex-col gap-1">
+                              {available.map((employee) => (
+                                <ConstraintChip
+                                  key={employee.id}
+                                  employeeId={employee.id}
+                                  name={employee.full_name}
+                                  status="available"
+                                />
+                              ))}
+                              {cannot.map((employee) => (
+                                <ConstraintChip
+                                  key={employee.id}
+                                  employeeId={employee.id}
+                                  name={employee.full_name}
+                                  status="cannot"
+                                />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        ))}
+      </motion.div>
+      )}
+    </>
+  );
+}
 
 function SchedulerView() {
   const businessId = useBusinessId();
   const { profile } = useAuth();
   const reduceMotion = useReducedMotion();
+  const isDesktop = useIsMdUp();
   const [wk, setWk] = useState(weekStart());
   const [wkDir, setWkDir] = useState(1);
   const [dayIdx, setDayIdx] = useState(() => todayIdxInWeek(weekStart()));
+  const [viewMode, setViewMode] = useState<SchedulerTab>("assignments");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const { data: templates, isLoading: lt } = useActiveShiftTemplates(businessId);
   const { data: departments, isLoading: ld } = useDepartments(businessId);
-  const { data: employees } = useProfiles(businessId);
-  const { data: prefs } = useShiftPreferences(businessId, wk);
-  const { data: assignments } = useShiftAssignments(businessId, wk, addDays(wk, 6));
+  const { data: employees, isLoading: le } = useProfiles(businessId);
+  const { data: prefs, isLoading: lp } = useShiftPreferences(businessId, wk);
+  const { data: assignments, isLoading: la } = useShiftAssignments(businessId, wk, addDays(wk, 6));
   const addAssign = useAddAssignment(businessId);
   const removeAssign = useRemoveAssignment(businessId);
   const [picker, setPicker] = useState<PickerState | null>(null);
@@ -766,11 +1173,62 @@ function SchedulerView() {
     return sections;
   }, [activeDepartments, employees]);
 
-  if (lt || ld) return <PageLoader />;
+  const employeesBySection = useMemo(() => {
+    const m = new Map<string, Profile[]>();
+    for (const section of scheduleSections) {
+      m.set(
+        section.id ?? "null",
+        (employees ?? []).filter(
+          (e) => e.active && (section.id ? e.department_id === section.id : !e.department_id)
+        )
+      );
+    }
+    return m;
+  }, [scheduleSections, employees]);
+
+  const assignmentsByCell = useMemo(() => {
+    const m = new Map<string, ShiftAssignment[]>();
+    const weekCounts = new Map<string, number>();
+    const list = assignments ?? [];
+    for (const section of scheduleSections) {
+      weekCounts.set(section.id ?? "null", 0);
+    }
+    for (const section of scheduleSections) {
+      const sectionKey = section.id ?? "null";
+      for (const a of list) {
+        const empDept = empById.get(a.employee_id)?.department_id ?? null;
+        const matches =
+          section.id === null
+            ? empDept === null
+            : a.department_id === section.id || (!a.department_id && empDept === section.id);
+        if (!matches) continue;
+        const key = `${sectionKey}_${a.shift_template_id}_${a.shift_date}`;
+        const bucket = m.get(key);
+        if (bucket) bucket.push(a);
+        else m.set(key, [a]);
+        weekCounts.set(sectionKey, (weekCounts.get(sectionKey) ?? 0) + 1);
+      }
+    }
+    return { byCell: m, weekCounts };
+  }, [assignments, scheduleSections, empById]);
+
+  const assignmentsByCellMap = assignmentsByCell.byCell;
+  const sectionWeekCounts = assignmentsByCell.weekCounts;
+
+  useEffect(() => {
+    if (!picker) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [picker]);
+
+  if (lt || ld || le || (viewMode === "assignments" ? la : lp)) return <PageLoader />;
 
   if (!templates?.length || scheduleSections.length === 0) {
     return (
-      <div className="mx-auto max-w-[900px] animate-fadeUp">
+      <div className="w-full animate-fadeUp">
         <EmptyState
           icon="calendar_month"
           title="חסרה הגדרה לסידור"
@@ -780,26 +1238,8 @@ function SchedulerView() {
     );
   }
 
-  const employeesInSection = (deptId: string | null) =>
-    (employees ?? []).filter(
-      (e) => e.active && (deptId ? e.department_id === deptId : !e.department_id)
-    );
-
-  const matchesSection = (deptId: string | null, a: { employee_id: string; department_id: string | null }) => {
-    const empDept = empById.get(a.employee_id)?.department_id ?? null;
-    if (deptId === null) return empDept === null;
-    return a.department_id === deptId || (!a.department_id && empDept === deptId);
-  };
-
   const assignmentsFor = (deptId: string | null, templateId: string, date: string) =>
-    (assignments ?? []).filter(
-      (a) => a.shift_template_id === templateId && a.shift_date === date && matchesSection(deptId, a)
-    );
-
-  const sectionWeekCount = (deptId: string | null) =>
-    (assignments ?? []).filter((a) => matchesSection(deptId, a)).length;
-
-  const totalAssignments = (assignments ?? []).length;
+    assignmentsByCellMap.get(`${deptId ?? "null"}_${templateId}_${date}`) ?? [];
 
   function shiftWeek(d: number) {
     const next = addDays(wk, d);
@@ -826,33 +1266,29 @@ function SchedulerView() {
   const pickerTemplate = picker ? templates.find((t) => t.id === picker.templateId) : null;
 
   return (
-    <div className="mx-auto max-w-[1240px] animate-fadeUp">
-      <ShiftPageHero
-        title="סידור עבודה"
-        subtitle="שיבוץ עובדים לפי מחלקות, משמרות ואילוצי זמינות."
-        stats={
-          <>
-            <div className="page-hero-stat">
-              <Icon name="event_available" size={18} style={{ color: "var(--accent-2)" }} />
-              <span><strong>{totalAssignments}</strong> שיבוצים</span>
-            </div>
-            <div className="page-hero-stat">
-              <Icon name="category" size={18} style={{ color: "var(--info)" }} />
-              <span><strong>{scheduleSections.length}</strong> מחלקות</span>
-            </div>
-          </>
-        }
-      />
-
-      <div className="shift-toolbar">
-        <div className="shift-toolbar-meta">
-          <ShiftLegend />
-        </div>
+    <div className="w-full animate-fadeUp">
+      <div className="shift-scheduler-head mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <SchedulerModeToggle value={viewMode} onChange={setViewMode} />
         <WeekNav wkStart={wk} onShift={shiftWeek} onToday={goToday} />
       </div>
 
-      {/* Phone: day-by-day scheduling */}
-      <div className="md:hidden">
+      {viewMode === "constraints" ? (
+        <SchedulerConstraintsBoard
+          wk={wk}
+          wkDir={wkDir}
+          dayIdx={dayIdx}
+          setDayIdx={setDayIdx}
+          scheduleSections={scheduleSections}
+          templates={templates}
+          employees={employees ?? []}
+          prefMap={prefMap}
+          reduceMotion={reduceMotion}
+          isDesktop={isDesktop}
+        />
+      ) : (
+        <>
+      {!isDesktop ? (
+      <div>
         <DayStrip wk={wk} value={dayIdx} onChange={setDayIdx} stripId="scheduler" />
         <motion.div
           key={`${wk}-${dayIdx}`}
@@ -874,7 +1310,7 @@ function SchedulerView() {
                   <span className="shift-dept-name">{section.name}</span>
                   <div className="shift-dept-stats">
                     <span className="shift-dept-stat">
-                      <strong>{employeesInSection(section.id).length}</strong> עובדים
+                      <strong>{employeesBySection.get(section.id ?? "null")?.length ?? 0}</strong> עובדים
                     </span>
                   </div>
                 </div>
@@ -907,10 +1343,10 @@ function SchedulerView() {
                           <button
                             type="button"
                             className="shift-mobile-add"
+                            aria-label="שיבוץ עובד"
                             onClick={() => setPicker({ dept: section.id, templateId: t.id, date })}
                           >
-                            <Icon name="person_add" size={15} />
-                            שיבוץ
+                            <Icon name="person_add" size={18} />
                           </button>
                         </div>
                       </div>
@@ -922,14 +1358,13 @@ function SchedulerView() {
           })}
         </motion.div>
       </div>
-
-      {/* Desktop: full week board per department */}
+      ) : (
       <motion.div
         key={wk}
         initial={reduceMotion ? false : { opacity: 0, x: wkDir * 26 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ type: "spring", stiffness: 320, damping: 32 }}
-        className="hidden flex-col gap-5 md:flex"
+        className="flex flex-col gap-5"
       >
         {scheduleSections.map((section, sectionIndex) => {
           const sectionKey = section.id ?? "general";
@@ -950,10 +1385,10 @@ function SchedulerView() {
                 <span className="shift-dept-name">{section.name}</span>
                 <div className="shift-dept-stats">
                   <span className="shift-dept-stat">
-                    <strong>{employeesInSection(section.id).length}</strong> עובדים
+                    <strong>{employeesBySection.get(section.id ?? "null")?.length ?? 0}</strong> עובדים
                   </span>
                   <span className="shift-dept-stat">
-                    <strong>{sectionWeekCount(section.id)}</strong> שיבוצים השבוע
+                    <strong>{sectionWeekCounts.get(section.id ?? "null") ?? 0}</strong> שיבוצים השבוע
                   </span>
                   <span className="shift-dept-collapse" data-open={!isCollapsed}>
                     <Icon name="expand_less" size={18} />
@@ -1034,49 +1469,55 @@ function SchedulerView() {
           );
         })}
       </motion.div>
+      )}
 
-      <AnimatePresence>
-        {picker && (
-          <motion.div
-            key="picker-backdrop"
-            className="shift-picker-backdrop"
-            initial={reduceMotion ? false : { opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
-            onClick={() => setPicker(null)}
-          >
+      {createPortal(
+        <AnimatePresence>
+          {picker && (
             <motion.div
-              className="shift-picker-panel"
-              initial={reduceMotion ? false : { opacity: 0, y: 24, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 16, scale: 0.98 }}
-              transition={{ type: "spring", stiffness: 380, damping: 32 }}
-              onClick={(e) => e.stopPropagation()}
+              key="picker-backdrop"
+              className="shift-picker-backdrop"
+              initial={reduceMotion ? false : { opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.18 }}
+              onClick={() => setPicker(null)}
             >
-              <PickerPanel
-                picker={picker}
-                subtitle={`${pickerTemplate?.name ?? ""} · ${formatDateShort(picker.date)}`}
-                list={employeesInSection(picker.dept)}
-                prefMap={prefMap}
-                assignments={assignments ?? []}
-                onClose={() => setPicker(null)}
-                onPick={(employeeId) => {
-                  addAssign.mutate({
-                    business_id: businessId!,
-                    department_id: picker.dept,
-                    employee_id: employeeId,
-                    shift_date: picker.date,
-                    shift_template_id: picker.templateId,
-                    assigned_by: profile?.id ?? null,
-                  });
-                  setPicker(null);
-                }}
-              />
+              <motion.div
+                className="shift-picker-panel"
+                initial={reduceMotion ? false : { opacity: 0, y: 24, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 16, scale: 0.98 }}
+                transition={{ type: "spring", stiffness: 380, damping: 32 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <PickerPanel
+                  picker={picker}
+                  subtitle={`${pickerTemplate?.name ?? ""} · ${formatDateShort(picker.date)}`}
+                  list={employeesBySection.get(picker.dept ?? "null") ?? []}
+                  prefMap={prefMap}
+                  assignments={assignments ?? []}
+                  onClose={() => setPicker(null)}
+                  onPick={(employeeId) => {
+                    addAssign.mutate({
+                      business_id: businessId!,
+                      department_id: picker.dept,
+                      employee_id: employeeId,
+                      shift_date: picker.date,
+                      shift_template_id: picker.templateId,
+                      assigned_by: profile?.id ?? null,
+                    });
+                    setPicker(null);
+                  }}
+                />
+              </motion.div>
             </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
+        </>
+      )}
     </div>
   );
 }
@@ -1137,7 +1578,7 @@ function PickerPanel({
         )}
         {filtered.map((e) => {
           const pref = prefMap.get(`${e.id}_${picker.templateId}_${picker.date}`);
-          const meta = pref ? AVAIL_META[pref] : null;
+          const prefStatus = PREF_STATUS[pref ?? "none"];
           const already = assignments.some(
             (a) => a.employee_id === e.id && a.shift_template_id === picker.templateId && a.shift_date === picker.date
           );
@@ -1155,12 +1596,13 @@ function PickerPanel({
               >
                 {initialsOf(e.full_name)}
               </span>
-              <span className="flex-1 text-[13.5px] font-semibold">{e.full_name}</span>
-              {already ? (
-                <Badge tone="neutral">משובץ</Badge>
-              ) : meta ? (
-                <Badge tone={pref === "available" ? "info" : "danger"}>{meta.label}</Badge>
-              ) : null}
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13.5px] font-semibold leading-tight">{e.full_name}</span>
+                <span className="shift-picker-pref" style={{ color: prefStatus.color }}>
+                  {prefStatus.label}
+                </span>
+              </span>
+              {already && <Badge tone="neutral">משובץ</Badge>}
             </button>
           );
         })}

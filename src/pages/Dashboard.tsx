@@ -14,8 +14,8 @@ import {
   RadialGauge,
   SparkLine,
 } from "@/components/dashboard/dashboard-charts";
-import { DashboardPresenceCard } from "@/components/dashboard/DashboardPresenceCard";
 import { ManagerDashboard } from "@/components/dashboard/ManagerDashboard";
+import { WorkerHome } from "@/components/dashboard/WorkerHome";
 import { Icon, PageLoader, ErrorState } from "@/components/ui";
 import { PageEnter, PressableCard, StaggerGrid, StaggerItem } from "@/components/motion/shared-motion";
 import { EASE_OUT } from "@/components/motion/shared-motion";
@@ -227,10 +227,10 @@ function SuperAdminDashboard() {
   const timeStr = now.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
 
   return (
-    <PageEnter className="mx-auto max-w-[1280px]">
+    <PageEnter className="w-full">
       <header className="dashboard-hero mb-6 overflow-hidden rounded-[28px] border border-border/60 p-5 sm:p-8 md:mb-8">
         <div className="relative flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div>
+          <div className="hidden md:block">
             <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-accent-2">סקירת פלטפורמה</p>
             <h1 className="mt-1 text-[clamp(1.5rem,5vw,2.1rem)] font-extrabold tracking-tight">מרכז הבקרה</h1>
             <p className="mt-2 max-w-md text-[14px] text-text-2">כל העסקים, המשתמשים והצמיחה — בזמן אמת</p>
@@ -306,7 +306,7 @@ function BusinessDashboard() {
   const showAttendance = hasFeature("attendance");
 
   return (
-    <PageEnter className="mx-auto max-w-[1280px]">
+    <PageEnter className="w-full">
       {/* Hero */}
       <header className="dashboard-hero relative mb-5 overflow-hidden rounded-[28px] border border-border/60 p-5 sm:p-7 md:mb-6">
         <div className="pointer-events-none absolute inset-0 opacity-60" aria-hidden>
@@ -314,7 +314,7 @@ function BusinessDashboard() {
           <div className="absolute -bottom-16 -right-10 h-40 w-40 rounded-full blur-3xl" style={{ background: "rgba(109,40,217,0.1)" }} />
         </div>
         <div className="relative grid grid-cols-1 gap-4 md:grid-cols-[1fr_auto] md:items-end">
-          <div>
+          <div className="hidden md:block">
             <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-text-3">{business?.name ?? "העסק שלך"}</p>
             <h1 className="mt-1 text-[clamp(1.45rem,4.5vw,2rem)] font-extrabold tracking-tight">
               {greeting()}
@@ -342,8 +342,6 @@ function BusinessDashboard() {
           </motion.div>
         </div>
       </header>
-
-      {role === "shift_manager" && <DashboardPresenceCard />}
 
       {/* KPI Grid */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
@@ -445,6 +443,10 @@ function BusinessDashboard() {
   );
 }
 
+function ShiftManagerDashboard() {
+  return <WorkerHome variant="shift_manager" />;
+}
+
 export function Dashboard() {
   const { profile } = useAuth();
   const role = profile?.role ?? "employee";
@@ -453,5 +455,7 @@ export function Dashboard() {
     return <ManagerDashboard />;
   }
   if (role === "super_admin") return <SuperAdminDashboard />;
+  if (role === "shift_manager") return <ShiftManagerDashboard />;
+  if (role === "employee") return <WorkerHome variant="employee" />;
   return <BusinessDashboard />;
 }

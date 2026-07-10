@@ -29,6 +29,85 @@ function useContainerWidth(ref: React.RefObject<HTMLElement>): number {
   return width;
 }
 
+/** Renders the first page of a PDF as a compact thumbnail preview. */
+export function PdfFirstPagePreview({
+  url,
+  maxHeight = 192,
+  className = "",
+}: {
+  url: string;
+  maxHeight?: number;
+  className?: string;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+
+  useEffect(() => {
+    let cancelled = false;
+    let task: pdfjsLib.RenderTask | null = null;
+    let doc: pdfjsLib.PDFDocumentProxy | null = null;
+    setStatus("loading");
+
+    (async () => {
+      try {
+        doc = await pdfjsLib.getDocument({ url }).promise;
+        if (cancelled) return;
+        const page = await doc.getPage(1);
+        if (cancelled) return;
+        const base = page.getViewport({ scale: 1 });
+        const scale = Math.min(360 / base.width, maxHeight / base.height, 1.75);
+        const viewport = page.getViewport({ scale });
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        canvas.width = Math.floor(viewport.width * dpr);
+        canvas.height = Math.floor(viewport.height * dpr);
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("no canvas context");
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        task = page.render({ canvasContext: ctx, viewport });
+        await task.promise;
+        if (!cancelled) setStatus("ready");
+      } catch {
+        if (!cancelled) setStatus("error");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      task?.cancel();
+      doc?.destroy().catch(() => {});
+    };
+  }, [url, maxHeight]);
+
+  if (status === "error") {
+    return (
+      <div className={`grid place-items-center py-10 text-text-3 ${className}`}>
+        <Icon name="picture_as_pdf" size={36} />
+      </div>
+    );
+  }
+
+  return (
+    <div className={`relative grid place-items-center bg-surface-2 ${className}`}>
+      {status === "loading" && (
+        <div className="absolute inset-0 grid place-items-center text-[12.5px] text-text-3">
+          <span className="flex items-center gap-2">
+            <Icon name="hourglass_empty" size={16} /> טוען תצוגה מקדימה…
+          </span>
+        </div>
+      )}
+      <canvas
+        ref={canvasRef}
+        className={`w-auto max-w-full object-contain transition-opacity ${
+          status === "ready" ? "opacity-100" : "opacity-0"
+        }`}
+        style={{ maxHeight }}
+      />
+    </div>
+  );
+}
+
 /**
  * Renders every page of a PDF stacked vertically. For each page, `renderOverlay`
  * is called with the page index and its rendered size so callers can position

@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/auth";
 import { WAGE_TYPE_LABELS } from "@/lib/constants";
 import { useBusinessId, formatCurrency } from "@/lib/db";
 import { useEmployeeAttendanceMonth } from "@/api/attendance";
-import { useEmployeeTips } from "@/api/payroll";
+import { useEmployeeTips, useEmployeeBonuses } from "@/api/payroll";
 import { useShiftTemplates } from "@/api/shifts";
 import type { ShiftTemplate } from "@/types/database";
 
@@ -54,6 +54,7 @@ interface ShiftRow {
   tipAmount?: number;
   topup?: number;
   belowMin?: boolean;
+  bonusAmount?: number;
 }
 
 export function MyShifts() {
@@ -67,15 +68,42 @@ export function MyShifts() {
 
   const attendanceQ = useEmployeeAttendanceMonth(businessId, !isTips ? profile?.id : null, month);
   const tipsQ = useEmployeeTips(businessId, isTips ? profile?.id : null, month);
+  const bonusesQ = useEmployeeBonuses(businessId, profile?.id, month);
   const { data: templates } = useShiftTemplates(businessId);
 
   const activeQ = isTips ? tipsQ : attendanceQ;
+  const isLoading = activeQ.isLoading || bonusesQ.isLoading;
+  const isError = activeQ.isError || bonusesQ.isError;
+  const refetch = () => {
+    activeQ.refetch();
+    bonusesQ.refetch();
+  };
 
   const rows = useMemo<ShiftRow[]>(() => {
     const tplById = new Map((templates ?? []).map((t) => [t.id, t] as [string, ShiftTemplate]));
+    const bonusKey = (date: string, templateId: string | null) => `${date}|${templateId ?? ""}`;
+    const bonusesByShift = new Map(
+      (bonusesQ.data ?? []).map((b) => [bonusKey(b.shift_date, b.shift_template_id), b]),
+    );
+    const usedBonusKeys = new Set<string>();
+
+    const mergeBonus = (row: ShiftRow, dateISO: string, templateId: string | null | undefined): ShiftRow => {
+      const key = bonusKey(dateISO, templateId ?? null);
+      const bonus = bonusesByShift.get(key);
+      if (!bonus) return row;
+      usedBonusKeys.add(key);
+      const bonusAmount = Number(bonus.amount) || 0;
+      return {
+        ...row,
+        earned: row.earned + bonusAmount,
+        bonusAmount: (row.bonusAmount ?? 0) + bonusAmount,
+      };
+    };
+
+    let baseRows: ShiftRow[];
 
     if (isTips) {
-      return (tipsQ.data ?? [])
+      baseRows = (tipsQ.data ?? [])
         .map((t): ShiftRow => {
           const hours = Number(t.hours) || 0;
           const tipAmount = Number(t.amount) || 0;
@@ -84,56 +112,81 @@ export function MyShifts() {
           const earned = hours * hourly;
           const topup = Math.max(0, earned - tipAmount);
           const tpl = t.shift_template_id ? tplById.get(t.shift_template_id) : undefined;
+          return mergeBonus(
+            {
+              id: t.id,
+              date: new Date(t.shift_date + "T00:00:00"),
+              title: tpl?.name ?? "משמרת",
+              timeLabel: tpl ? `${tpl.start_time?.slice(0, 5)}–${tpl.end_time?.slice(0, 5)}` : null,
+              hours,
+              hourly,
+              earned,
+              isTips: true,
+              tipAmount,
+              topup,
+              belowMin: topup > 0.5,
+            },
+            t.shift_date,
+            t.shift_template_id,
+          );
+        })
+        .sort((a, b) => b.date.getTime() - a.date.getTime());
+    } else {
+      baseRows = (attendanceQ.data ?? [])
+        .filter((a) => a.clock_in && a.clock_out)
+        .map((a): ShiftRow => {
+          const hours = (new Date(a.clock_out!).getTime() - new Date(a.clock_in!).getTime()) / 3.6e6;
           return {
-            id: t.id,
-            date: new Date(t.shift_date + "T00:00:00"),
-            title: tpl?.name ?? "משמרת",
-            timeLabel: tpl ? `${tpl.start_time?.slice(0, 5)}–${tpl.end_time?.slice(0, 5)}` : null,
+            id: a.id,
+            date: new Date(a.clock_in!),
+            title: "משמרת",
+            timeLabel: `${hhmm(a.clock_in!)}–${hhmm(a.clock_out!)}`,
             hours,
-            hourly,
-            earned,
-            isTips: true,
-            tipAmount,
-            topup,
-            belowMin: topup > 0.5,
+            hourly: rate,
+            earned: hours * rate,
+            isTips: false,
           };
         })
         .sort((a, b) => b.date.getTime() - a.date.getTime());
     }
 
-    return (attendanceQ.data ?? [])
-      .filter((a) => a.clock_in && a.clock_out)
-      .map((a): ShiftRow => {
-        const hours = (new Date(a.clock_out!).getTime() - new Date(a.clock_in!).getTime()) / 3.6e6;
+    const bonusOnlyRows: ShiftRow[] = (bonusesQ.data ?? [])
+      .filter((b) => !usedBonusKeys.has(bonusKey(b.shift_date, b.shift_template_id)))
+      .map((b): ShiftRow => {
+        const tpl = b.shift_template_id ? tplById.get(b.shift_template_id) : undefined;
+        const bonusAmount = Number(b.amount) || 0;
         return {
-          id: a.id,
-          date: new Date(a.clock_in!),
-          title: "משמרת",
-          timeLabel: `${hhmm(a.clock_in!)}–${hhmm(a.clock_out!)}`,
-          hours,
-          hourly: rate,
-          earned: hours * rate,
+          id: `bonus-${b.id}`,
+          date: new Date(b.shift_date + "T00:00:00"),
+          title: tpl?.name ?? "תוספת שכר",
+          timeLabel: tpl ? `${tpl.start_time?.slice(0, 5)}–${tpl.end_time?.slice(0, 5)}` : null,
+          hours: 0,
+          hourly: 0,
+          earned: bonusAmount,
           isTips: false,
+          bonusAmount,
         };
-      })
-      .sort((a, b) => b.date.getTime() - a.date.getTime());
-  }, [isTips, tipsQ.data, attendanceQ.data, templates, rate]);
+      });
+
+    return [...baseRows, ...bonusOnlyRows].sort((a, b) => b.date.getTime() - a.date.getTime());
+  }, [isTips, tipsQ.data, attendanceQ.data, bonusesQ.data, templates, rate]);
 
   const totals = useMemo(() => {
     const hours = rows.reduce((s, r) => s + r.hours, 0);
     const earned = rows.reduce((s, r) => s + r.earned, 0);
     const tips = rows.reduce((s, r) => s + (r.tipAmount ?? 0), 0);
     const topup = rows.reduce((s, r) => s + (r.topup ?? 0), 0);
-    return { hours, earned, tips, topup, count: rows.length, avg: hours > 0 ? earned / hours : 0 };
+    const bonus = rows.reduce((s, r) => s + (r.bonusAmount ?? 0), 0);
+    return { hours, earned, tips, topup, bonus, count: rows.length, avg: hours > 0 ? earned / hours : 0 };
   }, [rows]);
 
   const atCurrentMonth = month >= monthNow();
 
   return (
-    <div className="mx-auto max-w-[760px] animate-fadeUp">
+    <div className="w-full animate-fadeUp">
       {/* Header + month stepper */}
       <header className="mb-4 flex items-center justify-between gap-3">
-        <div className="min-w-0">
+        <div className="hidden min-w-0 md:block">
           <p className="text-[11.5px] font-bold uppercase tracking-[0.14em] text-text-3">השכר שלי</p>
           <h1 className="mt-0.5 text-[clamp(1.4rem,5vw,1.9rem)] font-extrabold leading-none tracking-tight text-text">
             המשמרות שלי
@@ -147,10 +200,10 @@ export function MyShifts() {
         />
       </header>
 
-      {activeQ.isLoading ? (
+      {isLoading ? (
         <PageLoader />
-      ) : activeQ.isError ? (
-        <ErrorState onRetry={() => activeQ.refetch()} />
+      ) : isError ? (
+        <ErrorState onRetry={refetch} />
       ) : (
         <>
           <SummaryHero isTips={isTips} wageLabel={WAGE_TYPE_LABELS[wageType]} totals={totals} rate={rate} />
@@ -225,17 +278,12 @@ function SummaryHero({
 }: {
   isTips: boolean;
   wageLabel: string;
-  totals: { hours: number; earned: number; tips: number; topup: number; count: number; avg: number };
+  totals: { hours: number; earned: number; tips: number; topup: number; bonus: number; count: number; avg: number };
   rate: number;
 }) {
   return (
     <section className="relative overflow-hidden rounded-[22px] border border-border/70 bg-surface shadow-[0_18px_44px_-18px_rgba(15,23,20,0.16)]">
-      <div
-        className="pointer-events-none absolute -right-14 -top-20 h-44 w-44 rounded-full blur-3xl"
-        style={{ background: isTips ? "rgba(124,58,237,0.16)" : "rgba(0,200,117,0.14)" }}
-        aria-hidden
-      />
-      <div className="relative px-5 pb-5 pt-5">
+      <div className="px-5 pb-5 pt-5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-[11.5px] font-bold uppercase tracking-[0.12em] text-text-3">סה״כ לחודש</p>
@@ -259,20 +307,28 @@ function SummaryHero({
           />
         </div>
 
-        {isTips && (totals.tips > 0 || totals.topup > 0) && (
+        {(isTips && (totals.tips > 0 || totals.topup > 0)) || totals.bonus > 0 ? (
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-[13px] border border-border-2 bg-surface-2 px-3.5 py-2.5 text-[12.5px]">
-            <span className="inline-flex items-center gap-1.5 font-semibold text-text-2">
-              <span className="h-2 w-2 rounded-full bg-accent-2" />
-              טיפים <span className="font-bold tabular-nums text-text">{formatCurrency(totals.tips)}</span>
-            </span>
-            {totals.topup > 0.5 && (
+            {isTips && totals.tips > 0 && (
+              <span className="inline-flex items-center gap-1.5 font-semibold text-text-2">
+                <span className="h-2 w-2 rounded-full bg-accent-2" />
+                טיפים <span className="font-bold tabular-nums text-text">{formatCurrency(totals.tips)}</span>
+              </span>
+            )}
+            {isTips && totals.topup > 0.5 && (
               <span className="inline-flex items-center gap-1.5 font-semibold text-text-2">
                 <span className="h-2 w-2 rounded-full" style={{ background: "var(--info)" }} />
                 השלמה למינימום <span className="font-bold tabular-nums text-text">{formatCurrency(totals.topup)}</span>
               </span>
             )}
+            {totals.bonus > 0 && (
+              <span className="inline-flex items-center gap-1.5 font-semibold text-text-2">
+                <span className="h-2 w-2 rounded-full bg-accent" />
+                תוספת מאחוז קופה <span className="font-bold tabular-nums text-text">{formatCurrency(totals.bonus)}</span>
+              </span>
+            )}
           </div>
-        )}
+        ) : null}
       </div>
     </section>
   );
@@ -326,6 +382,12 @@ function ShiftCard({ row }: { row: ShiftRow }) {
             <span className="inline-flex items-center gap-1 font-semibold tabular-nums text-accent-2">
               <Icon name="savings" size={13} />
               {formatCurrency(row.tipAmount)}
+            </span>
+          )}
+          {row.bonusAmount != null && row.bonusAmount > 0 && (
+            <span className="inline-flex items-center gap-1 font-semibold tabular-nums text-accent">
+              <Icon name="percent" size={13} />
+              {formatCurrency(row.bonusAmount)}
             </span>
           )}
         </div>

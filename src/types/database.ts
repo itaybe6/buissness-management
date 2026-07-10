@@ -44,6 +44,8 @@ export interface Business {
   location_radius_m: number | null;
   /** When true, employees must clock in within location_radius_m of the business address. */
   attendance_geofence_enabled: boolean;
+  /** Roles that may clock in without geofence validation when attendance_geofence_enabled is true. */
+  attendance_geofence_exempt_roles: UserRole[];
   /** Require manager approval for tasks a shift manager assigns to a maintenance worker. */
   maintenance_task_approval: boolean;
   /** Day of week (0=Sun … 6=Sat) when next-week availability closes. null = no limit. */
@@ -81,6 +83,7 @@ export interface Profile {
   business_id: string | null;
   department_id: string | null;
   full_name: string | null;
+  avatar_url: string | null;
   email: string | null;
   phone: string | null;
   role: UserRole;
@@ -243,6 +246,25 @@ export interface ShiftReportParticipant {
   attendance_hours?: number;
 }
 
+/** Employee selected for kupah-percentage salary bonus on a shift report. */
+export interface ShiftReportBonusParticipant {
+  employee_id: string;
+}
+
+/** Persisted bonus payout per employee per shift report (shift_bonuses table). */
+export interface ShiftBonus {
+  id: string;
+  business_id: string;
+  employee_id: string;
+  shift_report_id: string;
+  shift_date: string;
+  shift_template_id: string | null;
+  amount: number;
+  bonus_pct: number;
+  sales_base: number;
+  created_at: string;
+}
+
 /** A dynamic sales counter line (e.g. "קוקטיילים": 36). */
 export interface ShiftReportSalesItem {
   label: string;
@@ -252,6 +274,8 @@ export interface ShiftReportSalesItem {
 /** Free-form extra payload stored as jsonb on shift_reports. */
 export interface ShiftReportExtra {
   tip_participants?: ShiftReportParticipant[];
+  /** Employees who receive an equal share of total_sales × service_pct / 100. */
+  bonus_participants?: ShiftReportBonusParticipant[];
   sales_items?: ShiftReportSalesItem[];
   top_seller?: string;
   [key: string]: unknown;
@@ -307,10 +331,14 @@ export interface InventoryItem {
   business_id: string;
   name: string;
   unit: string | null;
+  /** Individual pieces per main unit (e.g. 24 units per box). null when unit is יחידות. */
+  units_per_package: number | null;
   image_url: string | null;
   min_quantity: number;
   /** 0=Sunday … 6=Saturday (JS getDay). null = not set */
   supplier_delivery_day: number | null;
+  /** Product category key (dairy, alcohol, dry, etc.) */
+  category: string | null;
   active: boolean;
   created_at: string;
 }

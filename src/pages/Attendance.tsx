@@ -2,8 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Badge, Button, Icon, PageLoader, ErrorState } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import {
-  AttendanceFeedEmpty,
-  AttendanceFeedRow,
   AttendancePanel,
   AttendanceStatusToast,
   AttendanceSummaryCell,
@@ -15,13 +13,23 @@ import {
 } from "@/components/attendance/attendance-motion";
 import { useAuth } from "@/lib/auth";
 import { ATTENDANCE_RADIUS_M } from "@/lib/constants";
-import { useBusinessId, initialsOf, colorFor } from "@/lib/db";
+import { useBusinessId, todayISO, weekStart, addDays } from "@/lib/db";
 import { pendingTasksForEmployee } from "@/lib/pendingTasks";
+import {
+  filterAttendanceForTodayShift,
+  groupAttendanceByDepartment,
+  groupAttendanceByEmployee,
+  type AttendanceShiftFilter,
+} from "@/lib/attendanceFeed";
 import { useBusiness } from "@/api/businesses";
 import { useProfiles } from "@/api/users";
+import { useDepartments } from "@/api/departments";
 import { useTasks } from "@/api/tasks";
 import { useTaskTemplates } from "@/api/taskTemplates";
 import { useAttendanceToday, useClockIn, useClockOut } from "@/api/attendance";
+import { useActiveShiftTemplates, useShiftAssignments } from "@/api/shifts";
+import { AttendanceMobileView } from "@/components/attendance/AttendanceMobileView";
+import { AttendanceTodayFeedSection } from "@/components/attendance/AttendanceTodayFeedSection";
 
 function distanceM(lat1: number, lng1: number, lat2: number, lng2: number) {
   const R = 6371000;
@@ -53,33 +61,67 @@ function useLiveClock() {
 
 export function Attendance() {
   const businessId = useBusinessId();
-  const { profile } = useAuth();
+  const { profile, hasFeature } = useAuth();
   const { data: biz, isLoading, isError, refetch } = useBusiness(businessId);
   const { data: records } = useAttendanceToday(businessId);
   const { data: users } = useProfiles(businessId);
+  const { data: departments } = useDepartments(businessId);
   const { data: tasks } = useTasks(businessId);
   const { data: templates } = useTaskTemplates(businessId);
+  const { data: shiftTemplates } = useActiveShiftTemplates(businessId);
+  const today = todayISO();
+  const wk = weekStart();
+  const { data: assignments } = useShiftAssignments(businessId, wk, addDays(wk, 6));
   const clockIn = useClockIn(businessId);
   const clockOut = useClockOut(businessId);
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [exitWarn, setExitWarn] = useState(false);
+  const [feedFilter, setFeedFilter] = useState<AttendanceShiftFilter>("all");
   const now = useLiveClock();
 
   const userById = useMemo(() => {
-    const m = new Map<string, { name: string | null; role: string }>();
-    (users ?? []).forEach((u) => m.set(u.id, { name: u.full_name, role: u.role }));
+    const m = new Map<string, { name: string | null; role: string; departmentId: string | null }>();
+    (users ?? []).forEach((u) =>
+      m.set(u.id, { name: u.full_name, role: u.role, departmentId: u.department_id }),
+    );
     return m;
   }, [users]);
 
   const list = records ?? [];
-  const onShiftCount = list.filter((r) => r.clock_in && !r.clock_out).length;
-  const completedCount = list.filter((r) => r.clock_out).length;
+  const shiftsEnabled = hasFeature("shifts");
+  const todayFeed = useMemo(() => {
+    const filtered = filterAttendanceForTodayShift({
+      records: list,
+      today,
+      assignments: assignments ?? [],
+      templates: shiftTemplates ?? [],
+      shiftsEnabled,
+      now,
+    });
+    return groupAttendanceByEmployee(filtered);
+  }, [list, today, assignments, shiftTemplates, shiftsEnabled, now]);
+
+  const feedByDepartment = useMemo(() => {
+    const employeeInfo = new Map<string, { departmentId: string | null | undefined; role: string }>();
+    for (const [id, u] of userById) employeeInfo.set(id, { departmentId: u.departmentId, role: u.role });
+    return groupAttendanceByDepartment(todayFeed, departments ?? [], employeeInfo);
+  }, [todayFeed, departments, userById]);
+
+  const onShiftCount = todayFeed.filter((g) => g.onShift).length;
+  const completedCount = todayFeed.filter((g) => !g.onShift).length;
 
   const myOpen = list.find((r) => r.employee_id === profile?.id && r.clock_in && !r.clock_out);
 
   const pending = profile
-    ? pendingTasksForEmployee(tasks ?? [], templates ?? [], profile.id, profile.department_id ?? null, new Date().getDay())
+    ? pendingTasksForEmployee(
+        tasks ?? [],
+        templates ?? [],
+        profile.id,
+        profile.department_id ?? null,
+        new Date().getDay(),
+        profile.role,
+      )
     : [];
 
   async function doClockOut() {
@@ -96,6 +138,10 @@ export function Attendance() {
   const shiftElapsed = myOpen?.clock_in ? formatElapsed(now.getTime() - new Date(myOpen.clock_in).getTime()) : null;
   const locationReady = biz.location_lat != null && biz.location_lng != null;
   const geofenceEnabled = biz.attendance_geofence_enabled;
+  const geofenceExempt = Boolean(
+    profile && biz.attendance_geofence_exempt_roles?.includes(profile.role),
+  );
+  const geofenceRequired = geofenceEnabled && !geofenceExempt;
   const radiusM = biz.location_radius_m ?? ATTENDANCE_RADIUS_M;
   const timeStr = now.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const dateStr = now.toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long" });
@@ -122,11 +168,14 @@ export function Attendance() {
       return;
     }
 
-    if (!geofenceEnabled) {
+    if (!geofenceRequired) {
       setBusy(true);
       try {
         await clockInRecord(null, null, false);
-        setStatus({ ok: true, text: "כניסה הוחתמה" });
+        setStatus({
+          ok: true,
+          text: geofenceExempt ? "כניסה הוחתמה · ללא בדיקת מיקום" : "כניסה הוחתמה",
+        });
       } catch {
         setStatus({ ok: false, text: "החתמה נכשלה" });
       } finally {
@@ -167,23 +216,46 @@ export function Attendance() {
   }
 
   return (
-    <div className="mx-auto max-w-[1200px] animate-fadeUp px-1">
+    <div className="w-full animate-fadeUp">
+      {/* ── Mobile: app-like punch screen ── */}
+      <div className="md:hidden">
+        <AttendanceMobileView
+          onShiftCount={onShiftCount}
+          completedCount={completedCount}
+          totalCount={todayFeed.length}
+          timeStr={timeStr}
+          onShift={onShift}
+          shiftElapsed={shiftElapsed}
+          status={status}
+          busy={busy}
+          shiftsEnabled={shiftsEnabled}
+          todayFeed={todayFeed}
+          feedByDepartment={feedByDepartment}
+          userById={userById}
+          onPunch={handleClock}
+        />
+      </div>
+
+      {/* ── Desktop ── */}
+      <div className="hidden px-1 md:block">
       <header className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div className="max-w-xl">
+        <div className="hidden max-w-xl md:block">
           <p className="text-[12px] font-bold uppercase tracking-[0.14em] text-text-3">נוכחות · היום</p>
           <h1 className="mt-1 text-[clamp(1.75rem,4vw,2.35rem)] font-extrabold tracking-tight leading-none text-text">
             שעון נוכחות
           </h1>
           <p className="mt-2 max-w-[52ch] text-[14.5px] leading-relaxed text-text-2">
-            {geofenceEnabled
-              ? `החתמה מותנית במיקום GPS בתוך רדיוס של ${radiusM} מטרים ממקום העבודה.`
-              : "בדיקת מיקום כבויה — ניתן להחתים נוכחות מכל מקום."}
+            {geofenceExempt
+              ? "התפקיד שלך פטור מבדיקת מיקום — ניתן להחתים נוכחות מכל מקום."
+              : geofenceEnabled
+                ? `החתמה מותנית במיקום GPS בתוך רדיוס של ${radiusM} מטרים ממקום העבודה.`
+                : "בדיקת מיקום כבויה — ניתן להחתים נוכחות מכל מקום."}
           </p>
         </div>
         <div className="attendance-summary shrink-0">
-          <AttendanceSummaryCell value={onShiftCount} label="במשמרת עכשיו" accent="var(--success)" index={0} />
+          <AttendanceSummaryCell value={onShiftCount} label="במשמרת עכשיו" accent="var(--accent-2)" index={0} />
           <AttendanceSummaryCell value={completedCount} label="סיימו היום" index={1} />
-          <AttendanceSummaryCell value={list.length} label="סה״כ רשומות" index={2} />
+          <AttendanceSummaryCell value={todayFeed.length} label="עובדים היום" index={2} />
         </div>
       </header>
 
@@ -210,19 +282,32 @@ export function Attendance() {
               <div className="mt-6 space-y-3">
                 <PunchButton onShift={onShift} busy={busy} onClick={handleClock} />
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[12.5px] text-text-3">
-                  {geofenceEnabled && (
+                  {geofenceRequired && (
                     <span className="inline-flex items-center gap-1.5">
                       <Icon name="radar" size={16} />
                       רדיוס מאושר: {radiusM} מ׳
                     </span>
                   )}
                   <span className="inline-flex items-center gap-1.5">
-                    <Icon name={geofenceEnabled ? (locationReady ? "location_on" : "location_off") : "location_disabled"} size={16} />
-                    {geofenceEnabled
-                      ? locationReady
-                        ? "מיקום העסק מוגדר"
-                        : "מיקום העסק חסר"
-                      : "בדיקת מיקום כבויה"}
+                    <Icon
+                      name={
+                        geofenceExempt
+                          ? "travel_explore"
+                          : geofenceEnabled
+                            ? locationReady
+                              ? "location_on"
+                              : "location_off"
+                            : "location_disabled"
+                      }
+                      size={16}
+                    />
+                    {geofenceExempt
+                      ? "פטור/ה מבדיקת מיקום"
+                      : geofenceEnabled
+                        ? locationReady
+                          ? "מיקום העסק מוגדר"
+                          : "מיקום העסק חסר"
+                        : "בדיקת מיקום כבויה"}
                   </span>
                 </div>
               </div>
@@ -235,66 +320,18 @@ export function Attendance() {
         </AttendancePanel>
 
         <AttendancePanel>
-          <div className="border-b border-border-2 px-5 py-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-[16px] font-bold text-text">נוכחות היום</h2>
-                <p className="mt-0.5 text-[12.5px] text-text-3">עדכון לפי החתמות בזמן אמת</p>
-              </div>
-              <span className="rounded-full bg-surface-2 px-3 py-1 font-mono text-[12px] font-bold tabular-nums text-text-2">
-                {list.length}
-              </span>
-            </div>
-          </div>
-
-          <div className="max-h-[min(520px,58vh)] overflow-y-auto">
-            {list.length === 0 ? (
-              <AttendanceFeedEmpty />
-            ) : (
-              <div>
-                {list.map((r, index) => {
-                  const u = userById.get(r.employee_id);
-                  const open = Boolean(r.clock_in && !r.clock_out);
-                  const inTime = r.clock_in
-                    ? new Date(r.clock_in).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })
-                    : "—";
-                  const outTime = r.clock_out
-                    ? new Date(r.clock_out).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })
-                    : null;
-
-                  return (
-                    <AttendanceFeedRow key={r.id} index={index}>
-                      <span
-                        className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] text-[13px] font-bold text-white"
-                        style={{ background: colorFor(r.employee_id) }}
-                      >
-                        {initialsOf(u?.name)}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-[14px] font-bold text-text">{u?.name ?? "עובד/ת"}</div>
-                        <div className="mt-0.5 font-mono text-[12px] tabular-nums text-text-3">
-                          {inTime}
-                          <span className="mx-1 text-text-3">←</span>
-                          {outTime ?? "…"}
-                        </div>
-                      </div>
-                      <div className="shrink-0 text-left">
-                        {open ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-success-bg px-2.5 py-1 text-[11px] font-bold text-success">
-                            <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse2" />
-                            במשמרת
-                          </span>
-                        ) : (
-                          <span className="text-[11px] font-semibold text-text-3">יצא/ה</span>
-                        )}
-                      </div>
-                    </AttendanceFeedRow>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          <AttendanceTodayFeedSection
+            shiftsEnabled={shiftsEnabled}
+            todayFeed={todayFeed}
+            feedByDepartment={feedByDepartment}
+            userById={userById}
+            variant="desktop"
+            filter={feedFilter}
+            showFilterBar
+            onFilterChange={setFeedFilter}
+          />
         </AttendancePanel>
+      </div>
       </div>
 
       <Modal

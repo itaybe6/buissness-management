@@ -58,3 +58,13 @@ export function colorFor(id: string): string {
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
   return PALETTE[h % PALETTE.length];
 }
+
+/** Uniform avatar color for a department — uses stored dept color, else deterministic hash. */
+export function colorForDepartment(
+  departmentId: string | null | undefined,
+  departmentColor?: string | null,
+): string {
+  if (departmentColor) return departmentColor;
+  if (departmentId) return colorFor(departmentId);
+  return "#94a3b8";
+}

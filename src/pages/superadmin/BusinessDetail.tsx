@@ -44,7 +44,7 @@ export function BusinessDetail() {
   const nameValue = name ?? biz.name;
 
   return (
-    <div className="mx-auto max-w-[1060px] animate-fadeUp">
+    <div className="w-full animate-fadeUp">
       <button
         onClick={() => navigate("/businesses")}
         className="mb-3.5 flex items-center gap-1.5 text-[13.5px] font-semibold text-text-2 hover:text-text"
@@ -53,7 +53,7 @@ export function BusinessDetail() {
       </button>
 
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3.5">
-        <div className="flex items-center gap-3">
+        <div className="hidden items-center gap-3 md:flex">
           <span
             className="grid h-12 w-12 flex-none place-items-center rounded-[13px] text-[16px] font-bold text-white"
             style={{ background: colorFor(biz.id) }}

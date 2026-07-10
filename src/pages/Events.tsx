@@ -25,6 +25,7 @@ export function Events() {
   const past = (events ?? []).filter((e) => e.event_date.slice(0, 10) < now);
 
   return (
+<<<<<<< HEAD
     <div className="mx-auto max-w-[820px] animate-fadeUp">
       <header className="page-hero">
         <div className="page-hero-inner">
@@ -45,6 +46,14 @@ export function Events() {
           </div>
         </div>
       </header>
+=======
+    <div className="w-full animate-fadeUp">
+      <PageHeader
+        title="אירועים"
+        subtitle="אירועים מיוחדים והזמנות"
+        actions={isManager ? <Button icon="add" onClick={() => setOpen(true)}>אירוע חדש</Button> : undefined}
+      />
+>>>>>>> 6df25a794822348c0586c09d1d825cf46f6db1de
 
       {(events ?? []).length === 0 ? (
         <EmptyState icon="celebration" title="אין אירועים" description="הוסיפו אירועים מיוחדים ליומן העסק." action={isManager ? <Button icon="add" onClick={() => setOpen(true)}>אירוע חדש</Button> : undefined} />

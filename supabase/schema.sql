@@ -19,7 +19,7 @@ drop table if exists
   public.tasks, public.task_templates, public.events, public.faults, public.inventory_logs,
   public.inventory_waste, public.inventory_orders, public.inventory_counts, public.inventory_items,
   public.payroll_records,
-  public.tips, public.shift_reports, public.attendance, public.shift_assignments, public.shift_preferences,
+  public.tips, public.shift_bonuses, public.shift_reports, public.attendance, public.shift_assignments, public.shift_preferences,
   public.shift_templates, public.departments,
   public.form_101, public.agreement_signatures, public.agreement_templates,
   public.business_features, public.profiles, public.businesses cascade;
@@ -132,6 +132,8 @@ create table public.businesses (
   location_radius_m integer default 100,
   -- מתג: לדרוש מיקום GPS ברדיוס בהחתמת נוכחות
   attendance_geofence_enabled boolean not null default true,
+  -- תפקידים שפטורים מבדיקת רדיוס (כניסה מכל מקום)
+  attendance_geofence_exempt_roles public.user_role[] not null default '{}',
   -- מתג: לדרוש אישור מנהל למשימות שאחראי משמרת מוריד לאיש אחזקה
   maintenance_task_approval boolean not null default false,
   -- חלון הגשת זמינות לשבוע הבא (יום+שעה; null = ללא הגבלה / פתוח מההתחלה)
@@ -177,6 +179,7 @@ create table public.profiles (
   business_id uuid references public.businesses(id) on delete cascade, -- null עבור super_admin
   department_id uuid references public.departments(id) on delete set null, -- שיוך למחלקה
   full_name   text,
+  avatar_url  text,                   -- תמונת פרופיל ב-Storage
   email       text,
   phone       text,
   role        public.user_role not null default 'employee',
@@ -374,6 +377,21 @@ create table public.tips (
   created_at  timestamptz not null default now()
 );
 
+-- תוספת שכר מאחוז קופה לעובדים נבחרים בדוח משמרת
+create table public.shift_bonuses (
+  id                uuid primary key default gen_random_uuid(),
+  business_id       uuid not null references public.businesses(id) on delete cascade,
+  employee_id       uuid not null references public.profiles(id) on delete cascade,
+  shift_report_id   uuid not null references public.shift_reports(id) on delete cascade,
+  shift_date        date not null,
+  shift_template_id uuid references public.shift_templates(id) on delete set null,
+  amount            numeric(10,2) not null default 0,
+  bonus_pct         numeric(5,2) not null default 0,
+  sales_base        numeric(12,2) not null default 0,
+  created_at        timestamptz not null default now(),
+  unique (shift_report_id, employee_id)
+);
+
 -- סיכום שכר חודשי לעובד (מנהלת המשרד)
 create table public.payroll_records (
   id            uuid primary key default gen_random_uuid(),
@@ -399,9 +417,11 @@ create table public.inventory_items (
   business_id   uuid not null references public.businesses(id) on delete cascade,
   name          text not null,
   unit          text,                 -- יחידה (יחידות, ארגז, ק"ג, ליטר)
+  units_per_package numeric(12,2) check (units_per_package is null or units_per_package > 0),  -- יחידים ביחידת מידה (למשל 24 בארגז)
   image_url     text,                 -- תמונת המוצר ב-Storage
   min_quantity  numeric(12,2) not null default 0,  -- סף מלאי נמוך
   supplier_delivery_day smallint check (supplier_delivery_day between 0 and 6),  -- יום אספקה מהספק
+  category      text,                 -- קטגוריית המוצר (חלבי, אלכוהול, יבשים וכו׳)
   active        boolean not null default true,
   created_at    timestamptz not null default now()
 );
@@ -596,6 +616,9 @@ create index idx_shift_reports_business      on public.shift_reports(business_id
 create index idx_shift_reports_date          on public.shift_reports(business_id, report_date);
 create index idx_tips_business              on public.tips(business_id);
 create index idx_tips_shift_report           on public.tips(shift_report_id);
+create index idx_shift_bonuses_business      on public.shift_bonuses(business_id);
+create index idx_shift_bonuses_employee      on public.shift_bonuses(business_id, employee_id, shift_date);
+create index idx_shift_bonuses_report        on public.shift_bonuses(shift_report_id);
 create index idx_payroll_business           on public.payroll_records(business_id);
 create index idx_inv_items_business         on public.inventory_items(business_id);
 create index idx_inv_counts_business        on public.inventory_counts(business_id);
@@ -631,6 +654,7 @@ alter table public.shift_assignments    enable row level security;
 alter table public.attendance           enable row level security;
 alter table public.shift_reports        enable row level security;
 alter table public.tips                 enable row level security;
+alter table public.shift_bonuses        enable row level security;
 alter table public.payroll_records      enable row level security;
 alter table public.inventory_items      enable row level security;
 alter table public.inventory_counts     enable row level security;
@@ -738,6 +762,9 @@ create policy "shift_reports_tenant" on public.shift_reports
 -- tips
 create policy "tips_tenant" on public.tips
   for all using (public.can_access(business_id)) with check (public.can_access(business_id));
+-- shift_bonuses
+create policy "shift_bonuses_tenant" on public.shift_bonuses
+  for all using (public.can_access(business_id)) with check (public.can_access(business_id));
 -- payroll_records
 create policy "payroll_tenant" on public.payroll_records
   for all using (public.can_access(business_id)) with check (public.can_access(business_id));
@@ -762,12 +789,70 @@ create policy "faults_tenant" on public.faults
 -- events
 create policy "events_tenant" on public.events
   for all using (public.can_access(business_id)) with check (public.can_access(business_id));
--- task_templates
-create policy "task_templates_tenant" on public.task_templates
-  for all using (public.can_access(business_id)) with check (public.can_access(business_id));
--- tasks
-create policy "tasks_tenant" on public.tasks
-  for all using (public.can_access(business_id)) with check (public.can_access(business_id));
+-- task_templates — קריאה לכולם, כתיבה למנהל בלבד
+create policy "task_templates_read" on public.task_templates
+  for select using (public.can_access(business_id));
+create policy "task_templates_manager_write" on public.task_templates
+  for all using (
+    public.can_access(business_id) and public.auth_role() = 'manager'
+  ) with check (
+    public.can_access(business_id) and public.auth_role() = 'manager'
+  );
+-- tasks — קריאה לכולם; יצירה למנהל (או materialize ע"י העובד); עדכון למנהל/אחמ״ש/משויך; מחיקה למנהל
+create policy "tasks_read" on public.tasks
+  for select using (public.can_access(business_id));
+create policy "tasks_insert" on public.tasks
+  for insert with check (
+    public.can_access(business_id)
+    and (
+      public.auth_role() = 'manager'
+      or (template_id is not null and assigned_to = auth.uid())
+    )
+  );
+create policy "tasks_update" on public.tasks
+  for update using (
+    public.can_access(business_id)
+    and (
+      public.auth_role() in ('manager', 'shift_manager')
+      or assigned_to = auth.uid()
+    )
+  ) with check (public.can_access(business_id));
+create policy "tasks_delete" on public.tasks
+  for delete using (
+    public.can_access(business_id) and public.auth_role() = 'manager'
+  );
+
+-- ----------------------------------------------------------------------------
+-- מחיקת עובד — ניקוי הפניות לפני מחיקת auth.users
+-- ----------------------------------------------------------------------------
+
+create or replace function public.prep_delete_profile(p_user_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update public.agreement_templates set created_by = null where created_by = p_user_id;
+  update public.shift_assignments set assigned_by = null where assigned_by = p_user_id;
+  update public.shift_reports set created_by = null where created_by = p_user_id;
+  update public.payroll_records set created_by = null where created_by = p_user_id;
+  update public.inventory_counts set employee_id = null where employee_id = p_user_id;
+  update public.inventory_orders set ordered_by = null where ordered_by = p_user_id;
+  update public.inventory_waste set employee_id = null where employee_id = p_user_id;
+  update public.inventory_logs set employee_id = null where employee_id = p_user_id;
+  update public.faults set reported_by = null where reported_by = p_user_id;
+  update public.faults set assigned_to = null where assigned_to = p_user_id;
+  update public.events set created_by = null where created_by = p_user_id;
+  update public.tasks set assigned_to = null where assigned_to = p_user_id;
+  update public.tasks set assigned_by = null where assigned_by = p_user_id;
+
+  if to_regclass('public.office_receipts') is not null then
+    execute 'update public.office_receipts set created_by = null where created_by = $1'
+      using p_user_id;
+  end if;
+end;
+$$;
 
 -- ============================================================================
 -- סיום. הערות:

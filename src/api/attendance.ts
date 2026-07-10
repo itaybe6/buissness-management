@@ -8,13 +8,14 @@ export function useAttendanceToday(businessId: string | null) {
     enabled: !!businessId,
     queryFn: async (): Promise<Attendance[]> => {
       const since = new Date();
+      since.setDate(since.getDate() - 1);
       since.setHours(0, 0, 0, 0);
       const { data, error } = await supabase
         .from("attendance")
         .select("*")
         .eq("business_id", businessId)
-        .gte("created_at", since.toISOString())
-        .order("created_at", { ascending: false });
+        .gte("clock_in", since.toISOString())
+        .order("clock_in", { ascending: false });
       if (error) throw error;
       return (data ?? []) as Attendance[];
     },

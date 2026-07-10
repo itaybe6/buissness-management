@@ -4,6 +4,7 @@ import { useBusinessId } from "@/lib/db";
 import { useAgreements } from "@/api/agreements";
 import { DOCUMENTS_EDIT_ROLES, DOCUMENTS_OVERVIEW_ROLES, OFFICE_RECEIPTS_ROLES } from "@/lib/constants";
 import { EmployeeDocumentsView, ManagerDocumentsView } from "./agreements/views";
+import { Icon } from "@/components/ui";
 
 export function Agreements() {
   const businessId = useBusinessId();
@@ -17,17 +18,31 @@ export function Agreements() {
   if (isLoading) return <PageLoader />;
   if (isError) return <ErrorState onRetry={refetch} />;
 
+  const title = canReceipts && !canEdit ? "מסמכים" : isOverview ? "מסמכי עובדים" : canEdit ? "מסמכים" : "המסמכים שלי";
   const subtitle = canReceipts && !canEdit
     ? "חשבוניות, קבלות, מעקב מסמכי עובדים וטפסי 101"
     : isOverview
       ? "מעקב סטטוס מסמכים, הסכמים וחתימות דיגיטליות"
-      : "מילוי וחתימה על המסמכים שלך";
+      : canEdit
+        ? "לחתימה אישית · ניהול הסכמים לצוות"
+        : "מילוי וחתימה על המסמכים שלך";
 
   return (
-    <div className="mx-auto max-w-[1100px] animate-fadeUp">
-      <header className="mb-5">
-        <h1 className="text-[22px] font-extrabold tracking-tight">{canReceipts && !canEdit ? "מסמכים" : "מסמכי עובדים"}</h1>
-        <p className="mt-0.5 text-[13.5px] text-text-2">{subtitle}</p>
+    <div className="w-full animate-fadeUp">
+      <header className="docs-page-header">
+        <div className="hidden md:block">
+          <h1 className="text-[22px] font-extrabold tracking-tight">{title}</h1>
+          <p className="mt-0.5 text-[13.5px] text-text-2">{subtitle}</p>
+        </div>
+        <div className="docs-mobile-hero md:hidden">
+          <span className="docs-mobile-hero__icon" aria-hidden>
+            <Icon name="draw" size={22} />
+          </span>
+          <div>
+            <h1 className="docs-mobile-hero__title">{title}</h1>
+            <p className="docs-mobile-hero__sub">{subtitle}</p>
+          </div>
+        </div>
       </header>
 
       {isOverview ? (

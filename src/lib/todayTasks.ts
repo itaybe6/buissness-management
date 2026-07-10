@@ -1,5 +1,6 @@
+import { DAILY_CHECKLIST_ALL_DEPT_ROLES } from "@/lib/constants";
 import { matchesRecurrenceWeekday } from "@/lib/taskRecurrence";
-import type { Task, TaskTemplate } from "@/types/database";
+import type { Task, TaskTemplate, UserRole } from "@/types/database";
 
 export const VIRTUAL_TASK_PREFIX = "tpl-";
 
@@ -25,6 +26,17 @@ export function virtualRecurringTask(t: TaskTemplate, profileId: string, busines
   };
 }
 
+export function templateVisibleForDailyChecklist(
+  template: Pick<TaskTemplate, "department_id">,
+  deptId: string | null,
+  role?: UserRole | null,
+): boolean {
+  if (template.department_id == null) return true;
+  if (deptId != null && template.department_id === deptId) return true;
+  if (deptId == null && role && DAILY_CHECKLIST_ALL_DEPT_ROLES.includes(role)) return true;
+  return false;
+}
+
 /** Daily checklist: recurring templates for today + assigned one-time / recurring rows. */
 export function buildTodayTasks(
   businessId: string,
@@ -34,6 +46,7 @@ export function buildTodayTasks(
   deptId: string | null,
   today: string,
   todayWeekday: number,
+  role?: UserRole | null,
 ): Task[] {
   const mine = tasks.filter((t) => t.assigned_to === profileId && t.approval_status !== "pending");
 
@@ -46,7 +59,7 @@ export function buildTodayTasks(
       (t) =>
         t.active &&
         matchesRecurrenceWeekday(t.recurrence_weekday, todayWeekday) &&
-        (t.department_id == null || t.department_id === deptId) &&
+        templateVisibleForDailyChecklist(t, deptId, role) &&
         !materializedTemplateIds.has(t.id),
     )
     .map((t) => virtualRecurringTask(t, profileId, businessId));

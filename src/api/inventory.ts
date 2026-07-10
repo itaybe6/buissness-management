@@ -24,6 +24,12 @@ export function inventorySaveError(e: unknown): string {
   if (msg.includes("min_quantity")) {
     return "עמודת «כמות מינימום» חסרה במסד הנתונים. ב-Supabase: SQL Editor → הריצו את supabase/patches/011_inventory_min_quantity.sql";
   }
+  if (msg.includes("units_per_package")) {
+    return "עמודת «יחידים ביחידת מידה» חסרה במסד הנתונים. ב-Supabase: SQL Editor → הריצו את supabase/patches/030_inventory_units_per_package.sql";
+  }
+  if (msg.includes("category")) {
+    return "עמודת «קטגוריה» חסרה במסד הנתונים. ב-Supabase: SQL Editor → הריצו את supabase/patches/032_inventory_item_category.sql";
+  }
   if (/bucket|storage/i.test(msg)) {
     return "שגיאה בהעלאת תמונה. ודאו שקיים Bucket בשם inventory ב-Storage.";
   }
@@ -78,6 +84,57 @@ export const INVENTORY_UNITS = [
   { value: "ליטר", label: "ליטר" },
 ] as const;
 
+export const INVENTORY_CATEGORIES = [
+  { value: "dairy", label: "חלבי" },
+  { value: "alcohol", label: "אלכוהול" },
+  { value: "dry", label: "יבשים" },
+  { value: "beverages", label: "משקאות" },
+  { value: "meat_fish", label: "בשר ודגים" },
+  { value: "produce", label: "ירקות ופירות" },
+  { value: "frozen", label: "קפואים" },
+  { value: "cleaning", label: "חומרי ניקוי" },
+  { value: "other", label: "אחר" },
+] as const;
+
+export type InventoryCategory = (typeof INVENTORY_CATEGORIES)[number]["value"];
+
+export function inventoryCategoryLabel(category: string | null | undefined): string | null {
+  if (!category) return null;
+  return INVENTORY_CATEGORIES.find((c) => c.value === category)?.label ?? category;
+}
+
+export const BASE_UNIT = "יחידות" as const;
+
+/** Whether the item's main unit allows entering quantities as individual pieces. */
+export function supportsPieceInput(unit: string | null | undefined): boolean {
+  return !!unit && unit !== BASE_UNIT;
+}
+
+export function canUsePieceInput(unit: string | null | undefined, unitsPerPackage: number | null | undefined): boolean {
+  return supportsPieceInput(unit) && (unitsPerPackage ?? 0) > 0;
+}
+
+/** Convert individual pieces to the item's main unit. */
+export function piecesToMainUnit(pieces: number, unitsPerPackage: number): number {
+  if (unitsPerPackage <= 0) return pieces;
+  return Math.round((pieces / unitsPerPackage) * 10000) / 10000;
+}
+
+/** Convert main-unit quantity to individual pieces for display. */
+export function mainUnitToPieces(qty: number, unitsPerPackage: number): number {
+  if (unitsPerPackage <= 0) return qty;
+  return Math.round(qty * unitsPerPackage * 100) / 100;
+}
+
+/** Format quantity with optional piece equivalent, e.g. "2.5 ארגז (60 יח׳)". */
+export function formatQtyWithPieces(qty: number, unit: string | null, unitsPerPackage: number | null | undefined): string {
+  const unitLabel = unit ? ` ${unit}` : "";
+  const base = `${qty}${unitLabel}`;
+  if (!canUsePieceInput(unit, unitsPerPackage)) return base;
+  const pieces = mainUnitToPieces(qty, unitsPerPackage!);
+  return `${base} (${pieces} יח׳)`;
+}
+
 export async function uploadItemImage(businessId: string, file: File): Promise<string> {
   const compressed = await compressImage(file);
   const path = `${businessId}/${crypto.randomUUID()}.jpg`;
@@ -126,9 +183,11 @@ export function useCreateItem(businessId: string | null) {
       business_id: string;
       name: string;
       unit?: string;
+      units_per_package?: number | null;
       image_url?: string | null;
       min_quantity?: number;
       supplier_delivery_day?: number | null;
+      category?: string | null;
       quantity?: number;
       employee_id?: string | null;
     }) => {
