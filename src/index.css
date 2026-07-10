@@ -2321,7 +2321,7 @@ select {
   transform: scale(0.97);
 }
 
-/* Segmented status control */
+/* Segmented controls (shifts, faults, attendance, etc.) */
 .seg-btn {
   transition:
     transform 140ms var(--ease-out),
@@ -2345,31 +2345,257 @@ select {
   }
 }
 
-/* Employee home + mobile task cards */
-.employee-home-hero {
-  background:
-    linear-gradient(145deg, color-mix(in srgb, var(--accent) 6%, var(--surface)) 0%, var(--surface) 55%),
-    var(--surface);
-  box-shadow: 0 16px 40px -14px rgba(15, 23, 20, 0.08);
-}
-
 .employee-shift-card .font-mono {
   font-variant-numeric: tabular-nums;
 }
 
-.task-card-mobile {
-  position: relative;
+/* Checklist shell */
+.task-checklist {
   overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 22px;
+  background: var(--surface);
+  box-shadow: 0 16px 40px -14px rgba(15, 23, 20, 0.08);
 }
 
-.task-card-mobile::before {
+.task-checklist-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1rem 1.1rem;
+  border-bottom: 1px solid var(--border-2);
+  background: var(--surface);
+}
+
+@media (min-width: 640px) {
+  .task-checklist-header {
+    padding: 1.1rem 1.35rem;
+  }
+}
+
+.task-checklist-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.task-checklist-date {
+  margin: 0.15rem 0 0;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.task-checklist-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.75rem;
+  background: var(--surface-2);
+}
+
+@media (min-width: 640px) {
+  .task-checklist-list {
+    gap: 0.75rem;
+    padding: 1rem;
+  }
+}
+
+/* Task card */
+.task-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 18px;
+  background: var(--surface);
+  padding: 0.95rem 1rem 1rem;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+  transition:
+    border-color 180ms var(--ease-out),
+    opacity 180ms var(--ease-out),
+    box-shadow 180ms var(--ease-out);
+}
+
+.task-card::before {
   content: "";
   position: absolute;
-  inset-block: 0;
+  inset-block: 10px;
   inset-inline-start: 0;
-  width: 4px;
-  border-radius: 4px 0 0 4px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
   background: var(--row-accent, var(--accent));
+  opacity: var(--row-accent-opacity, 1);
+  transition: background 200ms var(--ease-out), opacity 200ms var(--ease-out);
+}
+
+.task-card[data-done="true"] {
+  opacity: 0.78;
+  border-color: color-mix(in srgb, var(--success) 22%, var(--border));
+  background: color-mix(in srgb, var(--success-bg) 35%, var(--surface));
+}
+
+.task-check-btn {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 13px;
+  border: none;
+  cursor: pointer;
+}
+
+.task-type-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.15rem 0.5rem;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--info);
+  background: var(--info-bg);
+}
+
+.task-type-pill--recurring {
+  color: var(--text-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+/* Status track — 3 equal chips */
+.task-status-track {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.35rem;
+  padding: 0.3rem;
+  border-radius: 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.task-status-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  min-height: 2.55rem;
+  border: none;
+  border-radius: 11px;
+  padding: 0.4rem 0.35rem;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-3);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color 160ms var(--ease-out),
+    background 160ms var(--ease-out),
+    box-shadow 160ms var(--ease-out);
+}
+
+.task-status-chip[data-active="true"][data-status="open"] {
+  color: var(--danger);
+  background: var(--danger-bg);
+  box-shadow: 0 1px 2px rgba(226, 68, 92, 0.12);
+}
+
+.task-status-chip[data-active="true"][data-status="in_progress"] {
+  color: #b45309;
+  background: var(--warning-bg);
+  box-shadow: 0 1px 2px rgba(253, 171, 61, 0.16);
+}
+
+.task-status-chip[data-active="true"][data-status="done"] {
+  color: #047857;
+  background: var(--success-bg);
+  box-shadow: 0 1px 2px rgba(0, 200, 117, 0.14);
+}
+
+[data-theme="dark"] .task-status-chip[data-active="true"][data-status="in_progress"] {
+  color: var(--warning);
+}
+
+[data-theme="dark"] .task-status-chip[data-active="true"][data-status="done"] {
+  color: var(--success);
+}
+
+/* Media bar — compact camera/gallery + thumbs */
+.task-media-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.65rem;
+  border-radius: 14px;
+  border: 1px dashed var(--border);
+  background: color-mix(in srgb, var(--surface-2) 70%, var(--surface));
+}
+
+.task-media-action {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 2.55rem;
+  padding: 0.5rem 1rem;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.task-media-action:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.task-media-action--accent {
+  background: var(--accent);
+  color: #fff;
+}
+
+.task-media-action--accent:hover:not(:disabled) {
+  background: var(--accent-2);
+}
+
+.task-upload-choice {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.85rem 0.95rem;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  cursor: pointer;
+  text-align: start;
+  transition:
+    border-color 160ms var(--ease-out),
+    background 160ms var(--ease-out);
+}
+
+.task-upload-choice:hover {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--brand-50) 70%, var(--surface));
+}
+
+.task-upload-choice-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 12px;
+  background: var(--accent);
+  color: #fff;
 }
 
 .task-media-strip {
@@ -2384,16 +2610,6 @@ select {
 
 .task-media-thumb {
   scroll-snap-align: start;
-}
-
-.task-status-seg-mobile .seg-btn {
-  min-height: 52px;
-}
-
-@media (min-width: 640px) {
-  .task-status-seg-mobile .seg-btn {
-    min-height: 0;
-  }
 }
 
 /* ============================================================

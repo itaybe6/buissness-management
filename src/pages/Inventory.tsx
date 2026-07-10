@@ -246,7 +246,7 @@ function TabSearchBar<T extends string>({
   addAriaLabel?: string;
   addDisabled?: boolean;
 }) {
-  const hasFilter = query.trim() || filter !== filters[0]?.key;
+  const hasFilter = query.trim() || (filters.length > 0 && filter !== filters[0]?.key);
 
   return (
     <div className="inventory-search mb-4 space-y-2.5">
@@ -285,19 +285,21 @@ function TabSearchBar<T extends string>({
         )}
       </div>
 
-      <div className="inventory-search-filters flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {filters.map(({ key, label }) => (
-          <button
-            key={key}
-            type="button"
-            data-active={filter === key}
-            onClick={() => onFilterChange(key)}
-            className="inventory-search-chip shrink-0"
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      {filters.length > 0 && (
+        <div className="inventory-search-filters flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {filters.map(({ key, label }) => (
+            <button
+              key={key}
+              type="button"
+              data-active={filter === key}
+              onClick={() => onFilterChange(key)}
+              className="inventory-search-chip shrink-0"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {hasFilter && (
         <p className="text-[11px] font-medium text-text-3">
@@ -308,16 +310,8 @@ function TabSearchBar<T extends string>({
   );
 }
 
-type StockFilter = "all" | StockStatus;
 type OrderFilter = "all" | "today" | "week";
 type WasteFilter = "all" | "deducted" | "not_deducted";
-
-const STOCK_FILTERS: { key: StockFilter; label: string }[] = [
-  { key: "all", label: "הכל" },
-  { key: "ok", label: "במלאי" },
-  { key: "low", label: "מלאי נמוך" },
-  { key: "empty", label: "אזל" },
-];
 
 const ORDER_FILTERS: { key: OrderFilter; label: string }[] = [
   { key: "all", label: "הכל" },
@@ -1133,7 +1127,6 @@ export function Inventory() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [stockFilter, setStockFilter] = useState<StockFilter>("all");
   const [orderSearchQuery, setOrderSearchQuery] = useState("");
   const [orderFilter, setOrderFilter] = useState<OrderFilter>("all");
   const [wasteSearchQuery, setWasteSearchQuery] = useState("");
@@ -1161,11 +1154,10 @@ export function Inventory() {
   const filteredList = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return list.filter((item) => {
-      if (stockFilter !== "all" && stockStatus(item) !== stockFilter) return false;
       if (q && !item.name.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [list, searchQuery, stockFilter]);
+  }, [list, searchQuery]);
 
   const orderList = orders ?? [];
   const openBatches = groupOpenOrders(orderList, list);
@@ -1521,9 +1513,9 @@ export function Inventory() {
             <TabSearchBar
               query={searchQuery}
               onQueryChange={setSearchQuery}
-              filter={stockFilter}
-              onFilterChange={setStockFilter}
-              filters={STOCK_FILTERS}
+              filter="all"
+              onFilterChange={() => {}}
+              filters={[]}
               placeholder="חיפוש מוצר..."
               resultCount={filteredList.length}
               totalCount={list.length}
@@ -1537,10 +1529,10 @@ export function Inventory() {
               <EmptyState
                 icon="search_off"
                 title="לא נמצאו מוצרים"
-                description="נסו מילת חיפוש אחרת או שנו את הסינון."
+                description="נסו מילת חיפוש אחרת."
                 action={
-                  <Button variant="secondary" onClick={() => { setSearchQuery(""); setStockFilter("all"); }}>
-                    ניקוי סינון
+                  <Button variant="secondary" onClick={() => setSearchQuery("")}>
+                    ניקוי חיפוש
                   </Button>
                 }
               />

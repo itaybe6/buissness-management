@@ -1,6 +1,6 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { Badge, Icon } from "@/components/ui";
+import { Button, Icon } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { EASE_OUT } from "@/components/motion/shared-motion";
 import { todayISO } from "@/lib/db";
@@ -13,17 +13,11 @@ type StatusTone = "danger" | "warning" | "success";
 type ChecklistVariant = "default" | "dashboard" | "employee";
 
 const STATUS_META: Record<TaskStatus, { label: string; short: string; tone: StatusTone; color: string; icon: string }> = {
-  open: { label: "מצריך טיפול", short: "פתוח", tone: "danger", color: "var(--danger)", icon: "error" },
-  in_progress: { label: "בטיפול", short: "בטיפול", tone: "warning", color: "var(--warning)", icon: "pending" },
+  open: { label: "מצריך טיפול", short: "פתוח", tone: "danger", color: "var(--danger)", icon: "radio_button_unchecked" },
+  in_progress: { label: "בטיפול", short: "בטיפול", tone: "warning", color: "var(--warning)", icon: "timelapse" },
   done: { label: "בוצע", short: "בוצע", tone: "success", color: "var(--success)", icon: "check_circle" },
 };
 const STATUS_ORDER: TaskStatus[] = ["open", "in_progress", "done"];
-
-const STATUS_TONE_CLASS: Record<StatusTone, string> = {
-  danger: "text-danger [background:var(--danger-bg)]",
-  warning: "text-warning [background:var(--warning-bg)]",
-  success: "text-success [background:var(--success-bg)]",
-};
 
 const VIDEO_RE = /\.(mp4|mov|m4v|webm|avi|mkv|quicktime)$/i;
 
@@ -46,14 +40,51 @@ export function useDailyTaskActions(
   const { data: templates = [] } = useTaskTemplates(businessId);
   const update = useUpdateTask(businessId);
   const createTask = useCreateTask();
+  const [overrides, setOverrides] = useState<
+    Record<string, Partial<Pick<Task, "status" | "completed_at" | "media_urls">>>
+  >({});
 
   const today = todayISO();
   const todayWeekday = new Date().getDay();
 
-  const todayTasks = useMemo(
-    () => buildTodayTasks(businessId, tasks, templates, profileId, deptId, today, todayWeekday, role),
-    [businessId, tasks, templates, profileId, deptId, today, todayWeekday, role],
-  );
+  const todayTasks = useMemo(() => {
+    const built = buildTodayTasks(businessId, tasks, templates, profileId, deptId, today, todayWeekday, role);
+    return built.map((t) => {
+      const patch = overrides[t.id];
+      return patch ? { ...t, ...patch } : t;
+    });
+  }, [businessId, tasks, templates, profileId, deptId, today, todayWeekday, role, overrides]);
+
+  // Clear overrides once the virtual row is gone (materialized) or the real row matches.
+  useEffect(() => {
+    const visibleIds = new Set(
+      buildTodayTasks(businessId, tasks, templates, profileId, deptId, today, todayWeekday, role).map((t) => t.id),
+    );
+    setOverrides((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const id of Object.keys(prev)) {
+        if (!visibleIds.has(id)) {
+          delete next[id];
+          changed = true;
+          continue;
+        }
+        if (id.startsWith(VIRTUAL_TASK_PREFIX)) continue;
+        const server = tasks.find((t) => t.id === id);
+        const patch = prev[id];
+        if (!server || !patch) continue;
+        const statusOk = patch.status == null || server.status === patch.status;
+        const mediaOk =
+          patch.media_urls == null ||
+          JSON.stringify(server.media_urls ?? []) === JSON.stringify(patch.media_urls);
+        if (statusOk && mediaOk) {
+          delete next[id];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [businessId, tasks, templates, profileId, deptId, today, todayWeekday, role]);
 
   function materialize(
     templateId: string,
@@ -74,17 +105,17 @@ export function useDailyTaskActions(
   }
 
   function setStatus(id: string, status: TaskStatus) {
+    const completed_at = status === "done" ? new Date().toISOString() : null;
+    setOverrides((prev) => ({ ...prev, [id]: { ...prev[id], status, completed_at } }));
     if (id.startsWith(VIRTUAL_TASK_PREFIX)) {
-      materialize(id.slice(VIRTUAL_TASK_PREFIX.length), {
-        status,
-        completed_at: status === "done" ? new Date().toISOString() : null,
-      });
+      materialize(id.slice(VIRTUAL_TASK_PREFIX.length), { status, completed_at });
       return;
     }
-    update.mutate({ id, status, completed_at: status === "done" ? new Date().toISOString() : null });
+    update.mutate({ id, status, completed_at });
   }
 
   function setMedia(id: string, media_urls: string[]) {
+    setOverrides((prev) => ({ ...prev, [id]: { ...prev[id], media_urls } }));
     if (id.startsWith(VIRTUAL_TASK_PREFIX)) {
       materialize(id.slice(VIRTUAL_TASK_PREFIX.length), { media_urls });
       return;
@@ -95,36 +126,45 @@ export function useDailyTaskActions(
   return { todayTasks, setStatus, setMedia };
 }
 
-function ChecklistProgress({ total, done, compact }: { total: number; done: number; compact?: boolean }) {
+function ChecklistProgress({ total, done }: { total: number; done: number }) {
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
   const allDone = total > 0 && done === total;
   const accent = allDone ? "var(--success)" : "var(--accent-2)";
-  const ring = compact ? "h-12 w-12" : "h-14 w-14";
-  const inner = compact ? "h-9 w-9" : "h-11 w-11";
 
   return (
-    <div className="flex items-center gap-3 sm:gap-4">
+    <div className="flex items-center gap-3">
       <div
-        className={`grid ${ring} flex-none place-items-center rounded-full`}
-        style={{ background: `conic-gradient(${accent} ${pct * 3.6}deg, var(--border-2) 0deg)` }}
+        className="relative grid h-11 w-11 flex-none place-items-center"
         role="img"
         aria-label={`${pct}% הושלמו`}
       >
-        <div className={`grid ${inner} place-items-center rounded-full bg-surface`}>
-          {allDone ? (
-            <Icon name="check" size={compact ? 18 : 22} style={{ color: "var(--success)" }} />
-          ) : (
-            <span className="text-[12px] font-extrabold tabular-nums sm:text-[13px]" style={{ color: accent }}>
-              {pct}%
-            </span>
-          )}
-        </div>
+        <svg viewBox="0 0 36 36" className="absolute inset-0 h-full w-full -rotate-90" aria-hidden>
+          <circle cx="18" cy="18" r="15.5" fill="none" stroke="var(--border-2)" strokeWidth="3" />
+          <circle
+            cx="18"
+            cy="18"
+            r="15.5"
+            fill="none"
+            stroke={accent}
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeDasharray={`${pct * 0.973} 100`}
+            style={{ transition: "stroke-dasharray 400ms var(--ease-out), stroke 200ms var(--ease-out)" }}
+          />
+        </svg>
+        {allDone ? (
+          <Icon name="check" size={18} style={{ color: "var(--success)" }} />
+        ) : (
+          <span className="text-[11px] font-extrabold tabular-nums" style={{ color: accent }}>
+            {done}/{total}
+          </span>
+        )}
       </div>
       <div className="min-w-0">
-        <div className="text-[14px] font-extrabold tracking-tight sm:text-[15px]">
-          {allDone ? "כל המשימות הושלמו" : done === 0 ? "משימות היום" : `${done} מתוך ${total} הושלמו`}
+        <div className="text-[13px] font-extrabold tracking-tight text-text">
+          {allDone ? "הכל בוצע" : done === 0 ? "עדיין לא התחלת" : `${total - done} נותרו`}
         </div>
-        <div className="mt-0.5 text-[11.5px] text-text-3 sm:text-[12px]">עדכון סטטוס ותיעוד ביצוע</div>
+        <div className="mt-0.5 text-[11px] text-text-3">{pct}% מהיום</div>
       </div>
     </div>
   );
@@ -133,20 +173,12 @@ function ChecklistProgress({ total, done, compact }: { total: number; done: numb
 function StatusSegmented({
   value,
   onChange,
-  mobileLarge,
 }: {
   value: TaskStatus;
   onChange: (s: TaskStatus) => void;
-  mobileLarge?: boolean;
 }) {
   return (
-    <div
-      className={`task-status-seg inline-flex w-full items-stretch gap-1 rounded-[14px] border border-border bg-surface-2 p-1 ${
-        mobileLarge ? "task-status-seg-mobile" : ""
-      }`}
-      role="group"
-      aria-label="סטטוס המשימה"
-    >
+    <div className="task-status-track" role="group" aria-label="סטטוס המשימה">
       {STATUS_ORDER.map((s) => {
         const m = STATUS_META[s];
         const active = value === s;
@@ -157,16 +189,12 @@ function StatusSegmented({
             onClick={() => onChange(s)}
             aria-pressed={active}
             aria-label={m.label}
-            className={`seg-btn flex flex-1 flex-col items-center justify-center gap-0.5 rounded-[10px] px-1 py-2.5 sm:flex-row sm:gap-1.5 sm:px-2 sm:py-2 ${
-              mobileLarge ? "min-h-[52px] sm:min-h-0" : ""
-            } ${active ? `${STATUS_TONE_CLASS[m.tone]} shadow-sm` : "text-text-3 hover:text-text-2"}`}
+            data-status={s}
+            data-active={active ? "true" : "false"}
+            className="task-status-chip press"
           >
-            <Icon name={m.icon} size={mobileLarge ? 20 : 16} className="flex-none sm:hidden" />
-            <Icon name={m.icon} size={15} className="hidden flex-none sm:block" />
-            <span className={`truncate font-bold ${mobileLarge ? "text-[11px] sm:text-[12.5px]" : "text-[11px] sm:text-[12.5px]"}`}>
-              <span className="sm:hidden">{m.short}</span>
-              <span className="hidden sm:inline">{m.label}</span>
-            </span>
+            <Icon name={m.icon} size={17} className="flex-none" />
+            <span className="truncate">{m.short}</span>
           </button>
         );
       })}
@@ -194,28 +222,26 @@ function MediaLightbox({ url, onClose }: { url: string | null; onClose: () => vo
 
 function MediaThumb({
   url,
-  size = 72,
   onRemove,
   onPreview,
 }: {
   url: string;
-  size?: number;
   onRemove?: () => void;
   onPreview?: () => void;
 }) {
   const video = isVideoUrl(url);
 
   return (
-    <div className="task-media-thumb group relative flex-none snap-start" style={{ width: size, height: size }}>
+    <div className="task-media-thumb group relative h-14 w-14 flex-none snap-start sm:h-16 sm:w-16">
       <button
         type="button"
         onClick={onPreview}
         title={video ? "צפייה בסרטון" : "צפייה בתמונה"}
-        className="press block h-full w-full overflow-hidden rounded-[14px] border border-border bg-surface-2 shadow-sm"
+        className="press block h-full w-full overflow-hidden rounded-[12px] border border-border bg-surface-2"
       >
         {video ? (
           <div className="grid h-full w-full place-items-center bg-ink text-white">
-            <Icon name="play_circle" size={Math.round(size * 0.38)} />
+            <Icon name="play_circle" size={22} />
           </div>
         ) : (
           <img src={url} alt="תיעוד משימה" className="h-full w-full object-cover" loading="lazy" />
@@ -229,67 +255,126 @@ function MediaThumb({
             onRemove();
           }}
           title="הסרה"
-          className="press absolute -right-1 -top-1 grid h-6 w-6 place-items-center rounded-full border border-border bg-surface text-text-2 shadow-md"
+          className="press absolute -right-1.5 -top-1.5 grid h-6 w-6 place-items-center rounded-full border border-border bg-surface text-text-2 shadow-sm"
         >
-          <Icon name="close" size={14} />
+          <Icon name="close" size={13} />
         </button>
       )}
     </div>
   );
 }
 
-function TaskMediaUpload({
+function TaskMediaBar({
+  media,
   uploading,
-  hasMedia,
+  uploadProgress,
   onCamera,
   onGallery,
-  mobileStack,
+  onPreview,
+  onRemove,
 }: {
+  media: string[];
   uploading: boolean;
-  hasMedia: boolean;
+  uploadProgress: number;
   onCamera: () => void;
   onGallery: () => void;
-  mobileStack?: boolean;
+  onPreview: (url: string) => void;
+  onRemove: (url: string) => void;
 }) {
-  if (mobileStack) {
-    return (
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          onClick={onCamera}
-          disabled={uploading}
-          className="press flex min-h-[48px] flex-col items-center justify-center gap-1 rounded-[14px] [background:var(--ink)] px-3 py-3 text-[12px] font-bold text-white shadow-sm disabled:opacity-60"
-        >
-          <Icon name={uploading ? "hourglass_empty" : "photo_camera"} size={22} className={uploading ? "animate-pulse" : ""} />
-          {uploading ? "מעלה…" : "צילום"}
-        </button>
-        <button
-          type="button"
-          onClick={onGallery}
-          disabled={uploading}
-          className="press flex min-h-[48px] flex-col items-center justify-center gap-1 rounded-[14px] border border-border bg-surface-2 px-3 py-3 text-[12px] font-bold text-text-2 disabled:opacity-60"
-        >
-          <Icon name="photo_library" size={22} />
-          {hasMedia ? "הוספה" : "גלריה"}
-        </button>
-      </div>
-    );
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const hasMedia = media.length > 0;
+
+  function choose(source: "camera" | "gallery") {
+    setPickerOpen(false);
+    // Let the modal close before opening the native picker
+    window.setTimeout(() => {
+      if (source === "camera") onCamera();
+      else onGallery();
+    }, 180);
   }
 
   return (
-    <button
-      type="button"
-      onClick={onGallery}
-      disabled={uploading}
-      className="press inline-flex w-full items-center justify-center gap-2 rounded-[12px] border border-dashed border-border px-3 py-2.5 text-[12.5px] font-semibold text-text-3 transition hover:border-accent-2/40 hover:bg-surface-2 hover:text-text-2 disabled:opacity-60 sm:w-auto"
-    >
-      <Icon
-        name={uploading ? "hourglass_empty" : hasMedia ? "add_photo_alternate" : "perm_media"}
-        size={18}
-        className={uploading ? "animate-pulse" : ""}
-      />
-      {uploading ? "מעלה…" : hasMedia ? "הוספת תמונה / סרטון" : "צירוף תמונה או סרטון לתיעוד"}
-    </button>
+    <>
+      <div className="task-media-bar">
+        {hasMedia && (
+          <div className="task-media-strip flex gap-2 overflow-x-auto pb-0.5">
+            {media.map((url) => (
+              <MediaThumb
+                key={url}
+                url={url}
+                onPreview={() => onPreview(url)}
+                onRemove={() => onRemove(url)}
+              />
+            ))}
+          </div>
+        )}
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setPickerOpen(true)}
+            disabled={uploading}
+            className="press task-media-action task-media-action--accent"
+          >
+            <Icon
+              name={uploading ? "hourglass_empty" : hasMedia ? "add_photo_alternate" : "upload"}
+              size={18}
+              className={uploading ? "animate-pulse" : ""}
+            />
+            <span>{uploading ? "מעלה…" : hasMedia ? "הוספת תיעוד" : "העלאת תיעוד"}</span>
+          </button>
+          {hasMedia && (
+            <span className="ms-auto text-[11px] font-semibold tabular-nums text-text-3">{media.length} קבצים</span>
+          )}
+        </div>
+
+        {uploading && (
+          <div className="h-1 overflow-hidden rounded-full bg-border-2">
+            <motion.div
+              className="h-full rounded-full"
+              style={{ background: "var(--accent)" }}
+              initial={{ width: "8%" }}
+              animate={{ width: `${Math.max(uploadProgress, 12)}%` }}
+              transition={{ duration: 0.2, ease: EASE_OUT }}
+            />
+          </div>
+        )}
+      </div>
+
+      <Modal
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        icon="perm_media"
+        title="העלאת תיעוד"
+        subtitle="בחר איך לצרף תמונה או סרטון"
+      >
+        <div className="flex flex-col gap-2.5">
+          <button type="button" onClick={() => choose("camera")} className="press task-upload-choice">
+            <span className="task-upload-choice-icon">
+              <Icon name="photo_camera" size={22} />
+            </span>
+            <span className="min-w-0 flex-1 text-start">
+              <span className="block text-[14px] font-extrabold text-text">צילום</span>
+              <span className="mt-0.5 block text-[12px] text-text-2">פתח את המצלמה עכשיו</span>
+            </span>
+            <Icon name="chevron_left" size={20} className="text-text-3" />
+          </button>
+          <button type="button" onClick={() => choose("gallery")} className="press task-upload-choice">
+            <span className="task-upload-choice-icon">
+              <Icon name="photo_library" size={22} />
+            </span>
+            <span className="min-w-0 flex-1 text-start">
+              <span className="block text-[14px] font-extrabold text-text">גלריה</span>
+              <span className="mt-0.5 block text-[12px] text-text-2">בחר תמונה או סרטון מהמכשיר</span>
+            </span>
+            <Icon name="chevron_left" size={20} className="text-text-3" />
+          </button>
+          <Button variant="secondary" onClick={() => setPickerOpen(false)} className="mt-1 w-full">
+            ביטול
+          </Button>
+        </div>
+      </Modal>
+    </>
   );
 }
 
@@ -318,10 +403,7 @@ function DailyTaskRow({
   const meta = STATUS_META[task.status];
   const done = task.status === "done";
   const media = taskMedia(task);
-  const isEmployee = variant === "employee";
-  const isDashboard = variant === "dashboard";
-  const mobileLarge = isEmployee || isDashboard;
-  const thumbSize = isEmployee ? 80 : isDashboard ? 72 : 64;
+  const wrapped = variant === "employee" || variant === "dashboard";
 
   async function handleFiles(files: FileList | null) {
     const list = files ? Array.from(files) : [];
@@ -344,58 +426,57 @@ function DailyTaskRow({
     }
   }
 
-  const rowClass =
-    isDashboard || isEmployee
-      ? "task-card-mobile rounded-[18px] border border-border/70 bg-surface p-4 shadow-[0_8px_24px_-12px_rgba(15,23,20,0.08)]"
-      : "task-row task-enter border-b border-border-2 px-4 py-3.5 last:border-0 hover:bg-surface-2";
-
   return (
     <>
       <motion.div
         initial={reduce ? false : { opacity: 0, transform: "translateY(8px)" }}
         animate={{ opacity: 1, transform: "translateY(0)" }}
         transition={{ delay: Math.min(index, 8) * 0.04, duration: 0.24, ease: EASE_OUT }}
-        className={rowClass}
+        className={wrapped ? "task-card" : "task-row task-enter border-b border-border-2 px-4 py-3.5 last:border-0 hover:bg-surface-2"}
+        data-status={task.status}
+        data-done={done ? "true" : "false"}
         style={
-          variant === "default"
-            ? ({
-                "--row-accent": meta.color,
-                "--row-accent-opacity": done ? 0.45 : 1,
-                "--enter-delay": `${Math.min(index, 8) * 45}ms`,
-              } as React.CSSProperties)
-            : ({ "--row-accent": meta.color } as React.CSSProperties)
+          {
+            "--row-accent": meta.color,
+            "--row-accent-opacity": done ? 0.4 : 1,
+            "--enter-delay": `${Math.min(index, 8) * 45}ms`,
+          } as React.CSSProperties
         }
       >
         <div className="flex items-start gap-3">
-          <span
-            className="mt-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-[12px] sm:h-9 sm:w-9 sm:rounded-[11px]"
-            style={{ background: `${meta.color}18`, color: meta.color }}
+          <button
+            type="button"
+            onClick={() => onStatus(task.id, done ? "open" : "done")}
+            className="press task-check-btn"
+            style={{ color: meta.color, background: `color-mix(in srgb, ${meta.color} 14%, transparent)` }}
+            aria-label={done ? "סמן כפתוח" : "סמן כבוצע"}
+            title={done ? "סמן כפתוח" : "סמן כבוצע"}
           >
-            <Icon name={meta.icon} size={20} />
-          </span>
+            <Icon name={meta.icon} size={22} />
+          </button>
 
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 pt-0.5">
             <div className="flex flex-wrap items-center gap-2">
-              <span className={`text-[15px] font-bold leading-snug sm:text-[14.5px] sm:font-semibold ${done ? "text-text-3 line-through" : ""}`}>
+              <h3 className={`text-[15px] font-extrabold leading-snug tracking-tight ${done ? "text-text-3 line-through decoration-text-3/50" : "text-text"}`}>
                 {task.title}
+              </h3>
+              <span className={`task-type-pill ${task.type === "recurring" ? "task-type-pill--recurring" : ""}`}>
+                {task.type === "recurring" ? "קבועה" : "חד־פעמית"}
               </span>
-              <Badge tone={task.type === "recurring" ? "violet" : "info"}>
-                {task.type === "recurring" ? "קבועה" : "חד-פעמית"}
-              </Badge>
             </div>
             {task.description && (
-              <div className="mt-1 text-[12.5px] leading-relaxed text-text-3">{task.description}</div>
+              <p className={`mt-1 text-[12.5px] leading-relaxed ${done ? "text-text-3" : "text-text-2"}`}>
+                {task.description}
+              </p>
             )}
           </div>
         </div>
 
-        <div className="mt-4">
-          <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-text-3">סטטוס</div>
-          <StatusSegmented value={task.status} onChange={(s) => onStatus(task.id, s)} mobileLarge={mobileLarge} />
+        <div className="mt-3.5">
+          <StatusSegmented value={task.status} onChange={(s) => onStatus(task.id, s)} />
         </div>
 
-        <div className="mt-4">
-          <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-text-3">תיעוד</div>
+        <div className="mt-3">
           <input
             ref={cameraRef}
             type="file"
@@ -418,43 +499,16 @@ function DailyTaskRow({
               e.target.value = "";
             }}
           />
-          <TaskMediaUpload
+          <TaskMediaBar
+            media={media}
             uploading={uploading}
-            hasMedia={media.length > 0}
+            uploadProgress={uploadProgress}
             onCamera={() => cameraRef.current?.click()}
             onGallery={() => galleryRef.current?.click()}
-            mobileStack={isEmployee || isDashboard}
+            onPreview={setPreviewUrl}
+            onRemove={(url) => onMedia(task.id, media.filter((u) => u !== url))}
           />
-          {uploading && (
-            <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-border-2">
-              <motion.div
-                className="h-full rounded-full [background:var(--accent)]"
-                initial={{ width: "8%" }}
-                animate={{ width: `${Math.max(uploadProgress, 12)}%` }}
-                transition={{ duration: 0.2, ease: EASE_OUT }}
-              />
-            </div>
-          )}
         </div>
-
-        {media.length > 0 && (
-          <div className="mt-4">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wide text-text-3">קבצים ({media.length})</span>
-            </div>
-            <div className="task-media-strip -mx-1 flex gap-2.5 overflow-x-auto px-1 pb-1">
-              {media.map((url) => (
-                <MediaThumb
-                  key={url}
-                  url={url}
-                  size={thumbSize}
-                  onPreview={() => setPreviewUrl(url)}
-                  onRemove={() => onMedia(task.id, media.filter((u) => u !== url))}
-                />
-              ))}
-            </div>
-          </div>
-        )}
 
         {error && <span className="mt-2 block text-[12px] font-semibold text-danger">{error}</span>}
       </motion.div>
@@ -482,23 +536,24 @@ export function DailyTasksChecklist({
   const isEmployee = variant === "employee";
   const isDashboard = variant === "dashboard";
   const wrapped = isEmployee || isDashboard;
+  const title = isEmployee ? "משימות להיום" : "צ'ק-ליסט משימות יומיות";
 
   if (tasks.length === 0) {
     if (wrapped) {
       return (
-        <section className="overflow-hidden rounded-[22px] border border-border/70 bg-surface shadow-[0_16px_40px_-14px_rgba(15,23,20,0.08)]">
-          <div className="border-b border-border-2 bg-surface px-4 py-4 sm:px-6">
-            <h2 className="text-[15px] font-extrabold tracking-tight text-text">
-              {isEmployee ? "משימות להיום" : "צ'ק-ליסט משימות יומיות"}
-            </h2>
-            <p className="mt-0.5 text-[12px] text-text-3">{todayLabel}</p>
-          </div>
-          <div className="px-5 py-10 text-center sm:px-6">
-            <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full [background:var(--success-bg)]">
-              <Icon name="task_alt" size={30} style={{ color: "var(--success)" }} />
+        <section className="task-checklist">
+          <header className="task-checklist-header">
+            <div>
+              <h2 className="task-checklist-title">{title}</h2>
+              <p className="task-checklist-date">{todayLabel}</p>
             </div>
-            <div className="text-[15px] font-extrabold">אין משימות להיום</div>
-            <div className="mt-1 text-[13px] text-text-2">לא שויכו אליך משימות קבועות או חד-פעמיות ליום זה.</div>
+          </header>
+          <div className="px-5 py-11 text-center sm:px-6">
+            <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-success-bg">
+              <Icon name="task_alt" size={28} style={{ color: "var(--success)" }} />
+            </div>
+            <div className="text-[15px] font-extrabold text-text">אין משימות להיום</div>
+            <div className="mt-1 text-[13px] text-text-2">לא שויכו אליך משימות קבועות או חד־פעמיות ליום זה.</div>
           </div>
         </section>
       );
@@ -506,30 +561,26 @@ export function DailyTasksChecklist({
 
     return (
       <div className="overflow-hidden rounded-[20px] border border-border bg-surface px-6 py-12 text-center">
-        <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full [background:var(--success-bg)]">
-          <Icon name="task_alt" size={30} style={{ color: "var(--success)" }} />
+        <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-success-bg">
+          <Icon name="task_alt" size={28} style={{ color: "var(--success)" }} />
         </div>
         <div className="text-[16px] font-extrabold">אין משימות להיום</div>
-        <div className="mt-1 text-[13px] text-text-2">לא שויכו אליך משימות קבועות או חד-פעמיות ליום זה.</div>
+        <div className="mt-1 text-[13px] text-text-2">לא שויכו אליך משימות קבועות או חד־פעמיות ליום זה.</div>
       </div>
     );
   }
 
   if (wrapped) {
     return (
-      <section className="overflow-hidden rounded-[22px] border border-border/70 bg-surface shadow-[0_16px_40px_-14px_rgba(15,23,20,0.08)]">
-        <div className="border-b border-border-2 bg-surface px-4 py-4 sm:px-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-[15px] font-extrabold tracking-tight text-text">
-                {isEmployee ? "משימות להיום" : "צ'ק-ליסט משימות יומיות"}
-              </h2>
-              <p className="mt-0.5 text-[12px] text-text-3">{todayLabel}</p>
-            </div>
-            <ChecklistProgress total={tasks.length} done={doneCount} compact={isEmployee} />
+      <section className="task-checklist">
+        <header className="task-checklist-header">
+          <div className="min-w-0">
+            <h2 className="task-checklist-title">{title}</h2>
+            <p className="task-checklist-date">{todayLabel}</p>
           </div>
-        </div>
-        <div className="space-y-3 p-3 sm:space-y-3 sm:p-5">
+          <ChecklistProgress total={tasks.length} done={doneCount} />
+        </header>
+        <div className="task-checklist-list">
           {tasks.map((t, i) => (
             <DailyTaskRow
               key={t.id}
