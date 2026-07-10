@@ -337,6 +337,8 @@ export interface InventoryItem {
   min_quantity: number;
   /** 0=Sunday … 6=Saturday (JS getDay). null = not set */
   supplier_delivery_day: number | null;
+  /** Product category key (dairy, alcohol, dry, etc.) */
+  category: string | null;
   active: boolean;
   created_at: string;
 }

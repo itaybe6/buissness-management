@@ -33,18 +33,10 @@ import { useDepartments } from "@/api/departments";
 import { useProfiles } from "@/api/users";
 import { useBusiness } from "@/api/businesses";
 import { MANAGER_ROLES, TASK_CREATE_ROLES } from "@/lib/constants";
-import { EmployeeShiftPunch } from "@/components/attendance/EmployeeShiftPunch";
+import { WorkerHome } from "@/components/dashboard/WorkerHome";
 import { TaskWeekSchedule } from "@/components/tasks/TaskWeekSchedule";
-import { DailyTasksChecklist, useDailyTaskActions, taskMedia, isVideoUrl } from "@/components/tasks/DailyTasksChecklist";
+import { taskMedia, isVideoUrl } from "@/components/tasks/DailyTasksChecklist";
 import type { Department, Task, TaskTemplate, TaskType } from "@/types/database";
-
-function greeting() {
-  const h = new Date().getHours();
-  if (h < 12) return "בוקר טוב";
-  if (h < 17) return "צהריים טובים";
-  if (h < 21) return "ערב טוב";
-  return "לילה טוב";
-}
 
 type ManagerTab = "assign" | "templates";
 type ListTab = TaskType;
@@ -62,76 +54,32 @@ export function Tasks() {
 /* ============================== Employee ============================== */
 
 function EmployeeTasksView({ businessId, profileId }: { businessId: string; profileId: string }) {
-  const { profile, hasFeature } = useAuth();
   const { data: tasks, isLoading, isError, refetch } = useTasks(businessId);
   const { data: templates, isLoading: tplLoading } = useTaskTemplates(businessId);
   const { data: departments, isLoading: deptLoading } = useDepartments(businessId);
   const { data: users } = useProfiles(businessId);
-  const { data: business } = useBusiness(businessId);
   const update = useUpdateTask(businessId);
-  const { todayTasks, setStatus, setMedia } = useDailyTaskActions(businessId, profileId, profile?.department_id ?? null);
   const [weekOpen, setWeekOpen] = useState(false);
 
   if (isLoading || tplLoading || deptLoading) return <PageLoader />;
   if (isError) return <ErrorState onRetry={refetch} />;
 
-  const remaining = todayTasks.filter((t) => t.status !== "done").length;
-  const total = todayTasks.length;
-  const doneCount = total - remaining;
-  const todayLabel = new Date().toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long" });
   const mine = (tasks ?? []).filter((t) => t.assigned_to === profileId && t.approval_status !== "pending");
-  const firstName = (profile?.full_name ?? "").split(/\s+/)[0];
 
   return (
-    <div className="employee-home w-full animate-fadeUp pb-2">
-      <header
-        className={`employee-home-hero mb-5 overflow-hidden rounded-[22px] border border-border/70 px-4 py-5 sm:px-5 ${
-          total === 0 ? "hidden md:block" : ""
-        }`}
-      >
-        <div className="hidden md:block">
-          <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-text-3">{business?.name ?? "העסק שלך"}</p>
-          <h1 className="mt-1 text-[clamp(1.35rem,5vw,1.75rem)] font-extrabold tracking-tight text-text">
-            {greeting()}
-            {firstName ? `, ${firstName}` : ""}
-          </h1>
-          <p className="mt-1 text-[13px] text-text-2">{todayLabel}</p>
-        </div>
-        {total > 0 && (
-          <div className="mt-0 flex items-center gap-3 rounded-[14px] border border-border/60 bg-surface/80 px-3 py-2.5 md:mt-4">
-            <span
-              className="grid h-10 w-10 flex-none place-items-center rounded-full text-[12px] font-extrabold tabular-nums"
-              style={{
-                background: doneCount === total ? "var(--success-bg)" : "var(--accent-tint)",
-                color: doneCount === total ? "var(--success)" : "var(--accent-2)",
-              }}
-            >
-              {doneCount}/{total}
-            </span>
-            <div className="min-w-0 text-[12.5px] leading-snug text-text-2">
-              {remaining === 0 ? "סיימת את כל משימות היום" : `${remaining} משימות ממתינות לטיפול`}
-            </div>
-          </div>
-        )}
-      </header>
-
-      {hasFeature("attendance") && <EmployeeShiftPunch />}
-
-      <DailyTasksChecklist
-        tasks={todayTasks}
-        businessId={businessId}
-        onStatus={setStatus}
-        onMedia={setMedia}
-        variant="employee"
-      />
-
-      <section className="mt-6">
+    <WorkerHome variant="employee">
+      <section className="worker-week-section">
         <button
           type="button"
           onClick={() => setWeekOpen((v) => !v)}
-          className="press flex w-full items-center justify-between rounded-[16px] border border-border/70 bg-surface px-4 py-3.5 text-right shadow-sm"
+          className="worker-week-toggle press"
         >
-          <span className="text-[14px] font-bold text-text">לוח שבועי</span>
+          <span className="flex items-center gap-2.5">
+            <span className="worker-week-toggle-icon">
+              <Icon name="calendar_view_week" size={20} className="text-accent-2" />
+            </span>
+            <span className="text-[14px] font-bold text-text">לוח שבועי</span>
+          </span>
           <Icon name={weekOpen ? "expand_less" : "expand_more"} size={22} className="text-text-3" />
         </button>
         {weekOpen && (
@@ -150,7 +98,7 @@ function EmployeeTasksView({ businessId, profileId }: { businessId: string; prof
           </div>
         )}
       </section>
-    </div>
+    </WorkerHome>
   );
 }
 
@@ -226,7 +174,11 @@ function ManagerTasksView({ businessId, profileId }: { businessId: string; profi
     <div className="w-full animate-fadeUp">
       <PageHeader
         title="משימות"
-        subtitle="משימות קבועות · שיוך לעובדים · חד-פעמיות"
+        subtitle={
+          canCreateTasks
+            ? "משימות קבועות · שיוך לעובדים · חד-פעמיות"
+            : "צפייה במשימות · סידור שבועי"
+        }
       />
 
       {canApprove && pendingApprovals.length > 0 && (
@@ -243,25 +195,41 @@ function ManagerTasksView({ businessId, profileId }: { businessId: string; profi
         />
       )}
 
-      <div className="mb-5 inline-flex gap-1 rounded-[12px] border border-border bg-surface-2 p-1">
-        {(
-          [
-            ["assign", "שיוך משימות", "person_add"],
-            ...(canCreateTasks ? ([["templates", "משימות קבועות", "event_repeat"]] as const) : []),
-          ] as const
-        ).map(([k, label, icon]) => (
-          <button
-            key={k}
-            onClick={() => setManagerTab(k)}
-            className={`inline-flex items-center gap-1.5 rounded-[10px] px-4 py-2 text-[14px] font-bold transition ${
-              managerTab === k ? "text-white [background:var(--ink)]" : "text-text-2"
-            }`}
-          >
-            <Icon name={icon} size={18} />
-            {label}
-          </button>
-        ))}
-      </div>
+      {!canCreateTasks && (
+        <Card className="mb-5 p-5">
+          <div className="flex items-start gap-3">
+            <Icon name="info" size={22} className="mt-0.5 text-text-3" />
+            <div>
+              <div className="text-[15px] font-bold text-text">צפייה בלבד</div>
+              <p className="mt-1 text-[13px] leading-relaxed text-text-2">
+                רק מנהל העסק יכול ליצור משימות חדשות ולהגדיר משימות קבועות.
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {canCreateTasks && (
+        <div className="mb-5 inline-flex gap-1 rounded-[12px] border border-border bg-surface-2 p-1">
+          {(
+            [
+              ["assign", "שיוך משימות", "person_add"],
+              ["templates", "משימות קבועות", "event_repeat"],
+            ] as const
+          ).map(([k, label, icon]) => (
+            <button
+              key={k}
+              onClick={() => setManagerTab(k)}
+              className={`inline-flex items-center gap-1.5 rounded-[10px] px-4 py-2 text-[14px] font-bold transition ${
+                managerTab === k ? "text-white [background:var(--ink)]" : "text-text-2"
+              }`}
+            >
+              <Icon name={icon} size={18} />
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {managerTab === "templates" && canCreateTasks ? (
         <FixedTasksPanel
@@ -299,20 +267,6 @@ function ManagerTasksView({ businessId, profileId }: { businessId: string; profi
                 if (!approval && input.assigned_to) notifyTaskAssigned(id);
               }}
             />
-          )}
-
-          {!canCreateTasks && (
-            <Card className="p-5">
-              <div className="flex items-start gap-3">
-                <Icon name="info" size={22} className="mt-0.5 text-text-3" />
-                <div>
-                  <div className="text-[15px] font-bold text-text">צפייה בלבד</div>
-                  <p className="mt-1 text-[13px] leading-relaxed text-text-2">
-                    רק מנהל העסק יכול ליצור משימות חדשות ולהגדיר משימות קבועות.
-                  </p>
-                </div>
-              </div>
-            </Card>
           )}
 
           <div>

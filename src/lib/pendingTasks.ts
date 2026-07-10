@@ -1,5 +1,6 @@
-import type { Task, TaskTemplate } from "@/types/database";
+import type { Task, TaskTemplate, UserRole } from "@/types/database";
 import { matchesRecurrenceWeekday } from "@/lib/taskRecurrence";
+import { templateVisibleForDailyChecklist } from "@/lib/todayTasks";
 
 export interface PendingTask {
   title: string;
@@ -18,6 +19,7 @@ export function pendingTasksForEmployee(
   profileId: string,
   deptId: string | null,
   weekday: number,
+  role?: UserRole | null,
 ): PendingTask[] {
   const result: PendingTask[] = [];
 
@@ -29,7 +31,7 @@ export function pendingTasksForEmployee(
     if (
       t.active &&
       matchesRecurrenceWeekday(t.recurrence_weekday, weekday) &&
-      (t.department_id == null || t.department_id === deptId) &&
+      templateVisibleForDailyChecklist(t, deptId, role) &&
       !materializedTemplateIds.has(t.id)
     ) {
       result.push({ title: t.title, type: "recurring" });

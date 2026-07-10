@@ -59,6 +59,7 @@ export function DashboardPresenceCard() {
     businessId ?? "",
     profile?.id ?? "",
     profile?.department_id ?? null,
+    profile?.role,
   );
 
   if (!biz || !profile) return null;

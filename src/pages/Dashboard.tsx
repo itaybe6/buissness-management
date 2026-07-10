@@ -14,8 +14,8 @@ import {
   RadialGauge,
   SparkLine,
 } from "@/components/dashboard/dashboard-charts";
-import { DashboardPresenceCard } from "@/components/dashboard/DashboardPresenceCard";
 import { ManagerDashboard } from "@/components/dashboard/ManagerDashboard";
+import { WorkerHome } from "@/components/dashboard/WorkerHome";
 import { Icon, PageLoader, ErrorState } from "@/components/ui";
 import { PageEnter, PressableCard, StaggerGrid, StaggerItem } from "@/components/motion/shared-motion";
 import { EASE_OUT } from "@/components/motion/shared-motion";
@@ -343,8 +343,6 @@ function BusinessDashboard() {
         </div>
       </header>
 
-      {role === "shift_manager" && <DashboardPresenceCard />}
-
       {/* KPI Grid */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
         {showAttendance && (
@@ -445,6 +443,10 @@ function BusinessDashboard() {
   );
 }
 
+function ShiftManagerDashboard() {
+  return <WorkerHome variant="shift_manager" />;
+}
+
 export function Dashboard() {
   const { profile } = useAuth();
   const role = profile?.role ?? "employee";
@@ -453,5 +455,7 @@ export function Dashboard() {
     return <ManagerDashboard />;
   }
   if (role === "super_admin") return <SuperAdminDashboard />;
+  if (role === "shift_manager") return <ShiftManagerDashboard />;
+  if (role === "employee") return <WorkerHome variant="employee" />;
   return <BusinessDashboard />;
 }

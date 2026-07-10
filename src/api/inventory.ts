@@ -27,6 +27,9 @@ export function inventorySaveError(e: unknown): string {
   if (msg.includes("units_per_package")) {
     return "עמודת «יחידים ביחידת מידה» חסרה במסד הנתונים. ב-Supabase: SQL Editor → הריצו את supabase/patches/030_inventory_units_per_package.sql";
   }
+  if (msg.includes("category")) {
+    return "עמודת «קטגוריה» חסרה במסד הנתונים. ב-Supabase: SQL Editor → הריצו את supabase/patches/032_inventory_item_category.sql";
+  }
   if (/bucket|storage/i.test(msg)) {
     return "שגיאה בהעלאת תמונה. ודאו שקיים Bucket בשם inventory ב-Storage.";
   }
@@ -80,6 +83,25 @@ export const INVENTORY_UNITS = [
   { value: "ק״ג", label: "ק״ג" },
   { value: "ליטר", label: "ליטר" },
 ] as const;
+
+export const INVENTORY_CATEGORIES = [
+  { value: "dairy", label: "חלבי" },
+  { value: "alcohol", label: "אלכוהול" },
+  { value: "dry", label: "יבשים" },
+  { value: "beverages", label: "משקאות" },
+  { value: "meat_fish", label: "בשר ודגים" },
+  { value: "produce", label: "ירקות ופירות" },
+  { value: "frozen", label: "קפואים" },
+  { value: "cleaning", label: "חומרי ניקוי" },
+  { value: "other", label: "אחר" },
+] as const;
+
+export type InventoryCategory = (typeof INVENTORY_CATEGORIES)[number]["value"];
+
+export function inventoryCategoryLabel(category: string | null | undefined): string | null {
+  if (!category) return null;
+  return INVENTORY_CATEGORIES.find((c) => c.value === category)?.label ?? category;
+}
 
 export const BASE_UNIT = "יחידות" as const;
 
@@ -165,6 +187,7 @@ export function useCreateItem(businessId: string | null) {
       image_url?: string | null;
       min_quantity?: number;
       supplier_delivery_day?: number | null;
+      category?: string | null;
       quantity?: number;
       employee_id?: string | null;
     }) => {

@@ -43,7 +43,7 @@ export const GeofenceRadar = memo(function GeofenceRadar({ active }: { active: b
         className="absolute inset-0 rounded-full opacity-40"
         style={{
           background: active
-            ? "radial-gradient(circle, color-mix(in srgb, var(--success) 18%, transparent) 0%, transparent 72%)"
+            ? "radial-gradient(circle, color-mix(in srgb, var(--accent) 18%, transparent) 0%, transparent 72%)"
             : "radial-gradient(circle, color-mix(in srgb, var(--accent) 14%, transparent) 0%, transparent 72%)",
         }}
       />
@@ -53,7 +53,7 @@ export const GeofenceRadar = memo(function GeofenceRadar({ active }: { active: b
           className="pointer-events-none absolute inset-0 rounded-full border"
           style={{
             borderColor: active
-              ? "color-mix(in srgb, var(--success) 35%, transparent)"
+              ? "color-mix(in srgb, var(--accent) 35%, transparent)"
               : "color-mix(in srgb, var(--accent) 28%, transparent)",
           }}
           animate={
@@ -79,7 +79,7 @@ export const GeofenceRadar = memo(function GeofenceRadar({ active }: { active: b
       <div
         className={`relative grid h-[92px] w-[92px] place-items-center rounded-full border shadow-lg ${
           active
-            ? "border-success/30 bg-ink text-success"
+            ? "border-accent/30 bg-ink text-accent"
             : "border-white/10 bg-ink text-accent"
         }`}
         style={{ boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), var(--shadow-lg)" }}
@@ -118,9 +118,9 @@ export function ShiftPulse({ label }: { label: string }) {
   const reduce = useReducedMotion();
 
   return (
-    <span className="inline-flex items-center gap-2 rounded-full border border-success/25 bg-success-bg px-3 py-1.5 text-[12px] font-bold text-success">
+    <span className="inline-flex items-center gap-2 rounded-full border border-accent/25 bg-violet-bg px-3 py-1.5 text-[12px] font-bold text-accent-2">
       <motion.span
-        className="h-2 w-2 rounded-full bg-success"
+        className="h-2 w-2 rounded-full bg-accent"
         animate={reduce ? undefined : { opacity: [1, 0.35, 1], scale: [1, 1.25, 1] }}
         transition={reduce ? undefined : { duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
       />

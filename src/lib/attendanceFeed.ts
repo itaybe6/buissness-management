@@ -118,3 +118,115 @@ export function groupAttendanceByEmployee(records: Attendance[]): EmployeeAttend
 export function formatPunchTime(iso: string): string {
   return new Date(iso).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
 }
+
+export type AttendanceShiftFilter = "all" | "on_shift" | "left";
+
+export function filterEmployeeAttendanceGroups(
+  groups: EmployeeAttendanceGroup[],
+  filter: AttendanceShiftFilter,
+): EmployeeAttendanceGroup[] {
+  if (filter === "all") return groups;
+  if (filter === "on_shift") return groups.filter((g) => g.onShift);
+  return groups.filter((g) => !g.onShift);
+}
+
+export function filterAttendanceDepartmentSections(
+  sections: AttendanceDepartmentSection[],
+  filter: AttendanceShiftFilter,
+): AttendanceDepartmentSection[] {
+  if (filter === "all") return sections;
+  return sections
+    .map((section) => ({
+      ...section,
+      groups: filterEmployeeAttendanceGroups(section.groups, filter),
+    }))
+    .filter((section) => section.groups.length > 0);
+}
+
+export interface AttendanceDepartmentSection {
+  key: string;
+  departmentId: string | null;
+  name: string;
+  color: string | null;
+  sortOrder: number;
+  groups: EmployeeAttendanceGroup[];
+}
+
+const SHIFT_MANAGER_SECTION = {
+  key: "role:shift_manager",
+  name: "אחמ״ש",
+  color: "#7c3aed",
+  sortOrder: 900,
+} as const;
+
+/** Group employee attendance rows under department; shift managers get their own section. */
+export function groupAttendanceByDepartment(
+  groups: EmployeeAttendanceGroup[],
+  departments: { id: string; name: string; color: string | null; sort_order: number }[],
+  employeeInfo: Map<string, { departmentId: string | null | undefined; role: string }>,
+): AttendanceDepartmentSection[] {
+  const deptById = new Map(departments.map((d) => [d.id, d]));
+  const deptBuckets = new Map<string, EmployeeAttendanceGroup[]>();
+  const shiftManagers: EmployeeAttendanceGroup[] = [];
+  const unassigned: EmployeeAttendanceGroup[] = [];
+
+  for (const group of groups) {
+    const info = employeeInfo.get(group.employeeId);
+    const role = info?.role ?? "employee";
+
+    if (role === "shift_manager") {
+      shiftManagers.push(group);
+      continue;
+    }
+
+    const raw = info?.departmentId ?? null;
+    const deptId = raw && deptById.has(raw) ? raw : null;
+    if (!deptId) {
+      unassigned.push(group);
+      continue;
+    }
+
+    const list = deptBuckets.get(deptId) ?? [];
+    list.push(group);
+    deptBuckets.set(deptId, list);
+  }
+
+  const sections: AttendanceDepartmentSection[] = [];
+
+  for (const dept of [...departments].sort((a, b) => a.sort_order - b.sort_order)) {
+    const list = deptBuckets.get(dept.id);
+    if (!list?.length) continue;
+    sections.push({
+      key: `dept:${dept.id}`,
+      departmentId: dept.id,
+      name: dept.name,
+      color: dept.color,
+      sortOrder: dept.sort_order,
+      groups: list,
+    });
+  }
+
+  if (shiftManagers.length) {
+    sections.push({
+      key: SHIFT_MANAGER_SECTION.key,
+      departmentId: null,
+      name: SHIFT_MANAGER_SECTION.name,
+      color: SHIFT_MANAGER_SECTION.color,
+      sortOrder: SHIFT_MANAGER_SECTION.sortOrder,
+      groups: shiftManagers,
+    });
+  }
+
+  if (unassigned.length) {
+    sections.push({
+      key: "none",
+      departmentId: null,
+      name: "ללא מחלקה",
+      color: null,
+      sortOrder: Number.MAX_SAFE_INTEGER,
+      groups: unassigned,
+    });
+  }
+
+  return sections;
+}

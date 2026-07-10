@@ -1,5 +1,6 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Button, Card, EmptyState, Field, Icon, Input, Spinner, Textarea } from "@/components/ui";
+import { Modal } from "@/components/ui/Modal";
 import {
   uploadReceiptFile,
   useCreateOfficeReceipt,
@@ -9,6 +10,7 @@ import {
 } from "@/api/officeReceipts";
 import { formatCurrency, todayISO } from "@/lib/db";
 import type { OfficeReceipt, ReceiptType } from "@/types/database";
+import { PdfFirstPagePreview } from "./pdf";
 import { RECEIPT_TYPE_ICONS, RECEIPT_TYPE_LABELS, RECEIPT_TYPES } from "./types";
 
 function monthNow() {
@@ -40,6 +42,9 @@ export function OfficeReceiptsPanel({
   canManage: boolean;
 }) {
   const [month, setMonth] = useState(monthNow());
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [successOpen, setSuccessOpen] = useState(false);
+  const [successInfo, setSuccessInfo] = useState<{ vendor: string; type: ReceiptType; amount: number } | null>(null);
   const { data: receipts, isLoading } = useOfficeReceipts(businessId, month);
   const create = useCreateOfficeReceipt(businessId);
   const del = useDeleteOfficeReceipt(businessId);
@@ -67,54 +72,138 @@ export function OfficeReceiptsPanel({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-[17px] font-extrabold tracking-tight">חשבוניות וקבלות</h2>
-          <p className="mt-0.5 text-[13px] text-text-2">העלאה, מעקב וארכיון מסמכים פיננסיים</p>
+          <p className="mt-0.5 text-[13px] text-text-2">מעקב וארכיון מסמכים פיננסיים</p>
         </div>
-        <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="!w-[150px]" />
+        <div className="flex flex-wrap items-center gap-2">
+          <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="!w-[150px]" />
+          {canManage && (
+            <Button icon="add" onClick={() => setUploadOpen(true)} className="hidden sm:inline-flex">
+              מסמך חדש
+            </Button>
+          )}
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
-        {/* List */}
-        <section className="min-w-0">
-          {isLoading ? (
-            <div className="grid place-items-center py-20 text-text-3">
-              <Spinner size={28} />
-            </div>
-          ) : (receipts ?? []).length === 0 ? (
-            <EmptyState
-              icon="receipt_long"
-              title="אין מסמכים בחודש זה"
-              description="העלי חשבונית או קבלה חדשה באמצעות הטופס."
-            />
-          ) : (
-            <div className="space-y-3">
-              {(receipts ?? []).map((r, i) => (
-                <ReceiptRow
-                  key={r.id}
-                  receipt={r}
-                  index={i}
-                  canManage={canManage}
-                  deleting={del.isPending}
-                  onDelete={() => confirm("למחוק את המסמך?") && del.mutate(r.id)}
-                />
-              ))}
+      <section className="min-w-0">
+        {isLoading ? (
+          <div className="grid place-items-center py-20 text-text-3">
+            <Spinner size={28} />
+          </div>
+        ) : (receipts ?? []).length === 0 ? (
+          <EmptyState
+            icon="receipt_long"
+            title="אין מסמכים בחודש זה"
+            description="העלי חשבונית או קבלה חדשה באמצעות כפתור הפלוס."
+            action={
+              canManage ? (
+                <Button icon="add" onClick={() => setUploadOpen(true)}>
+                  העלאת מסמך
+                </Button>
+              ) : undefined
+            }
+          />
+        ) : (
+          <div className="space-y-3">
+            {(receipts ?? []).map((r, i) => (
+              <ReceiptRow
+                key={r.id}
+                receipt={r}
+                index={i}
+                canManage={canManage}
+                deleting={del.isPending}
+                onDelete={() => confirm("למחוק את המסמך?") && del.mutate(r.id)}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {canManage && (
+        <button
+          type="button"
+          onClick={() => setUploadOpen(true)}
+          className="receipt-fab sm:hidden"
+          aria-label="העלאת מסמך חדש"
+        >
+          <Icon name="add" size={28} />
+        </button>
+      )}
+
+      <Modal
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        title="העלאת מסמך חדש"
+        subtitle="בחרי סוג, מלאי פרטים והעלי קובץ"
+        icon="upload_file"
+        maxWidth={520}
+      >
+        <UploadForm
+          key={uploadOpen ? "open" : "closed"}
+          businessId={businessId}
+          profileId={profileId}
+          saving={create.isPending}
+          onSave={async (input) => {
+            await create.mutateAsync(input);
+          }}
+          onSuccess={(info) => {
+            setUploadOpen(false);
+            setSuccessInfo(info);
+            setSuccessOpen(true);
+          }}
+        />
+      </Modal>
+
+      <Modal
+        open={successOpen}
+        onClose={() => setSuccessOpen(false)}
+        title="המסמך הועלה בהצלחה"
+        subtitle="המסמך נשמר בארכיון החשבוניות והקבלות"
+        icon="check_circle"
+        footer={
+          <div className="flex w-full flex-col gap-2 sm:flex-row">
+            <Button
+              variant="secondary"
+              className="flex-1"
+              icon="add"
+              onClick={() => {
+                setSuccessOpen(false);
+                setUploadOpen(true);
+              }}
+            >
+              מסמך נוסף
+            </Button>
+            <Button className="flex-1" icon="done" onClick={() => setSuccessOpen(false)}>
+              סיום
+            </Button>
+          </div>
+        }
+      >
+        <div className="flex flex-col items-center gap-4 py-2 text-center">
+          <span className="grid h-16 w-16 place-items-center rounded-full [background:var(--success-bg)] text-success">
+            <Icon name="task_alt" size={34} />
+          </span>
+          <div>
+            <p className="text-[15px] font-extrabold text-text">ההעלאה הושלמה</p>
+            <p className="mt-1 text-[13px] text-text-2">המסמך מופיע ברשימה למטה.</p>
+          </div>
+          {successInfo && (
+            <div className="w-full space-y-2 rounded-[14px] border border-border bg-surface-2 px-4 py-3 text-right">
+              <div className="flex items-center justify-between gap-3 text-[13px]">
+                <span className="text-text-3">ספק</span>
+                <span className="font-bold text-text">{successInfo.vendor}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3 text-[13px]">
+                <span className="text-text-3">סוג</span>
+                <span className="font-bold text-text">{RECEIPT_TYPE_LABELS[successInfo.type]}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3 text-[13px]">
+                <span className="text-text-3">סכום</span>
+                <span className="font-extrabold tabular-nums text-text">{formatCurrency(successInfo.amount)}</span>
+              </div>
             </div>
           )}
-        </section>
-
-        {/* Upload form */}
-        {canManage && (
-          <aside className="xl:sticky xl:top-4 xl:self-start">
-            <UploadForm
-              businessId={businessId}
-              profileId={profileId}
-              saving={create.isPending}
-              onSave={async (input) => {
-                await create.mutateAsync(input);
-              }}
-            />
-          </aside>
-        )}
-      </div>
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -233,11 +322,13 @@ function UploadForm({
   profileId,
   saving,
   onSave,
+  onSuccess,
 }: {
   businessId: string;
   profileId: string;
   saving: boolean;
   onSave: (input: CreateOfficeReceiptInput) => Promise<void>;
+  onSuccess: (info: { vendor: string; type: ReceiptType; amount: number }) => void;
 }) {
   const [type, setType] = useState<ReceiptType>("tax_invoice");
   const [amount, setAmount] = useState("");
@@ -252,21 +343,27 @@ function UploadForm({
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    return () => {
+      if (preview) URL.revokeObjectURL(preview);
+    };
+  }, [preview]);
+
   function clearFile() {
     setFile(null);
     if (preview) URL.revokeObjectURL(preview);
     setPreview(null);
+    if (inputRef.current) inputRef.current.value = "";
   }
 
   function pickFile(f: File | null) {
     if (!f) return;
     setFile(f);
     setError(null);
-    if (f.type.startsWith("image/")) {
-      if (preview) URL.revokeObjectURL(preview);
+    if (preview) URL.revokeObjectURL(preview);
+    if (f.type.startsWith("image/") || f.type === "application/pdf") {
       setPreview(URL.createObjectURL(f));
     } else {
-      if (preview) URL.revokeObjectURL(preview);
       setPreview(null);
     }
   }
@@ -279,6 +376,10 @@ function UploadForm({
     if (!parsedAmount || parsedAmount <= 0) return setError("יש למלא סכום תקין");
     if (!file) return setError("יש להעלות תמונה או קובץ של המסמך");
 
+    const savedVendor = vendorName.trim();
+    const savedType = type;
+    const savedAmount = parsedAmount;
+
     setUploading(true);
     try {
       const fileUrl = await uploadReceiptFile(businessId, file);
@@ -286,14 +387,14 @@ function UploadForm({
         business_id: businessId,
         type,
         amount: parsedAmount,
-        vendor_name: vendorName.trim(),
+        vendor_name: savedVendor,
         vendor_details: vendorDetails.trim() || null,
         document_date: documentDate || null,
         file_url: fileUrl,
         notes: notes.trim() || null,
         created_by: profileId,
       });
-      resetForm();
+      onSuccess({ vendor: savedVendor, type: savedType, amount: savedAmount });
     } catch (err) {
       setError(err instanceof Error ? err.message : "שמירת המסמך נכשלה");
     } finally {
@@ -301,162 +402,163 @@ function UploadForm({
     }
   }
 
-  function resetForm() {
-    setAmount("");
-    setVendorName("");
-    setVendorDetails("");
-    setDocumentDate(todayISO());
-    setNotes("");
-    clearFile();
-    setError(null);
-  }
-
   const busy = saving || uploading;
+  const isPdf = file?.type === "application/pdf";
+  const isImage = Boolean(file?.type.startsWith("image/"));
 
   return (
-    <Card className="receipt-upload overflow-hidden shadow-[var(--shadow)]">
-      <div className="border-b border-border bg-gradient-to-l from-[var(--accent-tint)] to-transparent px-5 py-4">
-        <div className="flex items-center gap-3">
-          <span className="avatar-chip h-11 w-11 rounded-[12px]">
-            <Icon name="upload_file" size={23} />
-          </span>
-          <div>
-            <div className="text-[15px] font-extrabold">העלאת מסמך חדש</div>
-            <div className="text-[12px] text-text-2">בחרי סוג, מלאי פרטים והעלי קובץ</div>
-          </div>
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <Field label="סוג המסמך">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          {RECEIPT_TYPES.map((t) => {
+            const active = type === t;
+            return (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setType(t)}
+                className={`receipt-type-btn flex flex-col items-center gap-1.5 rounded-[12px] border px-3 py-3.5 text-center transition ${
+                  active
+                    ? "border-accent bg-[var(--accent-tint)] text-accent-2 shadow-sm"
+                    : "border-border bg-surface hover:border-accent/30 hover:bg-surface-2"
+                }`}
+              >
+                <Icon name={RECEIPT_TYPE_ICONS[t]} size={22} />
+                <span className="text-[11.5px] font-bold leading-tight">{RECEIPT_TYPE_LABELS[t]}</span>
+              </button>
+            );
+          })}
         </div>
-      </div>
+      </Field>
 
-      <form onSubmit={handleSubmit} className="space-y-4 p-5">
-        {/* Type selector */}
-        <Field label="סוג המסמך">
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-            {RECEIPT_TYPES.map((t) => {
-              const active = type === t;
-              return (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => setType(t)}
-                  className={`receipt-type-btn flex flex-col items-center gap-1.5 rounded-[12px] border px-3 py-3.5 text-center transition ${
-                    active
-                      ? "border-accent bg-[var(--accent-tint)] text-accent-2 shadow-sm"
-                      : "border-border bg-surface hover:border-accent/30 hover:bg-surface-2"
-                  }`}
-                >
-                  <Icon name={RECEIPT_TYPE_ICONS[t]} size={22} />
-                  <span className="text-[11.5px] font-bold leading-tight">{RECEIPT_TYPE_LABELS[t]}</span>
-                </button>
-              );
-            })}
-          </div>
-        </Field>
+      <Field label="שם הספק / מי הוציא את המסמך">
+        <Input
+          value={vendorName}
+          onChange={(e) => setVendorName(e.target.value)}
+          placeholder="לדוגמה: סלקום, רמי לוי, חברת חשמל"
+          required
+        />
+      </Field>
 
-        <Field label="שם הספק / מי הוציא את המסמך">
+      <Field label="פרטים נוספים (ח.פ, כתובת, הערות על הספק)">
+        <Textarea
+          rows={2}
+          value={vendorDetails}
+          onChange={(e) => setVendorDetails(e.target.value)}
+          placeholder="מספר עוסק, כתובת, איש קשר..."
+        />
+      </Field>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="סכום (₪)">
           <Input
-            value={vendorName}
-            onChange={(e) => setVendorName(e.target.value)}
-            placeholder="לדוגמה: סלקום, רמי לוי, חברת חשמל"
+            type="number"
+            min="0"
+            step="0.01"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="0.00"
+            className="tabular-nums"
+            style={{ direction: "ltr", textAlign: "right" }}
             required
           />
         </Field>
-
-        <Field label="פרטים נוספים (ח.פ, כתובת, הערות על הספק)">
-          <Textarea
-            rows={2}
-            value={vendorDetails}
-            onChange={(e) => setVendorDetails(e.target.value)}
-            placeholder="מספר עוסק, כתובת, איש קשר..."
-          />
+        <Field label="תאריך המסמך">
+          <Input type="date" value={documentDate} onChange={(e) => setDocumentDate(e.target.value)} />
         </Field>
+      </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="סכום (₪)">
-            <Input
-              type="number"
-              min="0"
-              step="0.01"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="0.00"
-              className="tabular-nums"
-              style={{ direction: "ltr", textAlign: "right" }}
-              required
-            />
-          </Field>
-          <Field label="תאריך המסמך">
-            <Input type="date" value={documentDate} onChange={(e) => setDocumentDate(e.target.value)} />
-          </Field>
-        </div>
+      <Field label="הערות (אופציונלי)">
+        <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="הערות פנימיות..." />
+      </Field>
 
-        <Field label="הערות (אופציונלי)">
-          <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="הערות פנימיות..." />
-        </Field>
-
-        {/* Upload zone */}
-        <Field label="תמונה / קובץ של המסמך">
-          <div
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => e.key === "Enter" && inputRef.current?.click()}
-            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragOver(false);
-              pickFile(e.dataTransfer.files[0] ?? null);
-            }}
-            onClick={() => inputRef.current?.click()}
-            className={`receipt-dropzone relative cursor-pointer overflow-hidden rounded-[14px] border-2 border-dashed transition ${
-              dragOver ? "border-accent bg-[var(--accent-tint)]" : "border-border hover:border-accent/40 hover:bg-surface-2"
-            }`}
-          >
-            {preview ? (
-              <div className="relative">
-                <img src={preview} alt="תצוגה מקדימה" className="max-h-40 w-full object-contain p-2" />
+      <Field label="תמונה / קובץ של המסמך">
+        <div
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => e.key === "Enter" && inputRef.current?.click()}
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragOver(false);
+            pickFile(e.dataTransfer.files[0] ?? null);
+          }}
+          onClick={() => inputRef.current?.click()}
+          className={`receipt-dropzone relative cursor-pointer overflow-hidden rounded-[14px] border-2 border-dashed transition ${
+            dragOver ? "border-accent bg-[var(--accent-tint)]" : "border-border hover:border-accent/40 hover:bg-surface-2"
+          }`}
+        >
+          {preview && isImage ? (
+            <div className="relative">
+              <img src={preview} alt="תצוגה מקדימה" className="max-h-48 w-full object-contain p-2" />
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); clearFile(); }}
+                className="absolute left-2 top-2 grid h-7 w-7 place-items-center rounded-lg bg-black/55 text-white hover:bg-black/75"
+                aria-label="הסרת קובץ"
+              >
+                <Icon name="close" size={16} />
+              </button>
+            </div>
+          ) : preview && isPdf ? (
+            <div className="relative" onClick={(e) => e.stopPropagation()}>
+              <PdfFirstPagePreview url={preview} maxHeight={200} className="min-h-[140px] p-2" />
+              <div className="flex items-center gap-2 border-t border-border bg-surface px-3 py-2">
+                <Icon name="picture_as_pdf" size={18} className="shrink-0 text-danger" />
+                <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-text-2">{file?.name}</span>
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); clearFile(); }}
-                  className="absolute left-2 top-2 grid h-7 w-7 place-items-center rounded-lg bg-black/55 text-white hover:bg-black/75"
+                  className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-surface-2 text-text-2 hover:bg-black/10"
+                  aria-label="הסרת קובץ"
                 >
                   <Icon name="close" size={16} />
                 </button>
               </div>
-            ) : file ? (
-              <div className="flex flex-col items-center gap-2 py-8 text-text-2">
-                <Icon name="picture_as_pdf" size={36} />
-                <span className="max-w-[90%] truncate text-[13px] font-semibold">{file.name}</span>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center gap-2 py-8 text-text-3">
-                <span className="grid h-12 w-12 place-items-center rounded-full bg-surface-2">
-                  <Icon name="cloud_upload" size={26} />
-                </span>
-                <span className="text-[13px] font-bold text-text-2">גררי קובץ לכאן או לחצי לבחירה</span>
-                <span className="text-[11.5px]">תמונה (JPG, PNG) או PDF</span>
-              </div>
-            )}
-            <input
-              ref={inputRef}
-              type="file"
-              accept="image/*,application/pdf"
-              className="hidden"
-              onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
-            />
-          </div>
-        </Field>
+            </div>
+          ) : file ? (
+            <div className="relative flex flex-col items-center gap-2 py-8 text-text-2">
+              <Icon name="picture_as_pdf" size={36} />
+              <span className="max-w-[90%] truncate text-[13px] font-semibold">{file.name}</span>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); clearFile(); }}
+                className="absolute left-2 top-2 grid h-7 w-7 place-items-center rounded-lg bg-black/55 text-white hover:bg-black/75"
+                aria-label="הסרת קובץ"
+              >
+                <Icon name="close" size={16} />
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-2 py-8 text-text-3">
+              <span className="grid h-12 w-12 place-items-center rounded-full bg-surface-2">
+                <Icon name="cloud_upload" size={26} />
+              </span>
+              <span className="text-[13px] font-bold text-text-2">גררי קובץ לכאן או לחצי לבחירה</span>
+              <span className="text-[11.5px]">תמונה (JPG, PNG) או PDF</span>
+            </div>
+          )}
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*,application/pdf"
+            className="hidden"
+            onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
+          />
+        </div>
+      </Field>
 
-        {error && (
-          <div className="flex items-start gap-2 rounded-[11px] [background:var(--danger-bg)] px-3 py-2.5 text-[13px] font-semibold text-danger">
-            <Icon name="error" size={18} />
-            {error}
-          </div>
-        )}
+      {error && (
+        <div className="flex items-start gap-2 rounded-[11px] [background:var(--danger-bg)] px-3 py-2.5 text-[13px] font-semibold text-danger">
+          <Icon name="error" size={18} />
+          {error}
+        </div>
+      )}
 
-        <Button type="submit" icon="save" className="w-full" loading={busy} disabled={busy}>
-          {uploading ? "מעלה ושומר..." : "שמירת המסמך"}
-        </Button>
-      </form>
-    </Card>
+      <Button type="submit" icon="save" className="w-full" loading={busy} disabled={busy}>
+        {uploading ? "מעלה ושומר..." : "שמירת המסמך"}
+      </Button>
+    </form>
   );
 }

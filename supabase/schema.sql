@@ -421,6 +421,7 @@ create table public.inventory_items (
   image_url     text,                 -- תמונת המוצר ב-Storage
   min_quantity  numeric(12,2) not null default 0,  -- סף מלאי נמוך
   supplier_delivery_day smallint check (supplier_delivery_day between 0 and 6),  -- יום אספקה מהספק
+  category      text,                 -- קטגוריית המוצר (חלבי, אלכוהול, יבשים וכו׳)
   active        boolean not null default true,
   created_at    timestamptz not null default now()
 );
@@ -788,12 +789,38 @@ create policy "faults_tenant" on public.faults
 -- events
 create policy "events_tenant" on public.events
   for all using (public.can_access(business_id)) with check (public.can_access(business_id));
--- task_templates
-create policy "task_templates_tenant" on public.task_templates
-  for all using (public.can_access(business_id)) with check (public.can_access(business_id));
--- tasks
-create policy "tasks_tenant" on public.tasks
-  for all using (public.can_access(business_id)) with check (public.can_access(business_id));
+-- task_templates — קריאה לכולם, כתיבה למנהל בלבד
+create policy "task_templates_read" on public.task_templates
+  for select using (public.can_access(business_id));
+create policy "task_templates_manager_write" on public.task_templates
+  for all using (
+    public.can_access(business_id) and public.auth_role() = 'manager'
+  ) with check (
+    public.can_access(business_id) and public.auth_role() = 'manager'
+  );
+-- tasks — קריאה לכולם; יצירה למנהל (או materialize ע"י העובד); עדכון למנהל/אחמ״ש/משויך; מחיקה למנהל
+create policy "tasks_read" on public.tasks
+  for select using (public.can_access(business_id));
+create policy "tasks_insert" on public.tasks
+  for insert with check (
+    public.can_access(business_id)
+    and (
+      public.auth_role() = 'manager'
+      or (template_id is not null and assigned_to = auth.uid())
+    )
+  );
+create policy "tasks_update" on public.tasks
+  for update using (
+    public.can_access(business_id)
+    and (
+      public.auth_role() in ('manager', 'shift_manager')
+      or assigned_to = auth.uid()
+    )
+  ) with check (public.can_access(business_id));
+create policy "tasks_delete" on public.tasks
+  for delete using (
+    public.can_access(business_id) and public.auth_role() = 'manager'
+  );
 
 -- ----------------------------------------------------------------------------
 -- מחיקת עובד — ניקוי הפניות לפני מחיקת auth.users

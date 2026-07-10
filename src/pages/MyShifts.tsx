@@ -283,12 +283,7 @@ function SummaryHero({
 }) {
   return (
     <section className="relative overflow-hidden rounded-[22px] border border-border/70 bg-surface shadow-[0_18px_44px_-18px_rgba(15,23,20,0.16)]">
-      <div
-        className="pointer-events-none absolute -right-14 -top-20 h-44 w-44 rounded-full blur-3xl"
-        style={{ background: isTips ? "rgba(124,58,237,0.16)" : "rgba(0,200,117,0.14)" }}
-        aria-hidden
-      />
-      <div className="relative px-5 pb-5 pt-5">
+      <div className="px-5 pb-5 pt-5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-[11.5px] font-bold uppercase tracking-[0.12em] text-text-3">סה״כ לחודש</p>

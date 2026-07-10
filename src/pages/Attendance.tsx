@@ -2,8 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Badge, Button, Icon, PageLoader, ErrorState } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import {
-  AttendanceFeedEmpty,
-  AttendanceFeedRow,
   AttendancePanel,
   AttendanceStatusToast,
   AttendanceSummaryCell,
@@ -15,20 +13,23 @@ import {
 } from "@/components/attendance/attendance-motion";
 import { useAuth } from "@/lib/auth";
 import { ATTENDANCE_RADIUS_M } from "@/lib/constants";
-import { useBusinessId, initialsOf, colorFor, todayISO, weekStart, addDays } from "@/lib/db";
+import { useBusinessId, todayISO, weekStart, addDays } from "@/lib/db";
 import { pendingTasksForEmployee } from "@/lib/pendingTasks";
 import {
   filterAttendanceForTodayShift,
-  formatPunchTime,
+  groupAttendanceByDepartment,
   groupAttendanceByEmployee,
+  type AttendanceShiftFilter,
 } from "@/lib/attendanceFeed";
 import { useBusiness } from "@/api/businesses";
 import { useProfiles } from "@/api/users";
+import { useDepartments } from "@/api/departments";
 import { useTasks } from "@/api/tasks";
 import { useTaskTemplates } from "@/api/taskTemplates";
 import { useAttendanceToday, useClockIn, useClockOut } from "@/api/attendance";
 import { useActiveShiftTemplates, useShiftAssignments } from "@/api/shifts";
 import { AttendanceMobileView } from "@/components/attendance/AttendanceMobileView";
+import { AttendanceTodayFeedSection } from "@/components/attendance/AttendanceTodayFeedSection";
 
 function distanceM(lat1: number, lng1: number, lat2: number, lng2: number) {
   const R = 6371000;
@@ -64,6 +65,7 @@ export function Attendance() {
   const { data: biz, isLoading, isError, refetch } = useBusiness(businessId);
   const { data: records } = useAttendanceToday(businessId);
   const { data: users } = useProfiles(businessId);
+  const { data: departments } = useDepartments(businessId);
   const { data: tasks } = useTasks(businessId);
   const { data: templates } = useTaskTemplates(businessId);
   const { data: shiftTemplates } = useActiveShiftTemplates(businessId);
@@ -75,11 +77,14 @@ export function Attendance() {
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [exitWarn, setExitWarn] = useState(false);
+  const [feedFilter, setFeedFilter] = useState<AttendanceShiftFilter>("all");
   const now = useLiveClock();
 
   const userById = useMemo(() => {
-    const m = new Map<string, { name: string | null; role: string }>();
-    (users ?? []).forEach((u) => m.set(u.id, { name: u.full_name, role: u.role }));
+    const m = new Map<string, { name: string | null; role: string; departmentId: string | null }>();
+    (users ?? []).forEach((u) =>
+      m.set(u.id, { name: u.full_name, role: u.role, departmentId: u.department_id }),
+    );
     return m;
   }, [users]);
 
@@ -95,7 +100,13 @@ export function Attendance() {
       now,
     });
     return groupAttendanceByEmployee(filtered);
-  }, [list, today, assignments, shiftTemplates, shiftsEnabled]);
+  }, [list, today, assignments, shiftTemplates, shiftsEnabled, now]);
+
+  const feedByDepartment = useMemo(() => {
+    const employeeInfo = new Map<string, { departmentId: string | null | undefined; role: string }>();
+    for (const [id, u] of userById) employeeInfo.set(id, { departmentId: u.departmentId, role: u.role });
+    return groupAttendanceByDepartment(todayFeed, departments ?? [], employeeInfo);
+  }, [todayFeed, departments, userById]);
 
   const onShiftCount = todayFeed.filter((g) => g.onShift).length;
   const completedCount = todayFeed.filter((g) => !g.onShift).length;
@@ -103,7 +114,14 @@ export function Attendance() {
   const myOpen = list.find((r) => r.employee_id === profile?.id && r.clock_in && !r.clock_out);
 
   const pending = profile
-    ? pendingTasksForEmployee(tasks ?? [], templates ?? [], profile.id, profile.department_id ?? null, new Date().getDay())
+    ? pendingTasksForEmployee(
+        tasks ?? [],
+        templates ?? [],
+        profile.id,
+        profile.department_id ?? null,
+        new Date().getDay(),
+        profile.role,
+      )
     : [];
 
   async function doClockOut() {
@@ -206,17 +224,13 @@ export function Attendance() {
           completedCount={completedCount}
           totalCount={todayFeed.length}
           timeStr={timeStr}
-          dateStr={dateStr}
           onShift={onShift}
           shiftElapsed={shiftElapsed}
           status={status}
           busy={busy}
-          geofenceExempt={geofenceExempt}
-          geofenceEnabled={geofenceEnabled}
-          locationReady={locationReady}
-          radiusM={radiusM}
           shiftsEnabled={shiftsEnabled}
           todayFeed={todayFeed}
+          feedByDepartment={feedByDepartment}
           userById={userById}
           onPunch={handleClock}
         />
@@ -239,7 +253,7 @@ export function Attendance() {
           </p>
         </div>
         <div className="attendance-summary shrink-0">
-          <AttendanceSummaryCell value={onShiftCount} label="במשמרת עכשיו" accent="var(--success)" index={0} />
+          <AttendanceSummaryCell value={onShiftCount} label="במשמרת עכשיו" accent="var(--accent-2)" index={0} />
           <AttendanceSummaryCell value={completedCount} label="סיימו היום" index={1} />
           <AttendanceSummaryCell value={todayFeed.length} label="עובדים היום" index={2} />
         </div>
@@ -306,64 +320,16 @@ export function Attendance() {
         </AttendancePanel>
 
         <AttendancePanel>
-          <div className="border-b border-border-2 px-5 py-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-[16px] font-bold text-text">נוכחות היום</h2>
-                <p className="mt-0.5 text-[12.5px] text-text-3">
-                  {shiftsEnabled ? "עובדי משמרת היום · כניסות ויציאות מרוכזות" : "עדכון לפי החתמות בזמן אמת"}
-                </p>
-              </div>
-              <span className="rounded-full bg-surface-2 px-3 py-1 font-mono text-[12px] font-bold tabular-nums text-text-2">
-                {todayFeed.length}
-              </span>
-            </div>
-          </div>
-
-          <div className="max-h-[min(520px,58vh)] overflow-y-auto">
-            {todayFeed.length === 0 ? (
-              <AttendanceFeedEmpty />
-            ) : (
-              <div>
-                {todayFeed.map((group, index) => {
-                  const u = userById.get(group.employeeId);
-
-                  return (
-                    <AttendanceFeedRow key={group.employeeId} index={index}>
-                      <span
-                        className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] text-[13px] font-bold text-white"
-                        style={{ background: colorFor(group.employeeId) }}
-                      >
-                        {initialsOf(u?.name)}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-[14px] font-bold text-text">{u?.name ?? "עובד/ת"}</div>
-                        <div className="mt-0.5 space-y-0.5">
-                          {group.sessions.map((session) => (
-                            <div key={session.id} className="font-mono text-[12px] tabular-nums text-text-3">
-                              {formatPunchTime(session.clockIn)}
-                              <span className="mx-1 text-text-3">←</span>
-                              {session.clockOut ? formatPunchTime(session.clockOut) : "…"}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="shrink-0 text-left">
-                        {group.onShift ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-success-bg px-2.5 py-1 text-[11px] font-bold text-success">
-                            <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse2" />
-                            במשמרת
-                          </span>
-                        ) : (
-                          <span className="text-[11px] font-semibold text-text-3">יצא/ה</span>
-                        )}
-                      </div>
-                    </AttendanceFeedRow>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          <AttendanceTodayFeedSection
+            shiftsEnabled={shiftsEnabled}
+            todayFeed={todayFeed}
+            feedByDepartment={feedByDepartment}
+            userById={userById}
+            variant="desktop"
+            filter={feedFilter}
+            showFilterBar
+            onFilterChange={setFeedFilter}
+          />
         </AttendancePanel>
       </div>
       </div>

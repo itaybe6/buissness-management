@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Badge, Button, Card, EmptyState, Icon } from "@/components/ui";
+import { useEffect, useMemo, useState } from "react";
+import { Badge, Button, Icon } from "@/components/ui";
 import {
   agreementsForEmployee,
   globalAgreements,
@@ -14,9 +14,36 @@ import { useProfiles } from "@/api/users";
 import { Modal } from "@/components/ui/Modal";
 import type { AgreementSignature, AgreementTemplate, Profile } from "@/types/database";
 import { AgreementEditorModal, ReadSignModal, type EditorVariant } from "./AgreementModals";
+import {
+  DocsEmployeeEmpty,
+  DocsEmptyBox,
+  DocsListEmpty,
+  DocsMgmtStats,
+  DocsMgmtToolbar,
+  DocsPageTabs,
+  DocsStatsBar,
+  DocsTabs,
+  EmployeeDocCard,
+  filterMgmtAgreements,
+  mgmtCategoryCounts,
+  TemplateDocRow,
+} from "./DocumentsUI";
 import { DocumentStatusTable, Form101OverviewTable } from "./StatusTables";
 import { OfficeReceiptsPanel } from "./OfficeReceiptsPanel";
-import { TYPE_LABELS, TAX_YEAR, type ManagerTab } from "./types";
+import { TAX_YEAR, type DocsMgmtCategory, type ManagerTab } from "./types";
+
+const ADD_LABELS: Record<DocsMgmtCategory, string> = {
+  all: "הוסף",
+  sexual_harassment: "העלאת הסכם",
+  form_101: "העלאת 101",
+  personal: "הסכם חדש",
+};
+
+const ADD_VARIANTS: Record<Exclude<DocsMgmtCategory, "all">, EditorVariant> = {
+  sexual_harassment: "harassment",
+  form_101: "form101",
+  personal: "personal",
+};
 
 export function TemplatesPanel({
   businessId,
@@ -24,12 +51,17 @@ export function TemplatesPanel({
   employees,
   canEdit,
   profileId,
+  openVariant,
+  onOpenVariantConsumed,
 }: {
   businessId: string;
   agreements: AgreementTemplate[];
   employees: Profile[];
   canEdit: boolean;
   profileId: string;
+  onFabNew?: () => void;
+  openVariant?: EditorVariant | null;
+  onOpenVariantConsumed?: () => void;
 }) {
   const create = useCreateAgreement();
   const update = useUpdateAgreement(businessId);
@@ -37,110 +69,108 @@ export function TemplatesPanel({
   const { data: signatures } = useSignatures(businessId);
   const [modal, setModal] = useState<{ template: AgreementTemplate | null; variant: EditorVariant } | null>(null);
   const [signersFor, setSignersFor] = useState<AgreementTemplate | null>(null);
-
-  const harassment = useMemo(() => agreements.filter((a) => a.type === "sexual_harassment"), [agreements]);
-  const forms101 = useMemo(() => agreements.filter((a) => a.type === "form_101"), [agreements]);
-  const personal = useMemo(() => agreements.filter((a) => a.type !== "sexual_harassment" && a.type !== "form_101"), [agreements]);
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState<DocsMgmtCategory>("all");
 
   const variantOf = (t: AgreementTemplate["type"]): EditorVariant =>
     t === "sexual_harassment" ? "harassment" : t === "form_101" ? "form101" : "personal";
 
-  /** How many of the relevant employees signed this document. */
   function signedCount(a: AgreementTemplate) {
     const targets = a.employee_id ? 1 : employees.length;
     const signed = (signatures ?? []).filter((s) => s.agreement_id === a.id && s.agreed).length;
     return { signed, targets };
   }
 
-  function card(a: AgreementTemplate) {
-    const { signed, targets } = signedCount(a);
-    return (
-      <Card key={a.id} className="flex flex-col p-4">
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <div className="text-[15px] font-bold">{a.title}</div>
-            <div className="mt-0.5 text-[12px] text-text-3">
-              {TYPE_LABELS[a.type]}
-              {a.employee_id
-                ? ` · אישי: ${employees.find((e) => e.id === a.employee_id)?.full_name ?? "—"}`
-                : " · לכל העובדים"}
-              {(a.signature_fields?.length ?? 0) > 0 && ` · ${a.signature_fields.length} תיבות חתימה`}
-            </div>
-          </div>
-          <Badge tone={signed >= targets && targets > 0 ? "success" : "warning"}>{`נחתם ${signed}/${targets}`}</Badge>
-        </div>
-        {canEdit && (
-          <div className="mt-3 flex gap-2">
-            <Button variant="secondary" icon="visibility" className="flex-1" onClick={() => setModal({ template: a, variant: variantOf(a.type) })}>
-              צפייה ועריכה
-            </Button>
-            <Button variant="ghost" icon="how_to_reg" title="מי חתם" onClick={() => setSignersFor(a)} />
-            <Button variant="ghost" icon="delete" className="text-danger" loading={del.isPending} onClick={() => confirm("למחוק את המסמך?") && del.mutate(a.id)} />
-          </div>
-        )}
-      </Card>
-    );
+  function subtitleOf(a: AgreementTemplate) {
+    const parts: string[] = [];
+    if (a.employee_id) {
+      parts.push(employees.find((e) => e.id === a.employee_id)?.full_name ?? "אישי");
+    } else {
+      parts.push("לכל העובדים");
+    }
+    if ((a.signature_fields?.length ?? 0) > 0) {
+      parts.push(`${a.signature_fields.length} חתימות`);
+    }
+    return parts.join(" · ");
   }
 
-  const emptyBox = (text: string) => (
-    <div className="rounded-[12px] border border-dashed border-border bg-surface-2 px-4 py-6 text-center text-[13px] text-text-3">{text}</div>
+  const counts = useMemo(() => mgmtCategoryCounts(agreements), [agreements]);
+
+  const filtered = useMemo(
+    () => filterMgmtAgreements(agreements, category, search),
+    [agreements, category, search],
   );
 
+  const stats = useMemo(() => {
+    let pending = 0;
+    let complete = 0;
+    for (const a of agreements) {
+      const { signed, targets } = signedCount(a);
+      if (targets > 0 && signed >= targets) complete++;
+      else if (targets > 0) pending++;
+    }
+    return { total: agreements.length, pending, complete };
+  }, [agreements, signatures, employees]);
+
+  function openAdd() {
+    if (!canEdit) return;
+    if (category === "all") {
+      setModal({ template: null, variant: "personal" });
+      return;
+    }
+    setModal({ template: null, variant: ADD_VARIANTS[category] });
+  }
+
+  useEffect(() => {
+    if (openVariant) {
+      setModal({ template: null, variant: openVariant });
+      onOpenVariantConsumed?.();
+    }
+  }, [openVariant, onOpenVariantConsumed]);
+
   return (
-    <>
-      {/* מניעת הטרדה מינית — הסכם גלובלי אחד לכל העובדים */}
-      <section className="mb-8">
-        <div className="mb-3 flex items-end justify-between gap-3">
-          <div>
-            <h3 className="text-[15px] font-extrabold">מניעת הטרדה מינית</h3>
-            <p className="mt-0.5 text-[12.5px] text-text-3">הסכם אחד שמועלה פעם אחת — כל עובד חותם עליו בנפרד.</p>
-          </div>
-          {canEdit && (
-            <Button icon="add" variant="secondary" className="shrink-0" onClick={() => setModal({ template: null, variant: "harassment" })}>
-              העלאת הסכם
-            </Button>
-          )}
-        </div>
-        {harassment.length === 0
-          ? emptyBox("טרם הועלה הסכם מניעת הטרדה מינית.")
-          : <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">{harassment.map(card)}</div>}
-      </section>
+    <div className="docs-mgmt-panel">
+      <DocsMgmtStats total={stats.total} pending={stats.pending} complete={stats.complete} />
 
-      {/* טופס 101 — אישי לכל עובד */}
-      <section className="mb-8">
-        <div className="mb-3 flex items-end justify-between gap-3">
-          <div>
-            <h3 className="text-[15px] font-extrabold">טופס 101</h3>
-            <p className="mt-0.5 text-[12.5px] text-text-3">טופס 101 ייחודי לכל עובד — חשוף רק לו, והוא חותם עליו דיגיטלית.</p>
-          </div>
-          {canEdit && (
-            <Button icon="add" variant="secondary" className="shrink-0" onClick={() => setModal({ template: null, variant: "form101" })}>
-              העלאת טופס 101
-            </Button>
-          )}
-        </div>
-        {forms101.length === 0
-          ? emptyBox("טרם הועלו טפסי 101.")
-          : <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">{forms101.map(card)}</div>}
-      </section>
+      <DocsMgmtToolbar
+        search={search}
+        onSearchChange={setSearch}
+        category={category}
+        onCategoryChange={setCategory}
+        counts={counts}
+        onAdd={canEdit ? openAdd : undefined}
+        addLabel={ADD_LABELS[category]}
+      />
 
-      {/* הסכמים אישיים — לעובד ספציפי */}
-      <section>
-        <div className="mb-3 flex items-end justify-between gap-3">
-          <div>
-            <h3 className="text-[15px] font-extrabold">הסכמים אישיים</h3>
-            <p className="mt-0.5 text-[12.5px] text-text-3">הסכם פרטני לעובד ספציפי — חשוף רק לו.</p>
-          </div>
-          {canEdit && (
-            <Button icon="add" className="shrink-0" onClick={() => setModal({ template: null, variant: "personal" })}>
-              הסכם חדש
-            </Button>
-          )}
-        </div>
-        {personal.length === 0
-          ? emptyBox("אין עדיין הסכמים אישיים.")
-          : <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">{personal.map(card)}</div>}
-      </section>
+      <div className="docs-mgmt-list">
+        {filtered.length === 0 ? (
+          agreements.length === 0 ? (
+            <DocsEmptyBox text="טרם הועלו מסמכים. לחצו על הוסף כדי להתחיל." icon="folder_open" />
+          ) : (
+            <DocsListEmpty query={search} category={category !== "all" ? category : undefined} />
+          )
+        ) : (
+          filtered.map((a, i) => {
+            const { signed, targets } = signedCount(a);
+            return (
+              <TemplateDocRow
+                key={a.id}
+                title={a.title}
+                type={a.type}
+                subtitle={subtitleOf(a)}
+                signed={signed}
+                targets={targets}
+                canEdit={canEdit}
+                index={i}
+                deleting={del.isPending}
+                onView={() => setModal({ template: a, variant: variantOf(a.type) })}
+                onSigners={() => setSignersFor(a)}
+                onDelete={() => confirm("למחוק את המסמך?") && del.mutate(a.id)}
+              />
+            );
+          })
+        )}
+      </div>
 
       {modal && (
         <AgreementEditorModal
@@ -159,11 +189,10 @@ export function TemplatesPanel({
       {signersFor && (
         <SignersModal agreement={signersFor} staff={employees} signatures={signatures ?? []} onClose={() => setSignersFor(null)} />
       )}
-    </>
+    </div>
   );
 }
 
-/** Manager view of who signed a given document (all staff for global, the assigned employee otherwise). */
 function SignersModal({
   agreement,
   staff,
@@ -192,11 +221,11 @@ function SignersModal({
       {targets.length === 0 ? (
         <p className="py-6 text-center text-[13px] text-text-3">אין עובדים להצגה.</p>
       ) : (
-        <div className="flex flex-col divide-y divide-border">
+        <div className="doc-signers-list">
           {targets.map((emp) => {
             const sig = sigFor(emp.id);
             return (
-              <div key={emp.id} className="flex items-center justify-between gap-2 py-2.5">
+              <div key={emp.id} className="doc-signer-row">
                 <div className="min-w-0">
                   <div className="truncate text-[14px] font-semibold">{emp.full_name ?? "—"}</div>
                   {sig?.signed_at && (
@@ -254,19 +283,7 @@ export function ManagerDocumentsView({
 
   return (
     <>
-      <div className="mb-5 flex gap-1 overflow-x-auto border-b border-border">
-        {tabs.map(({ key, label }) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setTab(key)}
-            className={`relative shrink-0 px-4 pb-3 text-[14px] font-bold transition ${tab === key ? "text-accent-2" : "text-text-2 hover:text-text"}`}
-          >
-            {label}
-            {tab === key && <span className="absolute inset-x-2 bottom-0 h-[2.5px] rounded-full [background:var(--accent)]" />}
-          </button>
-        ))}
-      </div>
+      <DocsTabs tabs={tabs} active={tab} onChange={setTab} />
       {tab === "receipts" && canReceipts && (
         <OfficeReceiptsPanel businessId={businessId} profileId={profileId} canManage={canReceipts} />
       )}
@@ -302,43 +319,68 @@ export function EmployeeDocumentsView({
   const { data: signatures } = useSignatures(businessId, employeeId);
   const myAgreements = useMemo(() => agreementsForEmployee(agreements, employeeId), [agreements, employeeId]);
   const [reading, setReading] = useState<AgreementTemplate | null>(null);
+  const [fabVariant, setFabVariant] = useState<EditorVariant | null>(null);
+  const [pageTab, setPageTab] = useState<"mine" | "manage">(canEditTemplates ? "manage" : "mine");
   const signedSet = new Set((signatures ?? []).filter((s) => s.agreed).map((s) => s.agreement_id));
 
+  const pending = myAgreements.filter((a) => !signedSet.has(a.id)).length;
+  const signed = myAgreements.filter((a) => signedSet.has(a.id)).length;
+  const showTabs = Boolean(canEditTemplates && profileId);
+
   return (
-    <>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        {myAgreements.map((a) => {
-          const signed = signedSet.has(a.id);
-          return (
-            <Card key={a.id} className="flex flex-col p-5">
-              <div className="flex items-start justify-between">
-                <span className="grid h-11 w-11 place-items-center rounded-[12px] [background:var(--accent-tint)]"><Icon name="draw" size={23} className="text-accent-2" /></span>
-                {signed ? <Badge tone="success">נחתם</Badge> : <Badge tone="warning">ממתין לחתימה</Badge>}
-              </div>
-              <div className="mt-3 text-[15px] font-bold">{a.title}</div>
-              <div className="mt-0.5 text-[12.5px] text-text-3">{TYPE_LABELS[a.type]}</div>
-              <Button variant="secondary" className="mt-4" icon={signed ? "visibility" : "edit_document"} onClick={() => setReading(a)}>
-                {signed ? "צפייה" : "קריאה וחתימה"}
-              </Button>
-            </Card>
-          );
-        })}
-      </div>
-      {myAgreements.length === 0 && (
-        <div className="mt-4">
-          <EmptyState icon="draw" title={`שלום ${employeeName ?? ""}`} description="אין מסמכים ממתינים לחתימה כרגע." />
-        </div>
-      )}
-      {reading && (
-        <ReadSignModal agreement={reading} employeeId={employeeId} signature={signatureOf(signatures ?? [], reading.id, employeeId)} onClose={() => setReading(null)} />
+    <div className="docs-page">
+      {showTabs && (
+        <DocsPageTabs
+          active={pageTab}
+          onChange={setPageTab}
+          mineCount={pending}
+          mgmtCount={agreements.length}
+        />
       )}
 
-      {canEditTemplates && profileId && (
-        <section className="mt-10 border-t border-border pt-8">
-          <h2 className="mb-4 text-[17px] font-extrabold">ניהול הסכמים</h2>
-          <TemplatesPanel businessId={businessId} agreements={agreements} employees={staff} canEdit profileId={profileId} />
-        </section>
+      {(!showTabs || pageTab === "mine") && (
+        <>
+          {myAgreements.length > 0 && (
+            <DocsStatsBar pending={pending} signed={signed} total={myAgreements.length} />
+          )}
+
+          {myAgreements.length > 0 ? (
+            <div className="doc-card-grid">
+              {myAgreements.map((a, i) => {
+                const signedDoc = signedSet.has(a.id);
+                return (
+                  <EmployeeDocCard
+                    key={a.id}
+                    title={a.title}
+                    type={a.type}
+                    signed={signedDoc}
+                    index={i}
+                    onOpen={() => setReading(a)}
+                  />
+                );
+              })}
+            </div>
+          ) : (
+            <DocsEmployeeEmpty name={employeeName} />
+          )}
+
+          {reading && (
+            <ReadSignModal agreement={reading} employeeId={employeeId} signature={signatureOf(signatures ?? [], reading.id, employeeId)} onClose={() => setReading(null)} />
+          )}
+        </>
       )}
-    </>
+
+      {showTabs && pageTab === "manage" && profileId && (
+        <TemplatesPanel
+          businessId={businessId}
+          agreements={agreements}
+          employees={staff}
+          canEdit
+          profileId={profileId}
+          openVariant={fabVariant}
+          onOpenVariantConsumed={() => setFabVariant(null)}
+        />
+      )}
+    </div>
   );
 }

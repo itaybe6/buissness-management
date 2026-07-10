@@ -7,7 +7,7 @@ import { todayISO } from "@/lib/db";
 import { buildTodayTasks, VIRTUAL_TASK_PREFIX } from "@/lib/todayTasks";
 import { useCreateTask, useTasks, useUpdateTask, uploadTaskMedia } from "@/api/tasks";
 import { useTaskTemplates } from "@/api/taskTemplates";
-import type { Task, TaskStatus } from "@/types/database";
+import type { Task, TaskStatus, UserRole } from "@/types/database";
 
 type StatusTone = "danger" | "warning" | "success";
 type ChecklistVariant = "default" | "dashboard" | "employee";
@@ -36,7 +36,12 @@ function taskMedia(task: Task): string[] {
   return task.photo_url ? [task.photo_url] : [];
 }
 
-export function useDailyTaskActions(businessId: string, profileId: string, deptId: string | null) {
+export function useDailyTaskActions(
+  businessId: string,
+  profileId: string,
+  deptId: string | null,
+  role?: UserRole | null,
+) {
   const { data: tasks = [] } = useTasks(businessId);
   const { data: templates = [] } = useTaskTemplates(businessId);
   const update = useUpdateTask(businessId);
@@ -46,8 +51,8 @@ export function useDailyTaskActions(businessId: string, profileId: string, deptI
   const todayWeekday = new Date().getDay();
 
   const todayTasks = useMemo(
-    () => buildTodayTasks(businessId, tasks, templates, profileId, deptId, today, todayWeekday),
-    [businessId, tasks, templates, profileId, deptId, today, todayWeekday],
+    () => buildTodayTasks(businessId, tasks, templates, profileId, deptId, today, todayWeekday, role),
+    [businessId, tasks, templates, profileId, deptId, today, todayWeekday, role],
   );
 
   function materialize(
@@ -482,7 +487,7 @@ export function DailyTasksChecklist({
     if (wrapped) {
       return (
         <section className="overflow-hidden rounded-[22px] border border-border/70 bg-surface shadow-[0_16px_40px_-14px_rgba(15,23,20,0.08)]">
-          <div className="border-b border-border-2 bg-gradient-to-l from-[rgba(124,58,237,0.06)] to-transparent px-4 py-4 sm:px-6">
+          <div className="border-b border-border-2 bg-surface px-4 py-4 sm:px-6">
             <h2 className="text-[15px] font-extrabold tracking-tight text-text">
               {isEmployee ? "משימות להיום" : "צ'ק-ליסט משימות יומיות"}
             </h2>
@@ -513,7 +518,7 @@ export function DailyTasksChecklist({
   if (wrapped) {
     return (
       <section className="overflow-hidden rounded-[22px] border border-border/70 bg-surface shadow-[0_16px_40px_-14px_rgba(15,23,20,0.08)]">
-        <div className="border-b border-border-2 bg-gradient-to-l from-[rgba(124,58,237,0.08)] via-[rgba(124,58,237,0.03)] to-transparent px-4 py-4 sm:px-6">
+        <div className="border-b border-border-2 bg-surface px-4 py-4 sm:px-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-[15px] font-extrabold tracking-tight text-text">

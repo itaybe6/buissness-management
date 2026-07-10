@@ -67,16 +67,18 @@ function WeekNav({ wkStart, onShift, onToday }: { wkStart: string; onShift: (d: 
   const end = addDays(wkStart, 6);
   const isCurrentWeek = wkStart === weekStart();
   return (
-    <div className="shift-week-nav">
-      <button type="button" onClick={() => onShift(7)} className="shift-week-nav-btn" aria-label="שבוע קודם">
-        <Icon name="chevron_right" size={20} />
-      </button>
-      <span className="shift-week-nav-label">
-        {formatDateShort(wkStart)} – {formatDateShort(end)}
-      </span>
-      <button type="button" onClick={() => onShift(-7)} className="shift-week-nav-btn" aria-label="שבוע הבא">
-        <Icon name="chevron_left" size={20} />
-      </button>
+    <div className="shift-week-nav-group">
+      <div className="shift-week-nav">
+        <button type="button" onClick={() => onShift(7)} className="shift-week-nav-btn" aria-label="שבוע קודם">
+          <Icon name="chevron_right" size={20} />
+        </button>
+        <span className="shift-week-nav-label">
+          {formatDateShort(wkStart)} – {formatDateShort(end)}
+        </span>
+        <button type="button" onClick={() => onShift(-7)} className="shift-week-nav-btn" aria-label="שבוע הבא">
+          <Icon name="chevron_left" size={20} />
+        </button>
+      </div>
       {onToday && !isCurrentWeek && (
         <button type="button" onClick={onToday} className="shift-week-today">
           היום

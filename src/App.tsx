@@ -35,8 +35,6 @@ function HomeRedirect() {
 }
 
 function DashboardRoute() {
-  const { profile } = useAuth();
-  if (profile?.role === "employee") return <Navigate to="/tasks" replace />;
   return <Dashboard />;
 }
 

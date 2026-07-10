@@ -10,7 +10,7 @@ import { UserAvatar } from "@/components/ui/UserAvatar";
 
 import { EASE_OUT } from "@/components/motion/shared-motion";
 
-import { ROLE_LABELS } from "@/lib/constants";
+import { ROLE_LABELS, groupNavItems } from "@/lib/constants";
 
 import type { NavItem } from "@/lib/constants";
 
@@ -82,6 +82,7 @@ export function MobileSideDrawer({
 
   const reduce = useReducedMotion();
   const isProfileActive = currentKey === "profile";
+  const navGroups = groupNavItems(items);
 
 
 
@@ -276,27 +277,45 @@ export function MobileSideDrawer({
 
 
 
-            <nav className="flex flex-1 flex-col gap-0.5 overflow-auto px-3 py-2" aria-label="ניווט ראשי">
+            <nav className="flex flex-1 flex-col gap-1 overflow-auto px-3 py-2" aria-label="ניווט ראשי">
 
-              {items.map((item) => (
+              {navGroups.map((group) => (
 
-                <NavLink
+                <div key={group.id} className="side-nav-group">
 
-                  key={item.key}
+                  {group.label ? (
 
-                  to={`/${item.key}`}
+                    <div className="side-nav-group-label">{group.label}</div>
 
-                  onClick={onClose}
+                  ) : null}
 
-                  className={navLinkClass(item.key)}
+                  <div className="flex flex-col gap-0.5">
 
-                >
+                    {group.items.map((item) => (
 
-                  <Icon name={item.icon} size={21} />
+                      <NavLink
 
-                  <span className="flex-1 text-right">{item.label}</span>
+                        key={item.key}
 
-                </NavLink>
+                        to={`/${item.key}`}
+
+                        onClick={onClose}
+
+                        className={navLinkClass(item.key)}
+
+                      >
+
+                        <Icon name={item.icon} size={21} />
+
+                        <span className="flex-1 text-right">{item.label}</span>
+
+                      </NavLink>
+
+                    ))}
+
+                  </div>
+
+                </div>
 
               ))}
 

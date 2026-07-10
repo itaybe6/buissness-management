@@ -91,7 +91,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       profile,
       features,
       loading,
-      hasFeature: (key: FeatureKey) => isSuperAdmin || isBusinessManager || features.has(key),
+      hasFeature: (key: FeatureKey) => {
+        if (isSuperAdmin || isBusinessManager) return true;
+        if (features.has(key)) return true;
+        if (
+          key === "attendance" &&
+          profile &&
+          ["employee", "shift_manager"].includes(profile.role)
+        ) {
+          return true;
+        }
+        return false;
+      },
       signIn: async (email, password) => {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         return { error: error ? translateAuthError(error.message) : null };

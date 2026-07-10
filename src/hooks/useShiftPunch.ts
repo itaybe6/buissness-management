@@ -55,7 +55,9 @@ export function useShiftPunch() {
   const now = useLiveClock();
 
   const showShifts = hasFeature("shifts");
-  const showAttendance = hasFeature("attendance");
+  const showAttendance =
+    hasFeature("attendance") ||
+    Boolean(profile && ["employee", "shift_manager"].includes(profile.role));
 
   const todayShifts = useMemo(() => {
     if (!showShifts) return [];
@@ -72,7 +74,14 @@ export function useShiftPunch() {
   const shiftElapsed = myOpen?.clock_in ? formatShiftElapsed(now.getTime() - new Date(myOpen.clock_in).getTime()) : null;
 
   const pending = profile
-    ? pendingTasksForEmployee(tasks ?? [], templates ?? [], profile.id, profile.department_id ?? null, new Date().getDay())
+    ? pendingTasksForEmployee(
+        tasks ?? [],
+        templates ?? [],
+        profile.id,
+        profile.department_id ?? null,
+        new Date().getDay(),
+        profile.role,
+      )
     : [];
 
   const geofenceEnabled = biz?.attendance_geofence_enabled ?? false;

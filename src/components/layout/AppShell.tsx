@@ -2,8 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-
 import { useBusiness } from "@/api/businesses";
 
 import { useAuth } from "@/lib/auth";
@@ -18,11 +16,10 @@ import { UserAvatar } from "@/components/ui/UserAvatar";
 
 import { MobileSideDrawer } from "@/components/layout/MobileSideDrawer";
 
-import { EASE_OUT } from "@/components/motion/shared-motion";
-
-import { NAV_ITEMS, ROLE_LABELS } from "@/lib/constants";
+import { NAV_ITEMS, ROLE_LABELS, groupNavItems } from "@/lib/constants";
 
 import type { NavItem } from "@/lib/constants";
+
 
 
 
@@ -41,10 +38,6 @@ export function AppShell() {
   const navigate = useNavigate();
 
   const [menuOpen, setMenuOpen] = useState(false);
-
-  const reduce = useReducedMotion();
-
-
 
   const role = profile?.role ?? "employee";
 
@@ -72,11 +65,17 @@ export function AppShell() {
 
 
 
+  const navGroups = useMemo(() => groupNavItems(navItems), [navItems]);
+
+
+
   const isSuperAdmin = role === "super_admin";
 
   const currentKey = location.pathname.replace(/^\//, "").split("/")[0] || "dashboard";
 
   const isProfileActive = currentKey === "profile";
+
+  const profileSubtitle = isSuperAdmin ? ROLE_LABELS[role] : business?.name ?? ROLE_LABELS[role];
 
 
 
@@ -173,37 +172,55 @@ export function AppShell() {
 
 
 
-        <nav className="flex flex-1 flex-col gap-0.5 overflow-auto px-3 py-2">
+        <nav className="flex flex-1 flex-col gap-1 overflow-auto px-3 py-2">
 
-          {navItems.map((item) => {
+          {navGroups.map((group) => (
 
-            const active = isNavActive(item.key);
+            <div key={group.id} className="side-nav-group">
 
-            return (
+              {group.label ? (
 
-              <NavLink
+                <div className="side-nav-group-label">{group.label}</div>
 
-                key={item.key}
+              ) : null}
 
-                to={`/${item.key}`}
+              <div className="flex flex-col gap-0.5">
 
-                className="side-nav-item"
+                {group.items.map((item) => {
 
-                data-active={active}
+                  const active = isNavActive(item.key);
 
-                aria-current={active ? "page" : undefined}
+                  return (
 
-              >
+                    <NavLink
 
-                <Icon name={item.icon} size={21} fill={active} />
+                      key={item.key}
 
-                <span className="flex-1 text-right">{item.label}</span>
+                      to={`/${item.key}`}
 
-              </NavLink>
+                      className="side-nav-item"
 
-            );
+                      data-active={active}
 
-          })}
+                      aria-current={active ? "page" : undefined}
+
+                    >
+
+                      <Icon name={item.icon} size={21} fill={active} />
+
+                      <span className="flex-1 text-right">{item.label}</span>
+
+                    </NavLink>
+
+                  );
+
+                })}
+
+              </div>
+
+            </div>
+
+          ))}
 
         </nav>
 
@@ -243,23 +260,37 @@ export function AppShell() {
 
           >
 
-            <UserAvatar
+            <span className="mobile-header-profile-avatar">
 
-              userId={profile?.id ?? ""}
+              <UserAvatar
 
-              name={profile?.full_name}
+                userId={profile?.id ?? ""}
 
-              avatarUrl={profile?.avatar_url}
+                name={profile?.full_name}
 
-              size={34}
+                avatarUrl={profile?.avatar_url}
 
-              rounded="circle"
+                size={36}
 
-            />
+                rounded="circle"
 
-            <span className="mobile-header-name truncate">
+              />
 
-              {profile?.full_name ?? "משתמש"}
+            </span>
+
+            <span className="mobile-header-profile-meta">
+
+              <span className="mobile-header-name truncate">
+
+                {profile?.full_name ?? "משתמש"}
+
+              </span>
+
+              <span className="mobile-header-role truncate">
+
+                {profileSubtitle}
+
+              </span>
 
             </span>
 
@@ -299,29 +330,9 @@ export function AppShell() {
 
         <main className="flex-1 overflow-auto bg-bg px-4 pb-[max(1rem,var(--safe-bottom))] pt-[18px] md:px-[30px] md:pb-7 md:pt-7">
 
-          <AnimatePresence mode="wait" initial={false}>
-
-            <motion.div
-
-              key={location.pathname}
-
-              className="w-full min-w-0"
-
-              initial={reduce ? false : { opacity: 0, transform: "translateY(8px)" }}
-
-              animate={{ opacity: 1, transform: "translateY(0)" }}
-
-              exit={reduce ? undefined : { opacity: 0, transform: "translateY(-4px)" }}
-
-              transition={{ duration: 0.22, ease: EASE_OUT }}
-
-            >
-
-              <Outlet />
-
-            </motion.div>
-
-          </AnimatePresence>
+          <div className="w-full min-w-0">
+            <Outlet />
+          </div>
 
         </main>
 

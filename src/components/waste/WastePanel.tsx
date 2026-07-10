@@ -295,12 +295,18 @@ function WasteEmptyState({ onReport }: { onReport: () => void }) {
 
 export function WastePanel({
   items,
+  records,
+  totalRecords,
   reportOpen,
   onReportOpenChange,
+  onClearFilters,
 }: {
   items: ItemWithQty[];
+  records?: InventoryWaste[];
+  totalRecords?: number;
   reportOpen: boolean;
   onReportOpenChange: (open: boolean) => void;
+  onClearFilters?: () => void;
 }) {
   const businessId = useBusinessId();
   const { profile } = useAuth();
@@ -314,7 +320,8 @@ export function WastePanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const wasteList = waste ?? [];
+  const wasteList = records ?? waste ?? [];
+  const hasAnyRecords = (totalRecords ?? waste?.length ?? 0) > 0;
 
   const reporterById = useMemo(() => {
     const map = new Map<string, string>();
@@ -375,8 +382,21 @@ export function WastePanel({
 
   return (
     <>
-      {wasteList.length === 0 ? (
+      {!hasAnyRecords ? (
         <WasteEmptyState onReport={() => onReportOpenChange(true)} />
+      ) : wasteList.length === 0 ? (
+        <EmptyState
+          icon="search_off"
+          title="לא נמצאו דיווחי בלאי"
+          description="נסו מילת חיפוש אחרת או שנו את הסינון."
+          action={
+            onClearFilters ? (
+              <Button variant="secondary" onClick={onClearFilters}>
+                ניקוי סינון
+              </Button>
+            ) : undefined
+          }
+        />
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {wasteList.map((w, idx) => (

@@ -1,0 +1,16 @@
+---
+description: Avoid purple/accent gradient backgrounds on cards, headers, and sections
+alwaysApply: true
+---
+
+# No gradient backgrounds
+
+When designing or restyling UI in this project:
+
+- **Do not** add gradient backgrounds to cards, section headers, heroes, or empty states.
+- **Do not** add glow layers (`radial-gradient`, `linear-gradient`, `bg-gradient-to-*`) behind content for decoration.
+- Prefer **flat surfaces**: `var(--surface)`, `var(--surface-2)`, solid borders, and subtle shadows only.
+- Accent color belongs in icons, badges, buttons, and progress indicators — not as ambient header/card washes.
+- Exception: functional gradients only (e.g. progress rings, image overlays, sidebar brand chrome).
+
+The user explicitly dislikes the recurring purple-tinted gradient pattern on worker home, task checklist headers, and similar blocks.
