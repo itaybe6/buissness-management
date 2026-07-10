@@ -261,7 +261,6 @@ export function AreaChart({
           />
         )}
 
-<<<<<<< HEAD
         {/* soft glow under the line */}
         {line && !reduce && (
           <path
@@ -277,9 +276,6 @@ export function AreaChart({
         )}
 
         {/* line */}
-=======
-        {/* line (glowing) */}
->>>>>>> 6df25a794822348c0586c09d1d825cf46f6db1de
         {line && (
           <path
             d={line}
@@ -302,7 +298,6 @@ export function AreaChart({
           />
         )}
 
-<<<<<<< HEAD
         {/* peak marker — pulses on the best day */}
         {(() => {
           if (n === 0) return null;
@@ -320,7 +315,7 @@ export function AreaChart({
             </g>
           );
         })()}
-=======
+
         {/* resting end dot */}
         {lastPt && !hi && (
           <circle
@@ -333,7 +328,6 @@ export function AreaChart({
             style={{ opacity: reduce ? 1 : 0, animation: reduce ? undefined : `dashFade 300ms ${EASE} 1100ms forwards` }}
           />
         )}
->>>>>>> 6df25a794822348c0586c09d1d825cf46f6db1de
 
         {/* hover guide */}
         {hi && (

@@ -26,6 +26,25 @@ export function virtualRecurringTask(t: TaskTemplate, profileId: string, busines
   };
 }
 
+function completedToday(task: Pick<Task, "completed_at">, today: string): boolean {
+  return !!task.completed_at && task.completed_at.startsWith(today);
+}
+
+/** Whether an assigned row belongs on today's checklist (any status, including done). */
+export function isTaskVisibleInDailyChecklist(
+  task: Task,
+  today: string,
+  todayWeekday: number,
+): boolean {
+  if (task.type === "recurring") {
+    return matchesRecurrenceWeekday(task.recurrence_weekday, todayWeekday);
+  }
+  if (task.status !== "done") return true;
+  if (task.due_date === today) return true;
+  if (completedToday(task, today)) return true;
+  return false;
+}
+
 export function templateVisibleForDailyChecklist(
   template: Pick<TaskTemplate, "department_id">,
   deptId: string | null,
@@ -66,11 +85,7 @@ export function buildTodayTasks(
 
   return [
     ...virtualToday,
-    ...mine.filter((t) => {
-      if (t.type === "recurring") return matchesRecurrenceWeekday(t.recurrence_weekday, todayWeekday);
-      if (t.status !== "done") return true;
-      return t.due_date === today;
-    }),
+    ...mine.filter((t) => isTaskVisibleInDailyChecklist(t, today, todayWeekday)),
   ].sort((a, b) => {
     if ((a.status === "done") !== (b.status === "done")) return a.status === "done" ? 1 : -1;
     return a.type === b.type ? 0 : a.type === "recurring" ? -1 : 1;

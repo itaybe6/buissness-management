@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, Card, EmptyState, Field, Icon, Input, PageLoader, ErrorState, Textarea } from "@/components/ui";
+import { Button, Card, EmptyState, Field, Icon, Input, PageHeader, PageLoader, ErrorState, Textarea } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId, todayISO } from "@/lib/db";
@@ -25,14 +25,11 @@ export function Events() {
   const past = (events ?? []).filter((e) => e.event_date.slice(0, 10) < now);
 
   return (
-<<<<<<< HEAD
-    <div className="mx-auto max-w-[820px] animate-fadeUp">
-      <header className="page-hero">
-        <div className="page-hero-inner">
-          <div>
-            <h1 className="page-hero-title">אירועים</h1>
-            <p className="page-hero-sub">אירועים מיוחדים והזמנות</p>
-          </div>
+    <div className="w-full animate-fadeUp">
+      <PageHeader
+        title="אירועים"
+        subtitle="אירועים מיוחדים והזמנות"
+        actions={
           <div className="flex items-center gap-3">
             {upcoming.length > 0 && (
               <div className="page-hero-stat">
@@ -44,16 +41,8 @@ export function Events() {
               <Button icon="add" onClick={() => setOpen(true)}>אירוע חדש</Button>
             )}
           </div>
-        </div>
-      </header>
-=======
-    <div className="w-full animate-fadeUp">
-      <PageHeader
-        title="אירועים"
-        subtitle="אירועים מיוחדים והזמנות"
-        actions={isManager ? <Button icon="add" onClick={() => setOpen(true)}>אירוע חדש</Button> : undefined}
+        }
       />
->>>>>>> 6df25a794822348c0586c09d1d825cf46f6db1de
 
       {(events ?? []).length === 0 ? (
         <EmptyState icon="celebration" title="אין אירועים" description="הוסיפו אירועים מיוחדים ליומן העסק." action={isManager ? <Button icon="add" onClick={() => setOpen(true)}>אירוע חדש</Button> : undefined} />

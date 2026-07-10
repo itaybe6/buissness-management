@@ -18,6 +18,14 @@ const STATUS_META: Record<TaskStatus, { label: string; short: string; tone: Stat
   done: { label: "בוצע", short: "בוצע", tone: "success", color: "var(--success)", icon: "check_circle" },
 };
 const STATUS_ORDER: TaskStatus[] = ["open", "in_progress", "done"];
+type StatusFilter = "all" | TaskStatus;
+
+const FILTER_OPTIONS: { key: StatusFilter; label: string; status?: TaskStatus }[] = [
+  { key: "all", label: "הכל" },
+  { key: "open", label: STATUS_META.open.short, status: "open" },
+  { key: "in_progress", label: STATUS_META.in_progress.short, status: "in_progress" },
+  { key: "done", label: STATUS_META.done.short, status: "done" },
+];
 
 const VIDEO_RE = /\.(mp4|mov|m4v|webm|avi|mkv|quicktime)$/i;
 
@@ -65,6 +73,15 @@ export function useDailyTaskActions(
       const next = { ...prev };
       for (const id of Object.keys(prev)) {
         if (!visibleIds.has(id)) {
+          if (id.startsWith(VIRTUAL_TASK_PREFIX)) {
+            const templateId = id.slice(VIRTUAL_TASK_PREFIX.length);
+            const materialized = tasks.find(
+              (t) => t.assigned_to === profileId && t.template_id === templateId,
+            );
+            if (materialized && prev[id]) {
+              next[materialized.id] = { ...next[materialized.id], ...prev[id] };
+            }
+          }
           delete next[id];
           changed = true;
           continue;
@@ -124,6 +141,41 @@ export function useDailyTaskActions(
   }
 
   return { todayTasks, setStatus, setMedia };
+}
+
+function TaskStatusFilter({
+  value,
+  onChange,
+  counts,
+}: {
+  value: StatusFilter;
+  onChange: (next: StatusFilter) => void;
+  counts: Record<StatusFilter, number>;
+}) {
+  return (
+    <div className="task-checklist-filters" role="group" aria-label="סינון לפי סטטוס">
+      {FILTER_OPTIONS.map((opt) => {
+        const active = value === opt.key;
+        const count = counts[opt.key];
+        const meta = opt.status ? STATUS_META[opt.status] : null;
+        return (
+          <button
+            key={opt.key}
+            type="button"
+            onClick={() => onChange(opt.key)}
+            aria-pressed={active}
+            data-active={active ? "true" : "false"}
+            data-status={opt.status ?? "all"}
+            className="task-checklist-filter press"
+          >
+            {meta && <Icon name={meta.icon} size={15} className="flex-none" />}
+            <span>{opt.label}</span>
+            <span className="task-checklist-filter-count">{count}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 function ChecklistProgress({ total, done }: { total: number; done: number }) {
@@ -531,7 +583,21 @@ export function DailyTasksChecklist({
   onMedia: (id: string, media_urls: string[]) => void;
   variant?: ChecklistVariant;
 }) {
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const doneCount = tasks.filter((t) => t.status === "done").length;
+  const statusCounts = useMemo(
+    () => ({
+      all: tasks.length,
+      open: tasks.filter((t) => t.status === "open").length,
+      in_progress: tasks.filter((t) => t.status === "in_progress").length,
+      done: doneCount,
+    }),
+    [tasks, doneCount],
+  );
+  const visibleTasks = useMemo(
+    () => (statusFilter === "all" ? tasks : tasks.filter((t) => t.status === statusFilter)),
+    [tasks, statusFilter],
+  );
   const todayLabel = new Date().toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long" });
   const isEmployee = variant === "employee";
   const isDashboard = variant === "dashboard";
@@ -580,18 +646,26 @@ export function DailyTasksChecklist({
           </div>
           <ChecklistProgress total={tasks.length} done={doneCount} />
         </header>
+        <TaskStatusFilter value={statusFilter} onChange={setStatusFilter} counts={statusCounts} />
         <div className="task-checklist-list">
-          {tasks.map((t, i) => (
-            <DailyTaskRow
-              key={t.id}
-              task={t}
-              index={i}
-              businessId={businessId}
-              onStatus={onStatus}
-              onMedia={onMedia}
-              variant={variant}
-            />
-          ))}
+          {visibleTasks.length === 0 ? (
+            <div className="task-checklist-filter-empty">
+              <Icon name="filter_list_off" size={22} className="text-text-3" />
+              <span>אין משימות בסטטוס זה</span>
+            </div>
+          ) : (
+            visibleTasks.map((t, i) => (
+              <DailyTaskRow
+                key={t.id}
+                task={t}
+                index={i}
+                businessId={businessId}
+                onStatus={onStatus}
+                onMedia={onMedia}
+                variant={variant}
+              />
+            ))
+          )}
         </div>
       </section>
     );

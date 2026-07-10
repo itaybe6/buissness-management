@@ -274,56 +274,6 @@ export function Faults() {
     setFilter((prev) => (prev === s ? null : s));
   }
 
-<<<<<<< HEAD
-      <div className="mb-5 grid grid-cols-3 gap-4">
-        {(Object.keys(STATUS_META) as FaultStatus[]).map((s, i) => (
-          <div
-            key={s}
-            className="stat-tile dash-rise flex items-center gap-3.5"
-            style={{ "--tile-color": STATUS_META[s].color, "--tile-tint": `var(--${STATUS_META[s].tone}-bg)`, "--rise-delay": `${i * 60}ms` } as React.CSSProperties}
-          >
-            <span className="stat-tile-icon !h-11 !w-11 !rounded-[12px]">
-              <Icon name={STATUS_META[s].icon} size={24} />
-            </span>
-            <div>
-              <div className="stat-tile-value !mt-0 text-[26px]">{counts[s]}</div>
-              <div className="stat-tile-label">{STATUS_META[s].label}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {faults && faults.length === 0 ? (
-        <EmptyState icon="build" title="אין תקלות פתוחות" description="כל הכבוד! לא דווחו תקלות." />
-      ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {(faults ?? []).map((f, i) => {
-            const meta = STATUS_META[f.status];
-            const mediaUrls = f.photo_urls ?? [];
-            return (
-              <Card
-                key={f.id}
-                className="report-card dash-rise flex flex-col overflow-hidden !p-0"
-                style={{ "--rise-delay": `${Math.min(i, 8) * 40}ms` } as React.CSSProperties}
-              >
-                <div className="h-1.5" style={{ background: meta.color }} />
-                <FaultMediaCarousel urls={mediaUrls} />
-                <div className="flex flex-1 flex-col p-4">
-                  <div className="flex items-start justify-between">
-                    <span className="report-card-icon grid h-11 w-11 place-items-center rounded-[12px]" style={{ background: `var(--${meta.tone}-bg)` }}>
-                      <Icon name={meta.icon} size={24} style={{ color: meta.color }} />
-                    </span>
-                  </div>
-                  <div className="mt-3 text-[14.5px] font-bold leading-snug">{f.description}</div>
-                  <div className="mt-1.5 text-[12px] text-text-3">{new Date(f.created_at).toLocaleString("he-IL")}</div>
-                  <FaultStatusSegmented
-                    value={f.status}
-                    disabled={updateFault.isPending}
-                    onChange={(status) => {
-                      if (status !== f.status) updateFault.mutate({ id: f.id, status });
-                    }}
-                  />
-=======
   function onStatusChange(id: string, status: FaultStatus, current: FaultStatus) {
     if (status !== current) updateFault.mutate({ id, status });
   }
@@ -547,7 +497,7 @@ export function Faults() {
                 <div>
                   <div className="text-[26px] font-extrabold tracking-tight tabular-nums">{counts[s]}</div>
                   <div className="text-[12.5px] text-text-2">{m.label}</div>
->>>>>>> 6df25a794822348c0586c09d1d825cf46f6db1de
+
                 </div>
               </button>
             );

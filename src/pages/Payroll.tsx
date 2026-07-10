@@ -80,11 +80,11 @@ export function Payroll() {
 
       <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-6">
         {[
-<<<<<<< HEAD
           { label: "סה״כ שעות", value: Math.round(totals.hours).toLocaleString("he-IL"), icon: "schedule", color: "var(--info)", tint: "var(--info-bg)" },
           { label: "שכר שעתי", value: formatCurrency(totals.base), icon: "payments", color: "var(--text)", tint: "var(--surface-2)" },
           { label: "טיפים", value: formatCurrency(totals.tips), icon: "savings", color: "var(--accent-2)", tint: "var(--accent-tint)" },
           { label: "השלמות למינימום", value: formatCurrency(totals.topup), icon: "add_card", color: "var(--warning)", tint: "var(--warning-bg)" },
+          { label: "תוספת מאחוז קופה", value: formatCurrency(totals.bonus), icon: "percent", color: "var(--accent)", tint: "var(--accent-tint)" },
           { label: "סה״כ לתשלום", value: formatCurrency(totals.total), icon: "account_balance_wallet", color: "var(--success)", tint: "var(--success-bg)" },
         ].map((k, i) => (
           <div
@@ -96,58 +96,28 @@ export function Payroll() {
             <div className="stat-tile-value">{k.value}</div>
             <div className="stat-tile-label">{k.label}</div>
           </div>
-=======
-          { label: "סה״כ שעות", value: Math.round(totals.hours).toLocaleString("he-IL"), icon: "schedule" },
-          { label: "שכר שעתי", value: formatCurrency(totals.base), icon: "payments" },
-          { label: "טיפים", value: formatCurrency(totals.tips), icon: "savings" },
-          { label: "השלמות למינימום", value: formatCurrency(totals.topup), icon: "add_card" },
-          { label: "תוספת מאחוז קופה", value: formatCurrency(totals.bonus), icon: "percent" },
-          { label: "סה״כ לתשלום", value: formatCurrency(totals.total), icon: "account_balance_wallet" },
-        ].map((k) => (
-          <Card key={k.label} className="p-[18px]">
-            <span className="grid h-10 w-10 place-items-center rounded-[11px] [background:var(--surface-2)]"><Icon name={k.icon} size={21} className="text-ink" /></span>
-            <div className="mt-3 text-[22px] font-extrabold tracking-tight">{k.value}</div>
-            <div className="text-[12.5px] text-text-2">{k.label}</div>
-          </Card>
->>>>>>> 6df25a794822348c0586c09d1d825cf46f6db1de
         ))}
       </div>
 
       <Card className="overflow-hidden !p-0 shadow-card">
         <div className="overflow-auto">
           <div className="min-w-[720px]">
-<<<<<<< HEAD
-            <div className="grid grid-cols-[1.7fr_0.8fr_0.7fr_0.8fr_1fr_0.9fr_1fr] gap-2 border-b border-border bg-surface-2 px-5 py-3 text-[11.5px] font-bold uppercase tracking-wide text-text-3">
-              <span>עובד</span><span>סוג</span><span>שעות</span><span>תעריף</span><span>בסיס / טיפים</span><span>השלמה</span><span>סה״כ</span>
-            </div>
-            {rows.map((r) => (
-              <div key={r.id} className="data-row grid grid-cols-[1.7fr_0.8fr_0.7fr_0.8fr_1fr_0.9fr_1fr] items-center gap-2 border-b border-border-2 px-5 py-3 text-[13.5px]">
-=======
-            <div className="grid grid-cols-[1.7fr_0.8fr_0.7fr_0.8fr_1fr_0.9fr_0.9fr_1fr] gap-2 border-b border-border bg-surface-2 px-5 py-3 text-[12px] font-bold text-text-3">
+            <div className="grid grid-cols-[1.7fr_0.8fr_0.7fr_0.8fr_1fr_0.9fr_0.9fr_1fr] gap-2 border-b border-border bg-surface-2 px-5 py-3 text-[11.5px] font-bold uppercase tracking-wide text-text-3">
               <span>עובד</span><span>סוג</span><span>שעות</span><span>תעריף</span><span>בסיס / טיפים</span><span>השלמה</span><span>תוספת קופה</span><span>סה״כ</span>
             </div>
             {rows.map((r) => (
-              <div key={r.id} className="grid grid-cols-[1.7fr_0.8fr_0.7fr_0.8fr_1fr_0.9fr_0.9fr_1fr] items-center gap-2 border-b border-border-2 px-5 py-3 text-[13.5px]">
->>>>>>> 6df25a794822348c0586c09d1d825cf46f6db1de
+              <div key={r.id} className="data-row grid grid-cols-[1.7fr_0.8fr_0.7fr_0.8fr_1fr_0.9fr_0.9fr_1fr] items-center gap-2 border-b border-border-2 px-5 py-3 text-[13.5px]">
                 <span className="flex min-w-0 items-center gap-2.5">
                   <span className="person-chip h-8 w-8 rounded-[9px] text-[12px]" style={{ background: colorFor(r.id) }}>{initialsOf(r.name)}</span>
                   <span className="truncate font-bold">{r.name}</span>
                 </span>
                 <span><Badge tone={r.wageType === "tips" ? "violet" : "neutral"}>{WAGE_TYPE_LABELS[r.wageType]}</Badge></span>
-<<<<<<< HEAD
                 <span className="tabular-nums">{r.hours.toFixed(1)}</span>
                 <span className="tabular-nums">{r.rate ? formatCurrency(r.rate) : "—"}</span>
                 <span className={`tabular-nums ${r.wageType === "tips" ? "font-bold text-accent-2" : ""}`}>{formatCurrency(r.wageType === "tips" ? r.tips : r.base)}</span>
                 <span className="tabular-nums text-text-2">{r.topup > 0 ? formatCurrency(r.topup) : "—"}</span>
+                <span className={`tabular-nums ${r.bonus > 0 ? "font-bold text-accent" : "text-text-2"}`}>{r.bonus > 0 ? formatCurrency(r.bonus) : "—"}</span>
                 <span className="font-extrabold tabular-nums">{formatCurrency(r.total)}</span>
-=======
-                <span>{r.hours.toFixed(1)}</span>
-                <span>{r.rate ? formatCurrency(r.rate) : "—"}</span>
-                <span className={r.wageType === "tips" ? "text-accent-2" : undefined}>{formatCurrency(r.wageType === "tips" ? r.tips : r.base)}</span>
-                <span className="text-text-2">{r.topup > 0 ? formatCurrency(r.topup) : "—"}</span>
-                <span className={r.bonus > 0 ? "text-accent" : "text-text-2"}>{r.bonus > 0 ? formatCurrency(r.bonus) : "—"}</span>
-                <span className="font-extrabold">{formatCurrency(r.total)}</span>
->>>>>>> 6df25a794822348c0586c09d1d825cf46f6db1de
               </div>
             ))}
             {rows.length === 0 && <div className="px-5 py-10 text-center text-text-2">אין נתונים לחודש זה.</div>}

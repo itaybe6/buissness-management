@@ -2389,6 +2389,89 @@ select {
   color: var(--text-3);
 }
 
+.task-checklist-filters {
+  display: flex;
+  gap: 0.4rem;
+  overflow-x: auto;
+  padding: 0.65rem 0.75rem;
+  border-bottom: 1px solid var(--border-2);
+  background: var(--surface);
+  scrollbar-width: none;
+}
+
+.task-checklist-filters::-webkit-scrollbar {
+  display: none;
+}
+
+.task-checklist-filter {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 2.15rem;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    color 160ms var(--ease-out),
+    background 160ms var(--ease-out),
+    border-color 160ms var(--ease-out);
+}
+
+.task-checklist-filter[data-active="true"] {
+  border-color: color-mix(in srgb, var(--accent-2) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent-2) 10%, var(--surface));
+  color: var(--text);
+}
+
+.task-checklist-filter[data-active="true"][data-status="open"] {
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--border));
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.task-checklist-filter[data-active="true"][data-status="in_progress"] {
+  border-color: color-mix(in srgb, var(--warning) 35%, var(--border));
+  background: var(--warning-bg);
+  color: #b45309;
+}
+
+.task-checklist-filter[data-active="true"][data-status="done"] {
+  border-color: color-mix(in srgb, var(--success) 30%, var(--border));
+  background: var(--success-bg);
+  color: #047857;
+}
+
+.task-checklist-filter-count {
+  display: inline-grid;
+  min-width: 1.25rem;
+  place-items: center;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  font-size: 10.5px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.task-checklist-filter-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 2rem 1rem;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
 .task-checklist-list {
   display: flex;
   flex-direction: column;
@@ -7423,7 +7506,6 @@ select {
 }
 
 /* ============================================================
-<<<<<<< HEAD
    Shared admin-page kit — stat tiles, filter pills, table rows,
    person chips. Used by Payroll, Users, Faults and similar
    data-heavy manager screens to match the dashboard/shifts look.
@@ -7585,7 +7667,10 @@ select {
 }
 
 .data-row-action[data-tone="danger"]:hover {
-=======
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
 
 /* ============================================================
    Faults — mobile
@@ -7674,12 +7759,10 @@ select {
 }
 
 .fault-stat[data-tone="danger"] .fault-stat-icon {
->>>>>>> 6df25a794822348c0586c09d1d825cf46f6db1de
   background: var(--danger-bg);
   color: var(--danger);
 }
 
-<<<<<<< HEAD
 /* --- Person chip: colored initials avatar, reused across rosters --- */
 .person-chip {
   display: grid;
@@ -7724,7 +7807,7 @@ select {
     transform: none;
   }
 }
-=======
+
 .fault-stat[data-tone="warning"] .fault-stat-icon {
   background: var(--warning-bg);
   color: var(--warning);
@@ -9547,4 +9630,4 @@ select {
   font-weight: 600;
   color: var(--text-3);
 }
->>>>>>> 6df25a794822348c0586c09d1d825cf46f6db1de
+
