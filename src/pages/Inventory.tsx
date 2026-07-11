@@ -427,16 +427,16 @@ function ItemCard({
     >
       {/* Mobile — compact product tile */}
       <div className="flex flex-col md:hidden">
-        <div className="inventory-product-image relative aspect-square overflow-hidden bg-surface-2">
+        <div className="inventory-product-image relative aspect-[5/4] max-h-[100px] shrink-0 overflow-hidden bg-surface-2">
           {item.image_url ? (
             <img src={item.image_url} alt={item.name} className="h-full w-full object-cover" />
           ) : (
             <div className="grid h-full place-items-center text-text-3/60">
-              <Icon name="inventory_2" size={28} />
+              <Icon name="inventory_2" size={26} />
             </div>
           )}
           <span
-            className="inventory-product-badge absolute top-1.5 right-1.5 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-bold backdrop-blur-sm"
+            className="inventory-product-badge absolute top-1.5 right-1.5 inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold backdrop-blur-sm"
             style={{ background: `color-mix(in srgb, ${meta.dot} 18%, var(--surface))`, color: meta.dot }}
           >
             <span className="h-1.5 w-1.5 rounded-full" style={{ background: meta.dot }} />
@@ -449,37 +449,31 @@ function ItemCard({
           )}
         </div>
 
-        <div className="flex flex-1 flex-col p-2">
-          <h3 className="line-clamp-2 min-h-[2.4em] text-[12px] font-bold leading-snug tracking-tight">{item.name}</h3>
-          {inventoryCategoryLabel(item.category) && (
-            <span className="mt-0.5 text-[10px] font-semibold text-text-3">{inventoryCategoryLabel(item.category)}</span>
-          )}
-
-          <div className="mt-1.5 flex items-baseline justify-between gap-1">
-            <div className="min-w-0">
-              <span className="text-[20px] font-extrabold tabular-nums leading-none">{item.current_qty}</span>
-              {item.unit && <span className="mr-0.5 text-[10px] font-semibold text-text-3">{item.unit}</span>}
-              {supportsPieceInput(item.unit) && item.units_per_package ? (
-                <span className="block text-[9px] font-medium text-text-3">
-                  ({mainUnitToPieces(item.current_qty, item.units_per_package)} יח׳)
-                </span>
-              ) : null}
+        <div className="flex flex-1 flex-col gap-1.5 p-2">
+          <div className="flex items-start justify-between gap-1.5">
+            <div className="min-w-0 flex-1">
+              <h3 className="line-clamp-2 text-[12px] font-bold leading-snug tracking-tight">{item.name}</h3>
+              {inventoryCategoryLabel(item.category) && (
+                <span className="text-[10px] font-semibold text-text-3">{inventoryCategoryLabel(item.category)}</span>
+              )}
+            </div>
+            <div className="shrink-0 text-left leading-none">
+              <span className="text-[17px] font-extrabold tabular-nums">{item.current_qty}</span>
+              {item.unit && <span className="block text-[9px] font-semibold text-text-3">{item.unit}</span>}
             </div>
           </div>
 
-          <div className="mt-2 w-full">
-            <QtyStepper
-              value={item.current_qty}
-              unit={item.unit}
-              unitsPerPackage={item.units_per_package}
-              disabled={!isManager}
-              onCommit={onSetQty}
-              compact
-            />
-          </div>
+          <QtyStepper
+            value={item.current_qty}
+            unit={item.unit}
+            unitsPerPackage={item.units_per_package}
+            disabled={!isManager}
+            onCommit={onSetQty}
+            compact
+          />
 
           {isManager && (
-            <div className="mt-2 flex gap-1 border-t border-border-2 pt-2">
+            <div className="flex gap-1 border-t border-border-2 pt-1.5">
               <button
                 type="button"
                 onClick={onEdit}

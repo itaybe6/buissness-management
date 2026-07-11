@@ -50,6 +50,10 @@ export const SCHEDULER_ROLES: UserRole[] = ["manager", "shift_manager"];
 /** Roles that see the manager tasks UI (fixed templates + assignment). */
 export const MANAGER_ROLES: UserRole[] = ["manager", "shift_manager"];
 
+export function canForceEmployeeClockOut(role: UserRole | string | null | undefined): boolean {
+  return !!role && MANAGER_ROLES.includes(role as UserRole);
+}
+
 /** Roles that can create fixed templates and assign one-time tasks. */
 export const TASK_CREATE_ROLES: UserRole[] = ["manager"];
 

@@ -18,11 +18,10 @@ const STATUS_META: Record<TaskStatus, { label: string; short: string; tone: Stat
   done: { label: "בוצע", short: "בוצע", tone: "success", color: "var(--success)", icon: "check_circle" },
 };
 const STATUS_ORDER: TaskStatus[] = ["open", "in_progress", "done"];
-type StatusFilter = "all" | TaskStatus;
+type StatusFilter = "all" | "in_progress" | "done";
 
-const FILTER_OPTIONS: { key: StatusFilter; label: string; status?: TaskStatus }[] = [
+const FILTER_OPTIONS: { key: StatusFilter; label: string; status?: "in_progress" | "done" }[] = [
   { key: "all", label: "הכל" },
-  { key: "open", label: STATUS_META.open.short, status: "open" },
   { key: "in_progress", label: STATUS_META.in_progress.short, status: "in_progress" },
   { key: "done", label: STATUS_META.done.short, status: "done" },
 ];
@@ -168,7 +167,7 @@ function TaskStatusFilter({
             data-status={opt.status ?? "all"}
             className="task-checklist-filter press"
           >
-            {meta && <Icon name={meta.icon} size={15} className="flex-none" />}
+            {meta ? <Icon name={meta.icon} size={15} className="flex-none" /> : <Icon name="list" size={15} className="flex-none" />}
             <span>{opt.label}</span>
             <span className="task-checklist-filter-count">{count}</span>
           </button>
@@ -588,7 +587,6 @@ export function DailyTasksChecklist({
   const statusCounts = useMemo(
     () => ({
       all: tasks.length,
-      open: tasks.filter((t) => t.status === "open").length,
       in_progress: tasks.filter((t) => t.status === "in_progress").length,
       done: doneCount,
     }),

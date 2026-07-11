@@ -126,11 +126,11 @@ export function DocsMgmtStats({
         <span className="docs-mgmt-stat__val">{total}</span>
         <span className="docs-mgmt-stat__lbl">מסמכים</span>
       </div>
-      <div className="docs-mgmt-stat" data-accent="warning">
+      <div className="docs-mgmt-stat">
         <span className="docs-mgmt-stat__val">{pending}</span>
         <span className="docs-mgmt-stat__lbl">ממתינים</span>
       </div>
-      <div className="docs-mgmt-stat" data-accent="success">
+      <div className="docs-mgmt-stat">
         <span className="docs-mgmt-stat__val">{complete}</span>
         <span className="docs-mgmt-stat__lbl">הושלמו</span>
       </div>
@@ -184,7 +184,7 @@ export function TemplateDocRow({
         <span className="doc-row__copy">
           <span className="doc-row__title-row">
             <span className="doc-row__title">{title}</span>
-            <Badge tone={complete ? "success" : "warning"} className="shrink-0">
+            <Badge tone="neutral" className="shrink-0">
               {`${signed}/${targets}`}
             </Badge>
           </span>
@@ -264,11 +264,11 @@ export function mgmtCategoryCounts(agreements: AgreementTemplate[]): Record<Docs
 export function DocsStatsBar({ pending, signed, total }: { pending: number; signed: number; total: number }) {
   return (
     <div className="docs-stats" aria-label="סיכום מסמכים">
-      <div className="docs-stat" data-accent="warning">
+      <div className="docs-stat">
         <span className="docs-stat-val">{pending}</span>
         <span className="docs-stat-lbl">ממתינים</span>
       </div>
-      <div className="docs-stat" data-accent="success">
+      <div className="docs-stat">
         <span className="docs-stat-val">{signed}</span>
         <span className="docs-stat-lbl">נחתמו</span>
       </div>
@@ -280,46 +280,49 @@ export function DocsStatsBar({ pending, signed, total }: { pending: number; sign
   );
 }
 
-export function EmployeeDocCard({
+const DOC_ROW_TONES: Record<AgreementTemplate["type"], "accent" | "info"> = {
+  work: "accent",
+  sexual_harassment: "accent",
+  other: "info",
+  form_101: "info",
+};
+
+export function EmployeeDocRow({
   title,
   type,
   signed,
-  index = 0,
   onOpen,
+  last,
 }: {
   title: string;
   type: AgreementTemplate["type"];
   signed: boolean;
-  index?: number;
   onOpen: () => void;
+  last?: boolean;
 }) {
-  const accent = TYPE_ACCENTS[type];
   const icon = TYPE_ICONS[type];
+  const tone: "accent" | "info" | "warning" = signed ? DOC_ROW_TONES[type] : "warning";
 
   return (
-    <article
-      className="doc-card doc-card--enter"
-      data-status={signed ? "signed" : "pending"}
-      data-accent={accent}
-      style={{ "--doc-delay": `${index * 60}ms` } as CSSProperties}
+    <button
+      type="button"
+      className={`profile-action-row ${last ? "profile-action-row--last" : ""}`}
+      onClick={onOpen}
     >
-      <div className="doc-card__top">
-        <span className="doc-card__icon" aria-hidden>
-          <Icon name={icon} size={24} />
+      <span className="profile-action-row-icon" data-tone={tone}>
+        <Icon name={icon} size={20} />
+      </span>
+      <span className="profile-action-row-text">
+        <span className="profile-action-row-title">
+          {title}
+          {!signed && <span className="docs-pending-dot" aria-hidden />}
         </span>
-        <Badge tone={signed ? "success" : "warning"} className="doc-card__badge">
-          {signed ? "נחתם" : "ממתין לחתימה"}
-        </Badge>
-      </div>
-      <div className="doc-card__body">
-        <h3 className="doc-card__title">{title}</h3>
-        <p className="doc-card__meta">{TYPE_LABELS[type]}</p>
-      </div>
-      <button type="button" className="doc-card__cta" onClick={onOpen}>
-        <Icon name={signed ? "visibility" : "edit_document"} size={18} />
-        <span>{signed ? "צפייה" : "קריאה וחתימה"}</span>
-      </button>
-    </article>
+        <span className="profile-action-row-desc" data-pending={!signed || undefined}>
+          {signed ? TYPE_LABELS[type] : "ממתין לחתימה"}
+        </span>
+      </span>
+      <Icon name="chevron_left" size={22} className="profile-action-row-chevron" />
+    </button>
   );
 }
 

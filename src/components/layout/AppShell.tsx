@@ -111,9 +111,7 @@ export function AppShell() {
 
       <aside
 
-        className="sticky top-0 hidden h-[100dvh] w-[var(--sw)] flex-none flex-col border-l border-white/[0.06] md:flex"
-
-        style={{ background: "linear-gradient(178deg, var(--sidebar-plum), var(--sidebar-plum-deep))" }}
+        className="app-sidebar sticky top-0 hidden h-[100dvh] w-[var(--sw)] flex-none flex-col border-l md:flex"
 
       >
 

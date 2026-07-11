@@ -89,11 +89,11 @@ export function DualUnitQtyInput({
   ) : null;
 
   if (variant === "stepper") {
-    return (
-      <div className={`flex flex-col gap-1.5 ${compact ? "w-full items-stretch" : "items-end"}`}>
-        {toggle}
-        <div className={`flex items-center ${compact ? "w-full justify-center gap-1" : "gap-2.5"}`}>
-          <div className={`inline-flex items-center gap-0.5 rounded-lg border border-border bg-surface py-0.5 ${compact ? "w-full justify-center px-0.5" : "px-1"}`}>
+    if (compact) {
+      return (
+        <div className="flex w-full flex-col gap-1">
+          {dualEnabled && <div className="flex justify-center">{toggle}</div>}
+          <div className="inline-flex w-full items-center justify-center gap-1 rounded-lg border border-border bg-surface px-1 py-0.5">
             <button
               type="button"
               disabled={disabled}
@@ -101,7 +101,7 @@ export function DualUnitQtyInput({
               className={stepBtn}
               aria-label="הפחתה"
             >
-              <Icon name="remove" size={compact ? 14 : 16} />
+              <Icon name="remove" size={14} />
             </button>
             <input
               type="number"
@@ -110,7 +110,7 @@ export function DualUnitQtyInput({
               onChange={(e) => setLocal(Number(e.target.value))}
               onBlur={() => commitFromDisplay(local)}
               onAnimationEnd={() => setBump(false)}
-              className={`bg-transparent text-center font-bold tabular-nums text-text outline-none ${compact ? "w-8 text-[13px]" : "w-10 text-[15px]"} ${bump ? "inventory-qty-bump" : ""}`}
+              className={`w-8 bg-transparent text-center text-[13px] font-bold tabular-nums text-text outline-none ${bump ? "inventory-qty-bump" : ""}`}
             />
             <button
               type="button"
@@ -119,14 +119,48 @@ export function DualUnitQtyInput({
               className={stepBtn}
               aria-label="הוספה"
             >
-              <Icon name="add" size={compact ? 14 : 16} />
+              <Icon name="add" size={14} />
             </button>
           </div>
-          {unitLabel && !compact && <span className="text-[12px] font-medium text-text-3">{unitLabel}</span>}
         </div>
-        {unitLabel && compact && (
-          <span className="text-center text-[9px] font-medium text-text-3">{unitLabel}</span>
-        )}
+      );
+    }
+
+    return (
+      <div className="flex flex-col items-end gap-1.5">
+        {toggle}
+        <div className="flex items-center gap-2.5">
+          <div className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-surface px-1 py-0.5">
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => commitFromDisplay(local - 1)}
+              className={stepBtn}
+              aria-label="הפחתה"
+            >
+              <Icon name="remove" size={16} />
+            </button>
+            <input
+              type="number"
+              value={local}
+              disabled={disabled}
+              onChange={(e) => setLocal(Number(e.target.value))}
+              onBlur={() => commitFromDisplay(local)}
+              onAnimationEnd={() => setBump(false)}
+              className={`w-10 bg-transparent text-center text-[15px] font-bold tabular-nums text-text outline-none ${bump ? "inventory-qty-bump" : ""}`}
+            />
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => commitFromDisplay(local + 1)}
+              className={stepBtn}
+              aria-label="הוספה"
+            >
+              <Icon name="add" size={16} />
+            </button>
+          </div>
+          {unitLabel && <span className="text-[12px] font-medium text-text-3">{unitLabel}</span>}
+        </div>
       </div>
     );
   }

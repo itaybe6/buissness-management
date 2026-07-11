@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, 
 import { Button, Field, Icon, Input, PageLoader } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { UserAvatar } from "@/components/ui/UserAvatar";
+import { PageEnter, StaggerGrid, StaggerItem } from "@/components/motion/shared-motion";
 import { useAuth } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 import { formatCurrency } from "@/lib/db";
@@ -25,34 +26,45 @@ export function Profile() {
   if (!profile) return <PageLoader />;
 
   return (
-    <div className="profile-page animate-fadeUp">
-      <ProfileHero
-        profile={profile}
-        departmentName={departmentName}
-        onSaved={refresh}
-        onEdit={() => setEditOpen(true)}
-      />
+    <PageEnter className="profile-page w-full">
+      <header className="profile-page-head hidden md:block">
+        <h1 className="profile-page-title">הפרופיל שלי</h1>
+        <p className="profile-page-desc">פרטים אישיים, שכר והגדרות חשבון</p>
+      </header>
 
-      <div className="profile-body">
-        <div className="profile-card">
-          {profile.business_id && (
-            <ProfileActionRow
-              icon="payments"
-              tone="accent"
-              title="שכר"
-              desc={wageSummary(profile)}
-              onClick={() => setWageOpen(true)}
-            />
-          )}
-          <ProfileActionRow
-            icon="lock"
-            tone="info"
-            title="שינוי סיסמה"
-            desc="עדכון סיסמת הכניסה לחשבון"
-            onClick={() => setPasswordOpen(true)}
-            last
-          />
-        </div>
+      <div className="profile-layout">
+        <ProfileIdentityCard
+          profile={profile}
+          departmentName={departmentName}
+          onSaved={refresh}
+          onEdit={() => setEditOpen(true)}
+        />
+
+        <section className="profile-actions" aria-label="הגדרות חשבון">
+          <h2 className="profile-actions-title hidden md:block">הגדרות חשבון</h2>
+          <StaggerGrid className="profile-actions-grid">
+            {profile.business_id && (
+              <StaggerItem>
+                <ProfileActionCard
+                  icon="payments"
+                  tone="accent"
+                  title="שכר"
+                  desc={wageSummary(profile)}
+                  onClick={() => setWageOpen(true)}
+                />
+              </StaggerItem>
+            )}
+            <StaggerItem>
+              <ProfileActionCard
+                icon="lock"
+                tone="info"
+                title="שינוי סיסמה"
+                desc="עדכון סיסמת הכניסה לחשבון"
+                onClick={() => setPasswordOpen(true)}
+              />
+            </StaggerItem>
+          </StaggerGrid>
+        </section>
       </div>
 
       <EditDetailsModal
@@ -65,11 +77,11 @@ export function Profile() {
       <WageInfoModal open={wageOpen} onClose={() => setWageOpen(false)} profile={profile} />
 
       <ChangePasswordModal open={passwordOpen} onClose={() => setPasswordOpen(false)} />
-    </div>
+    </PageEnter>
   );
 }
 
-function ProfileHero({
+function ProfileIdentityCard({
   profile,
   departmentName,
   onSaved,
@@ -81,39 +93,50 @@ function ProfileHero({
   onEdit: () => void;
 }) {
   return (
-    <header className="profile-hero">
-      <div className="profile-hero-inner">
-        <button
-          type="button"
-          className="profile-hero-edit"
-          aria-label="עריכת פרטים אישיים"
-          onClick={onEdit}
-        >
-          <Icon name="edit" size={20} />
-        </button>
+    <article className="profile-identity-card">
+      <button
+        type="button"
+        className="profile-identity-edit"
+        aria-label="עריכת פרטים אישיים"
+        onClick={onEdit}
+      >
+        <Icon name="edit" size={20} />
+      </button>
 
-        <div className="profile-hero-user">
-          <ProfileAvatarUpload profile={profile} onSaved={onSaved} size={76} />
-          <div className="profile-hero-text">
-            <span className="profile-hero-role">
-              {ROLE_LABELS[profile.role]}
-              {departmentName ? ` · ${departmentName}` : ""}
-            </span>
-            <h1 className="profile-hero-name">{profile.full_name ?? "משתמש"}</h1>
+      <div className="profile-identity-main">
+        <ProfileAvatarUpload profile={profile} onSaved={onSaved} size={88} />
+        <div className="profile-identity-info">
+          <span className="profile-identity-role">
+            {ROLE_LABELS[profile.role]}
+            {departmentName ? ` · ${departmentName}` : ""}
+          </span>
+          <h1 className="profile-identity-name">{profile.full_name ?? "משתמש"}</h1>
+          <ul className="profile-identity-contacts">
             {profile.email && (
-              <p className="profile-hero-contact" dir="ltr">
-                {profile.email}
-              </p>
+              <li className="profile-identity-contact">
+                <Icon name="mail" size={18} aria-hidden />
+                <span dir="ltr">{profile.email}</span>
+              </li>
             )}
             {profile.phone && (
-              <p className="profile-hero-contact" dir="ltr">
-                {profile.phone}
-              </p>
+              <li className="profile-identity-contact">
+                <Icon name="phone" size={18} aria-hidden />
+                <span dir="ltr">{profile.phone}</span>
+              </li>
             )}
-          </div>
+          </ul>
         </div>
       </div>
-    </header>
+
+      <Button
+        variant="secondary"
+        icon="edit"
+        onClick={onEdit}
+        className="profile-identity-edit-btn hidden md:inline-flex"
+      >
+        עריכת פרטים
+      </Button>
+    </article>
   );
 }
 
@@ -123,35 +146,29 @@ function wageSummary(profile: ProfileType): string {
   return `${WAGE_TYPE_LABELS[wageType]} · ${formatCurrency(rate)}`;
 }
 
-function ProfileActionRow({
+function ProfileActionCard({
   icon,
   tone = "accent",
   title,
   desc,
   onClick,
-  last,
 }: {
   icon: string;
   tone?: "accent" | "info";
   title: string;
   desc: string;
   onClick: () => void;
-  last?: boolean;
 }) {
   return (
-    <button
-      type="button"
-      className={`profile-action-row ${last ? "profile-action-row--last" : ""}`}
-      onClick={onClick}
-    >
-      <span className="profile-action-row-icon" data-tone={tone}>
-        <Icon name={icon} size={20} />
+    <button type="button" className="profile-action-card" onClick={onClick}>
+      <span className="profile-action-card-icon" data-tone={tone}>
+        <Icon name={icon} size={22} />
       </span>
-      <span className="profile-action-row-text">
-        <span className="profile-action-row-title">{title}</span>
-        <span className="profile-action-row-desc">{desc}</span>
+      <span className="profile-action-card-body">
+        <span className="profile-action-card-title">{title}</span>
+        <span className="profile-action-card-desc">{desc}</span>
       </span>
-      <Icon name="chevron_left" size={22} className="profile-action-row-chevron" />
+      <Icon name="chevron_left" size={22} className="profile-action-card-chevron" aria-hidden />
     </button>
   );
 }

@@ -104,12 +104,16 @@ export function useShiftPunch() {
   async function doClockOut() {
     if (!myOpen) return;
     setExitWarn(false);
-    await clockOut.mutateAsync(myOpen.id);
-    setClockStatus({ ok: true, text: "הוחתמה יציאה ממשמרת" });
+    try {
+      await clockOut.mutateAsync(myOpen.id);
+      setClockStatus({ ok: true, text: "הוחתמה יציאה ממשמרת" });
+    } catch {
+      setClockStatus({ ok: false, text: "החתמת יציאה נכשלה" });
+    }
   }
 
   async function handleClock() {
-    if (!biz || !profile) return;
+    if (!profile) return;
     setClockStatus(null);
 
     if (myOpen) {
@@ -117,9 +121,16 @@ export function useShiftPunch() {
         setExitWarn(true);
         return;
       }
-      await doClockOut();
+      setBusy(true);
+      try {
+        await doClockOut();
+      } finally {
+        setBusy(false);
+      }
       return;
     }
+
+    if (!biz) return;
 
     if (!geofenceRequired) {
       setBusy(true);

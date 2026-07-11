@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { addDays } from "@/lib/db";
 import { supabase } from "@/lib/supabase";
 import type { Attendance } from "@/types/database";
 
@@ -38,6 +39,27 @@ export function useAttendanceMonth(businessId: string | null, monthISO: string) 
         .eq("business_id", businessId)
         .gte("clock_in", start)
         .lt("clock_in", end);
+      if (error) throw error;
+      return (data ?? []) as Attendance[];
+    },
+  });
+}
+
+/** Attendance around a report date — includes prior/next day for overnight shifts. */
+export function useAttendanceAroundDate(businessId: string | null, reportDateISO: string | null) {
+  return useQuery({
+    queryKey: ["attendance_around", businessId, reportDateISO],
+    enabled: !!businessId && !!reportDateISO,
+    queryFn: async (): Promise<Attendance[]> => {
+      const start = `${addDays(reportDateISO!, -1)}T00:00:00`;
+      const end = `${addDays(reportDateISO!, 2)}T00:00:00`;
+      const { data, error } = await supabase
+        .from("attendance")
+        .select("*")
+        .eq("business_id", businessId)
+        .gte("clock_in", start)
+        .lt("clock_in", end)
+        .order("clock_in", { ascending: true });
       if (error) throw error;
       return (data ?? []) as Attendance[];
     },

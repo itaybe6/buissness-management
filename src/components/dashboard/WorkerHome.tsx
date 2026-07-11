@@ -4,21 +4,37 @@ import { Button, Icon } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { AttendancePunchStation } from "@/components/attendance/AttendancePunchStation";
 import { DailyTasksChecklist, useDailyTaskActions } from "@/components/tasks/DailyTasksChecklist";
-import { PageEnter, PressableCard, StaggerGrid, StaggerItem } from "@/components/motion/shared-motion";
+import { PageEnter } from "@/components/motion/shared-motion";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId } from "@/lib/db";
 import { useBusiness } from "@/api/businesses";
-import { NAV_ITEMS, ROLE_LABELS } from "@/lib/constants";
+import { ROLE_LABELS } from "@/lib/constants";
 import { useShiftPunch } from "@/hooks/useShiftPunch";
 import { TeamOnShiftPanel } from "@/components/dashboard/TeamOnShiftPanel";
-import type { FeatureKey, ShiftTemplate } from "@/types/database";
+import type { ShiftTemplate } from "@/types/database";
+
+type TimeOfDay = "morning" | "afternoon" | "evening" | "night";
+
+function timeOfDay(h = new Date().getHours()): TimeOfDay {
+  if (h < 12) return "morning";
+  if (h < 17) return "afternoon";
+  if (h < 21) return "evening";
+  return "night";
+}
 
 function greeting() {
-  const h = new Date().getHours();
-  if (h < 12) return "בוקר טוב";
-  if (h < 17) return "צהריים טובים";
-  if (h < 21) return "ערב טוב";
+  const slot = timeOfDay();
+  if (slot === "morning") return "בוקר טוב";
+  if (slot === "afternoon") return "צהריים טובים";
+  if (slot === "evening") return "ערב טוב";
   return "לילה טוב";
+}
+
+function greetingIcon(slot: TimeOfDay) {
+  if (slot === "morning") return "wb_sunny";
+  if (slot === "afternoon") return "light_mode";
+  if (slot === "evening") return "nights_stay";
+  return "bedtime";
 }
 
 function useLiveClock() {
@@ -102,7 +118,7 @@ function WorkerClockStation({ time }: { time: string }) {
         onShift={onShift}
         shiftElapsed={shiftElapsed}
         status={clockStatus}
-        busy={busy || !punchReady}
+        busy={busy || (!onShift && !punchReady)}
         onPunch={handleClock}
         compact
         footer={shiftFooter}
@@ -149,42 +165,6 @@ function WorkerClockStation({ time }: { time: string }) {
   );
 }
 
-function WorkerQuickLinks({ hasFeature }: { hasFeature: (k: FeatureKey) => boolean }) {
-  const { profile } = useAuth();
-  const role = profile?.role ?? "employee";
-
-  const links = NAV_ITEMS.filter(
-    (i) =>
-      i.roles.includes(role as never) &&
-      !["dashboard", "platform", "tasks"].includes(i.key) &&
-      (!i.feature || hasFeature(i.feature)),
-  ).filter((i, idx, arr) => arr.findIndex((x) => x.key === i.key) === idx);
-
-  if (links.length === 0) return null;
-
-  return (
-    <section className="worker-quick-section">
-      <h3 className="worker-quick-title">גישה מהירה</h3>
-      <StaggerGrid className="worker-quick-grid">
-        {links.slice(0, 6).map((item) => (
-          <StaggerItem key={item.key}>
-            <Link to={`/${item.key}`} className="block">
-              <PressableCard>
-                <div className="worker-quick-item">
-                  <span className="worker-quick-icon">
-                    <Icon name={item.icon} size={20} className="text-accent-2" />
-                  </span>
-                  <span className="worker-quick-label">{item.label}</span>
-                </div>
-              </PressableCard>
-            </Link>
-          </StaggerItem>
-        ))}
-      </StaggerGrid>
-    </section>
-  );
-}
-
 export function WorkerHome({
   variant = "employee",
   children,
@@ -206,40 +186,88 @@ export function WorkerHome({
 
   const timeStr = now.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const dateStr = now.toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long" });
-  const todayLabel = dateStr;
   const firstName = (profile?.full_name ?? "").split(/\s+/)[0];
   const role = profile?.role ?? "employee";
   const showTasks = hasFeature("tasks");
   const doneCount = todayTasks.filter((t) => t.status === "done").length;
   const totalTasks = todayTasks.length;
+  const slot = timeOfDay(now.getHours());
+  const businessName = business?.name ?? "העסק שלך";
+  const businessInitial = businessName.trim().charAt(0) || "ע";
+  const userInitial = (profile?.full_name ?? firstName ?? "ע").trim().charAt(0) || "ע";
+  const taskProgress = totalTasks > 0 ? Math.round((doneCount / totalTasks) * 100) : 0;
+  const allTasksDone = totalTasks > 0 && doneCount === totalTasks;
 
   return (
     <PageEnter className="worker-home w-full max-w-lg mx-auto md:max-w-2xl lg:max-w-3xl">
-      <header className="worker-greeting">
-        <p className="worker-greeting-eyebrow">{business?.name ?? "העסק שלך"}</p>
-        <h1 className="worker-greeting-title">
-          {greeting()}
-          {firstName ? `, ${firstName}` : ""}
-        </h1>
-        <p className="worker-greeting-sub">
-          {todayLabel}
-          {variant === "shift_manager" && (
-            <span className="worker-role-pill">{ROLE_LABELS[role]}</span>
-          )}
-        </p>
+      <header
+        className="worker-hero"
+        data-time={slot}
+        data-variant={variant}
+        aria-label="כותרת דשבורד"
+      >
+        <div className="worker-hero-top">
+          <div className="worker-hero-brand">
+            <span className="worker-hero-brand-mark" aria-hidden>
+              {businessInitial}
+            </span>
+            <span className="worker-hero-brand-name">{businessName}</span>
+          </div>
+          <time className="worker-hero-clock" dateTime={now.toISOString()}>
+            {timeStr}
+          </time>
+        </div>
+
+        <div className="worker-hero-main">
+          <div className="worker-hero-avatar" aria-hidden>
+            <span className="worker-hero-avatar-inner">{userInitial}</span>
+            <span className="worker-hero-avatar-badge">
+              <Icon name={greetingIcon(slot)} size={13} />
+            </span>
+          </div>
+          <div className="worker-hero-copy">
+            <p className="worker-hero-kicker">{greeting()}</p>
+            <h1 className="worker-hero-title">{firstName || "שלום"}</h1>
+          </div>
+        </div>
+
+        <div className="worker-hero-meta">
+          <span className="worker-hero-date">
+            <Icon name="calendar_today" size={15} />
+            {dateStr}
+          </span>
+          <span
+            className="worker-hero-role"
+            data-role={variant === "shift_manager" ? "manager" : "employee"}
+          >
+            <Icon
+              name={variant === "shift_manager" ? "shield_person" : "badge"}
+              size={14}
+            />
+            {ROLE_LABELS[role]}
+          </span>
+        </div>
+
         {showTasks && totalTasks > 0 && (
-          <div className="worker-task-summary">
-            <span
-              className="worker-task-summary-ring"
-              data-done={doneCount === totalTasks ? "true" : "false"}
-            >
-              {doneCount}/{totalTasks}
-            </span>
-            <span className="text-[12.5px] font-semibold text-text-2">
-              {doneCount === totalTasks
-                ? "סיימת את כל משימות היום"
+          <div className="worker-hero-tasks" data-done={allTasksDone ? "true" : "false"}>
+            <div className="worker-hero-tasks-head">
+              <span className="worker-hero-tasks-count">
+                {doneCount}
+                <span className="worker-hero-tasks-total">/{totalTasks}</span>
+              </span>
+              <span className="worker-hero-tasks-label">
+                {allTasksDone ? "כל המשימות הושלמו" : "משימות היום"}
+              </span>
+              <span className="worker-hero-tasks-pct">{taskProgress}%</span>
+            </div>
+            <div className="worker-hero-tasks-track" role="progressbar" aria-valuenow={taskProgress} aria-valuemin={0} aria-valuemax={100}>
+              <span className="worker-hero-tasks-fill" style={{ width: `${taskProgress}%` }} />
+            </div>
+            <p className="worker-hero-tasks-hint">
+              {allTasksDone
+                ? "עבודה מצוינת — אפשר לסגור את היום בראש שקט"
                 : `${totalTasks - doneCount} משימות ממתינות לטיפול`}
-            </span>
+            </p>
           </div>
         )}
       </header>
@@ -259,8 +287,6 @@ export function WorkerHome({
       )}
 
       {children}
-
-      <WorkerQuickLinks hasFeature={hasFeature} />
     </PageEnter>
   );
 }

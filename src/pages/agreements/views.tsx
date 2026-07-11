@@ -21,9 +21,8 @@ import {
   DocsMgmtStats,
   DocsMgmtToolbar,
   DocsPageTabs,
-  DocsStatsBar,
   DocsTabs,
-  EmployeeDocCard,
+  EmployeeDocRow,
   filterMgmtAgreements,
   mgmtCategoryCounts,
   TemplateDocRow,
@@ -238,7 +237,7 @@ function SignersModal({
                       <Icon name="download" size={18} />
                     </a>
                   )}
-                  {sig ? <Badge tone="success">נחתם</Badge> : <Badge tone="warning">ממתין</Badge>}
+                  {sig ? <Badge tone="neutral">נחתם</Badge> : <Badge tone="neutral">ממתין</Badge>}
                 </div>
               </div>
             );
@@ -324,7 +323,6 @@ export function EmployeeDocumentsView({
   const signedSet = new Set((signatures ?? []).filter((s) => s.agreed).map((s) => s.agreement_id));
 
   const pending = myAgreements.filter((a) => !signedSet.has(a.id)).length;
-  const signed = myAgreements.filter((a) => signedSet.has(a.id)).length;
   const showTabs = Boolean(canEditTemplates && profileId);
 
   return (
@@ -340,21 +338,17 @@ export function EmployeeDocumentsView({
 
       {(!showTabs || pageTab === "mine") && (
         <>
-          {myAgreements.length > 0 && (
-            <DocsStatsBar pending={pending} signed={signed} total={myAgreements.length} />
-          )}
-
           {myAgreements.length > 0 ? (
-            <div className="doc-card-grid">
+            <div className="profile-card">
               {myAgreements.map((a, i) => {
                 const signedDoc = signedSet.has(a.id);
                 return (
-                  <EmployeeDocCard
+                  <EmployeeDocRow
                     key={a.id}
                     title={a.title}
                     type={a.type}
                     signed={signedDoc}
-                    index={i}
+                    last={i === myAgreements.length - 1}
                     onOpen={() => setReading(a)}
                   />
                 );

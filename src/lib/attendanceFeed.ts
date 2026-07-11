@@ -43,6 +43,110 @@ export function punchOverlapsShiftWindow(
   return inMin < shiftEnd && outMin > shiftStart;
 }
 
+/** Absolute start/end of a shift anchored to a calendar report date (handles overnight). */
+export interface ShiftAbsoluteWindow {
+  startMs: number;
+  endMs: number;
+}
+
+export function shiftWindowForDate(reportDate: string, template: ShiftTemplate): ShiftAbsoluteWindow {
+  const [startH, startM] = template.start_time.slice(0, 5).split(":").map(Number);
+  const [endH, endM] = template.end_time.slice(0, 5).split(":").map(Number);
+  const [y, mo, d] = reportDate.split("-").map(Number);
+  const start = new Date(y, mo - 1, d, startH, startM, 0, 0);
+  const end = new Date(y, mo - 1, d, endH, endM, 0, 0);
+  if (end.getTime() <= start.getTime()) end.setDate(end.getDate() + 1);
+  return { startMs: start.getTime(), endMs: end.getTime() };
+}
+
+/** Midnight-to-midnight window for a calendar report date (local). */
+export function calendarDayWindow(reportDate: string): ShiftAbsoluteWindow {
+  return {
+    startMs: new Date(`${reportDate}T00:00:00`).getTime(),
+    endMs: new Date(`${addDays(reportDate, 1)}T00:00:00`).getTime(),
+  };
+}
+
+export function punchOverlapsAbsoluteWindow(
+  clockIn: string,
+  clockOut: string | null,
+  window: ShiftAbsoluteWindow,
+  nowMs = Date.now(),
+): boolean {
+  const inMs = new Date(clockIn).getTime();
+  const outMs = clockOut ? new Date(clockOut).getTime() : nowMs;
+  return inMs < window.endMs && outMs > window.startMs;
+}
+
+export function hoursOverlappingWindow(
+  clockIn: string,
+  clockOut: string | null,
+  window: ShiftAbsoluteWindow,
+  nowMs = Date.now(),
+): number {
+  const inMs = new Date(clockIn).getTime();
+  const outMs = clockOut ? new Date(clockOut).getTime() : nowMs;
+  const overlapStart = Math.max(inMs, window.startMs);
+  const overlapEnd = Math.min(outMs, window.endMs);
+  if (overlapEnd <= overlapStart) return 0;
+  return Math.round(((overlapEnd - overlapStart) / 3.6e6) * 100) / 100;
+}
+
+/** Attendance rows that might belong to a report date (incl. overnight spill into adjacent days). */
+export function filterAttendanceNearReportDate(records: Attendance[], reportDate: string): Attendance[] {
+  const rangeStart = new Date(`${addDays(reportDate, -1)}T00:00:00`).getTime();
+  const rangeEnd = new Date(`${addDays(reportDate, 2)}T00:00:00`).getTime();
+  return records.filter((r) => {
+    if (!r.clock_in) return false;
+    const inMs = new Date(r.clock_in).getTime();
+    const outMs = r.clock_out ? new Date(r.clock_out).getTime() : Date.now();
+    return inMs < rangeEnd && outMs > rangeStart;
+  });
+}
+
+export function punchOverlapsShiftOnDate(
+  clockIn: string,
+  clockOut: string | null,
+  reportDate: string,
+  template: ShiftTemplate,
+  now = new Date(),
+): boolean {
+  return punchOverlapsAbsoluteWindow(
+    clockIn,
+    clockOut,
+    shiftWindowForDate(reportDate, template),
+    now.getTime(),
+  );
+}
+
+export function getAttendanceHoursInShiftWindow(
+  attendance: Attendance[],
+  employeeId: string,
+  window: ShiftAbsoluteWindow,
+  nowMs = Date.now(),
+): number {
+  const hrs = attendance
+    .filter((a) => a.employee_id === employeeId && a.clock_in && a.clock_out)
+    .reduce((sum, a) => sum + hoursOverlappingWindow(a.clock_in!, a.clock_out, window, nowMs), 0);
+  return Math.round(hrs * 100) / 100;
+}
+
+/** Total completed punch duration for an employee (ms → hours). */
+export function totalPunchDurationHours(
+  attendance: Attendance[],
+  employeeId: string,
+  records?: Attendance[],
+): number {
+  const rows = records ?? attendance;
+  const hrs = rows
+    .filter((a) => a.employee_id === employeeId && a.clock_in && a.clock_out)
+    .reduce((sum, a) => {
+      const dur = (new Date(a.clock_out!).getTime() - new Date(a.clock_in!).getTime()) / 3.6e6;
+      return sum + Math.max(0, dur);
+    }, 0);
+  return Math.round(hrs * 100) / 100;
+}
+
 /** Records with any overlap on the given calendar day (local). */
 export function filterAttendanceForCalendarDay(records: Attendance[], today: string): Attendance[] {
   const dayStart = new Date(`${today}T00:00:00`).getTime();

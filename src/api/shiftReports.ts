@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { compressImage } from "@/lib/compressImage";
 import { supabase } from "@/lib/supabase";
-import { computeShiftBonusAmounts, filterBonusParticipantsToWorkedShift } from "@/lib/shiftReportBonuses";
+import { computeBonusPayouts } from "@/lib/shiftReportBonuses";
 import { computeTipsHourly, distributeTips } from "@/lib/shiftReportTips";
-import type { Attendance, ShiftAssignment, ShiftReport, ShiftReportExtra, ShiftTemplate } from "@/types/database";
+import type { ShiftReport, ShiftReportExtra } from "@/types/database";
 
 /** Shift reports within a month (yyyy-mm), newest first. */
 export function useShiftReports(businessId: string | null, monthISO: string) {
@@ -72,38 +72,6 @@ export interface SaveShiftReportInput {
   created_by: string | null;
 }
 
-async function resolveWorkedBonusEmployeeIds(input: SaveShiftReportInput): Promise<string[]> {
-  const requested = (input.extra.bonus_participants ?? []).map((p) => p.employee_id).filter(Boolean);
-  if (!input.shift_template_id || requested.length === 0) return [];
-
-  const nextDay = new Date(input.report_date + "T12:00:00");
-  nextDay.setDate(nextDay.getDate() + 1);
-  const nextDayISO = nextDay.toISOString().slice(0, 10);
-
-  const [{ data: dayAssignments }, { data: dayAttendance }, { data: templateRow }] = await Promise.all([
-    supabase
-      .from("shift_assignments")
-      .select("*")
-      .eq("business_id", input.business_id)
-      .eq("shift_date", input.report_date),
-    supabase
-      .from("attendance")
-      .select("*")
-      .eq("business_id", input.business_id)
-      .gte("clock_in", `${input.report_date}T00:00:00`)
-      .lt("clock_in", `${nextDayISO}T00:00:00`),
-    supabase.from("shift_templates").select("*").eq("id", input.shift_template_id).maybeSingle(),
-  ]);
-
-  return filterBonusParticipantsToWorkedShift(requested, {
-    reportDate: input.report_date,
-    shiftTemplateId: input.shift_template_id,
-    assignments: (dayAssignments ?? []) as ShiftAssignment[],
-    attendance: (dayAttendance ?? []) as Attendance[],
-    templates: templateRow ? [templateRow as ShiftTemplate] : [],
-  });
-}
-
 /**
  * Upsert a shift report and sync its per-employee tips into the `tips` table
  * (so they flow into Payroll). Tips are re-generated from the report's
@@ -115,10 +83,16 @@ export function useSaveShiftReport(businessId: string | null) {
     mutationFn: async (input: SaveShiftReportInput): Promise<string> => {
       const participants = input.extra.tip_participants ?? [];
       const tipsHourly = computeTipsHourly(Number(input.total_tips) || 0, participants);
-      const bonusIds = await resolveWorkedBonusEmployeeIds(input);
+      const bonusRows = computeBonusPayouts(
+        Number(input.total_sales) || 0,
+        input.extra.bonus_participants ?? [],
+      );
       const extra: ShiftReportExtra = {
         ...input.extra,
-        bonus_participants: bonusIds.map((employee_id) => ({ employee_id })),
+        bonus_participants: bonusRows.map(({ employee_id, bonus_pct }) => ({
+          employee_id,
+          bonus_pct,
+        })),
       };
 
       const row = {
@@ -155,7 +129,6 @@ export function useSaveShiftReport(businessId: string | null) {
         reportId = (data as { id: string }).id;
       }
 
-      // Re-sync tips: clear previous ones for this report, then insert fresh.
       await supabase.from("tips").delete().eq("shift_report_id", reportId);
       const tipRows = distributeTips(Number(input.total_tips) || 0, participants).map((t) => ({
         business_id: input.business_id,
@@ -172,26 +145,20 @@ export function useSaveShiftReport(businessId: string | null) {
         if (error) throw error;
       }
 
-      // Re-sync kupah-percentage bonuses — only employees who worked this shift.
-      const { perEmployee } = computeShiftBonusAmounts(
-        Number(input.total_sales) || 0,
-        Number(input.service_pct) || 0,
-        bonusIds,
-      );
-
       await supabase.from("shift_bonuses").delete().eq("shift_report_id", reportId);
-      if (bonusIds.length > 0 && perEmployee > 0) {
-        const bonusRows = bonusIds.map((employeeId) => ({
+      if (bonusRows.length > 0) {
+        const salesBase = Number(input.total_sales) || 0;
+        const insertRows = bonusRows.map((b) => ({
           business_id: input.business_id,
-          employee_id: employeeId,
+          employee_id: b.employee_id,
           shift_report_id: reportId,
           shift_date: input.report_date,
           shift_template_id: input.shift_template_id,
-          amount: perEmployee,
-          bonus_pct: Number(input.service_pct) || 0,
-          sales_base: Number(input.total_sales) || 0,
+          amount: b.amount,
+          bonus_pct: b.bonus_pct,
+          sales_base: salesBase,
         }));
-        const { error } = await supabase.from("shift_bonuses").insert(bonusRows);
+        const { error } = await supabase.from("shift_bonuses").insert(insertRows);
         if (error) throw error;
       }
 
@@ -209,7 +176,6 @@ export function useDeleteShiftReport(businessId: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      // tips cascade-delete via FK (on delete cascade)
       const { error } = await supabase.from("shift_reports").delete().eq("id", id);
       if (error) throw error;
     },

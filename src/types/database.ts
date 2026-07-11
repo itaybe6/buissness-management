@@ -244,11 +244,16 @@ export interface ShiftReportParticipant {
   hours: number;
   /** Hours recorded from clock-in/out — display only, not saved to tips. */
   attendance_hours?: number;
+  /** Editable work window on the report day (HH:mm). */
+  work_start?: string;
+  work_end?: string;
 }
 
-/** Employee selected for kupah-percentage salary bonus on a shift report. */
+/** Employee selected for register-percentage salary bonus on a shift report. */
 export interface ShiftReportBonusParticipant {
   employee_id: string;
+  /** Individual share of total_sales (percent). */
+  bonus_pct?: number;
 }
 
 /** Persisted bonus payout per employee per shift report (shift_bonuses table). */
@@ -271,11 +276,23 @@ export interface ShiftReportSalesItem {
   count: number;
 }
 
+/** Inventory item flagged as out-of-stock on a shift report. */
+export interface ShiftReportOutOfStockItem {
+  item_id: string;
+  name: string;
+}
+
 /** Free-form extra payload stored as jsonb on shift_reports. */
 export interface ShiftReportExtra {
   tip_participants?: ShiftReportParticipant[];
-  /** Employees who receive an equal share of total_sales × service_pct / 100. */
+  /** Employees who receive total_sales × bonus_pct / 100 added to payroll. */
   bonus_participants?: ShiftReportBonusParticipant[];
+  /** Selected shift manager profile id (אחמ״ש). */
+  manager_id?: string;
+  /** All workers on the shift (roster for the shift lead). */
+  team_members?: ShiftReportParticipant[];
+  /** Products selected when urgent inventory toggle is on. */
+  out_of_stock_items?: ShiftReportOutOfStockItem[];
   sales_items?: ShiftReportSalesItem[];
   top_seller?: string;
   [key: string]: unknown;

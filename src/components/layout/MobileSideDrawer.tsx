@@ -184,8 +184,6 @@ export function MobileSideDrawer({
 
               paddingBottom: "var(--safe-bottom)",
 
-              background: "linear-gradient(178deg, var(--sidebar-plum), var(--sidebar-plum-deep))",
-
             }}
 
           >

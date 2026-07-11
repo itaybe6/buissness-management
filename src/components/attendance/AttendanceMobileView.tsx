@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { AttendancePunchStation } from "@/components/attendance/AttendancePunchStation";
+import type { ForceClockOutTarget } from "@/components/attendance/ForceClockOutModal";
 import type { AttendanceDepartmentSection, AttendanceShiftFilter, EmployeeAttendanceGroup } from "@/lib/attendanceFeed";
 import { AttendanceTodayFeedSection } from "@/components/attendance/AttendanceTodayFeedSection";
 
@@ -23,6 +24,8 @@ interface AttendanceMobileViewProps {
   feedByDepartment: AttendanceDepartmentSection[];
   userById: Map<string, { name: string | null; role: string; departmentId?: string | null }>;
   onPunch: () => void;
+  canForceClockOut?: boolean;
+  onRequestClockOut?: (target: ForceClockOutTarget) => void;
 }
 
 export function AttendanceMobileView({
@@ -39,6 +42,8 @@ export function AttendanceMobileView({
   feedByDepartment,
   userById,
   onPunch,
+  canForceClockOut = false,
+  onRequestClockOut,
 }: AttendanceMobileViewProps) {
   const [filter, setFilter] = useState<AttendanceShiftFilter>("all");
 
@@ -87,6 +92,8 @@ export function AttendanceMobileView({
         userById={userById}
         variant="mobile"
         filter={filter}
+        canForceClockOut={canForceClockOut}
+        onRequestClockOut={onRequestClockOut}
       />
     </div>
   );

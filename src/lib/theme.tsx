@@ -24,6 +24,14 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
+    const themeColor = theme === "light" ? "#ffffff" : "#181a1f";
+    const statusBarStyle = theme === "light" ? "default" : "black-translucent";
+
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", themeColor);
+    document
+      .querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')
+      ?.setAttribute("content", statusBarStyle);
+
     try {
       localStorage.setItem("avichai_theme", theme);
     } catch {

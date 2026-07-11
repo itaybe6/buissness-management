@@ -3,6 +3,7 @@ import { Icon } from "@/components/ui";
 import { useAttendanceToday } from "@/api/attendance";
 import { useDepartments } from "@/api/departments";
 import { useProfiles } from "@/api/users";
+import { ForceClockOutModal, type ForceClockOutTarget } from "@/components/attendance/ForceClockOutModal";
 import { groupAttendanceByDepartment, groupAttendanceByEmployee } from "@/lib/attendanceFeed";
 import { useBusinessId, colorForDepartment, initialsOf } from "@/lib/db";
 import { formatShiftElapsed } from "@/hooks/useShiftPunch";
@@ -25,6 +26,7 @@ export function TeamOnShiftPanel() {
   const { data: departments } = useDepartments(businessId);
   const now = useLiveClock();
   const [view, setView] = useState<TeamView>("on_shift");
+  const [clockOutTarget, setClockOutTarget] = useState<ForceClockOutTarget | null>(null);
 
   const profilesById = useMemo(
     () => new Map((profiles ?? []).map((p) => [p.id, p])),
@@ -47,33 +49,40 @@ export function TeamOnShiftPanel() {
     return groupAttendanceByDepartment(groups, departments ?? [], employeeInfo);
   }, [displayRecords, profiles, departments]);
 
-  const todayCount = records?.length ?? 0;
-
   return (
     <section className="team-on-shift">
       <div className="team-on-shift__head">
-        <div className="team-on-shift__title-row">
-          <span className="team-on-shift__icon" aria-hidden>
-            <Icon name="groups" size={20} />
-          </span>
-          <div>
-            <h2 className="team-on-shift__title">הצוות כעת</h2>
-            <p className="team-on-shift__sub">
-              {onShift.length > 0
-                ? `${onShift.length} במשמרת · ${todayCount} החתמות היום`
-                : `אין עובדים במשמרת · ${todayCount} החתמות היום`}
-            </p>
-          </div>
+        <div className="team-on-shift__toggle" role="group" aria-label="תצוגת צוות">
+          <button
+            type="button"
+            className="team-on-shift__toggle-btn"
+            data-active={view === "on_shift" ? "true" : "false"}
+            aria-pressed={view === "on_shift"}
+            onClick={() => setView("on_shift")}
+          >
+            <span className="team-on-shift__toggle-dot" aria-hidden />
+            במשמרת
+          </button>
+          <button
+            type="button"
+            className="team-on-shift__toggle-btn"
+            data-active={view === "all" ? "true" : "false"}
+            aria-pressed={view === "all"}
+            onClick={() => setView("all")}
+          >
+            <Icon name="list_alt" size={14} />
+            הכל
+          </button>
         </div>
-        <button
-          type="button"
-          className="team-on-shift__link"
-          aria-pressed={view === "all"}
-          onClick={() => setView((v) => (v === "on_shift" ? "all" : "on_shift"))}
+        <span
+          className="team-on-shift__stat"
+          data-tone={onShift.length > 0 ? "live" : "idle"}
+          aria-label={`${onShift.length} עובדים במשמרת`}
         >
-          {view === "on_shift" ? "הכל" : "במשמרת"}
-          <Icon name="chevron_left" size={16} />
-        </button>
+          {onShift.length > 0 && <span className="team-on-shift__stat-pulse" aria-hidden />}
+          <span className="team-on-shift__stat-value">{onShift.length}</span>
+          <span className="team-on-shift__stat-label">במשמרת</span>
+        </span>
       </div>
 
       {displayRecords.length > 0 ? (
@@ -113,8 +122,10 @@ export function TeamOnShiftPanel() {
                           })
                         : null;
 
-                    return (
-                      <div key={group.employeeId} className="team-on-shift__row">
+                    const rowInteractive = isActive && activeSession;
+
+                    const rowContent = (
+                      <>
                         <span
                           className="team-on-shift__avatar"
                           style={{ background: deptColor }}
@@ -143,13 +154,40 @@ export function TeamOnShiftPanel() {
                         {isActive ? (
                           <span className="team-on-shift__live" aria-label="במשמרת">
                             <span className="team-on-shift__live-dot" aria-hidden />
-                            פעיל
+                            הוצאה
                           </span>
                         ) : (
                           <span className="team-on-shift__live team-on-shift__live--out" aria-label="יצא">
                             יצא
                           </span>
                         )}
+                      </>
+                    );
+
+                    if (rowInteractive) {
+                      return (
+                        <button
+                          key={group.employeeId}
+                          type="button"
+                          className="team-on-shift__row team-on-shift__row--action"
+                          onClick={() =>
+                            setClockOutTarget({
+                              attendanceId: activeSession.id,
+                              employeeName: person?.full_name ?? "עובד/ת",
+                              clockIn: activeSession.clockIn,
+                              avatarColor: deptColor,
+                            })
+                          }
+                          aria-label={`הוצא את ${person?.full_name ?? "העובד"} ממשמרת`}
+                        >
+                          {rowContent}
+                        </button>
+                      );
+                    }
+
+                    return (
+                      <div key={group.employeeId} className="team-on-shift__row">
+                        {rowContent}
                       </div>
                     );
                   })}
@@ -164,6 +202,12 @@ export function TeamOnShiftPanel() {
           <p>{view === "all" ? "אין החתמות היום" : "אין עובדים מוחתמים כרגע"}</p>
         </div>
       )}
+      <ForceClockOutModal
+        open={!!clockOutTarget}
+        target={clockOutTarget}
+        businessId={businessId}
+        onClose={() => setClockOutTarget(null)}
+      />
     </section>
   );
 }

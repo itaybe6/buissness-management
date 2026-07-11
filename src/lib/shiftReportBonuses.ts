@@ -1,14 +1,5 @@
 import type { Attendance, ShiftAssignment, ShiftTemplate } from "@/types/database";
-
-function startTimeMinutes(time: string): number {
-  const [h, m] = time.slice(0, 5).split(":").map(Number);
-  return h * 60 + m;
-}
-
-function clockMinutesFromISO(iso: string): number {
-  const d = new Date(iso);
-  return d.getHours() * 60 + d.getMinutes();
-}
+import { filterAttendanceNearReportDate, punchOverlapsShiftOnDate } from "@/lib/attendanceFeed";
 
 /** Whether an employee's clock-in/out overlaps the shift template window on report_date. */
 export function employeeWorkedShift(input: {
@@ -30,31 +21,51 @@ export function employeeWorkedShift(input: {
   );
   if (!assigned) return false;
 
-  const punches = attendance.filter(
-    (a) =>
-      a.employee_id === employeeId &&
-      a.clock_in?.slice(0, 10) === reportDate &&
-      a.clock_in &&
-      a.clock_out,
+  const punches = filterAttendanceNearReportDate(attendance, reportDate).filter(
+    (a) => a.employee_id === employeeId && a.clock_in && a.clock_out,
   );
   if (punches.length === 0) return false;
 
   const template = templates.find((t) => t.id === shiftTemplateId);
   if (!template) return true;
 
-  const shiftStart = startTimeMinutes(template.start_time);
-  let shiftEnd = startTimeMinutes(template.end_time);
-  if (shiftEnd <= shiftStart) shiftEnd += 24 * 60;
-
-  return punches.some((a) => {
-    const inMin = clockMinutesFromISO(a.clock_in!);
-    let outMin = clockMinutesFromISO(a.clock_out!);
-    if (outMin <= inMin) outMin += 24 * 60;
-    return inMin < shiftEnd && outMin > shiftStart;
-  });
+  return punches.some((a) =>
+    punchOverlapsShiftOnDate(a.clock_in!, a.clock_out, reportDate, template),
+  );
 }
 
-/** Bonus pool = total_sales × bonus_pct / 100, split equally among selected employees. */
+/** Bonus amount for one employee = total_sales × their bonus_pct / 100. */
+export function computeEmployeeBonusAmount(totalSales: number, bonusPct: number): number {
+  const sales = Number(totalSales) || 0;
+  const pct = Number(bonusPct) || 0;
+  if (sales <= 0 || pct <= 0) return 0;
+  return Math.round(sales * (pct / 100) * 100) / 100;
+}
+
+export interface BonusPayoutRow {
+  employee_id: string;
+  bonus_pct: number;
+  amount: number;
+}
+
+/** Per-employee bonus rows from the report's participant list. */
+export function computeBonusPayouts(
+  totalSales: number,
+  participants: { employee_id: string; bonus_pct?: number }[],
+): BonusPayoutRow[] {
+  return participants
+    .filter((p) => p.employee_id && (Number(p.bonus_pct) || 0) > 0)
+    .map((p) => {
+      const bonus_pct = Number(p.bonus_pct) || 0;
+      return {
+        employee_id: p.employee_id,
+        bonus_pct,
+        amount: computeEmployeeBonusAmount(totalSales, bonus_pct),
+      };
+    });
+}
+
+/** @deprecated equal-split pool — kept for legacy tests */
 export function computeShiftBonusAmounts(
   totalSales: number,
   bonusPct: number,

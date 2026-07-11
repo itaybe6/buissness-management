@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId, formatCurrency, initialsOf, colorFor } from "@/lib/db";
@@ -10,6 +10,7 @@ import { useFaults } from "@/api/faults";
 import { useInventory } from "@/api/inventory";
 import { useWaste } from "@/api/waste";
 import { useAttendanceToday } from "@/api/attendance";
+import { ForceClockOutModal, type ForceClockOutTarget } from "@/components/attendance/ForceClockOutModal";
 import { Icon } from "@/components/ui";
 import type { FeatureKey } from "@/types/database";
 import { AreaChart, BarChart, CountUp, DonutChart, RadialGauge } from "./charts";
@@ -145,6 +146,7 @@ export function ManagerDashboard() {
   const businessId = useBusinessId();
   const { profile, features } = useAuth();
   const on = (k: FeatureKey) => features.has(k);
+  const [clockOutTarget, setClockOutTarget] = useState<ForceClockOutTarget | null>(null);
 
   const now = useMemo(() => new Date(), []);
   const thisMonth = monthKey(now);
@@ -547,23 +549,34 @@ export function ManagerDashboard() {
                     const since = a.clock_in
                       ? new Date(a.clock_in).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })
                       : "";
+                    const avatarColor = colorFor(a.employee_id);
                     return (
-                      <div
+                      <button
                         key={a.id}
-                        className="flex items-center gap-2.5 rounded-full border border-border bg-surface-2 py-1 pe-1.5 ps-3"
+                        type="button"
+                        className="manager-on-shift-chip"
+                        onClick={() =>
+                          setClockOutTarget({
+                            attendanceId: a.id,
+                            employeeName: p?.full_name ?? "עובד/ת",
+                            clockIn: a.clock_in!,
+                            avatarColor,
+                          })
+                        }
+                        aria-label={`הוצא את ${p?.full_name ?? "העובד"} ממשמרת`}
                       >
-                        <div className="min-w-0">
+                        <div className="min-w-0 text-right">
                           <div className="truncate text-[12.5px] font-bold leading-tight text-text">{p?.full_name ?? "—"}</div>
                           {since && <div className="text-[10.5px] font-semibold text-text-3">מאז {since}</div>}
                         </div>
                         <span
                           className="grid h-8 w-8 flex-none place-items-center rounded-full text-[11px] font-extrabold text-white"
-                          style={{ background: colorFor(a.employee_id) }}
-                          title={p?.full_name ?? ""}
+                          style={{ background: avatarColor }}
+                          aria-hidden
                         >
                           {initialsOf(p?.full_name)}
                         </span>
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
@@ -591,6 +604,12 @@ export function ManagerDashboard() {
           </Panel>
         )}
       </div>
+      <ForceClockOutModal
+        open={!!clockOutTarget}
+        target={clockOutTarget}
+        businessId={businessId}
+        onClose={() => setClockOutTarget(null)}
+      />
     </div>
   );
 }

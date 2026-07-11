@@ -12,7 +12,7 @@ import {
   StatusBanner,
 } from "@/components/attendance/attendance-motion";
 import { useAuth } from "@/lib/auth";
-import { ATTENDANCE_RADIUS_M } from "@/lib/constants";
+import { ATTENDANCE_RADIUS_M, canForceEmployeeClockOut } from "@/lib/constants";
 import { useBusinessId, todayISO, weekStart, addDays } from "@/lib/db";
 import { pendingTasksForEmployee } from "@/lib/pendingTasks";
 import {
@@ -30,6 +30,7 @@ import { useAttendanceToday, useClockIn, useClockOut } from "@/api/attendance";
 import { useActiveShiftTemplates, useShiftAssignments } from "@/api/shifts";
 import { AttendanceMobileView } from "@/components/attendance/AttendanceMobileView";
 import { AttendanceTodayFeedSection } from "@/components/attendance/AttendanceTodayFeedSection";
+import { ForceClockOutModal, type ForceClockOutTarget } from "@/components/attendance/ForceClockOutModal";
 
 function distanceM(lat1: number, lng1: number, lat2: number, lng2: number) {
   const R = 6371000;
@@ -78,7 +79,10 @@ export function Attendance() {
   const [busy, setBusy] = useState(false);
   const [exitWarn, setExitWarn] = useState(false);
   const [feedFilter, setFeedFilter] = useState<AttendanceShiftFilter>("all");
+  const [clockOutTarget, setClockOutTarget] = useState<ForceClockOutTarget | null>(null);
   const now = useLiveClock();
+
+  const canForceClockOut = canForceEmployeeClockOut(profile?.role);
 
   const userById = useMemo(() => {
     const m = new Map<string, { name: string | null; role: string; departmentId: string | null }>();
@@ -127,8 +131,12 @@ export function Attendance() {
   async function doClockOut() {
     if (!myOpen) return;
     setExitWarn(false);
-    await clockOut.mutateAsync(myOpen.id);
-    setStatus({ ok: true, text: "הוחתמה יציאה ממשמרת" });
+    try {
+      await clockOut.mutateAsync(myOpen.id);
+      setStatus({ ok: true, text: "הוחתמה יציאה ממשמרת" });
+    } catch {
+      setStatus({ ok: false, text: "החתמת יציאה נכשלה" });
+    }
   }
 
   if (isLoading) return <PageLoader />;
@@ -158,15 +166,21 @@ export function Attendance() {
 
   async function handleClock() {
     setStatus(null);
-    if (!biz) return;
     if (myOpen) {
       if (pending.length > 0) {
         setExitWarn(true);
         return;
       }
-      await doClockOut();
+      setBusy(true);
+      try {
+        await doClockOut();
+      } finally {
+        setBusy(false);
+      }
       return;
     }
+
+    if (!biz) return;
 
     if (!geofenceRequired) {
       setBusy(true);
@@ -233,6 +247,8 @@ export function Attendance() {
           feedByDepartment={feedByDepartment}
           userById={userById}
           onPunch={handleClock}
+          canForceClockOut={canForceClockOut}
+          onRequestClockOut={setClockOutTarget}
         />
       </div>
 
@@ -329,6 +345,8 @@ export function Attendance() {
             filter={feedFilter}
             showFilterBar
             onFilterChange={setFeedFilter}
+            canForceClockOut={canForceClockOut}
+            onRequestClockOut={setClockOutTarget}
           />
         </AttendancePanel>
       </div>
@@ -374,6 +392,13 @@ export function Attendance() {
           ))}
         </div>
       </Modal>
+
+      <ForceClockOutModal
+        open={!!clockOutTarget}
+        target={clockOutTarget}
+        businessId={businessId}
+        onClose={() => setClockOutTarget(null)}
+      />
     </div>
   );
 }

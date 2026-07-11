@@ -42,7 +42,7 @@ export function AttendancePunchStation({
           >
             <div>
               {busy ? (
-                <div className="attendance-live-action">מאתר מיקום…</div>
+                <div className="attendance-live-action">{onShift ? "מחתים יציאה…" : "מאתר מיקום…"}</div>
               ) : onShift ? (
                 <>
                   <div className="attendance-live-time">

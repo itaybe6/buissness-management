@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Icon } from "@/components/ui";
 import { AttendanceFeedEmpty } from "@/components/attendance/attendance-motion";
 import { AttendanceDeptSections } from "@/components/attendance/AttendanceDeptSections";
+import type { ForceClockOutTarget } from "@/components/attendance/ForceClockOutModal";
 import {
   filterAttendanceDepartmentSections,
   filterEmployeeAttendanceGroups,
@@ -19,6 +20,8 @@ interface AttendanceTodayFeedSectionProps {
   filter: AttendanceShiftFilter;
   showFilterBar?: boolean;
   onFilterChange?: (filter: AttendanceShiftFilter) => void;
+  canForceClockOut?: boolean;
+  onRequestClockOut?: (target: ForceClockOutTarget) => void;
 }
 
 function emptyMessage(filter: AttendanceShiftFilter): string {
@@ -42,6 +45,8 @@ export function AttendanceTodayFeedSection({
   filter,
   showFilterBar = false,
   onFilterChange,
+  canForceClockOut = false,
+  onRequestClockOut,
 }: AttendanceTodayFeedSectionProps) {
   const filteredFeed = useMemo(
     () => filterEmployeeAttendanceGroups(todayFeed, filter),
@@ -140,6 +145,8 @@ export function AttendanceTodayFeedSection({
               sections={filteredSections}
               userById={userById}
               variant={variant}
+              canForceClockOut={canForceClockOut}
+              onRequestClockOut={onRequestClockOut}
             />
           </div>
         )}

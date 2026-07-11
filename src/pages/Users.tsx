@@ -29,6 +29,9 @@ const ASSIGNABLE_ROLES: UserRole[] = [
 
 const FILTER_ROLES: (UserRole | "all")[] = ["all", "manager", ...ASSIGNABLE_ROLES];
 
+const USER_TABLE_COLS =
+  "grid-cols-[2fr_1.1fr_1fr_1.3fr_minmax(200px,2.4fr)_1fr_0.9fr_0.7fr]";
+
 function wageSummary(u: Profile): string {
   const type = WAGE_TYPE_LABELS[u.wage_type ?? "hourly"];
   const rate = u.hourly_rate ?? 0;
@@ -136,8 +139,8 @@ export function Users() {
 
           <Card className="overflow-hidden !p-0 shadow-card">
             <div className="overflow-auto">
-              <div className="min-w-[1040px]">
-                <div className="grid grid-cols-[2fr_1.1fr_1fr_1.3fr_minmax(200px,2.4fr)_1fr_0.9fr_0.7fr] gap-2 border-b border-border bg-surface-2 px-5 py-3 text-[11.5px] font-bold uppercase tracking-wide text-text-3">
+              <div className={`min-w-[1040px] grid ${USER_TABLE_COLS} gap-x-2`}>
+                <div className={`col-span-8 grid grid-cols-subgrid gap-x-2 border-b border-border bg-surface-2 px-5 py-3 text-[11.5px] font-bold uppercase tracking-wide text-text-3`}>
                   <span>עובד</span>
                   <span>תפקיד</span>
                   <span>מחלקה</span>
@@ -145,12 +148,12 @@ export function Users() {
                   <span>אימייל</span>
                   <span>טלפון</span>
                   <span>סטטוס</span>
-                  <span></span>
+                  <span aria-hidden="true" />
                 </div>
                 {filtered.map((u, i) => (
                   <div
                     key={u.id}
-                    className="data-row dash-rise grid grid-cols-[2fr_1.1fr_1fr_1.3fr_minmax(200px,2.4fr)_1fr_0.9fr_0.7fr] items-start gap-2 border-b border-border-2 px-5 py-3 text-[13.5px]"
+                    className="data-row dash-rise col-span-8 grid grid-cols-subgrid items-start gap-x-2 border-b border-border-2 px-5 py-3 text-[13.5px]"
                     style={{ "--rise-delay": `${Math.min(i, 10) * 25}ms` } as React.CSSProperties}
                   >
                     <span className="flex min-w-0 items-center gap-3 self-center">
