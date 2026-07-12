@@ -48,17 +48,42 @@ function makeChangeEvent(value: string): React.ChangeEvent<HTMLSelectElement> {
   return { target: { value } } as React.ChangeEvent<HTMLSelectElement>;
 }
 
-export const Select = forwardRef<HTMLButtonElement, SelectHTMLAttributes<HTMLSelectElement>>(
-  ({ className = "", children, value = "", onChange, disabled, id, name }, ref) => {
+interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
+  searchable?: boolean;
+  searchPlaceholder?: string;
+}
+
+export const Select = forwardRef<HTMLButtonElement, SelectProps>(
+  (
+    {
+      className = "",
+      children,
+      value = "",
+      onChange,
+      disabled,
+      id,
+      name,
+      searchable = false,
+      searchPlaceholder = "חיפוש...",
+    },
+    ref,
+  ) => {
     const listboxId = useId();
     const triggerRef = useRef<HTMLButtonElement | null>(null);
+    const searchRef = useRef<HTMLInputElement | null>(null);
     const [open, setOpen] = useState(false);
+    const [searchQuery, setSearchQuery] = useState("");
     const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
 
     const options = useMemo(() => parseOptions(children), [children]);
     const valueStr = String(value ?? "");
     const selected = options.find((o) => String(o.value) === valueStr);
     const displayLabel = selected?.label ?? "";
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    const filteredOptions = useMemo(() => {
+      if (!searchable || !normalizedQuery) return options;
+      return options.filter((opt) => opt.label.toLowerCase().includes(normalizedQuery));
+    }, [options, searchable, normalizedQuery]);
 
     useEffect(() => {
       if (!open) return;
@@ -66,14 +91,16 @@ export const Select = forwardRef<HTMLButtonElement, SelectHTMLAttributes<HTMLSel
         const el = triggerRef.current;
         if (!el) return;
         const rect = el.getBoundingClientRect();
-        const menuHeight = Math.min(options.length * 42 + 8, 240);
-        const spaceBelow = window.innerHeight - rect.bottom;
-        const openUp = spaceBelow < menuHeight && rect.top > menuHeight;
+        const searchHeight = searchable ? 48 : 0;
+        const idealHeight = Math.min(filteredOptions.length * 42 + 8 + searchHeight, searchable ? 300 : 240);
+        const spaceBelow = Math.max(0, window.innerHeight - rect.bottom - 8);
+        const menuHeight = Math.min(idealHeight, spaceBelow);
         setMenuStyle({
           position: "fixed",
-          top: openUp ? rect.top - menuHeight - 4 : rect.bottom + 4,
+          top: rect.bottom + 4,
           left: rect.left,
           width: rect.width,
+          maxHeight: menuHeight > 0 ? menuHeight : idealHeight,
           zIndex: 10001,
         });
       };
@@ -84,7 +111,18 @@ export const Select = forwardRef<HTMLButtonElement, SelectHTMLAttributes<HTMLSel
         window.removeEventListener("scroll", updatePosition, true);
         window.removeEventListener("resize", updatePosition);
       };
-    }, [open, options.length]);
+    }, [open, filteredOptions.length, searchable]);
+
+    useEffect(() => {
+      if (!open) {
+        setSearchQuery("");
+        return;
+      }
+      if (searchable) {
+        const t = window.setTimeout(() => searchRef.current?.focus(), 0);
+        return () => window.clearTimeout(t);
+      }
+    }, [open, searchable]);
 
     useEffect(() => {
       if (!open) return;
@@ -108,38 +146,62 @@ export const Select = forwardRef<HTMLButtonElement, SelectHTMLAttributes<HTMLSel
     function selectOption(next: string) {
       onChange?.(makeChangeEvent(String(next)));
       setOpen(false);
+      setSearchQuery("");
     }
 
     const menu =
       open &&
       createPortal(
-        <ul
-          id={listboxId}
-          role="listbox"
+        <div
           data-select-menu={listboxId}
-          className="select-dropdown"
+          className={`select-dropdown-panel${searchable ? " select-dropdown-panel--searchable" : ""}`}
           style={menuStyle}
         >
-          {options.map((opt) => {
-            const active = String(opt.value) === valueStr;
-            return (
-              <li key={`${opt.value}-${opt.label}`} role="presentation">
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={active}
-                  disabled={opt.disabled}
-                  onClick={() => !opt.disabled && selectOption(opt.value)}
-                  className={`select-option${active ? " select-option-active" : ""}`}
-                >
-                  <span className="truncate">{opt.label}</span>
-                  {active && <Icon name="check" size={18} className="flex-none text-accent-2" />}
-                </button>
+          {searchable && (
+            <div
+              className="select-search-wrap"
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <Icon name="search" size={18} className="flex-none text-text-3" />
+              <input
+                ref={searchRef}
+                type="search"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={searchPlaceholder}
+                className="select-search-input"
+                aria-label={searchPlaceholder}
+              />
+            </div>
+          )}
+          <ul id={listboxId} role="listbox" className="select-dropdown">
+            {filteredOptions.length === 0 ? (
+              <li className="select-empty" role="presentation">
+                לא נמצאו תוצאות
               </li>
-            );
-          })}
-        </ul>,
-        document.body
+            ) : (
+              filteredOptions.map((opt) => {
+                const active = String(opt.value) === valueStr;
+                return (
+                  <li key={`${opt.value}-${opt.label}`} role="presentation">
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={active}
+                      disabled={opt.disabled}
+                      onClick={() => !opt.disabled && selectOption(opt.value)}
+                      className={`select-option${active ? " select-option-active" : ""}`}
+                    >
+                      <span className="truncate">{opt.label}</span>
+                      {active && <Icon name="check" size={18} className="flex-none text-accent-2" />}
+                    </button>
+                  </li>
+                );
+              })
+            )}
+          </ul>
+        </div>,
+        document.body,
       );
 
     return (
@@ -169,7 +231,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectHTMLAttributes<HTMLSel
             <Icon
               name="expand_more"
               size={20}
-              className={`flex-none text-text-3 transition-transform ${open ? "rotate-180" : ""}`}
+              className="flex-none text-text-3"
             />
           </button>
         </div>

@@ -130,16 +130,19 @@ export function useSaveShiftReport(businessId: string | null) {
       }
 
       await supabase.from("tips").delete().eq("shift_report_id", reportId);
-      const tipRows = distributeTips(Number(input.total_tips) || 0, participants).map((t) => ({
-        business_id: input.business_id,
-        employee_id: t.employee_id,
-        shift_date: input.report_date,
-        shift_template_id: input.shift_template_id,
-        shift_report_id: reportId,
-        amount: t.amount,
-        hours: t.hours,
-        hourly_from_tips: t.hourly_from_tips,
-      }));
+      const tipRows = distributeTips(Number(input.total_tips) || 0, participants).map((t) => {
+        const row: Record<string, unknown> = {
+          business_id: input.business_id,
+          employee_id: t.employee_id,
+          shift_date: input.report_date,
+          shift_report_id: reportId,
+          amount: t.amount,
+          hours: t.hours,
+          hourly_from_tips: t.hourly_from_tips,
+        };
+        if (input.shift_template_id) row.shift_template_id = input.shift_template_id;
+        return row;
+      });
       if (tipRows.length) {
         const { error } = await supabase.from("tips").insert(tipRows);
         if (error) throw error;

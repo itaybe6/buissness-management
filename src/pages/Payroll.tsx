@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Badge, Button, Card, Field, Icon, Input, PageHeader, PageLoader, ErrorState, Select } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/lib/auth";
@@ -17,7 +18,9 @@ function monthNow() {
 export function Payroll() {
   const businessId = useBusinessId();
   const { profile } = useAuth();
-  const [month, setMonth] = useState(monthNow());
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const [month, setMonth] = useState(searchParams.get("month") ?? monthNow());
   const { data: users, isLoading, isError, refetch } = useProfiles(businessId);
   const { data: attendance } = useAttendanceMonth(businessId, month);
   const { data: tips } = useTips(businessId, month);
@@ -106,7 +109,12 @@ export function Payroll() {
               <span>עובד</span><span>סוג</span><span>שעות</span><span>תעריף</span><span>בסיס / טיפים</span><span>השלמה</span><span>תוספת קופה</span><span>סה״כ</span>
             </div>
             {rows.map((r) => (
-              <div key={r.id} className="data-row grid grid-cols-[1.7fr_0.8fr_0.7fr_0.8fr_1fr_0.9fr_0.9fr_1fr] items-center gap-2 border-b border-border-2 px-5 py-3 text-[13.5px]">
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => navigate(`/payroll/${r.id}?month=${month}`)}
+                className="data-row data-row--clickable grid w-full grid-cols-[1.7fr_0.8fr_0.7fr_0.8fr_1fr_0.9fr_0.9fr_1fr] items-center gap-2 border-b border-border-2 px-5 py-3 text-[13.5px] text-right"
+              >
                 <span className="flex min-w-0 items-center gap-2.5">
                   <span className="person-chip h-8 w-8 rounded-[9px] text-[12px]" style={{ background: colorFor(r.id) }}>{initialsOf(r.name)}</span>
                   <span className="truncate font-bold">{r.name}</span>
@@ -118,7 +126,7 @@ export function Payroll() {
                 <span className="tabular-nums text-text-2">{r.topup > 0 ? formatCurrency(r.topup) : "—"}</span>
                 <span className={`tabular-nums ${r.bonus > 0 ? "font-bold text-accent" : "text-text-2"}`}>{r.bonus > 0 ? formatCurrency(r.bonus) : "—"}</span>
                 <span className="font-extrabold tabular-nums">{formatCurrency(r.total)}</span>
-              </div>
+              </button>
             ))}
             {rows.length === 0 && <div className="px-5 py-10 text-center text-text-2">אין נתונים לחודש זה.</div>}
           </div>

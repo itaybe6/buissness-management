@@ -56,6 +56,10 @@ export interface Business {
   shift_prefs_open_dow: number | null;
   /** Time on shift_prefs_open_dow when submissions open (e.g. "21:00:00"). */
   shift_prefs_open_time: string | null;
+  /** Minimum complete weekday days (Sun–Thu) per week. null = no requirement. */
+  shift_prefs_min_weekdays: number | null;
+  /** Minimum complete weekend days (Fri–Sat) per week. null = no requirement. */
+  shift_prefs_min_weekend: number | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -90,6 +94,8 @@ export interface Profile {
   hourly_rate: number | null;
   /** Pay model. For tips employees hourly_rate is the per-shift minimum (top-up floor). */
   wage_type: WageType;
+  /** Register-percentage bonus (0 = none). Applied when the employee worked the shift. */
+  bonus_pct: number;
   active: boolean;
   created_at: string;
   updated_at: string;
@@ -287,7 +293,9 @@ export interface ShiftReportExtra {
   tip_participants?: ShiftReportParticipant[];
   /** Employees who receive total_sales × bonus_pct / 100 added to payroll. */
   bonus_participants?: ShiftReportBonusParticipant[];
-  /** Selected shift manager profile id (אחמ״ש). */
+  /** Selected shift manager profile ids (אחמ״ש — אחד או יותר). */
+  manager_ids?: string[];
+  /** @deprecated use manager_ids — kept for older reports */
   manager_id?: string;
   /** All workers on the shift (roster for the shift lead). */
   team_members?: ShiftReportParticipant[];

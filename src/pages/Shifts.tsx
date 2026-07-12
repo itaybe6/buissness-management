@@ -26,6 +26,12 @@ import {
   getShiftPrefsWindowStatus,
   isShiftPrefsOpenForWeek,
 } from "@/lib/shift-deadline";
+import {
+  formatShiftPrefsMinimumSummary,
+  getShiftPrefsMinimumStatus,
+  hasShiftPrefsMinimumRules,
+  isShiftPrefsDayComplete,
+} from "@/lib/shift-prefs-minimum";
 import type { Availability, Profile, ShiftAssignment } from "@/types/database";
 
 const AVAIL_META: Record<"available" | "cannot", { label: string; short: string; bg: string; color: string; border: string }> = {
@@ -134,11 +140,13 @@ function DayStrip({
   value,
   onChange,
   stripId,
+  dayComplete,
 }: {
   wk: string;
   value: number;
   onChange: (i: number) => void;
   stripId: string;
+  dayComplete?: (dayIndex: number) => boolean;
 }) {
   const reduceMotion = useReducedMotion();
   return (
@@ -165,6 +173,7 @@ function DayStrip({
             <span className="shift-day-pill-name">{d}</span>
             <span className="shift-day-pill-date">{meta.date.slice(8, 10)}</span>
             {meta.isToday && <span className="shift-day-pill-dot" />}
+            {dayComplete?.(i) && <span className="shift-day-pill-dot" style={{ background: "var(--success)" }} />}
           </button>
         );
       })}
@@ -414,6 +423,19 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
     return n;
   }, [templates, prefMap, wk]);
 
+  const templateIds = useMemo(() => templates.map((t) => t.id), [templates]);
+  const minimumRules = {
+    minWeekdays: business?.shift_prefs_min_weekdays ?? null,
+    minWeekend: business?.shift_prefs_min_weekend ?? null,
+  };
+  const hasMinimum = hasShiftPrefsMinimumRules(minimumRules);
+  const minimumStatus = useMemo(
+    () => getShiftPrefsMinimumStatus(wk, templateIds, prefMap, minimumRules),
+    [wk, templateIds, prefMap, minimumRules.minWeekdays, minimumRules.minWeekend],
+  );
+  const dayComplete = (dayIndex: number) =>
+    isShiftPrefsDayComplete(wk, dayIndex, templateIds, prefMap);
+
   function shiftWeek(d: number) {
     setWk((w) => addDays(w, d));
     setDayIdx(0);
@@ -486,6 +508,15 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
         <div className="shift-toolbar-meta">
           <ShiftLegend />
           <span className="shift-stat">{filledCells} מתוך {totalCells} משמרות מסומנות</span>
+          {hasMinimum && (
+            <span
+              className="shift-stat"
+              style={{ color: minimumStatus.met ? "var(--success)" : "var(--warning)" }}
+            >
+              {minimumStatus.weekdayDone}/{minimumStatus.minWeekdays || "—"} אמצע שבוע ·{" "}
+              {minimumStatus.weekendDone}/{minimumStatus.minWeekend || "—"} סופ״ש
+            </span>
+          )}
           <div className="hidden w-28 sm:block">
             <div className="shift-progress-bar">
               <div className="shift-progress-fill" style={{ width: `${totalCells ? (filledCells / totalCells) * 100 : 0}%` }} />
@@ -499,6 +530,29 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
         <div className="mb-3 flex items-center gap-2 rounded-[11px] border border-danger/30 [background:var(--danger-bg)] px-3.5 py-2.5 text-[13px] font-semibold text-danger">
           <Icon name="error" size={18} />
           {saveError}
+        </div>
+      )}
+
+      {hasMinimum && !minimumStatus.met && canEdit && (
+        <div className="mb-3 flex items-start gap-2 rounded-[11px] border border-warning/30 [background:var(--warning-bg)] px-3.5 py-2.5 text-[13px] font-semibold text-warning">
+          <Icon name="warning" size={18} className="mt-0.5 flex-none" />
+          <span>
+            חובה להשלים לפחות{" "}
+            {formatShiftPrefsMinimumSummary(minimumRules)}. יום מלא = כל המשמרות באותו יום מסומנות.
+            {minimumStatus.minWeekdays > 0 && !minimumStatus.weekdayMet && (
+              <> חסרים {minimumStatus.minWeekdays - minimumStatus.weekdayDone} ימים באמצע שבוע.</>
+            )}
+            {minimumStatus.minWeekend > 0 && !minimumStatus.weekendMet && (
+              <> חסרים {minimumStatus.minWeekend - minimumStatus.weekendDone} ימים בסופ״ש.</>
+            )}
+          </span>
+        </div>
+      )}
+
+      {hasMinimum && minimumStatus.met && canEdit && (
+        <div className="mb-3 flex items-center gap-2 rounded-[11px] border border-success/30 [background:var(--success-bg)] px-3.5 py-2.5 text-[13px] font-semibold text-success">
+          <Icon name="check_circle" size={18} />
+          עמדת בדרישת המינימום לשבוע זה.
         </div>
       )}
 
@@ -537,7 +591,7 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
       {/* Phone: pick a day, mark availability per shift */}
       {!isDesktop ? (
       <div>
-        <DayStrip wk={wk} value={dayIdx} onChange={setDayIdx} stripId="constraints" />
+        <DayStrip wk={wk} value={dayIdx} onChange={setDayIdx} stripId="constraints" dayComplete={hasMinimum ? dayComplete : undefined} />
         <motion.div
           key={`${wk}-${dayIdx}`}
           initial={reduceMotion ? false : { opacity: 0, y: 10 }}
@@ -604,6 +658,11 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
                     <span className="shift-grid-day-name">{d}</span>
                     <span className="shift-grid-day-date">{formatDateShort(meta.date)}</span>
                     {meta.isToday && <span className="shift-grid-day-today">היום</span>}
+                    {hasMinimum && dayComplete(i) && (
+                      <span className="shift-grid-day-today" style={{ color: "var(--success)" }}>
+                        מלא
+                      </span>
+                    )}
                     <div className="mt-1.5 flex justify-center gap-1">
                       <button
                         type="button"

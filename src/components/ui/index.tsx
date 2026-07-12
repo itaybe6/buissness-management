@@ -9,6 +9,7 @@ import { Icon } from "./Icon";
 
 export { Icon };
 export { Select } from "./Select";
+export { MultiSelect, type MultiSelectOption } from "./MultiSelect";
 
 /* ----------------------------- Button ----------------------------- */
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";

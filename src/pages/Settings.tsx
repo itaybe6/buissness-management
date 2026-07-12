@@ -22,12 +22,16 @@ import {
   formatShiftPrefsOpenRule,
   formatShiftPrefsWindowRule,
 } from "@/lib/shift-deadline";
+import {
+  formatShiftPrefsMinimumSummary,
+  hasShiftPrefsMinimumRules,
+} from "@/lib/shift-prefs-minimum";
 import { PageEnter, StaggerGrid, StaggerItem } from "@/components/motion/shared-motion";
 import type { UserRole } from "@/types/database";
 
 const SHIFT_COLORS = ["#eab308", "#fdab3d", "#ef4444", "#7c3aed", "#0d9488", "#2563eb"];
 
-type SettingsPanel = "name" | "location" | "maintenance" | "deadline" | "departments" | "shifts";
+type SettingsPanel = "name" | "location" | "maintenance" | "deadline" | "minimum" | "departments" | "shifts";
 
 export function Settings() {
   const businessId = useBusinessId();
@@ -125,6 +129,26 @@ export function Settings() {
             delay={120}
             onEdit={() => setPanel("deadline")}
           />
+          <SettingsItem
+            icon="fact_check"
+            label="מינימום הגשת זמינות"
+            value={
+              hasShiftPrefsMinimumRules({
+                minWeekdays: biz.shift_prefs_min_weekdays,
+                minWeekend: biz.shift_prefs_min_weekend,
+              })
+                ? formatShiftPrefsMinimumSummary({
+                    minWeekdays: biz.shift_prefs_min_weekdays,
+                    minWeekend: biz.shift_prefs_min_weekend,
+                  })
+                : "ללא דרישה"
+            }
+            sub="חובת עובדים לסמן ימים מלאים בשבוע"
+            tint="var(--info-bg)"
+            color="var(--info)"
+            delay={140}
+            onEdit={() => setPanel("minimum")}
+          />
         </SettingsGroup>
 
         <SettingsGroup title="מבנה ומשמרות" hint="מחלקות ושעות">
@@ -162,6 +186,7 @@ export function Settings() {
       <LocationModal businessId={businessId} open={panel === "location"} onClose={close} />
       <MaintenanceApprovalModal businessId={businessId} open={panel === "maintenance"} onClose={close} />
       <ShiftPrefsDeadlineModal businessId={businessId} open={panel === "deadline"} onClose={close} />
+      <ShiftPrefsMinimumModal businessId={businessId} open={panel === "minimum"} onClose={close} />
       <DepartmentsModal businessId={businessId} open={panel === "departments"} onClose={close} />
       <ShiftTemplatesModal businessId={businessId} open={panel === "shifts"} onClose={close} />
     </PageEnter>
@@ -756,6 +781,197 @@ function ShiftPrefsDeadlineModal({
               לדוגמה: פתיחה בשבת 21:00 וסגירה בשלישי 20:00 — עובדים יוכלו להגיש זמינות לשבוע הבא רק בין
               שני המועדים.
             </p>
+
+            {msg && <span className="text-[13px] font-semibold text-danger">{msg}</span>}
+            {saved && !msg && !update.isPending && (
+              <span className="text-[13px] font-semibold text-success">נשמר בהצלחה</span>
+            )}
+          </>
+        )}
+      </ModalBody>
+    </Modal>
+  );
+}
+
+function ShiftPrefsMinimumModal({
+  businessId,
+  open,
+  onClose,
+}: {
+  businessId: string;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const { data: biz } = useBusiness(businessId);
+  const update = useUpdateBusiness();
+  const [draftEnabled, setDraftEnabled] = useState<boolean | null>(null);
+  const [weekdays, setWeekdays] = useState<number | null>(null);
+  const [weekend, setWeekend] = useState<number | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  if (!biz) return null;
+
+  const isEnabled =
+    draftEnabled ??
+    hasShiftPrefsMinimumRules({
+      minWeekdays: biz.shift_prefs_min_weekdays,
+      minWeekend: biz.shift_prefs_min_weekend,
+    });
+  const weekdaysV = weekdays ?? biz.shift_prefs_min_weekdays ?? 2;
+  const weekendV = weekend ?? biz.shift_prefs_min_weekend ?? 2;
+  const savedWeekdays = biz.shift_prefs_min_weekdays ?? 2;
+  const savedWeekend = biz.shift_prefs_min_weekend ?? 2;
+  const unchanged =
+    isEnabled ===
+      hasShiftPrefsMinimumRules({
+        minWeekdays: biz.shift_prefs_min_weekdays,
+        minWeekend: biz.shift_prefs_min_weekend,
+      }) &&
+    (!isEnabled || (weekdaysV === savedWeekdays && weekendV === savedWeekend));
+
+  function handleToggle(on: boolean) {
+    if (!biz) return;
+    setMsg(null);
+    setSaved(false);
+    if (!on) {
+      setDraftEnabled(false);
+      setWeekdays(null);
+      setWeekend(null);
+      update.mutate({
+        id: businessId,
+        shift_prefs_min_weekdays: null,
+        shift_prefs_min_weekend: null,
+      });
+      return;
+    }
+    setDraftEnabled(true);
+    const nextWeekdays = biz.shift_prefs_min_weekdays ?? 2;
+    const nextWeekend = biz.shift_prefs_min_weekend ?? 2;
+    setWeekdays(nextWeekdays);
+    setWeekend(nextWeekend);
+    if (
+      !hasShiftPrefsMinimumRules({
+        minWeekdays: biz.shift_prefs_min_weekdays,
+        minWeekend: biz.shift_prefs_min_weekend,
+      })
+    ) {
+      update.mutate({
+        id: businessId,
+        shift_prefs_min_weekdays: nextWeekdays,
+        shift_prefs_min_weekend: nextWeekend,
+      });
+    }
+  }
+
+  function handleSave() {
+    setMsg(null);
+    if (!isEnabled) return;
+    if (weekdaysV < 1 && weekendV < 1) {
+      setMsg("יש להגדיר לפחות יום אחד באמצע שבוע או בסופ״ש");
+      return;
+    }
+    update.mutate(
+      {
+        id: businessId,
+        shift_prefs_min_weekdays: weekdaysV > 0 ? weekdaysV : null,
+        shift_prefs_min_weekend: weekendV > 0 ? weekendV : null,
+      },
+      {
+        onSuccess: () => {
+          setMsg(null);
+          setSaved(true);
+          setDraftEnabled(null);
+          setWeekdays(null);
+          setWeekend(null);
+        },
+        onError: () => setMsg("שמירה נכשלה"),
+      }
+    );
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="מינימום הגשת זמינות"
+      subtitle="קבעו כמה ימים מלאים עובדים חייבים לסמן בכל שבוע — אמצע שבוע (א׳–ה׳) וסופ״ש (ו׳–ש׳)"
+      icon="fact_check"
+      maxWidth={520}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            סגירה
+          </Button>
+          {isEnabled && (
+            <Button icon="save" loading={update.isPending} disabled={unchanged} onClick={handleSave}>
+              שמירה
+            </Button>
+          )}
+        </>
+      }
+    >
+      <ModalBody>
+        <div className="settings-toggle-row">
+          <div className="settings-toggle-label">דרישת מינימום ימים</div>
+          <Switch checked={isEnabled} onChange={handleToggle} />
+        </div>
+
+        {isEnabled && (
+          <>
+            <p className="text-[12.5px] leading-relaxed text-text-3">
+              יום נחשב מלא כשהעובד סימן את כל המשמרות הפעילות באותו יום (יכול או לא יכול).
+            </p>
+
+            <label className="block">
+              <span className="label-text">ימים באמצע שבוע (א׳–ה׳)</span>
+              <select
+                className="field mt-1.5 w-full"
+                value={weekdaysV}
+                onChange={(e) => {
+                  setWeekdays(Number(e.target.value));
+                  setMsg(null);
+                  setSaved(false);
+                }}
+              >
+                <option value={0}>ללא דרישה</option>
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <option key={n} value={n}>
+                    {n} {n === 1 ? "יום" : "ימים"}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="label-text">ימים בסופ״ש (ו׳–ש׳)</span>
+              <select
+                className="field mt-1.5 w-full"
+                value={weekendV}
+                onChange={(e) => {
+                  setWeekend(Number(e.target.value));
+                  setMsg(null);
+                  setSaved(false);
+                }}
+              >
+                <option value={0}>ללא דרישה</option>
+                {[1, 2].map((n) => (
+                  <option key={n} value={n}>
+                    {n === 2 ? "כל הסופ״ש (ו׳ + ש׳)" : "יום אחד"}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="settings-window-preview">
+              <Icon name="info" size={18} className="text-info" />
+              <span>
+                {formatShiftPrefsMinimumSummary({
+                  minWeekdays: weekdaysV > 0 ? weekdaysV : null,
+                  minWeekend: weekendV > 0 ? weekendV : null,
+                })}
+              </span>
+            </div>
 
             {msg && <span className="text-[13px] font-semibold text-danger">{msg}</span>}
             {saved && !msg && !update.isPending && (

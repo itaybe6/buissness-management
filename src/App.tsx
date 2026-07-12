@@ -21,6 +21,7 @@ import { Tasks } from "@/pages/Tasks";
 import { Attendance } from "@/pages/Attendance";
 import { MyShifts } from "@/pages/MyShifts";
 import { Payroll } from "@/pages/Payroll";
+import { EmployeePayrollDetail } from "@/pages/EmployeePayrollDetail";
 import { Inventory } from "@/pages/Inventory";
 import { Waste } from "@/pages/Waste";
 // Lazy — pulls in the PDF rendering/stamping libraries only when opened.
@@ -68,6 +69,7 @@ export function App() {
         <Route path="attendance" element={<FeatureGate feature="attendance"><Attendance /></FeatureGate>} />
         <Route path="my-shifts" element={<MyShifts />} />
         <Route path="payroll" element={<FeatureGate feature="payroll"><Payroll /></FeatureGate>} />
+        <Route path="payroll/:employeeId" element={<FeatureGate feature="payroll"><EmployeePayrollDetail /></FeatureGate>} />
         <Route path="inventory" element={<FeatureGate feature="inventory"><Inventory /></FeatureGate>} />
         <Route path="waste" element={<FeatureGate feature="waste"><Waste /></FeatureGate>} />
         <Route path="faults" element={<FeatureGate feature="faults"><Faults /></FeatureGate>} />

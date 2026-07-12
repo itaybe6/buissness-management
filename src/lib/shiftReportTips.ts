@@ -1,9 +1,7 @@
 import type { Attendance, ShiftAssignment, ShiftReportParticipant, ShiftTemplate } from "@/types/database";
 import {
   filterAttendanceNearReportDate,
-  calendarDayWindow,
   getAttendanceHoursInShiftWindow,
-  hoursOverlappingWindow,
   punchOverlapsAbsoluteWindow,
   shiftWindowForDate,
 } from "@/lib/attendanceFeed";
@@ -50,6 +48,11 @@ function employeePunches(
   );
 }
 
+/** Punches that started on the report calendar day (evening shifts may end after midnight). */
+function punchesStartingOnReportDate(punches: Attendance[], reportDate: string): Attendance[] {
+  return punches.filter((a) => a.clock_in!.slice(0, 10) === reportDate);
+}
+
 /**
  * Real hours from clock-in/out — clipped to the shift window when a template is selected,
  * otherwise the sum of completed punches on the report calendar day.
@@ -79,11 +82,11 @@ export function getAttendanceHoursForShiftReport(input: {
     return Math.round(Math.min(overlap, rawInWindow) * 100) / 100;
   }
 
-  const dayWindow = calendarDayWindow(reportDate);
-  const hrs = punches.reduce(
-    (sum, a) => sum + hoursOverlappingWindow(a.clock_in!, a.clock_out, dayWindow),
-    0,
-  );
+  const dayPunches = punchesStartingOnReportDate(punches, reportDate);
+  const hrs = dayPunches.reduce((sum, a) => {
+    const dur = (new Date(a.clock_out!).getTime() - new Date(a.clock_in!).getTime()) / 3.6e6;
+    return sum + Math.max(0, dur);
+  }, 0);
   return Math.round(hrs * 100) / 100;
 }
 
@@ -122,7 +125,30 @@ export function getAttendanceTimeRangeForShiftReport(input: {
   const punches = employeePunches(attendance, employeeId, reportDate);
   if (punches.length === 0) return null;
 
-  const window = template ? shiftWindowForDate(reportDate, template) : calendarDayWindow(reportDate);
+  if (!template) {
+    const dayPunches = punchesStartingOnReportDate(punches, reportDate);
+    if (dayPunches.length === 0) return null;
+
+    let earliestMs = Infinity;
+    let latestMs = -Infinity;
+    let totalHrs = 0;
+
+    for (const p of dayPunches) {
+      const inMs = new Date(p.clock_in!).getTime();
+      const outMs = new Date(p.clock_out!).getTime();
+      earliestMs = Math.min(earliestMs, inMs);
+      latestMs = Math.max(latestMs, outMs);
+      totalHrs += Math.max(0, (outMs - inMs) / 3.6e6);
+    }
+
+    return {
+      work_start: formatTimeMs(earliestMs),
+      work_end: formatTimeMs(latestMs),
+      hours: Math.round(totalHrs * 100) / 100,
+    };
+  }
+
+  const window = shiftWindowForDate(reportDate, template);
   let earliestMs = Infinity;
   let latestMs = -Infinity;
   let totalHrs = 0;
@@ -224,9 +250,8 @@ export function buildTeamMembersFromShift(input: {
     if (template) {
       const window = shiftWindowForDate(reportDate, template);
       if (!punchOverlapsAbsoluteWindow(a.clock_in, a.clock_out, window)) continue;
-    } else {
-      const dayWindow = calendarDayWindow(reportDate);
-      if (!punchOverlapsAbsoluteWindow(a.clock_in, a.clock_out, dayWindow)) continue;
+    } else if (a.clock_in!.slice(0, 10) !== reportDate) {
+      continue;
     }
     addEmployee(a.employee_id);
   }

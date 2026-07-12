@@ -17,7 +17,7 @@ import { useDepartments } from "@/api/departments";
 import { AddUserModal } from "@/components/AddUserModal";
 import { useBusinessId, colorFor, initialsOf, formatCurrency } from "@/lib/db";
 import { useAuth } from "@/lib/auth";
-import { ROLE_LABELS, WAGE_TYPE_LABELS } from "@/lib/constants";
+import { ROLE_LABELS, WAGE_TYPE_LABELS, BONUS_ELIGIBLE_ROLES } from "@/lib/constants";
 import type { Profile, UserRole, WageType } from "@/types/database";
 
 const ASSIGNABLE_ROLES: UserRole[] = [
@@ -35,8 +35,9 @@ const USER_TABLE_COLS =
 function wageSummary(u: Profile): string {
   const type = WAGE_TYPE_LABELS[u.wage_type ?? "hourly"];
   const rate = u.hourly_rate ?? 0;
-  if (u.wage_type === "tips") return `${type} · מינ׳ ${formatCurrency(rate)}`;
-  return `${type} · ${formatCurrency(rate)}/שע׳`;
+  const bonus = Number(u.bonus_pct) > 0 ? ` · ${u.bonus_pct}% קופה` : "";
+  if (u.wage_type === "tips") return `${type} · מינ׳ ${formatCurrency(rate)}${bonus}`;
+  return `${type} · ${formatCurrency(rate)}/שע׳${bonus}`;
 }
 
 export function Users() {
@@ -282,6 +283,7 @@ function EditUserModal({
   const [phone, setPhone] = useState(user.phone ?? "");
   const [wageType, setWageType] = useState<WageType>(user.wage_type ?? "hourly");
   const [hourly, setHourly] = useState(String(user.hourly_rate ?? 0));
+  const [bonusPct, setBonusPct] = useState(String(user.bonus_pct ?? 0));
   const [active, setActive] = useState(user.active);
   const [error, setError] = useState<string | null>(null);
 
@@ -307,6 +309,7 @@ function EditUserModal({
                   phone: phone.trim() || null,
                   hourly_rate: Number(hourly) || 0,
                   wage_type: wageType,
+                  bonus_pct: BONUS_ELIGIBLE_ROLES.includes(role) ? Number(bonusPct) || 0 : 0,
                   active,
                 });
               } catch (e) {
@@ -346,7 +349,7 @@ function EditUserModal({
         <label className="block"><span className="label-text">טלפון</span>
           <Input className="mt-1.5" value={phone} onChange={(e) => setPhone(e.target.value)} style={{ direction: "ltr", textAlign: "right" }} placeholder="050-0000000" />
         </label>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="block"><span className="label-text">סוג שכר</span>
             <Select className="mt-1.5" value={wageType} onChange={(e) => setWageType(e.target.value as WageType)}>
               {(Object.keys(WAGE_TYPE_LABELS) as WageType[]).map((w) => (
@@ -358,6 +361,24 @@ function EditUserModal({
             <Input className="mt-1.5" type="number" value={hourly} onChange={(e) => setHourly(e.target.value)} />
           </label>
         </div>
+        {BONUS_ELIGIBLE_ROLES.includes(role) && (
+          <label className="block">
+            <span className="label-text">אחוז מהקופה (%)</span>
+            <Input
+              className="mt-1.5"
+              type="number"
+              inputMode="decimal"
+              min={0}
+              step={0.1}
+              value={bonusPct}
+              onChange={(e) => setBonusPct(e.target.value)}
+              placeholder="0"
+            />
+            <span className="mt-1 block text-[12px] leading-relaxed text-text-2">
+              תוספת שכר אוטומטית במשמרות שעבד בהן — לפי אחוז מסכום המכירות בדוח.
+            </span>
+          </label>
+        )}
         <label className="flex cursor-pointer items-center gap-2.5 rounded-[11px] border border-border px-3.5 py-3">
           <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} className="h-[17px] w-[17px]" style={{ accentColor: "var(--accent-2)" }} />
           <span className="text-[14px] font-semibold">משתמש פעיל</span>

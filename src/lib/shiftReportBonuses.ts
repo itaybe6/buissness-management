@@ -65,6 +65,26 @@ export function computeBonusPayouts(
     });
 }
 
+/** Employees on the shift roster who have a profile bonus_pct > 0. */
+export function buildBonusParticipantsFromTeam(
+  teamMemberIds: string[],
+  profiles: { id: string; bonus_pct?: number | null }[],
+): { employee_id: string; bonus_pct: number }[] {
+  const pctById = new Map(profiles.map((p) => [p.id, Number(p.bonus_pct) || 0]));
+  const seen = new Set<string>();
+  const result: { employee_id: string; bonus_pct: number }[] = [];
+
+  for (const employeeId of teamMemberIds) {
+    if (!employeeId || seen.has(employeeId)) continue;
+    seen.add(employeeId);
+    const bonus_pct = pctById.get(employeeId) ?? 0;
+    if (bonus_pct <= 0) continue;
+    result.push({ employee_id: employeeId, bonus_pct });
+  }
+
+  return result;
+}
+
 /** @deprecated equal-split pool — kept for legacy tests */
 export function computeShiftBonusAmounts(
   totalSales: number,

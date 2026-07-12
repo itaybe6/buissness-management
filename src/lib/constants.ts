@@ -26,6 +26,13 @@ export const WAGE_TYPE_LABELS: Record<WageType, string> = {
   tips: "טיפים",
 };
 
+/** Roles that may receive a register-percentage bonus (profiles.bonus_pct). */
+export const BONUS_ELIGIBLE_ROLES: UserRole[] = [
+  "employee",
+  "shift_manager",
+  "maintenance",
+];
+
 export const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
   super_admin: "ניהול כל הפלטפורמה",
   manager: "סקירה מלאה של העסק",

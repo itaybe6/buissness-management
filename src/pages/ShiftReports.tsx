@@ -8,6 +8,7 @@ import {
   Field,
   Icon,
   Input,
+  MultiSelect,
   PageHeader,
   PageLoader,
   Select,
@@ -25,7 +26,7 @@ import {
   hoursBetweenTimes,
 } from "@/lib/shiftReportTips";
 import { useInventory } from "@/api/inventory";
-import { computeBonusPayouts } from "@/lib/shiftReportBonuses";
+import { buildBonusParticipantsFromTeam, computeBonusPayouts } from "@/lib/shiftReportBonuses";
 import { useProfiles } from "@/api/users";
 import { useAttendanceAroundDate } from "@/api/attendance";
 import {
@@ -186,14 +187,9 @@ export function ShiftReports() {
 
 /* ------------------------------- Editor ------------------------------- */
 
-interface EditorBonusRow {
-  employee_id: string;
-  bonus_pct: string;
-}
-
 interface EditorState {
   report_date: string;
-  manager_id: string;
+  manager_ids: string[];
   total_sales: string;
   delivery_sales: string;
   avg_per_diner: string;
@@ -212,15 +208,36 @@ interface EditorState {
   top_seller: string;
   participants: ShiftReportParticipant[];
   team_members: ShiftReportParticipant[];
-  bonus_participants: EditorBonusRow[];
   sales_items: ShiftReportSalesItem[];
   invoice_urls: string[];
+}
+
+function managerIdsFromReport(r: ShiftReport, allUsers: Profile[]): string[] {
+  if (r.extra?.manager_ids?.length) return r.extra.manager_ids;
+  if (r.extra?.manager_id) return [r.extra.manager_id];
+  if (!r.manager_names?.trim()) return [];
+
+  const names = r.manager_names
+    .split(/,| ו(?=\S)/)
+    .map((n) => n.trim())
+    .filter(Boolean);
+  const shiftManagers = allUsers.filter((u) => u.role === "shift_manager");
+  return names
+    .map((name) => shiftManagers.find((u) => u.full_name === name)?.id)
+    .filter((id): id is string => !!id);
+}
+
+function formatManagerNames(ids: string[], shiftManagers: Profile[]): string | null {
+  const names = ids
+    .map((id) => shiftManagers.find((m) => m.id === id)?.full_name)
+    .filter((name): name is string => !!name);
+  return names.length > 0 ? names.join(", ") : null;
 }
 
 function blankState(): EditorState {
   return {
     report_date: todayISO(),
-    manager_id: "",
+    manager_ids: [],
     total_sales: "",
     delivery_sales: "",
     avg_per_diner: "",
@@ -239,22 +256,15 @@ function blankState(): EditorState {
     top_seller: "",
     participants: [],
     team_members: [],
-    bonus_participants: [],
     sales_items: [],
     invoice_urls: [],
   };
 }
 
 function fromReport(r: ShiftReport, allUsers: Profile[]): EditorState {
-  const legacyPct = Number(r.service_pct) || 0;
-  const managerId =
-    r.extra?.manager_id ??
-    allUsers.find((u) => u.role === "shift_manager" && u.full_name === r.manager_names)?.id ??
-    "";
-
   return {
     report_date: r.report_date,
-    manager_id: managerId,
+    manager_ids: managerIdsFromReport(r, allUsers),
     total_sales: String(r.total_sales ?? ""),
     delivery_sales: String(r.delivery_sales ?? ""),
     avg_per_diner: String(r.avg_per_diner ?? ""),
@@ -276,10 +286,6 @@ function fromReport(r: ShiftReport, allUsers: Profile[]): EditorState {
     team_members: (r.extra?.team_members ?? []).filter(
       (p) => (Number(p.attendance_hours) || Number(p.hours) || 0) > 0,
     ),
-    bonus_participants: (r.extra?.bonus_participants ?? []).map((p) => ({
-      employee_id: p.employee_id,
-      bonus_pct: String(p.bonus_pct ?? legacyPct),
-    })),
     sales_items: r.extra?.sales_items ?? [],
     invoice_urls: r.invoice_urls ?? [],
   };
@@ -307,6 +313,7 @@ function ReportEditor({
   const [s, setS] = useState<EditorState>(report ? fromReport(report, allUsers) : blankState());
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [inventorySearch, setInventorySearch] = useState("");
   const save = useSaveShiftReport(businessId);
 
   const { data: attendance, isLoading: attendanceLoading } = useAttendanceAroundDate(businessId, s.report_date);
@@ -405,38 +412,22 @@ function ReportEditor({
   }, [attendance, attendanceLoading, s.report_date]);
 
   const totalTips = Number(s.total_tips) || 0;
-  const totalSales = Number(s.total_sales) || 0;
   const totalHours = s.participants.reduce((sum, p) => sum + (Number(p.hours) || 0), 0);
   const tipsHourly = totalHours > 0 ? totalTips / totalHours : 0;
-  const bonusPayouts = useMemo(
-    () =>
-      computeBonusPayouts(
-        totalSales,
-        s.bonus_participants.map((p) => ({
-          employee_id: p.employee_id,
-          bonus_pct: Number(p.bonus_pct) || 0,
-        })),
-      ),
-    [totalSales, s.bonus_participants],
-  );
   const participantsLoading = attendanceLoading;
   const availableTeamUsers = allUsers.filter((u) => !s.team_members.some((p) => p.employee_id === u.id));
-  const availableBonusUsers = allUsers.filter(
-    (u) => !s.bonus_participants.some((p) => p.employee_id === u.id),
-  );
   const selectedOutOfStockIds = useMemo(
     () => new Set(s.out_of_stock_items.map((i) => i.item_id)),
     [s.out_of_stock_items],
   );
-
-  function updateParticipant(idx: number, patch: Partial<ShiftReportParticipant>) {
-    const next = [...s.participants];
-    next[idx] = { ...next[idx], ...patch };
-    if (patch.employee_id) {
-      next[idx].attendance_hours = shiftAttendanceHours(patch.employee_id);
-    }
-    set("participants", next);
-  }
+  const inventorySearchResults = useMemo(() => {
+    const q = inventorySearch.trim().toLowerCase();
+    if (!q) return [];
+    return inventoryItems
+      .filter((item) => !selectedOutOfStockIds.has(item.id))
+      .filter((item) => item.name.toLowerCase().includes(q))
+      .slice(0, 8);
+  }, [inventoryItems, inventorySearch, selectedOutOfStockIds]);
 
   function updateTeamMember(idx: number, patch: Partial<ShiftReportParticipant>) {
     const current = s.team_members[idx];
@@ -548,12 +539,6 @@ function ReportEditor({
     }
   }
 
-  function updateBonusRow(idx: number, patch: Partial<EditorBonusRow>) {
-    const next = [...s.bonus_participants];
-    next[idx] = { ...next[idx], ...patch };
-    set("bonus_participants", next);
-  }
-
   async function submit() {
     setError(null);
     const outOfStockItems = s.urgent_inventory_enabled ? s.out_of_stock_items : [];
@@ -563,16 +548,14 @@ function ReportEditor({
         : s.urgent_inventory.trim() || null
       : null;
     const faultsText = s.faults_enabled ? s.faults_maintenance.trim() || null : null;
-    const manager = shiftManagers.find((m) => m.id === s.manager_id);
-    const bonusRows = s.bonus_participants
-      .filter((p) => p.employee_id && (Number(p.bonus_pct) || 0) > 0)
-      .map((p) => ({ employee_id: p.employee_id, bonus_pct: Number(p.bonus_pct) || 0 }));
+    const teamIds = s.team_members.filter((p) => p.employee_id).map((p) => p.employee_id);
+    const bonusRows = buildBonusParticipantsFromTeam(teamIds, allUsers);
     const payload: SaveShiftReportInput = {
       id: report?.id,
       business_id: businessId,
       report_date: s.report_date,
       shift_template_id: null,
-      manager_names: manager?.full_name ?? null,
+      manager_names: formatManagerNames(s.manager_ids, shiftManagers),
       total_sales: Number(s.total_sales) || 0,
       delivery_sales: Number(s.delivery_sales) || 0,
       avg_per_diner: Number(s.avg_per_diner) || 0,
@@ -591,7 +574,8 @@ function ReportEditor({
         team_members: s.team_members.filter((p) => p.employee_id),
         out_of_stock_items: outOfStockItems,
         bonus_participants: bonusRows,
-        manager_id: s.manager_id || undefined,
+        manager_ids: s.manager_ids.length > 0 ? s.manager_ids : undefined,
+        manager_id: s.manager_ids[0] || undefined,
         sales_items: s.sales_items.filter((i) => i.label.trim()),
         top_seller: s.top_seller.trim(),
       },
@@ -624,15 +608,22 @@ function ReportEditor({
       <div className="flex flex-col gap-6">
         {/* פרטי משמרת */}
         <Section icon="event" title="פרטי היום">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-col gap-3">
             <Field label="תאריך"><Input type="date" value={s.report_date} onChange={(e) => set("report_date", e.target.value)} /></Field>
             <Field label='אחמ"ש (אחראי משמרת)'>
-              <Select value={s.manager_id} onChange={(e) => set("manager_id", e.target.value)}>
-                <option value="">— בחר אחמ״ש —</option>
-                {shiftManagers.map((m) => (
-                  <option key={m.id} value={m.id}>{m.full_name}</option>
-                ))}
-              </Select>
+              {shiftManagers.length === 0 ? (
+                <div className="rounded-[11px] border border-dashed border-border px-3.5 py-4 text-center text-[13px] text-text-2">
+                  אין אחמ״שים רשומים בעסק.
+                </div>
+              ) : (
+                <MultiSelect
+                  values={s.manager_ids}
+                  onChange={(ids) => set("manager_ids", ids)}
+                  options={shiftManagers.map((m) => ({ value: m.id, label: m.full_name ?? "" }))}
+                  placeholder="— בחר אחמ״ש —"
+                />
+              )}
+              <div className="mt-1 text-[12px] text-text-2">ניתן לסמן יותר מאחד אם היו כמה אחמ״שים במשמרת.</div>
             </Field>
           </div>
         </Section>
@@ -644,76 +635,6 @@ function ReportEditor({
             <Field label="משלוחים / וולט (₪)"><Input type="number" inputMode="decimal" value={s.delivery_sales} onChange={(e) => set("delivery_sales", e.target.value)} /></Field>
             <Field label="ממוצע לסועד (₪)"><Input type="number" inputMode="decimal" value={s.avg_per_diner} onChange={(e) => set("avg_per_diner", e.target.value)} /></Field>
           </div>
-        </Section>
-
-        {/* אחוזים מהקופה */}
-        <Section icon="percent" title="אחוזים מהקופה">
-          <div className="text-[12.5px] text-text-2">
-            בחרו עובדים שמקבלים אחוז מסכום המכירות — הסכום יתווסף למשכורת שלהם לפי הדוח.
-          </div>
-
-          {s.bonus_participants.length > 0 && (
-            <div className="overflow-hidden rounded-[11px] border border-border">
-              <div className="grid grid-cols-[1fr_90px_100px_auto] items-center gap-2 border-b border-border bg-surface-2 px-3 py-2 text-[11.5px] font-bold text-text-3">
-                <span>עובד</span>
-                <span>אחוז (%)</span>
-                <span>סכום</span>
-                <span />
-              </div>
-              <div className="flex flex-col divide-y divide-border-2">
-                {s.bonus_participants.map((row, idx) => {
-                  const payout = bonusPayouts.find((p) => p.employee_id === row.employee_id);
-                  return (
-                    <div key={row.employee_id || `bonus-${idx}`} className="grid grid-cols-[1fr_90px_100px_auto] items-center gap-2 px-3 py-2.5">
-                      {row.employee_id ? (
-                        <span className="truncate text-[14px] font-semibold">{userName(row.employee_id)}</span>
-                      ) : (
-                        <Select
-                          value={row.employee_id}
-                          onChange={(e) => updateBonusRow(idx, { employee_id: e.target.value })}
-                        >
-                          <option value="">— בחר עובד —</option>
-                          {availableBonusUsers.map((u) => (
-                            <option key={u.id} value={u.id}>{u.full_name}</option>
-                          ))}
-                        </Select>
-                      )}
-                      <Input
-                        type="number"
-                        inputMode="decimal"
-                        min={0}
-                        step={0.1}
-                        placeholder="%"
-                        value={row.bonus_pct}
-                        onChange={(e) => updateBonusRow(idx, { bonus_pct: e.target.value })}
-                      />
-                      <span className="text-[12.5px] font-bold tabular-nums text-accent">
-                        {payout && payout.amount > 0 ? formatCurrency(payout.amount) : "—"}
-                      </span>
-                      <button
-                        onClick={() => set("bonus_participants", s.bonus_participants.filter((_, i) => i !== idx))}
-                        className="grid h-9 w-9 place-items-center rounded-lg text-text-3 hover:[background:var(--danger-bg)] hover:text-danger"
-                        title="הסרה"
-                      >
-                        <Icon name="close" size={18} />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {availableBonusUsers.length > 0 && (
-            <Button
-              variant="secondary"
-              icon="person_add"
-              onClick={() => set("bonus_participants", [...s.bonus_participants, { employee_id: "", bonus_pct: "" }])}
-              className="self-start"
-            >
-              הוספת עובד לאחוזים
-            </Button>
-          )}
         </Section>
 
         {/* הצוות */}
@@ -750,6 +671,8 @@ function ReportEditor({
                             <span className="report-team-name">{userName(p.employee_id)}</span>
                           ) : (
                             <Select
+                              searchable
+                              searchPlaceholder="חיפוש עובד..."
                               value={p.employee_id}
                               onChange={(e) => updateTeamMember(idx, { employee_id: e.target.value })}
                             >
@@ -762,6 +685,10 @@ function ReportEditor({
                           {edited && <span className="report-team-edited">שונה מנוכחות</span>}
                         </div>
                       </div>
+                      <span className="report-team-hours-pill" aria-label={`סה״כ ${p.hours || 0} שעות`}>
+                        <span className="report-team-hours-pill-value">{p.hours || "0"}</span>
+                        <span className="report-team-hours-pill-unit">שע׳</span>
+                      </span>
                       <button
                         type="button"
                         onClick={() => removeTeamMember(idx)}
@@ -793,7 +720,7 @@ function ReportEditor({
                         </div>
                       </div>
 
-                      <div className="report-team-field-block">
+                      <div className="report-team-field-block report-team-hours-block">
                         <span className="report-team-field-label">סה״כ שעות</span>
                         <div className="report-team-hours-wrap">
                           <Input
@@ -855,65 +782,9 @@ function ReportEditor({
               <div className="field flex items-center bg-surface-2 font-bold">{formatCurrency(tipsHourly)}</div>
             </Field>
           </div>
-
-          <div className="mt-1 text-[12.5px] text-text-2">
-            עובדי טיפים נמשכים מרשימת הצוות — ניתן לתקן שעות לחלוקה (למשל אם עובד שכח לדווח כניסה).
+          <div className="text-[12.5px] text-text-2">
+            הטיפים יחולקו אוטומטית לפי שעות העובדים ברשימת הצוות. פירוט לפי עובד יוצג אחרי שמירת הדוח.
           </div>
-
-          {participantsLoading ? (
-            <div className="rounded-[11px] border border-border bg-surface-2 px-3.5 py-4 text-center text-[13px] text-text-2">
-              טוען עובדי טיפים...
-            </div>
-          ) : s.participants.length === 0 ? (
-            <div className="rounded-[11px] border border-dashed border-border px-3.5 py-4 text-center text-[13px] text-text-2">
-              לא נמצאו עובדי טיפים ברשימת הצוות.
-            </div>
-          ) : (
-            <div className="overflow-hidden rounded-[11px] border border-border">
-              <div className="grid grid-cols-[1fr_100px_72px_90px_auto] items-center gap-2 border-b border-border bg-surface-2 px-3 py-2 text-[11.5px] font-bold text-text-3">
-                <span>עובד</span>
-                <span>שעות עבודה</span>
-                <span>נוכחות</span>
-                <span>שעות לחלוקה</span>
-                <span>חלק בטיפים</span>
-              </div>
-              <div className="flex flex-col divide-y divide-border-2">
-                {s.participants.map((p, idx) => {
-                  const attHrs = p.attendance_hours ?? null;
-                  const edited = attHrs != null && Math.abs((Number(p.hours) || 0) - attHrs) > 0.01;
-                  const teamRow = s.team_members.find((m) => m.employee_id === p.employee_id);
-                  return (
-                    <div key={p.employee_id || `tip-${idx}`} className="grid grid-cols-[1fr_100px_72px_90px_auto] items-center gap-2 px-3 py-2.5">
-                      <div className="min-w-0">
-                        <span className="block truncate text-[14px] font-semibold">{userName(p.employee_id)}</span>
-                        {edited && (
-                          <span className="text-[11px] font-semibold text-amber-600">שונה מנוכחות</span>
-                        )}
-                      </div>
-                      <span className="text-[12.5px] tabular-nums text-text-2">
-                        {formatWorkTimeRange(teamRow?.work_start ?? p.work_start, teamRow?.work_end ?? p.work_end)}
-                      </span>
-                      <span className={`text-[13px] tabular-nums ${attHrs != null ? "text-text-2" : "text-text-3"}`}>
-                        {formatShiftHours(attHrs)}
-                      </span>
-                      <Input
-                        type="number"
-                        inputMode="decimal"
-                        step={0.25}
-                        min={0}
-                        placeholder="שעות"
-                        value={p.hours || ""}
-                        onChange={(e) => updateParticipant(idx, { hours: Number(e.target.value) || 0 })}
-                      />
-                      <span className="whitespace-nowrap text-[12.5px] font-bold text-accent-2">
-                        {formatCurrency(tipsHourly * (Number(p.hours) || 0))}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
         </Section>
 
         {/* מכירות */}
@@ -975,7 +846,10 @@ function ReportEditor({
                 checked={s.urgent_inventory_enabled}
                 onChange={(v) => {
                   set("urgent_inventory_enabled", v);
-                  if (!v) set("out_of_stock_items", []);
+                  if (!v) {
+                    set("out_of_stock_items", []);
+                    setInventorySearch("");
+                  }
                 }}
               />
             </label>
@@ -985,31 +859,72 @@ function ReportEditor({
                   אין מוצרים במלאי. הוסיפו מוצרים במודול המלאי.
                 </div>
               ) : (
-                <div className="flex max-h-52 flex-col gap-1.5 overflow-y-auto rounded-[11px] border border-border p-2">
-                  {inventoryItems.map((item) => {
-                    const checked = selectedOutOfStockIds.has(item.id);
-                    return (
-                      <label
-                        key={item.id}
-                        className={`flex cursor-pointer items-center justify-between gap-3 rounded-[10px] px-3 py-2.5 transition-colors ${
-                          checked ? "bg-accent/5" : "hover:bg-surface-2"
-                        }`}
-                      >
-                        <span className="flex min-w-0 items-center gap-2.5">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggleOutOfStockItem(item.id)}
-                            className="h-4 w-4 flex-none accent-[var(--accent)]"
-                          />
+                <div className="flex flex-col gap-2.5 rounded-[11px] border border-border p-3">
+                  {s.out_of_stock_items.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {s.out_of_stock_items.map((item) => {
+                        const inv = inventoryItems.find((i) => i.id === item.item_id);
+                        return (
+                          <button
+                            key={item.item_id}
+                            type="button"
+                            onClick={() => toggleOutOfStockItem(item.item_id)}
+                            className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2.5 py-1 text-[12.5px] font-semibold text-text"
+                          >
+                            <span>{item.name}</span>
+                            {inv && (
+                              <span className="text-[11px] font-medium text-text-3">
+                                {inv.current_qty} {inv.unit}
+                              </span>
+                            )}
+                            <Icon name="close" size={14} className="text-text-3" />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-2 rounded-[10px] border border-border bg-surface-2 px-3 py-2">
+                    <Icon name="search" size={18} className="flex-none text-text-3" />
+                    <input
+                      type="search"
+                      value={inventorySearch}
+                      onChange={(e) => setInventorySearch(e.target.value)}
+                      placeholder="חיפוש מוצר להוספה..."
+                      className="w-full border-none bg-transparent text-[14px] font-semibold text-text outline-none placeholder:font-medium placeholder:text-text-3"
+                    />
+                  </div>
+
+                  {!inventorySearch.trim() ? (
+                    <div className="text-center text-[12.5px] text-text-2">
+                      {s.out_of_stock_items.length > 0
+                        ? "ניתן לחפש ולהוסיף עוד מוצרים"
+                        : "הקלידו שם מוצר כדי להוסיף לרשימה"}
+                    </div>
+                  ) : inventorySearchResults.length === 0 ? (
+                    <div className="text-center text-[12.5px] font-semibold text-text-3">
+                      לא נמצאו מוצרים
+                    </div>
+                  ) : (
+                    <div className="flex max-h-44 flex-col gap-1 overflow-y-auto">
+                      {inventorySearchResults.map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => {
+                            toggleOutOfStockItem(item.id);
+                            setInventorySearch("");
+                          }}
+                          className="flex items-center justify-between gap-3 rounded-[10px] px-3 py-2.5 text-right transition-colors hover:bg-surface-2"
+                        >
                           <span className="truncate text-[14px] font-semibold">{item.name}</span>
-                        </span>
-                        <span className="flex-none text-[11.5px] font-semibold text-text-3">
-                          {item.current_qty} {item.unit}
-                        </span>
-                      </label>
-                    );
-                  })}
+                          <span className="flex-none text-[11.5px] font-semibold text-text-3">
+                            {item.current_qty} {item.unit}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )
             )}
