@@ -553,28 +553,108 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
   return (
     <div>
       {!isDesktop ? (
-        <div className="employee-shifts-submit-head">
-          <WeekNav wkStart={wk} onShift={shiftWeek} onToday={() => { setWk(addDays(weekStart(), 7)); setDayIdx(0); }} />
-          <div className="employee-shifts-progress">
-            <div className="employee-shifts-progress-meta">
-              <span className="employee-shifts-progress-label">
-                {filledCells} מתוך {totalCells} משמרות מסומנות
+        <section className="payroll-hero prefs-hero">
+          <div className="payroll-hero-top">
+            <div className="payroll-month-nav">
+              <button
+                type="button"
+                className="payroll-month-btn"
+                aria-label="שבוע קודם"
+                onClick={() => shiftWeek(7)}
+              >
+                <Icon name="chevron_right" size={20} />
+              </button>
+              <span className="payroll-month-label">
+                {formatDateShort(wk)} – {formatDateShort(addDays(wk, 6))}
               </span>
-              {hasMinimum && (
-                <span
-                  className="employee-shifts-progress-min"
-                  style={{ color: minimumStatus.met ? "var(--success)" : "var(--warning)" }}
-                >
-                  {minimumStatus.weekdayDone}/{minimumStatus.minWeekdays || "—"} א׳–ה׳ ·{" "}
-                  {minimumStatus.weekendDone}/{minimumStatus.minWeekend || "—"} סופ״ש
+              <button
+                type="button"
+                className="payroll-month-btn"
+                aria-label="שבוע הבא"
+                onClick={() => shiftWeek(-7)}
+              >
+                <Icon name="chevron_left" size={20} />
+              </button>
+            </div>
+            {wk !== nextWk ? (
+              <button
+                type="button"
+                className="payroll-tip-btn btn-press"
+                onClick={() => { setWk(nextWk); setDayIdx(0); }}
+              >
+                <Icon name="undo" size={15} />
+                שבוע הבא
+              </button>
+            ) : (
+              <span className="shifts-hero-badge" data-state={canEdit ? "open" : "locked"}>
+                <Icon name={canEdit ? "edit_calendar" : "lock"} size={14} />
+                {canEdit ? "פתוח להגשה" : "נעול"}
+              </span>
+            )}
+          </div>
+
+          <span className="payroll-hero-label">משמרות שסימנת השבוע</span>
+          <div className="payroll-hero-total prefs-hero-total">
+            {filledCells}
+            <span className="prefs-hero-of">/{totalCells}</span>
+          </div>
+          <div className="prefs-hero-bar">
+            <div className="prefs-hero-fill" style={{ width: `${progressPct}%` }} />
+          </div>
+
+          {hasMinimum && (
+            <div className="payroll-hero-chips">
+              {minimumStatus.minWeekdays > 0 && (
+                <span className="prefs-goal" data-ok={minimumStatus.weekdayMet}>
+                  <Icon name={minimumStatus.weekdayMet ? "check_circle" : "radio_button_unchecked"} size={14} />
+                  א׳–ה׳ {minimumStatus.weekdayDone}/{minimumStatus.minWeekdays}
+                </span>
+              )}
+              {minimumStatus.minWeekend > 0 && (
+                <span className="prefs-goal" data-ok={minimumStatus.weekendMet}>
+                  <Icon name={minimumStatus.weekendMet ? "check_circle" : "radio_button_unchecked"} size={14} />
+                  סופ״ש {minimumStatus.weekendDone}/{minimumStatus.minWeekend}
                 </span>
               )}
             </div>
-            <div className="shift-progress-bar">
-              <div className="shift-progress-fill" style={{ width: `${progressPct}%` }} />
-            </div>
-          </div>
-        </div>
+          )}
+
+          {hasMinimum && !minimumStatus.met && canEdit && (
+            <p className="prefs-hero-note" data-tone="warn">
+              <Icon name="flag" size={14} />
+              <span>
+                {minimumStatus.minWeekdays > 0 && !minimumStatus.weekdayMet && (
+                  <>חסרים {minimumStatus.minWeekdays - minimumStatus.weekdayDone} ימים באמצע שבוע. </>
+                )}
+                {minimumStatus.minWeekend > 0 && !minimumStatus.weekendMet && (
+                  <>חסרים {minimumStatus.minWeekend - minimumStatus.weekendDone} ימים בסופ״ש. </>
+                )}
+                יום מלא = כל המשמרות באותו יום מסומנות.
+              </span>
+            </p>
+          )}
+
+          {hasWindow && windowStatus.state === "closed" && (
+            <p className="prefs-hero-note">
+              <Icon name="lock" size={14} />
+              <span>ההגשה לשבוע זה נסגרה ({formatShiftPrefsClose(wk, closeDow!, closeTime!)})</span>
+            </p>
+          )}
+
+          {hasWindow && windowStatus.state === "not_yet_open" && openDow != null && openTime != null && (
+            <p className="prefs-hero-note">
+              <Icon name="hourglass_empty" size={14} />
+              <span>חלון ההגשה ייפתח ב-{formatShiftPrefsOpen(wk, openDow, openTime, closeDow!)}</span>
+            </p>
+          )}
+
+          {hasWindow && canEdit && wk === nextWk && (
+            <p className="prefs-hero-note">
+              <Icon name="schedule" size={14} />
+              <span>ניתן לעדכן עד {formatShiftPrefsClose(wk, closeDow!, closeTime!)}</span>
+            </p>
+          )}
+        </section>
       ) : (
         <div className="shift-toolbar">
           <div className="shift-toolbar-meta">
@@ -607,7 +687,7 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
       )}
 
       {hasMinimum && !minimumStatus.met && canEdit && (
-        <div className="mb-3 flex items-start gap-2 rounded-[11px] border border-warning/30 [background:var(--warning-bg)] px-3.5 py-2.5 text-[13px] font-semibold text-warning">
+        <div className="mb-3 hidden items-start gap-2 rounded-[11px] border border-warning/30 [background:var(--warning-bg)] px-3.5 py-2.5 text-[13px] font-semibold text-warning md:flex">
           <Icon name="warning" size={18} className="mt-0.5 flex-none" />
           <span>
             חובה להשלים לפחות{" "}
@@ -623,21 +703,21 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
       )}
 
       {hasMinimum && minimumStatus.met && canEdit && (
-        <div className="mb-3 flex items-center gap-2 rounded-[11px] border border-success/30 [background:var(--success-bg)] px-3.5 py-2.5 text-[13px] font-semibold text-success">
+        <div className="mb-3 hidden items-center gap-2 rounded-[11px] border border-success/30 [background:var(--success-bg)] px-3.5 py-2.5 text-[13px] font-semibold text-success md:flex">
           <Icon name="check_circle" size={18} />
           עמדת בדרישת המינימום לשבוע זה.
         </div>
       )}
 
       {hasWindow && windowStatus.state === "closed" && (
-        <div className="mb-3 flex items-center gap-2 rounded-[11px] border border-warning/30 [background:var(--warning-bg)] px-3.5 py-2.5 text-[13px] font-semibold text-warning">
+        <div className="mb-3 hidden items-center gap-2 rounded-[11px] border border-warning/30 [background:var(--warning-bg)] px-3.5 py-2.5 text-[13px] font-semibold text-warning md:flex">
           <Icon name="lock" size={18} />
           המועד להגשת זמינות לשבוע זה הסתיים ({formatShiftPrefsClose(wk, closeDow!, closeTime!)}).
         </div>
       )}
 
       {hasWindow && windowStatus.state === "not_yet_open" && openDow != null && openTime != null && (
-        <div className="mb-3 flex items-center gap-2 rounded-[11px] border border-warning/30 [background:var(--warning-bg)] px-3.5 py-2.5 text-[13px] font-semibold text-warning">
+        <div className="mb-3 hidden items-center gap-2 rounded-[11px] border border-warning/30 [background:var(--warning-bg)] px-3.5 py-2.5 text-[13px] font-semibold text-warning md:flex">
           <Icon name="hourglass_empty" size={18} />
           חלון ההגשה לשבוע זה עדיין לא נפתח — ייפתח ב-
           {formatShiftPrefsOpen(wk, openDow, openTime, closeDow!)}.
@@ -645,7 +725,7 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
       )}
 
       {hasWindow && canEdit && wk === nextWk && (
-        <div className="mb-3 flex items-center gap-2 rounded-[11px] border border-info/30 [background:var(--info-bg)] px-3.5 py-2.5 text-[13px] font-semibold text-info">
+        <div className="mb-3 hidden items-center gap-2 rounded-[11px] border border-info/30 [background:var(--info-bg)] px-3.5 py-2.5 text-[13px] font-semibold text-info md:flex">
           <Icon name="schedule" size={18} />
           {openDow != null && openTime != null ? (
             <>

@@ -47,6 +47,10 @@ export function monthLabel(m: string) {
   return `${HE_MONTHS[d.getMonth()]} ${d.getFullYear()}`;
 }
 
+export function shiftFullDateLabel(d: Date) {
+  return `${HE_DAYS_SHORT[d.getDay()]}, ${d.getDate()} ב${HE_MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}
+
 export function hhmm(iso: string) {
   return new Date(iso).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
 }

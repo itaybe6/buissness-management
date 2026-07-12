@@ -288,9 +288,7 @@ export function TaskWeekSchedule({
       {!embedded && (
         <div className="page-section-label">
           סידור משימות שבועי
-          <span>
-            {employeeFilter ? "המשימות שלך לפי ימים" : "כל המשימות לפי מחלקות ועובדים"}
-          </span>
+          {employeeFilter ? <span>המשימות שלך לפי ימים</span> : null}
         </div>
       )}
 

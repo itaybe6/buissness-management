@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
-import { Button, Card, EmptyState, Icon, PageHeader, PageLoader, ErrorState, Field, Textarea } from "@/components/ui";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import { Button, Card, EmptyState, Icon, Input, PageHeader, PageLoader, ErrorState, Field, Textarea } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useProfiles } from "@/api/users";
 import { useAuth } from "@/lib/auth";
-import { useBusinessId } from "@/lib/db";
+import { addDays, todayISO, toISODate, useBusinessId } from "@/lib/db";
 import { isVideoFile, isVideoUrl } from "@/lib/media";
 import { useFaults, useCreateFault, useUpdateFault, uploadFaultPhotos } from "@/api/faults";
 import type { FaultStatus } from "@/types/database";
@@ -17,6 +17,49 @@ const STATUS_META: Record<FaultStatus, { label: string; tone: StatusTone; icon: 
 };
 const STATUS_ORDER: FaultStatus[] = ["needs_handling", "in_progress", "handled"];
 
+type DatePreset = "all" | "today" | "7d" | "month" | "custom";
+
+const DATE_PRESETS: { key: DatePreset; label: string }[] = [
+  { key: "all", label: "הכל" },
+  { key: "today", label: "היום" },
+  { key: "7d", label: "7 ימים" },
+  { key: "month", label: "החודש" },
+  { key: "custom", label: "מותאם" },
+];
+
+function monthStartISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
+function resolveDateRange(preset: DatePreset, customFrom: string, customTo: string) {
+  const today = todayISO();
+  switch (preset) {
+    case "today":
+      return { from: today, to: today };
+    case "7d":
+      return { from: addDays(today, -6), to: today };
+    case "month":
+      return { from: monthStartISO(), to: today };
+    case "custom":
+      return { from: customFrom || null, to: customTo || null };
+    default:
+      return { from: null as string | null, to: null as string | null };
+  }
+}
+
+function faultDay(iso: string) {
+  return toISODate(new Date(iso));
+}
+
+function matchesDateRange(iso: string, from: string | null, to: string | null) {
+  if (!from && !to) return true;
+  const day = faultDay(iso);
+  if (from && day < from) return false;
+  if (to && day > to) return false;
+  return true;
+}
+
 type MediaEntry = { file: File; preview: string; isVideo: boolean };
 
 function revokeMediaEntries(entries: MediaEntry[]) {
@@ -25,9 +68,28 @@ function revokeMediaEntries(entries: MediaEntry[]) {
 
 function formatFaultTime(iso: string) {
   const d = new Date(iso);
-  const time = d.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  const time = d.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", hour12: false });
   const date = d.toLocaleDateString("he-IL", { day: "numeric", month: "numeric", year: "numeric" });
   return `${time} ,${date}`;
+}
+
+function formatFaultTimeRelative(iso: string) {
+  const d = new Date(iso);
+  const now = new Date();
+  const diffMin = Math.floor((now.getTime() - d.getTime()) / 60000);
+  const time = d.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", hour12: false });
+  if (diffMin < 1) return "ממש עכשיו";
+  if (diffMin < 60) return `לפני ${diffMin} דק׳`;
+  if (d.toDateString() === now.toDateString()) return `היום · ${time}`;
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return `אתמול · ${time}`;
+  const date = d.toLocaleDateString("he-IL", {
+    day: "numeric",
+    month: "numeric",
+    ...(d.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}),
+  });
+  return `${date} · ${time}`;
 }
 
 function FaultMediaItem({ url }: { url: string }) {
@@ -44,7 +106,7 @@ function FaultMediaItem({ url }: { url: string }) {
   return <img src={url} alt="תקלה" className="h-full w-full object-cover" />;
 }
 
-function FaultMediaCarousel({ urls, tall }: { urls: string[]; tall?: boolean }) {
+function FaultMediaCarousel({ urls, tall, overlay }: { urls: string[]; tall?: boolean; overlay?: ReactNode }) {
   const [index, setIndex] = useState(0);
   const touchStart = useRef<number | null>(null);
   const count = urls.length;
@@ -80,8 +142,11 @@ function FaultMediaCarousel({ urls, tall }: { urls: string[]; tall?: boolean }) 
         <FaultMediaItem url={urls[index]} />
       </div>
 
+      {overlay}
+
       {count > 1 && (
         <>
+          <span className="fault-media-scrim" aria-hidden />
           <span className="fault-media-count">
             {index + 1}/{count}
           </span>
@@ -161,32 +226,126 @@ function FaultStatusSegmented({
   );
 }
 
-function FaultStatCard({
-  status,
-  count,
-  active,
-  onClick,
+function FaultsFilterBar({
+  total,
+  visibleCount,
+  counts,
+  filter,
+  onFilterChange,
+  datePreset,
+  onDatePresetChange,
+  customFrom,
+  customTo,
+  onCustomFromChange,
+  onCustomToChange,
+  onClear,
+  hasActiveFilters,
 }: {
-  status: FaultStatus;
-  count: number;
-  active?: boolean;
-  onClick?: () => void;
+  total: number;
+  visibleCount: number;
+  counts: Record<FaultStatus, number>;
+  filter: FaultStatus | null;
+  onFilterChange: (s: FaultStatus | null) => void;
+  datePreset: DatePreset;
+  onDatePresetChange: (p: DatePreset) => void;
+  customFrom: string;
+  customTo: string;
+  onCustomFromChange: (v: string) => void;
+  onCustomToChange: (v: string) => void;
+  onClear: () => void;
+  hasActiveFilters: boolean;
 }) {
-  const m = STATUS_META[status];
+  const dateFilteredTotal = counts.needs_handling + counts.in_progress + counts.handled;
+
   return (
-    <button
-      type="button"
-      className={`fault-stat ${active ? "fault-stat--active" : ""}`}
-      data-tone={m.tone}
-      onClick={onClick}
-      aria-pressed={active}
-    >
-      <span className="fault-stat-icon" aria-hidden>
-        <Icon name={m.icon} size={18} />
-      </span>
-      <span className="fault-stat-val">{count}</span>
-      <span className="fault-stat-lbl">{m.label}</span>
-    </button>
+    <div className="faults-filter-bar">
+      <div className="faults-filter-bar__row">
+        <span className="faults-filter-bar__label">
+          <Icon name="calendar_today" size={15} />
+          תאריך
+        </span>
+        <div className="faults-filter-bar__chips faults-filter-bar__chips--scroll" role="group" aria-label="סינון לפי תאריך">
+          {DATE_PRESETS.map(({ key, label }) => (
+            <button
+              key={key}
+              type="button"
+              className="faults-filter-chip"
+              data-active={datePreset === key}
+              onClick={() => onDatePresetChange(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {datePreset === "custom" && (
+        <div className="faults-filter-bar__range">
+          <Input
+            type="date"
+            value={customFrom}
+            onChange={(e) => onCustomFromChange(e.target.value)}
+            className="faults-filter-bar__date"
+            aria-label="מתאריך"
+          />
+          <span className="faults-filter-bar__range-sep">עד</span>
+          <Input
+            type="date"
+            value={customTo}
+            onChange={(e) => onCustomToChange(e.target.value)}
+            className="faults-filter-bar__date"
+            aria-label="עד תאריך"
+          />
+        </div>
+      )}
+
+      <div className="faults-filter-bar__row">
+        <span className="faults-filter-bar__label">
+          <Icon name="tune" size={15} />
+          סטטוס
+        </span>
+        <div className="faults-filter-bar__chips faults-filter-bar__chips--scroll" role="group" aria-label="סינון לפי סטטוס">
+          <button
+            type="button"
+            className="faults-filter-chip"
+            data-active={filter === null}
+            onClick={() => onFilterChange(null)}
+          >
+            הכל
+            <span className="faults-filter-chip__count">{dateFilteredTotal}</span>
+          </button>
+          {STATUS_ORDER.map((s) => {
+            const m = STATUS_META[s];
+            return (
+              <button
+                key={s}
+                type="button"
+                className="faults-filter-chip"
+                data-active={filter === s}
+                data-tone={m.tone}
+                onClick={() => onFilterChange(filter === s ? null : s)}
+              >
+                <Icon name={m.icon} size={14} />
+                {m.label}
+                <span className="faults-filter-chip__count">{counts[s]}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="faults-filter-bar__meta">
+        <span className="faults-filter-bar__result">
+          {visibleCount === total ? `${total} תקלות` : `${visibleCount} מתוך ${total} תקלות`}
+        </span>
+        {hasActiveFilters && (
+          <button type="button" className="faults-filter-bar__clear" onClick={onClear}>
+            <Icon name="filter_alt_off" size={15} />
+            נקה סינון
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -203,6 +362,9 @@ export function Faults() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<FaultStatus | null>(null);
+  const [datePreset, setDatePreset] = useState<DatePreset>("all");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const mediaRef = useRef(media);
   mediaRef.current = media;
@@ -220,10 +382,15 @@ export function Faults() {
   if (isLoading) return <PageLoader />;
   if (isError) return <ErrorState onRetry={refetch} />;
 
-  const counts = { needs_handling: 0, in_progress: 0, handled: 0 } as Record<FaultStatus, number>;
-  (faults ?? []).forEach((f) => (counts[f.status] += 1));
+  const total = (faults ?? []).length;
+  const { from: dateFrom, to: dateTo } = resolveDateRange(datePreset, customFrom, customTo);
+  const dateFiltered = (faults ?? []).filter((f) => matchesDateRange(f.created_at, dateFrom, dateTo));
 
-  const visible = (faults ?? []).filter((f) => (filter ? f.status === filter : true));
+  const counts = { needs_handling: 0, in_progress: 0, handled: 0 } as Record<FaultStatus, number>;
+  dateFiltered.forEach((f) => (counts[f.status] += 1));
+
+  const visible = dateFiltered.filter((f) => (filter ? f.status === filter : true));
+  const hasActiveFilters = filter !== null || datePreset !== "all";
 
   function resetForm() {
     setDesc("");
@@ -278,8 +445,11 @@ export function Faults() {
     }
   }
 
-  function toggleFilter(s: FaultStatus) {
-    setFilter((prev) => (prev === s ? null : s));
+  function clearFilters() {
+    setFilter(null);
+    setDatePreset("all");
+    setCustomFrom("");
+    setCustomTo("");
   }
 
   function onStatusChange(id: string, status: FaultStatus, current: FaultStatus) {
@@ -384,41 +554,35 @@ export function Faults() {
     </Modal>
   );
 
+  const filterBar = (
+    <FaultsFilterBar
+      total={total}
+      visibleCount={visible.length}
+      counts={counts}
+      filter={filter}
+      onFilterChange={setFilter}
+      datePreset={datePreset}
+      onDatePresetChange={setDatePreset}
+      customFrom={customFrom}
+      customTo={customTo}
+      onCustomFromChange={setCustomFrom}
+      onCustomToChange={setCustomTo}
+      onClear={clearFilters}
+      hasActiveFilters={hasActiveFilters}
+    />
+  );
+
   return (
     <div className="w-full animate-fadeUp">
       {/* ── Mobile ── */}
       <div className="faults-mobile md:hidden">
-        {canReport && (
-          <button type="button" className="faults-report-btn btn-press" onClick={() => setOpen(true)}>
-            <Icon name="add_a_photo" size={22} />
-            <span>דיווח תקלה חדשה</span>
-          </button>
-        )}
-
-        <div className="faults-stats" aria-label="סיכום תקלות">
-          {STATUS_ORDER.map((s) => (
-            <FaultStatCard
-              key={s}
-              status={s}
-              count={counts[s]}
-              active={filter === s}
-              onClick={() => toggleFilter(s)}
-            />
-          ))}
-        </div>
-
-        {filter && (
-          <button type="button" className="faults-filter-clear" onClick={() => setFilter(null)}>
-            <Icon name="filter_alt_off" size={16} />
-            הצגת הכל
-          </button>
-        )}
+        {filterBar}
 
         {visible.length === 0 ? (
           <EmptyState
             icon="build"
-            title={filter ? "אין תקלות בסטטוס זה" : "אין תקלות פתוחות"}
-            description={filter ? "נסו סטטוס אחר או הציגו הכל." : "כל הכבוד! לא דווחו תקלות."}
+            title={hasActiveFilters ? "אין תקלות בסינון זה" : "אין תקלות"}
+            description={hasActiveFilters ? "נסו לשנות את הסינון או להציג הכל." : "כל הכבוד! לא דווחו תקלות."}
           />
         ) : (
           <div className="faults-feed">
@@ -432,31 +596,42 @@ export function Faults() {
                   className="fault-card"
                   style={{ animationDelay: `${Math.min(i, 8) * 45}ms` }}
                 >
-                  {mediaUrls.length > 0 ? (
-                    <FaultMediaCarousel urls={mediaUrls} tall />
-                  ) : (
-                    <div className="fault-media fault-media--empty fault-media--tall">
-                      <Icon name="image" size={36} />
-                      <span>ללא תמונה</span>
-                    </div>
+                  {mediaUrls.length > 0 && (
+                    <FaultMediaCarousel
+                      urls={mediaUrls}
+                      tall
+                      overlay={
+                        <span className="fault-media-chip" data-tone={meta.tone}>
+                          <Icon name={meta.icon} size={14} />
+                          {meta.label}
+                        </span>
+                      }
+                    />
                   )}
 
                   <div className="fault-card-body">
                     <div className="fault-card-head">
-                      <span className="fault-card-status" data-tone={meta.tone} aria-label={meta.label}>
-                        <Icon name={meta.icon} size={20} />
-                      </span>
+                      {mediaUrls.length === 0 && (
+                        <span className="fault-card-status" data-tone={meta.tone} aria-label={meta.label}>
+                          <Icon name={meta.icon} size={20} />
+                        </span>
+                      )}
                       <div className="fault-card-copy">
                         <h3 className="fault-card-title">{f.description}</h3>
-                        <time className="fault-card-time" dateTime={f.created_at}>
-                          {formatFaultTime(f.created_at)}
-                        </time>
-                        {reporterName && (
-                          <span className="fault-card-reporter">
-                            <Icon name="person" size={14} />
-                            דווח על ידי {reporterName}
-                          </span>
-                        )}
+                        <div className="fault-card-meta">
+                          <time dateTime={f.created_at}>{formatFaultTimeRelative(f.created_at)}</time>
+                          {reporterName && (
+                            <>
+                              <span className="fault-card-meta-dot" aria-hidden>
+                                ·
+                              </span>
+                              <span className="fault-card-meta-reporter">
+                                <Icon name="person" size={13} />
+                                {reporterName}
+                              </span>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
 
@@ -471,6 +646,13 @@ export function Faults() {
               );
             })}
           </div>
+        )}
+
+        {canReport && (
+          <button type="button" className="faults-fab" onClick={() => setOpen(true)}>
+            <Icon name="add_a_photo" size={20} />
+            <span>דיווח תקלה</span>
+          </button>
         )}
       </div>
 
@@ -488,42 +670,13 @@ export function Faults() {
           }
         />
 
-        <div className="mb-5 grid grid-cols-3 gap-4">
-          {STATUS_ORDER.map((s) => {
-            const m = STATUS_META[s];
-            const active = filter === s;
-            return (
-              <button
-                key={s}
-                type="button"
-                onClick={() => toggleFilter(s)}
-                aria-pressed={active}
-                className={`flex items-center gap-3.5 rounded-card border bg-surface p-[18px] text-right shadow-sm transition ${
-                  active ? "border-transparent ring-2" : "border-border/80 hover:border-border"
-                }`}
-                style={active ? { boxShadow: `0 0 0 2px ${m.color}` } : undefined}
-              >
-                <span
-                  className="grid h-11 w-11 flex-none place-items-center rounded-[12px]"
-                  style={{ background: `var(--${m.tone}-bg)`, color: m.color }}
-                >
-                  <Icon name={m.icon} size={24} />
-                </span>
-                <div>
-                  <div className="text-[26px] font-extrabold tracking-tight tabular-nums">{counts[s]}</div>
-                  <div className="text-[12.5px] text-text-2">{m.label}</div>
-
-                </div>
-              </button>
-            );
-          })}
-        </div>
+        <div className="mb-5">{filterBar}</div>
 
         {visible.length === 0 ? (
           <EmptyState
             icon="build"
-            title={filter ? "אין תקלות בסטטוס זה" : "אין תקלות פתוחות"}
-            description={filter ? "נסו סטטוס אחר או הציגו הכל." : "כל הכבוד! לא דווחו תקלות."}
+            title={hasActiveFilters ? "אין תקלות בסינון זה" : "אין תקלות"}
+            description={hasActiveFilters ? "נסו לשנות את הסינון או להציג הכל." : "כל הכבוד! לא דווחו תקלות."}
           />
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

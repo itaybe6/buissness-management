@@ -14,6 +14,7 @@ import { ForceClockOutModal, type ForceClockOutTarget } from "@/components/atten
 import { Icon } from "@/components/ui";
 import type { FeatureKey } from "@/types/database";
 import { AreaChart, BarChart, CountUp, DonutChart, RadialGauge } from "./charts";
+import { EmployeeCostPanel } from "./EmployeeCostPanel";
 
 /* ----------------------------- helpers ----------------------------- */
 function monthKey(d: Date): string {
@@ -386,6 +387,9 @@ export function ManagerDashboard() {
           )}
         </div>
       </header>
+
+      {/* ---------------- Employee labor costs ---------------- */}
+      {on("payroll") && <EmployeeCostPanel businessId={businessId} monthRevenue={revenue} />}
 
       {/* ---------------- KPI row ---------------- */}
       {kpis.length > 0 && (

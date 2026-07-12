@@ -4,7 +4,9 @@ import {
   MonthStepper,
   ShiftBreakdownList,
   ShiftBreakdownSummary,
+  ShiftDetailModal,
   useMonthStepper,
+  type ShiftRow,
 } from "@/components/payroll/ShiftBreakdownView";
 import { useAuth } from "@/lib/auth";
 import { WAGE_TYPE_LABELS } from "@/lib/constants";
@@ -18,6 +20,7 @@ export function MyShifts() {
   const businessId = useBusinessId();
   const { profile } = useAuth();
   const [month, setMonth] = useState(monthNow());
+  const [selectedRow, setSelectedRow] = useState<ShiftRow | null>(null);
   const stepper = useMonthStepper(month, setMonth);
 
   const wageType = profile?.wage_type ?? "hourly";
@@ -54,9 +57,9 @@ export function MyShifts() {
   const totals = useMemo(() => sumShiftRowTotals(rows), [rows]);
 
   return (
-    <div className="w-full animate-fadeUp">
-      <header className="mb-4 flex items-center justify-between gap-3">
-        <div className="hidden min-w-0 md:block">
+    <div className="w-full animate-fadeUp pb-[calc(var(--mobile-nav-h)+0.75rem)] md:pb-0">
+      <header className="mb-4 hidden items-center justify-between gap-3 md:flex">
+        <div className="min-w-0">
           <p className="text-[11.5px] font-bold uppercase tracking-[0.14em] text-text-3">השכר שלי</p>
           <h1 className="mt-0.5 text-[clamp(1.4rem,5vw,1.9rem)] font-extrabold leading-none tracking-tight text-text">
             המשמרות שלי
@@ -82,8 +85,15 @@ export function MyShifts() {
             bonusPct={bonusPct}
             totals={totals}
             rate={rate}
+            stepper={stepper}
           />
-          <ShiftBreakdownList rows={rows} isTips={isTips} />
+          <ShiftBreakdownList rows={rows} isTips={isTips} onRowClick={setSelectedRow} />
+          <ShiftDetailModal
+            row={selectedRow}
+            onClose={() => setSelectedRow(null)}
+            isTips={isTips}
+            rate={rate}
+          />
         </>
       )}
     </div>

@@ -38,7 +38,7 @@ import { TaskWeekSchedule } from "@/components/tasks/TaskWeekSchedule";
 import { taskMedia, isVideoUrl } from "@/components/tasks/DailyTasksChecklist";
 import type { Department, Task, TaskTemplate, TaskType } from "@/types/database";
 
-type ManagerTab = "assign" | "templates";
+type ManagerTab = "assign" | "one_time" | "templates";
 type ListTab = TaskType;
 
 export function Tasks() {
@@ -122,7 +122,7 @@ function ManagerTasksView({ businessId, profileId }: { businessId: string; profi
   const [managerTab, setManagerTab] = useState<ManagerTab>("assign");
 
   useEffect(() => {
-    if (!canCreateTasks && managerTab === "templates") setManagerTab("assign");
+    if (!canCreateTasks && managerTab !== "assign") setManagerTab("assign");
   }, [canCreateTasks, managerTab]);
 
   const userById = useMemo(() => {
@@ -157,17 +157,15 @@ function ManagerTasksView({ businessId, profileId }: { businessId: string; profi
   }
 
   const scheduleBlock = (
-    <div className="mt-10">
-      <TaskWeekSchedule
-        tasks={tasks ?? []}
-        templates={templates ?? []}
-        employees={users ?? []}
-        departments={departments ?? []}
-        onToggle={(id, done) =>
-          updateTask.mutate({ id, status: done ? "open" : "done", completed_at: done ? null : new Date().toISOString() })
-        }
-      />
-    </div>
+    <TaskWeekSchedule
+      tasks={tasks ?? []}
+      templates={templates ?? []}
+      employees={users ?? []}
+      departments={departments ?? []}
+      onToggle={(id, done) =>
+        updateTask.mutate({ id, status: done ? "open" : "done", completed_at: done ? null : new Date().toISOString() })
+      }
+    />
   );
 
   return (
@@ -210,19 +208,20 @@ function ManagerTasksView({ businessId, profileId }: { businessId: string; profi
       )}
 
       {canCreateTasks && (
-        <div className="mb-5 inline-flex gap-1 rounded-[12px] border border-border bg-surface-2 p-1">
+        <div className="tasks-mgr-tabs mb-5">
           {(
             [
-              ["assign", "שיוך משימות", "person_add"],
+              ["assign", "שיוך משימות", "calendar_view_week"],
+              ["one_time", "משימות חד-פעמיות", "playlist_add_check"],
               ["templates", "משימות קבועות", "event_repeat"],
             ] as const
           ).map(([k, label, icon]) => (
             <button
               key={k}
+              type="button"
+              data-active={managerTab === k}
               onClick={() => setManagerTab(k)}
-              className={`inline-flex items-center gap-1.5 rounded-[10px] px-4 py-2 text-[14px] font-bold transition ${
-                managerTab === k ? "text-white [background:var(--ink)]" : "text-text-2"
-              }`}
+              className="tasks-mgr-tab-btn seg-btn"
             >
               <Icon name={icon} size={18} />
               {label}
@@ -249,45 +248,44 @@ function ManagerTasksView({ businessId, profileId }: { businessId: string; profi
           onUpdate={(input) => updateTpl.mutate(input)}
           onDelete={(id) => delTpl.mutate(id)}
         />
-      ) : (
+      ) : managerTab === "one_time" && canCreateTasks ? (
         <div className="flex flex-col gap-5">
-          {canCreateTasks && (
-            <QuickAssignPanel
-              users={users ?? []}
-              saving={createTask.isPending}
-              onAssign={async (input) => {
-                const approval = approvalForAssignee(input.assigned_to);
-                const id = await createTask.mutateAsync({
-                  business_id: businessId,
-                  assigned_by: profileId,
-                  approval_status: approval,
-                  ...input,
-                });
-                // משימה שהגיעה ישירות לעובד (לא ממתינה לאישור) → מייל התראה
-                if (!approval && input.assigned_to) notifyTaskAssigned(id);
-              }}
-            />
+          <QuickAssignPanel
+            users={users ?? []}
+            saving={createTask.isPending}
+            onAssign={async (input) => {
+              const approval = approvalForAssignee(input.assigned_to);
+              const id = await createTask.mutateAsync({
+                business_id: businessId,
+                assigned_by: profileId,
+                approval_status: approval,
+                ...input,
+              });
+              if (!approval && input.assigned_to) notifyTaskAssigned(id);
+            }}
+          />
+
+          {oneTimeAssigned.length > 0 && (
+            <div>
+              <div className="mb-3 text-[15px] font-bold">משימות חד-פעמיות שהוקצו</div>
+              <TaskList
+                tasks={oneTimeAssigned}
+                tab="one_time"
+                userById={userById}
+                templateById={templateById}
+                showAssignee
+                showDelete
+                onToggle={(id, done) =>
+                  updateTask.mutate({ id, status: done ? "open" : "done", completed_at: done ? null : new Date().toISOString() })
+                }
+                onDelete={(id) => delTask.mutate(id)}
+              />
+            </div>
           )}
-
-          <div>
-            <div className="mb-3 text-[15px] font-bold">משימות חד-פעמיות שהוקצו</div>
-            <TaskList
-              tasks={oneTimeAssigned}
-              tab="one_time"
-              userById={userById}
-              templateById={templateById}
-              showAssignee
-              showDelete={canCreateTasks}
-              onToggle={(id, done) =>
-                updateTask.mutate({ id, status: done ? "open" : "done", completed_at: done ? null : new Date().toISOString() })
-              }
-              onDelete={canCreateTasks ? (id) => delTask.mutate(id) : undefined}
-            />
-          </div>
         </div>
+      ) : (
+        scheduleBlock
       )}
-
-      {scheduleBlock}
     </div>
   );
 }
@@ -837,12 +835,23 @@ function QuickAssignPanel({
     recurrence_weekday: number | null;
   }) => Promise<void>;
 }) {
+  const [open, setOpen] = useState(false);
   const [assignedTo, setAssignedTo] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+
+  function closePanel() {
+    setOpen(false);
+    setError(null);
+    setSuccess(false);
+    setAssignedTo("");
+    setTitle("");
+    setDescription("");
+    setDueDate("");
+  }
 
   async function handleAssign() {
     setError(null);
@@ -863,14 +872,30 @@ function QuickAssignPanel({
     setTitle("");
     setDescription("");
     setDueDate("");
-    setTimeout(() => setSuccess(false), 2500);
+    setTimeout(() => {
+      setSuccess(false);
+      closePanel();
+    }, 1500);
+  }
+
+  if (!open) {
+    return (
+      <Button icon="add" onClick={() => setOpen(true)}>
+        הוספת משימה חד-פעמית
+      </Button>
+    );
   }
 
   return (
     <Card className="p-5">
-      <div className="mb-1 flex items-center gap-2 text-[16px] font-bold">
-        <Icon name="person_add" size={22} className="text-accent-2" />
-        שיוך משימה חד-פעמית
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-[16px] font-bold">
+          <Icon name="person_add" size={22} className="text-accent-2" />
+          שיוך משימה חד-פעמית
+        </div>
+        <Button variant="secondary" icon="close" onClick={closePanel}>
+          ביטול
+        </Button>
       </div>
       <p className="mb-4 text-[13px] text-text-2">
         משימה חד-פעמית מוקצית לעובד מסוים ומופיעה אצלו ברשימת המשימות. משימות קבועות מוגדרות בלשונית

@@ -83,7 +83,7 @@ export function EmployeePayrollDetail() {
     .join(" · ");
 
   return (
-    <div className="w-full animate-fadeUp">
+    <div className="w-full animate-fadeUp pb-[calc(var(--mobile-nav-h)+0.75rem)] md:pb-0">
       <button
         type="button"
         onClick={() => navigate(`/payroll?month=${month}`)}
@@ -109,15 +109,17 @@ export function EmployeePayrollDetail() {
             <p className="mt-1 text-[13px] text-text-2">{wageSummary}</p>
           </div>
         </div>
-        <MonthStepper
-          label={stepper.label}
-          onPrev={stepper.onPrev}
-          onNext={stepper.onNext}
-          nextDisabled={stepper.atCurrentMonth}
-        />
+        <div className="hidden md:block">
+          <MonthStepper
+            label={stepper.label}
+            onPrev={stepper.onPrev}
+            onNext={stepper.onNext}
+            nextDisabled={stepper.atCurrentMonth}
+          />
+        </div>
       </header>
 
-      <div className="mb-4 flex flex-wrap gap-2">
+      <div className="mb-4 hidden flex-wrap gap-2 md:flex">
         <Badge tone={isTips ? "violet" : "neutral"}>
           <Icon name={isTips ? "savings" : "schedule"} size={14} />
           {WAGE_TYPE_LABELS[wageType]}
@@ -142,6 +144,7 @@ export function EmployeePayrollDetail() {
         bonusPct={bonusPct}
         totals={totals}
         rate={rate}
+        stepper={stepper}
       />
 
       <ShiftBreakdownList rows={rows} isTips={isTips} />
