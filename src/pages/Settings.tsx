@@ -1,5 +1,5 @@
-import { useState, type CSSProperties, type ReactNode } from "react";
-import { Badge, Button, EmptyState, Icon, Input, PageLoader, ErrorState, Switch } from "@/components/ui";
+import { useState, type ReactNode } from "react";
+import { Badge, Button, EmptyState, Icon, Input, PageLoader, ErrorState, Switch, Select } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { useBusiness, useUpdateBusiness } from "@/api/businesses";
@@ -65,11 +65,6 @@ export function Settings() {
 
   return (
     <PageEnter className="settings-page w-full">
-      <header className="settings-page-head hidden md:block">
-        <h1 className="settings-page-title">הגדרות עסק</h1>
-        <p className="settings-page-desc">נהלו את פרטי העסק, המיקום, המחלקות ושעות המשמרת</p>
-      </header>
-
       <div className="settings-groups">
         <SettingsGroup title="פרטי העסק" hint="זיהוי ומיקום">
           <SettingsItem
@@ -77,9 +72,6 @@ export function Settings() {
             label="שם העסק"
             value={biz.name}
             sub="דשבורד, דוחות וממשק עובדים"
-            tint="var(--accent-tint)"
-            color="var(--accent-2)"
-            delay={0}
             onEdit={() => setPanel("name")}
           />
           <SettingsItem
@@ -87,9 +79,6 @@ export function Settings() {
             label="כתובת לשעון נוכחות"
             value={biz.location_address?.split(",")[0] ?? "לא הוגדרה"}
             sub={locationSub}
-            tint="var(--info-bg)"
-            color="var(--info)"
-            delay={40}
             onEdit={() => setPanel("location")}
           />
         </SettingsGroup>
@@ -100,9 +89,6 @@ export function Settings() {
             label="אישור משימות אחזקה"
             value={biz.maintenance_task_approval ? "דרוש אישור" : "ללא אישור"}
             sub="משימות מאחראי משמרת"
-            tint="var(--success-bg)"
-            color="var(--success)"
-            delay={80}
             onEdit={() => setPanel("maintenance")}
           />
           <SettingsItem
@@ -124,9 +110,6 @@ export function Settings() {
                 : "ללא הגבלה"
             }
             sub="זמינות עובדים למשמרות"
-            tint="var(--warning-bg)"
-            color="var(--warning)"
-            delay={120}
             onEdit={() => setPanel("deadline")}
           />
           <SettingsItem
@@ -144,9 +127,6 @@ export function Settings() {
                 : "ללא דרישה"
             }
             sub="חובת עובדים לסמן ימים מלאים בשבוע"
-            tint="var(--info-bg)"
-            color="var(--info)"
-            delay={140}
             onEdit={() => setPanel("minimum")}
           />
         </SettingsGroup>
@@ -164,9 +144,6 @@ export function Settings() {
                     .join(" · ")
                 : "הוסיפו מטבח, בר, מלצרות…"
             }
-            tint="color-mix(in srgb, #fdab3d 14%, var(--surface))"
-            color="#c27803"
-            delay={160}
             onEdit={() => setPanel("departments")}
           />
           <SettingsItem
@@ -174,9 +151,6 @@ export function Settings() {
             label="שעות משמרת"
             value={`${activeShifts} פעילות`}
             sub={`${templates?.length ?? 0} משמרות מוגדרות`}
-            tint="var(--accent-tint)"
-            color="var(--accent-2)"
-            delay={200}
             onEdit={() => setPanel("shifts")}
           />
         </SettingsGroup>
@@ -205,10 +179,13 @@ function SettingsGroup({
   return (
     <section className="settings-group">
       <div className="settings-group-head">
-        <h2 className="settings-group-title">{title}</h2>
+        <div className="settings-group-title-wrap">
+          <span className="settings-group-dot" aria-hidden />
+          <h2 className="settings-group-title">{title}</h2>
+        </div>
         <span className="settings-group-hint">{hint}</span>
       </div>
-      <StaggerGrid className="settings-group-list">{children}</StaggerGrid>
+      <StaggerGrid className="settings-group-list settings-group-card">{children}</StaggerGrid>
     </section>
   );
 }
@@ -218,37 +195,19 @@ function SettingsItem({
   label,
   value,
   sub,
-  tint,
-  color,
-  delay,
   onEdit,
 }: {
   icon: string;
   label: string;
   value: string;
   sub: string;
-  tint: string;
-  color: string;
-  delay: number;
   onEdit: () => void;
 }) {
   return (
     <StaggerItem>
-      <article
-        className="settings-item dash-rise"
-        style={
-          {
-            ["--rise-delay" as string]: `${delay}ms`,
-            ["--settings-accent" as string]: color,
-          } as CSSProperties
-        }
-      >
-        <span
-          className="settings-item-icon"
-          style={{ background: tint, color }}
-          aria-hidden
-        >
-          <Icon name={icon} size={22} />
+      <button type="button" onClick={onEdit} className="settings-item">
+        <span className="settings-item-icon" aria-hidden>
+          <Icon name={icon} size={20} />
         </span>
 
         <div className="settings-item-body">
@@ -257,11 +216,10 @@ function SettingsItem({
           <div className="settings-item-sub">{sub}</div>
         </div>
 
-        <button type="button" onClick={onEdit} className="settings-item-edit">
-          <Icon name="edit" size={16} />
-          <span>עריכה</span>
-        </button>
-      </article>
+        <span className="settings-item-action" aria-hidden>
+          <Icon name="chevron_left" size={18} />
+        </span>
+      </button>
     </StaggerItem>
   );
 }
@@ -700,9 +658,9 @@ function ShiftPrefsDeadlineModal({
               <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
                 <label className="block flex-1">
                   <span className="label-text">יום פתיחה</span>
-                  <select
-                    className="field mt-1.5 w-full"
-                    value={openDowV}
+                  <Select
+                    className="mt-1.5"
+                    value={String(openDowV)}
                     onChange={(e) => {
                       setOpenDow(Number(e.target.value));
                       setMsg(null);
@@ -714,7 +672,7 @@ function ShiftPrefsDeadlineModal({
                         {label}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </label>
                 <label className="block sm:w-36">
                   <span className="label-text">שעה</span>
@@ -744,9 +702,9 @@ function ShiftPrefsDeadlineModal({
               <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
                 <label className="block flex-1">
                   <span className="label-text">יום סגירה</span>
-                  <select
-                    className="field mt-1.5 w-full"
-                    value={closeDowV}
+                  <Select
+                    className="mt-1.5"
+                    value={String(closeDowV)}
                     onChange={(e) => {
                       setCloseDow(Number(e.target.value));
                       setMsg(null);
@@ -758,7 +716,7 @@ function ShiftPrefsDeadlineModal({
                         {label}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </label>
                 <label className="block sm:w-36">
                   <span className="label-text">שעה</span>
@@ -895,7 +853,7 @@ function ShiftPrefsMinimumModal({
       open={open}
       onClose={onClose}
       title="מינימום הגשת זמינות"
-      subtitle="קבעו כמה ימים מלאים עובדים חייבים לסמן בכל שבוע — אמצע שבוע (א׳–ה׳) וסופ״ש (ו׳–ש׳)"
+      subtitle="קבעו כמה ימים מלאים עובדים חייבים לסמן בכל שבוע — אמצע שבוע (א׳–ד׳) וסופ״ש (ה׳–ש׳)"
       icon="fact_check"
       maxWidth={520}
       footer={
@@ -923,45 +881,47 @@ function ShiftPrefsMinimumModal({
               יום נחשב מלא כשהעובד סימן את כל המשמרות הפעילות באותו יום (יכול או לא יכול).
             </p>
 
-            <label className="block">
-              <span className="label-text">ימים באמצע שבוע (א׳–ה׳)</span>
-              <select
-                className="field mt-1.5 w-full"
-                value={weekdaysV}
-                onChange={(e) => {
-                  setWeekdays(Number(e.target.value));
-                  setMsg(null);
-                  setSaved(false);
-                }}
-              >
-                <option value={0}>ללא דרישה</option>
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <option key={n} value={n}>
-                    {n} {n === 1 ? "יום" : "ימים"}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="block">
+                <span className="label-text">ימים באמצע שבוע (א׳–ד׳)</span>
+                <Select
+                  className="mt-1.5"
+                  value={String(weekdaysV)}
+                  onChange={(e) => {
+                    setWeekdays(Number(e.target.value));
+                    setMsg(null);
+                    setSaved(false);
+                  }}
+                >
+                  <option value={0}>ללא דרישה</option>
+                  {[1, 2, 3, 4].map((n) => (
+                    <option key={n} value={n}>
+                      {n} {n === 1 ? "יום" : "ימים"}
+                    </option>
+                  ))}
+                </Select>
+              </label>
 
-            <label className="block">
-              <span className="label-text">ימים בסופ״ש (ו׳–ש׳)</span>
-              <select
-                className="field mt-1.5 w-full"
-                value={weekendV}
-                onChange={(e) => {
-                  setWeekend(Number(e.target.value));
-                  setMsg(null);
-                  setSaved(false);
-                }}
-              >
-                <option value={0}>ללא דרישה</option>
-                {[1, 2].map((n) => (
-                  <option key={n} value={n}>
-                    {n === 2 ? "כל הסופ״ש (ו׳ + ש׳)" : "יום אחד"}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <label className="block">
+                <span className="label-text">ימים בסופ״ש (ה׳–ש׳)</span>
+                <Select
+                  className="mt-1.5"
+                  value={String(weekendV)}
+                  onChange={(e) => {
+                    setWeekend(Number(e.target.value));
+                    setMsg(null);
+                    setSaved(false);
+                  }}
+                >
+                  <option value={0}>ללא דרישה</option>
+                  {[1, 2, 3].map((n) => (
+                    <option key={n} value={n}>
+                      {n === 3 ? "כל הסופ״ש (ה׳ + ו׳ + ש׳)" : `${n} ${n === 1 ? "יום" : "ימים"}`}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+            </div>
 
             <div className="settings-window-preview">
               <Icon name="info" size={18} className="text-info" />

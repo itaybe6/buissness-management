@@ -141,9 +141,9 @@ create table public.businesses (
   shift_prefs_open_time time default '21:00',
   shift_prefs_deadline_dow smallint check (shift_prefs_deadline_dow is null or (shift_prefs_deadline_dow >= 0 and shift_prefs_deadline_dow <= 6)),
   shift_prefs_deadline_time time default '20:00',
-  -- מינימום ימים מלאים להגשת זמינות (א׳–ה׳ / ו׳–ש׳; null = ללא דרישה)
-  shift_prefs_min_weekdays smallint check (shift_prefs_min_weekdays is null or (shift_prefs_min_weekdays >= 0 and shift_prefs_min_weekdays <= 5)),
-  shift_prefs_min_weekend smallint check (shift_prefs_min_weekend is null or (shift_prefs_min_weekend >= 0 and shift_prefs_min_weekend <= 2)),
+  -- מינימום ימים מלאים להגשת זמינות (א׳–ד׳ / ה׳–ש׳; null = ללא דרישה)
+  shift_prefs_min_weekdays smallint check (shift_prefs_min_weekdays is null or (shift_prefs_min_weekdays >= 0 and shift_prefs_min_weekdays <= 4)),
+  shift_prefs_min_weekend smallint check (shift_prefs_min_weekend is null or (shift_prefs_min_weekend >= 0 and shift_prefs_min_weekend <= 3)),
   created_by  uuid references auth.users(id),
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()

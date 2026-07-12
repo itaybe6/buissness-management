@@ -480,37 +480,63 @@ export function BarChart({
   }, []);
 
   const max = Math.max(1, ...data.map((d) => d.value));
+  const labelH = 16;
+  const dayLabelH = 18;
+  const plotH = height - labelH - dayLabelH - 8;
 
   return (
-    <div className="flex items-end justify-between gap-1.5" style={{ height }} dir="rtl">
-      {data.map((d, i) => {
-        const h = (d.value / max) * 100;
-        const shown = reduce || mounted ? h : 0;
-        return (
-          <div key={i} className="group flex h-full flex-1 flex-col items-center justify-end gap-1.5">
-            <div className="text-[10px] font-bold tabular-nums text-text-3 opacity-0 transition-opacity group-hover:opacity-100">
-              {d.value > 0 ? formatValue(d.value) : ""}
-            </div>
-            <div className="flex w-full flex-1 items-end">
+    <div className="flex gap-2" style={{ height }} dir="rtl">
+      <div
+        className="flex shrink-0 flex-col justify-between pb-[22px] pt-1 text-[9px] font-bold tabular-nums leading-none text-text-3 sm:text-[10px]"
+        style={{ height: plotH + labelH + 8 }}
+        aria-hidden
+      >
+        <span>{formatValue(max)}</span>
+        <span>{formatValue(max / 2)}</span>
+        <span>₪0</span>
+      </div>
+
+      <div className="flex min-w-0 flex-1 items-end justify-between gap-0.5 sm:gap-1.5">
+        {data.map((d, i) => {
+          const h = (d.value / max) * 100;
+          const shown = reduce || mounted ? h : 0;
+          return (
+            <div key={i} className="group flex h-full min-w-0 flex-1 flex-col items-stretch justify-end gap-1">
+              <div className="flex h-4 items-end justify-center">
+                <span
+                  className={`max-w-full truncate text-[9px] font-extrabold tabular-nums leading-none sm:text-[10px] ${
+                    d.highlight ? "text-accent-2" : "text-text-2"
+                  }`}
+                  title={d.value > 0 ? formatValue(d.value) : undefined}
+                >
+                  {d.value > 0 ? formatValue(d.value) : "—"}
+                </span>
+              </div>
+              <div className="flex items-end" style={{ height: plotH }}>
+                <div
+                  className="w-full rounded-t-[7px] transition-transform duration-200 group-hover:-translate-y-0.5"
+                  style={{
+                    height: `${shown}%`,
+                    minHeight: d.value > 0 ? 4 : 0,
+                    background: d.highlight
+                      ? "linear-gradient(180deg, var(--accent), var(--accent-2))"
+                      : "linear-gradient(180deg, color-mix(in srgb, var(--accent) 22%, var(--surface-2)), var(--surface-2))",
+                    boxShadow: d.highlight ? "0 8px 20px -8px color-mix(in srgb, var(--accent) 60%, transparent)" : undefined,
+                    transition: reduce ? undefined : `height 750ms ${EASE} ${i * 55}ms`,
+                    border: d.highlight ? "none" : "1px solid var(--border-2)",
+                    borderBottom: "none",
+                  }}
+                />
+              </div>
               <div
-                className="w-full rounded-t-[7px] transition-transform duration-200 group-hover:-translate-y-0.5"
-                style={{
-                  height: `${shown}%`,
-                  minHeight: d.value > 0 ? 4 : 0,
-                  background: d.highlight
-                    ? "linear-gradient(180deg, var(--accent), var(--accent-2))"
-                    : "linear-gradient(180deg, color-mix(in srgb, var(--accent) 22%, var(--surface-2)), var(--surface-2))",
-                  boxShadow: d.highlight ? "0 8px 20px -8px color-mix(in srgb, var(--accent) 60%, transparent)" : undefined,
-                  transition: reduce ? undefined : `height 750ms ${EASE} ${i * 55}ms`,
-                  border: d.highlight ? "none" : "1px solid var(--border-2)",
-                  borderBottom: "none",
-                }}
-              />
+                className={`text-center text-[10px] font-bold leading-none sm:text-[11px] ${d.highlight ? "text-accent-2" : "text-text-3"}`}
+              >
+                {d.label}
+              </div>
             </div>
-            <div className={`text-[11px] font-bold ${d.highlight ? "text-accent-2" : "text-text-3"}`}>{d.label}</div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }

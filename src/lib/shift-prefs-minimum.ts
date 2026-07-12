@@ -1,9 +1,9 @@
 import { addDays } from "@/lib/db";
 
-/** Sunday (0) through Thursday (4) — Israeli work week. */
-export const SHIFT_PREFS_WEEKDAY_INDICES = [0, 1, 2, 3, 4] as const;
-/** Friday (5) and Saturday (6). */
-export const SHIFT_PREFS_WEEKEND_INDICES = [5, 6] as const;
+/** Sunday (0) through Wednesday (3) — א׳–ד׳. */
+export const SHIFT_PREFS_WEEKDAY_INDICES = [0, 1, 2, 3] as const;
+/** Thursday (4) through Saturday (6) — ה׳–ש׳ (כולל חמישי). */
+export const SHIFT_PREFS_WEEKEND_INDICES = [4, 5, 6] as const;
 
 export interface ShiftPrefsMinimumRules {
   minWeekdays: number | null;

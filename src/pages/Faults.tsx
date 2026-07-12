@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { Button, Card, EmptyState, Icon, PageHeader, PageLoader, ErrorState, Field, Textarea } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
+import { useProfiles } from "@/api/users";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId } from "@/lib/db";
 import { isVideoFile, isVideoUrl } from "@/lib/media";
@@ -193,6 +194,7 @@ export function Faults() {
   const businessId = useBusinessId();
   const { profile } = useAuth();
   const { data: faults, isLoading, isError, refetch } = useFaults(businessId);
+  const { data: profiles } = useProfiles(businessId);
   const createFault = useCreateFault();
   const updateFault = useUpdateFault(businessId);
   const [open, setOpen] = useState(false);
@@ -206,6 +208,12 @@ export function Faults() {
   mediaRef.current = media;
 
   useEffect(() => () => revokeMediaEntries(mediaRef.current), []);
+
+  const reporterById = useMemo(() => {
+    const map = new Map<string, string>();
+    (profiles ?? []).forEach((p) => map.set(p.id, p.full_name ?? "משתמש"));
+    return map;
+  }, [profiles]);
 
   const canReport = profile?.role !== "maintenance";
 
@@ -417,6 +425,7 @@ export function Faults() {
             {visible.map((f, i) => {
               const meta = STATUS_META[f.status];
               const mediaUrls = f.photo_urls ?? [];
+              const reporterName = f.reported_by ? reporterById.get(f.reported_by) : undefined;
               return (
                 <article
                   key={f.id}
@@ -442,6 +451,12 @@ export function Faults() {
                         <time className="fault-card-time" dateTime={f.created_at}>
                           {formatFaultTime(f.created_at)}
                         </time>
+                        {reporterName && (
+                          <span className="fault-card-reporter">
+                            <Icon name="person" size={14} />
+                            דווח על ידי {reporterName}
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -515,6 +530,7 @@ export function Faults() {
             {visible.map((f) => {
               const meta = STATUS_META[f.status];
               const mediaUrls = f.photo_urls ?? [];
+              const reporterName = f.reported_by ? reporterById.get(f.reported_by) : undefined;
               return (
                 <Card key={f.id} className="flex flex-col overflow-hidden p-0">
                   <div className="h-1.5" style={{ background: meta.color }} />
@@ -530,6 +546,12 @@ export function Faults() {
                     </div>
                     <div className="mt-3 text-[14.5px] font-bold leading-snug">{f.description}</div>
                     <div className="mt-1.5 text-[12px] text-text-3">{formatFaultTime(f.created_at)}</div>
+                    {reporterName && (
+                      <div className="mt-1 inline-flex items-center gap-1 text-[12px] font-semibold text-text-3">
+                        <Icon name="person" size={14} />
+                        דווח על ידי {reporterName}
+                      </div>
+                    )}
                     <FaultStatusSegmented
                       value={f.status}
                       disabled={updateFault.isPending}

@@ -19,6 +19,17 @@ interface OptionItem {
   disabled?: boolean;
 }
 
+function optionLabelFromChildren(children: ReactNode): string {
+  if (children == null || typeof children === "boolean") return "";
+  if (typeof children === "string" || typeof children === "number") return String(children);
+  if (Array.isArray(children)) return children.map(optionLabelFromChildren).join("");
+  if (isValidElement(children)) {
+    const props = children.props as { children?: ReactNode };
+    return optionLabelFromChildren(props.children);
+  }
+  return String(children);
+}
+
 function parseOptions(children: ReactNode): OptionItem[] {
   const options: OptionItem[] = [];
   Children.forEach(children, (child) => {
@@ -31,7 +42,7 @@ function parseOptions(children: ReactNode): OptionItem[] {
       };
       options.push({
         value: String(props.value ?? ""),
-        label: String(props.children ?? props.value ?? ""),
+        label: optionLabelFromChildren(props.children) || String(props.value ?? ""),
         disabled: props.disabled,
       });
       return;
@@ -231,7 +242,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(
             <Icon
               name="expand_more"
               size={20}
-              className="flex-none text-text-3"
+              className={`flex-none text-text-3 transition-transform duration-200 ease-out ${open ? "rotate-180" : ""}`}
             />
           </button>
         </div>

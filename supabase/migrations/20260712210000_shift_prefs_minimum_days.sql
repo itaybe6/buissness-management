@@ -6,6 +6,6 @@ alter table public.businesses
     check (shift_prefs_min_weekend is null or (shift_prefs_min_weekend >= 0 and shift_prefs_min_weekend <= 2));
 
 comment on column public.businesses.shift_prefs_min_weekdays is
-  'Minimum complete weekday days (Sun–Thu) employees must submit availability for each week. null = no requirement.';
+  'Minimum complete weekday days (Sun–Wed) employees must submit availability for each week. null = no requirement.';
 comment on column public.businesses.shift_prefs_min_weekend is
-  'Minimum complete weekend days (Fri–Sat) employees must submit availability for each week. null = no requirement.';
+  'Minimum complete weekend days (Thu–Sat) employees must submit availability for each week. null = no requirement.';

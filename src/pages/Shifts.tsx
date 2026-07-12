@@ -214,6 +214,7 @@ function AssignChip({
 /* ------------------------------- Employee ------------------------------- */
 function EmployeeView() {
   const businessId = useBusinessId();
+  const isDesktop = useIsMdUp();
   const { data: templates, isLoading } = useActiveShiftTemplates(businessId);
 
   if (isLoading) return <PageLoader />;
@@ -221,6 +222,19 @@ function EmployeeView() {
     return (
       <div className="w-full animate-fadeUp">
         <EmptyState icon="schedule" title="אין משמרות פעילות" description="מנהל העסק צריך להפעיל משמרות בהגדרות העסק." />
+      </div>
+    );
+  }
+
+  if (!isDesktop) {
+    return (
+      <div className="w-full animate-fadeUp employee-shifts-mobile">
+        <header className="employee-shifts-hero">
+          <h2 className="employee-shifts-hero-title">הגשת זמינות</h2>
+          <p className="employee-shifts-hero-sub">סמנו באילו משמרות אתם יכולים לעבוד בשבוע הבא</p>
+        </header>
+        <EmployeeConstraints templates={templates} />
+        <EmployeeSchedule templates={templates} collapsed />
       </div>
     );
   }
@@ -240,7 +254,13 @@ function EmployeeView() {
   );
 }
 
-function EmployeeSchedule({ templates }: { templates: NonNullable<ReturnType<typeof useActiveShiftTemplates>["data"]> }) {
+function EmployeeSchedule({
+  templates,
+  collapsed = false,
+}: {
+  templates: NonNullable<ReturnType<typeof useActiveShiftTemplates>["data"]>;
+  collapsed?: boolean;
+}) {
   const businessId = useBusinessId();
   const { profile } = useAuth();
   const reduceMotion = useReducedMotion();
@@ -255,6 +275,8 @@ function EmployeeSchedule({ templates }: { templates: NonNullable<ReturnType<typ
     return m;
   }, [assignments]);
 
+  const assignedCount = (assignments ?? []).length;
+
   function shiftWeek(d: number) {
     setWkDir(d > 0 ? 1 : -1);
     setWk((w) => addDays(w, d));
@@ -262,15 +284,19 @@ function EmployeeSchedule({ templates }: { templates: NonNullable<ReturnType<typ
 
   if (isLoading) return <PageLoader />;
 
-  return (
-    <div>
-      <div className="page-section-label">
-        משמרותי לשבוע <span>{formatDateShort(wk)} – {formatDateShort(addDays(wk, 6))}</span>
-      </div>
-      <div className="shift-toolbar">
-        <ShiftLegend />
-        <WeekNav wkStart={wk} onShift={shiftWeek} onToday={() => setWk(weekStart())} />
-      </div>
+  const scheduleBody = (
+    <>
+      {!collapsed && (
+        <>
+          <div className="page-section-label">
+            משמרותי לשבוע <span>{formatDateShort(wk)} – {formatDateShort(addDays(wk, 6))}</span>
+          </div>
+          <div className="shift-toolbar">
+            <ShiftLegend />
+            <WeekNav wkStart={wk} onShift={shiftWeek} onToday={() => setWk(weekStart())} />
+          </div>
+        </>
+      )}
 
       <motion.div
         key={wk}
@@ -279,29 +305,27 @@ function EmployeeSchedule({ templates }: { templates: NonNullable<ReturnType<typ
         transition={{ type: "spring", stiffness: 320, damping: 32 }}
       >
         {!isDesktop ? (
-          <div className="flex flex-col gap-2.5">
+          <div className="employee-shifts-assignments-list">
+            {collapsed && (
+              <div className="employee-shifts-assignments-nav">
+                <WeekNav wkStart={wk} onShift={shiftWeek} onToday={() => setWk(weekStart())} />
+              </div>
+            )}
             {HE_DAYS.map((d, i) => {
               const meta = dayMeta(wk, i);
               const dayTemplates = templates.filter((t) => assignMap.has(`${t.id}_${meta.date}`));
               return (
-                <div key={i} className="flex items-center gap-3 rounded-card bg-surface px-4 py-3 shadow-card">
+                <div key={i} className="employee-shifts-assignment-row">
                   <div
-                    className="flex w-11 flex-none flex-col items-center rounded-xl py-1.5"
-                    style={{ background: meta.isToday ? "var(--accent-tint)" : "var(--surface-2)" }}
+                    className="employee-shifts-assignment-date"
+                    data-today={meta.isToday}
                   >
-                    <span
-                      className="text-[10.5px] font-bold"
-                      style={{ color: meta.isToday ? "var(--accent-2)" : "var(--text-2)" }}
-                    >
-                      {d}
-                    </span>
-                    <span className="text-[15px] font-extrabold leading-tight [font-variant-numeric:tabular-nums]">
-                      {meta.date.slice(8, 10)}
-                    </span>
+                    <span className="employee-shifts-assignment-dow">{d}</span>
+                    <span className="employee-shifts-assignment-num">{meta.date.slice(8, 10)}</span>
                   </div>
-                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+                  <div className="employee-shifts-assignment-shifts">
                     {dayTemplates.length === 0 ? (
-                      <span className="text-[12.5px] font-semibold text-text-3">אין שיבוץ</span>
+                      <span className="employee-shifts-assignment-empty">אין שיבוץ</span>
                     ) : (
                       dayTemplates.map((t) => (
                         <span key={t.id} className="shift-assigned-badge">
@@ -376,8 +400,30 @@ function EmployeeSchedule({ templates }: { templates: NonNullable<ReturnType<typ
           </Card>
         )}
       </motion.div>
-    </div>
+    </>
   );
+
+  if (collapsed) {
+    return (
+      <details className="employee-shifts-assignments">
+        <summary className="employee-shifts-assignments-summary">
+          <span className="employee-shifts-assignments-summary-main">
+            <Icon name="event_available" size={20} />
+            <span>
+              <span className="employee-shifts-assignments-summary-title">השיבוצים שלי</span>
+              <span className="employee-shifts-assignments-summary-sub">
+                {assignedCount > 0 ? `${assignedCount} משמרות השבוע` : "אין שיבוצים לשבוע זה"}
+              </span>
+            </span>
+          </span>
+          <Icon name="expand_more" size={22} className="employee-shifts-assignments-chevron" />
+        </summary>
+        <div className="employee-shifts-assignments-body">{scheduleBody}</div>
+      </details>
+    );
+  }
+
+  return <div>{scheduleBody}</div>;
 }
 
 function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<typeof useActiveShiftTemplates>["data"]> }) {
@@ -502,29 +548,56 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
     </div>
   );
 
+  const progressPct = totalCells ? (filledCells / totalCells) * 100 : 0;
+
   return (
     <div>
-      <div className="shift-toolbar">
-        <div className="shift-toolbar-meta">
-          <ShiftLegend />
-          <span className="shift-stat">{filledCells} מתוך {totalCells} משמרות מסומנות</span>
-          {hasMinimum && (
-            <span
-              className="shift-stat"
-              style={{ color: minimumStatus.met ? "var(--success)" : "var(--warning)" }}
-            >
-              {minimumStatus.weekdayDone}/{minimumStatus.minWeekdays || "—"} אמצע שבוע ·{" "}
-              {minimumStatus.weekendDone}/{minimumStatus.minWeekend || "—"} סופ״ש
-            </span>
-          )}
-          <div className="hidden w-28 sm:block">
+      {!isDesktop ? (
+        <div className="employee-shifts-submit-head">
+          <WeekNav wkStart={wk} onShift={shiftWeek} onToday={() => { setWk(addDays(weekStart(), 7)); setDayIdx(0); }} />
+          <div className="employee-shifts-progress">
+            <div className="employee-shifts-progress-meta">
+              <span className="employee-shifts-progress-label">
+                {filledCells} מתוך {totalCells} משמרות מסומנות
+              </span>
+              {hasMinimum && (
+                <span
+                  className="employee-shifts-progress-min"
+                  style={{ color: minimumStatus.met ? "var(--success)" : "var(--warning)" }}
+                >
+                  {minimumStatus.weekdayDone}/{minimumStatus.minWeekdays || "—"} א׳–ה׳ ·{" "}
+                  {minimumStatus.weekendDone}/{minimumStatus.minWeekend || "—"} סופ״ש
+                </span>
+              )}
+            </div>
             <div className="shift-progress-bar">
-              <div className="shift-progress-fill" style={{ width: `${totalCells ? (filledCells / totalCells) * 100 : 0}%` }} />
+              <div className="shift-progress-fill" style={{ width: `${progressPct}%` }} />
             </div>
           </div>
         </div>
-        <WeekNav wkStart={wk} onShift={shiftWeek} onToday={() => { setWk(addDays(weekStart(), 7)); setDayIdx(0); }} />
-      </div>
+      ) : (
+        <div className="shift-toolbar">
+          <div className="shift-toolbar-meta">
+            <ShiftLegend />
+            <span className="shift-stat">{filledCells} מתוך {totalCells} משמרות מסומנות</span>
+            {hasMinimum && (
+              <span
+                className="shift-stat"
+                style={{ color: minimumStatus.met ? "var(--success)" : "var(--warning)" }}
+              >
+                {minimumStatus.weekdayDone}/{minimumStatus.minWeekdays || "—"} אמצע שבוע ·{" "}
+                {minimumStatus.weekendDone}/{minimumStatus.minWeekend || "—"} סופ״ש
+              </span>
+            )}
+            <div className="hidden w-28 sm:block">
+              <div className="shift-progress-bar">
+                <div className="shift-progress-fill" style={{ width: `${progressPct}%` }} />
+              </div>
+            </div>
+          </div>
+          <WeekNav wkStart={wk} onShift={shiftWeek} onToday={() => { setWk(addDays(weekStart(), 7)); setDayIdx(0); }} />
+        </div>
+      )}
 
       {saveError && (
         <div className="mb-3 flex items-center gap-2 rounded-[11px] border border-danger/30 [background:var(--danger-bg)] px-3.5 py-2.5 text-[13px] font-semibold text-danger">

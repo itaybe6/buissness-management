@@ -53,11 +53,19 @@ export function Users() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<UserRole | "all">("all");
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   const deptName = useMemo(
     () => (id: string | null) => departments?.find((d) => d.id === id)?.name ?? "—",
     [departments],
   );
+
+  const roleCounts = useMemo(() => {
+    const counts = new Map<UserRole | "all", number>();
+    for (const u of users ?? []) counts.set(u.role, (counts.get(u.role) ?? 0) + 1);
+    counts.set("all", (users ?? []).length);
+    return counts;
+  }, [users]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -101,6 +109,25 @@ export function Users() {
         <EmptyState icon="group" title="אין עדיין עובדים" description="הוסיפו את חברי הצוות של העסק." action={<Button icon="person_add" onClick={() => setAdd(true)}>הוספת משתמש</Button>} />
       ) : (
         <>
+          <div className="users-hero md:hidden">
+            <div className="min-w-0">
+              <h2 className="users-hero-title">הצוות שלי</h2>
+              <span className="users-hero-sub">
+                {(users ?? []).length} חברי צוות · {(users ?? []).filter((u) => u.active).length} פעילים
+              </span>
+            </div>
+            <div className="users-hero-stack" aria-hidden="true">
+              {(users ?? []).slice(0, 4).map((u) => (
+                <span key={u.id} className="person-chip" style={{ background: colorFor(u.id) }}>
+                  {initialsOf(u.full_name)}
+                </span>
+              ))}
+              {(users ?? []).length > 4 && (
+                <span className="users-hero-more">+{(users ?? []).length - 4}</span>
+              )}
+            </div>
+          </div>
+
           <div className="mb-4 flex flex-col gap-3">
             <div className="flex items-center gap-2">
               <div className="relative min-w-0 flex-1 md:max-w-[360px]">
@@ -112,16 +139,19 @@ export function Users() {
                   onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
-              <Button
-                icon="add"
+              <button
+                type="button"
                 onClick={() => setAdd(true)}
                 aria-label="הוספת משתמש"
-                className="!h-11 !w-11 shrink-0 !p-0 !bg-ink shadow-sm hover:brightness-110 active:scale-[0.97] md:hidden"
-              />
+                className="users-add-btn btn-press md:hidden"
+              >
+                <Icon name="person_add" size={21} />
+              </button>
             </div>
             <div className="filter-pill-bar">
               {FILTER_ROLES.map((r) => {
                 const active = roleFilter === r;
+                const count = roleCounts.get(r) ?? 0;
                 return (
                   <button
                     key={r}
@@ -132,13 +162,99 @@ export function Users() {
                   >
                     {active && <span className="filter-pill-thumb" />}
                     <span>{r === "all" ? "הכל" : ROLE_LABELS[r]}</span>
+                    {count > 0 && <span className="filter-pill-count">{count}</span>}
                   </button>
                 );
               })}
             </div>
           </div>
 
-          <Card className="overflow-hidden !p-0 shadow-card">
+          {/* ── Mobile — app-style roster ── */}
+          <div className="users-mobile md:hidden">
+            {filtered.length === 0 ? (
+              <div className="users-roster-empty">
+                <Icon name="search_off" size={30} />
+                <span>לא נמצאו משתמשים</span>
+              </div>
+            ) : (
+              <div className="users-roster">
+                {filtered.map((u, i) => {
+                  const open = expanded === u.id;
+                  const dept = deptName(u.department_id);
+                  return (
+                    <div
+                      key={u.id}
+                      className="user-cell"
+                      data-open={open}
+                      style={{ animationDelay: `${Math.min(i, 10) * 35}ms` }}
+                    >
+                      <button
+                        type="button"
+                        className="user-cell-row"
+                        aria-expanded={open}
+                        onClick={() => setExpanded(open ? null : u.id)}
+                      >
+                        <span className="user-cell-avatar person-chip" style={{ background: colorFor(u.id) }}>
+                          {initialsOf(u.full_name)}
+                          <span className="user-cell-dot" data-on={u.active} />
+                        </span>
+                        <span className="user-cell-info">
+                          <span className="user-cell-name">{u.full_name}</span>
+                          <span className="user-cell-sub">
+                            <span className="user-cell-role">{ROLE_LABELS[u.role]}</span>
+                            {dept !== "—" && <span className="user-cell-dept"> · {dept}</span>}
+                            {!u.active && <span className="user-cell-off">מושבת</span>}
+                          </span>
+                        </span>
+                        <Icon name="expand_more" size={20} className="user-cell-chevron" />
+                      </button>
+                      <div className="user-cell-details">
+                        <div className="user-cell-details-clip">
+                          <div className="user-cell-details-body">
+                            <div className="user-cell-facts">
+                              <span className="user-fact">
+                                <Icon name="payments" size={17} />
+                                {wageSummary(u)}
+                              </span>
+                              {u.phone && (
+                                <a href={`tel:${u.phone}`} className="user-fact user-fact--link">
+                                  <Icon name="call" size={17} />
+                                  <bdi dir="ltr">{u.phone}</bdi>
+                                </a>
+                              )}
+                              {u.email && (
+                                <a href={`mailto:${u.email}`} className="user-fact user-fact--link">
+                                  <Icon name="mail" size={17} />
+                                  <bdi dir="ltr">{u.email}</bdi>
+                                </a>
+                              )}
+                            </div>
+                            <div className="user-cell-actions">
+                              <button type="button" className="user-cell-btn user-cell-btn--edit" onClick={() => setEdit(u)}>
+                                <Icon name="edit" size={17} /> עריכה
+                              </button>
+                              {u.id !== currentUser?.id && (
+                                <button
+                                  type="button"
+                                  className="user-cell-btn user-cell-btn--danger"
+                                  onClick={() => { setDeleteError(null); setToDelete(u); }}
+                                >
+                                  <Icon name="delete" size={17} /> מחיקה
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* ── Desktop — full table ── */}
+          <Card className="hidden overflow-hidden !p-0 shadow-card md:block">
             <div className="overflow-auto">
               <div className={`min-w-[1040px] grid ${USER_TABLE_COLS} gap-x-2`}>
                 <div className={`col-span-8 grid grid-cols-subgrid gap-x-2 border-b border-border bg-surface-2 px-5 py-3 text-[11.5px] font-bold uppercase tracking-wide text-text-3`}>

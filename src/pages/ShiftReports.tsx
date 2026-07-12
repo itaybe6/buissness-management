@@ -26,7 +26,7 @@ import {
   hoursBetweenTimes,
 } from "@/lib/shiftReportTips";
 import { useInventory } from "@/api/inventory";
-import { buildBonusParticipantsFromTeam, computeBonusPayouts } from "@/lib/shiftReportBonuses";
+import { buildBonusParticipantsFromTeam } from "@/lib/shiftReportBonuses";
 import { useProfiles } from "@/api/users";
 import { useAttendanceAroundDate } from "@/api/attendance";
 import {
@@ -1054,12 +1054,10 @@ function ReportViewer({
   const participants = report.extra?.tip_participants ?? [];
   const teamMembers = report.extra?.team_members ?? [];
   const outOfStockItems = report.extra?.out_of_stock_items ?? [];
-  const bonusParticipants = report.extra?.bonus_participants ?? [];
   const salesItems = report.extra?.sales_items ?? [];
   const totalTips = Number(report.total_tips) || 0;
   const totalHours = participants.reduce((sum, p) => sum + (Number(p.hours) || 0), 0);
   const tipsHourly = totalHours > 0 ? totalTips / totalHours : Number(report.tips_hourly) || 0;
-  const bonusPayouts = computeBonusPayouts(Number(report.total_sales) || 0, bonusParticipants);
 
   return (
     <Modal
@@ -1091,29 +1089,6 @@ function ReportViewer({
             <DetailCell label="ממוצע לסועד" value={formatCurrency(Number(report.avg_per_diner))} />
           </DetailGrid>
         </Section>
-
-        {bonusParticipants.length > 0 && (
-          <Section icon="percent" title="אחוזים מהקופה">
-            <div className="flex flex-col gap-1.5">
-              {bonusParticipants.map((p) => {
-                const payout = bonusPayouts.find((b) => b.employee_id === p.employee_id);
-                return (
-                  <div key={p.employee_id} className="flex items-center justify-between rounded-[11px] border border-border px-3.5 py-2.5">
-                    <span className="text-[14px] font-semibold">
-                      {userName(p.employee_id)}
-                      {p.bonus_pct != null && (
-                        <span className="mr-2 text-[12px] font-semibold text-text-3">{p.bonus_pct}%</span>
-                      )}
-                    </span>
-                    {payout && payout.amount > 0 && (
-                      <span className="text-[12.5px] font-bold text-accent">{formatCurrency(payout.amount)}</span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </Section>
-        )}
 
         <Section icon="savings" title="טיפים">
           <DetailGrid>

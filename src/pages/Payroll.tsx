@@ -15,6 +15,17 @@ function monthNow() {
   return new Date().toISOString().slice(0, 7);
 }
 
+function shiftMonth(m: string, delta: number): string {
+  const [y, mo] = m.split("-").map(Number);
+  const d = new Date(y, mo - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthLabel(m: string): string {
+  const [y, mo] = m.split("-").map(Number);
+  return new Date(y, mo - 1, 1).toLocaleDateString("he-IL", { month: "long", year: "numeric" });
+}
+
 export function Payroll() {
   const businessId = useBusinessId();
   const { profile } = useAuth();
@@ -74,14 +85,116 @@ export function Payroll() {
         title="שכר וטיפים"
         subtitle="חישוב לפי שעות נוכחות + טיפים + תוספת מאחוז קופה"
         actions={
-          <div className="flex items-center gap-2.5">
+          <div className="hidden items-center gap-2.5 md:flex">
             <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="!w-[150px]" />
             {isPayrollManager && <Button icon="add" onClick={() => setTipOpen(true)}>הזנת טיפ</Button>}
           </div>
         }
       />
 
-      <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-6">
+      {/* ── Mobile — app-style payroll ── */}
+      <div className="payroll-mobile md:hidden">
+        <section className="payroll-hero">
+          <div className="payroll-hero-top">
+            <div className="payroll-month-nav">
+              <button
+                type="button"
+                className="payroll-month-btn"
+                aria-label="חודש קודם"
+                onClick={() => setMonth(shiftMonth(month, -1))}
+              >
+                <Icon name="chevron_right" size={20} />
+              </button>
+              <span className="payroll-month-label">{monthLabel(month)}</span>
+              <button
+                type="button"
+                className="payroll-month-btn"
+                aria-label="חודש הבא"
+                onClick={() => setMonth(shiftMonth(month, 1))}
+              >
+                <Icon name="chevron_left" size={20} />
+              </button>
+            </div>
+            {isPayrollManager && (
+              <button type="button" className="payroll-tip-btn btn-press" onClick={() => setTipOpen(true)}>
+                <Icon name="savings" size={17} />
+                הזנת טיפ
+              </button>
+            )}
+          </div>
+          <span className="payroll-hero-label">סה״כ לתשלום</span>
+          <div className="payroll-hero-total">{formatCurrency(totals.total)}</div>
+          <div className="payroll-hero-chips">
+            <span className="payroll-hero-chip">
+              <Icon name="schedule" size={15} />
+              {Math.round(totals.hours).toLocaleString("he-IL")} שעות
+            </span>
+            <span className="payroll-hero-chip">
+              <Icon name="group" size={15} />
+              {rows.length} עובדים
+            </span>
+          </div>
+        </section>
+
+        <div className="payroll-stats">
+          {[
+            { label: "שכר שעתי", value: totals.base, icon: "payments", tone: "neutral" },
+            { label: "טיפים", value: totals.tips, icon: "savings", tone: "accent" },
+            { label: "השלמות למינימום", value: totals.topup, icon: "add_card", tone: "warning" },
+            { label: "תוספת מאחוז קופה", value: totals.bonus, icon: "percent", tone: "accent" },
+          ].map((s, i) => (
+            <div
+              key={s.label}
+              className="payroll-stat"
+              data-tone={s.tone}
+              style={{ animationDelay: `${i * 40}ms` }}
+            >
+              <span className="payroll-stat-icon"><Icon name={s.icon} size={17} /></span>
+              <div className="payroll-stat-value">{formatCurrency(s.value)}</div>
+              <div className="payroll-stat-label">{s.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {rows.length === 0 ? (
+          <div className="users-roster-empty">
+            <Icon name="account_balance_wallet" size={30} />
+            <span>אין נתונים לחודש זה</span>
+          </div>
+        ) : (
+          <div className="users-roster">
+            {rows.map((r, i) => (
+              <button
+                key={r.id}
+                type="button"
+                className="pay-cell"
+                style={{ animationDelay: `${Math.min(i, 10) * 35}ms` }}
+                onClick={() => navigate(`/payroll/${r.id}?month=${month}`)}
+              >
+                <span className="user-cell-avatar person-chip" style={{ background: colorFor(r.id) }}>
+                  {initialsOf(r.name)}
+                </span>
+                <span className="user-cell-info">
+                  <span className="user-cell-name">{r.name}</span>
+                  <span className="user-cell-sub">
+                    <span className="user-cell-role">{WAGE_TYPE_LABELS[r.wageType]}</span>
+                    <span className="user-cell-dept"> · {r.hours.toFixed(1)} שע׳</span>
+                    {r.bonus > 0 && <span className="pay-cell-flag">% קופה</span>}
+                  </span>
+                </span>
+                <span className="pay-cell-total">
+                  <span className="pay-cell-sum">{formatCurrency(r.total)}</span>
+                  <span className="pay-cell-hint">לתשלום</span>
+                </span>
+                <Icon name="chevron_left" size={18} className="pay-cell-chevron" />
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── Desktop — stat tiles ── */}
+      <div className="mb-5 hidden grid-cols-2 gap-4 md:grid lg:grid-cols-6">
         {[
           { label: "סה״כ שעות", value: Math.round(totals.hours).toLocaleString("he-IL"), icon: "schedule", color: "var(--info)", tint: "var(--info-bg)" },
           { label: "שכר שעתי", value: formatCurrency(totals.base), icon: "payments", color: "var(--text)", tint: "var(--surface-2)" },
@@ -102,7 +215,7 @@ export function Payroll() {
         ))}
       </div>
 
-      <Card className="overflow-hidden !p-0 shadow-card">
+      <Card className="hidden overflow-hidden !p-0 shadow-card md:block">
         <div className="overflow-auto">
           <div className="min-w-[720px]">
             <div className="grid grid-cols-[1.7fr_0.8fr_0.7fr_0.8fr_1fr_0.9fr_0.9fr_1fr] gap-2 border-b border-border bg-surface-2 px-5 py-3 text-[11.5px] font-bold uppercase tracking-wide text-text-3">

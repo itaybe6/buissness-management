@@ -56,9 +56,9 @@ export interface Business {
   shift_prefs_open_dow: number | null;
   /** Time on shift_prefs_open_dow when submissions open (e.g. "21:00:00"). */
   shift_prefs_open_time: string | null;
-  /** Minimum complete weekday days (Sun–Thu) per week. null = no requirement. */
+  /** Minimum complete weekday days (Sun–Wed) per week. null = no requirement. */
   shift_prefs_min_weekdays: number | null;
-  /** Minimum complete weekend days (Fri–Sat) per week. null = no requirement. */
+  /** Minimum complete weekend days (Thu–Sat) per week. null = no requirement. */
   shift_prefs_min_weekend: number | null;
   created_by: string | null;
   created_at: string;
