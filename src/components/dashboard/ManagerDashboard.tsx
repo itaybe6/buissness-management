@@ -7,7 +7,7 @@ import { useShiftReports } from "@/api/shiftReports";
 import { useProfiles } from "@/api/users";
 import { useTasks } from "@/api/tasks";
 import { useFaults } from "@/api/faults";
-import { useInventory } from "@/api/inventory";
+import { useInventory, isTrackedLowStock } from "@/api/inventory";
 import { useWaste } from "@/api/waste";
 import { useAttendanceToday } from "@/api/attendance";
 import { ForceClockOutModal, type ForceClockOutTarget } from "@/components/attendance/ForceClockOutModal";
@@ -224,9 +224,7 @@ export function ManagerDashboard() {
 
   /* ---------- inventory ---------- */
   const tracked = inventory.filter((i) => i.min_quantity > 0);
-  const lowStock = inventory
-    .filter((i) => i.min_quantity > 0 && i.current_qty <= i.min_quantity)
-    .sort((a, b) => a.current_qty - a.min_quantity - (b.current_qty - b.min_quantity));
+  const lowStock = inventory.filter(isTrackedLowStock).sort((a, b) => a.current_qty - a.min_quantity - (b.current_qty - b.min_quantity));
   const stockHealth = tracked.length ? (tracked.length - lowStock.length) / tracked.length : 1;
   const wasteThisMonth = waste.filter((w) => monthKey(new Date(w.created_at)) === thisMonth);
   const wasteCount = wasteThisMonth.length;
@@ -310,7 +308,7 @@ export function ManagerDashboard() {
       format: (n) => Math.round(n).toString(),
       color: "var(--accent)",
       tint: "var(--accent-tint)",
-      to: "/inventory",
+      to: "/inventory?stock=low",
       sub: <span>מתוך {inventory.length} מוצרים</span>,
     });
   }
@@ -359,7 +357,7 @@ export function ManagerDashboard() {
                 </Link>
               )}
               {on("inventory") && lowStock.length > 0 && (
-                <Link to="/inventory" className="dash-hero-chip" data-tone="warning">
+                <Link to="/inventory?stock=low" className="dash-hero-chip" data-tone="warning">
                   <Icon name="inventory_2" size={15} />
                   <strong>{lowStock.length}</strong> במלאי נמוך
                 </Link>
@@ -470,7 +468,7 @@ export function ManagerDashboard() {
 
         {/* Inventory health */}
         {on("inventory") && (
-          <Panel title="בריאות המלאי" icon="inventory_2" to="/inventory" span="lg:col-span-4" delay={260}>
+          <Panel title="בריאות המלאי" icon="inventory_2" to={lowStock.length > 0 ? "/inventory?stock=low" : "/inventory"} span="lg:col-span-4" delay={260}>
             <div className="flex items-center gap-4">
               <div className="flex-none">
                 <RadialGauge

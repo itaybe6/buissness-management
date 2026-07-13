@@ -223,8 +223,8 @@ function ManagerTasksView({ businessId, profileId }: { businessId: string; profi
               onClick={() => setManagerTab(k)}
               className="tasks-mgr-tab-btn seg-btn"
             >
-              <Icon name={icon} size={18} />
-              {label}
+              <Icon name={icon} size={16} className="flex-none shrink-0" />
+              <span className="tasks-mgr-tab-label">{label}</span>
             </button>
           ))}
         </div>
@@ -550,25 +550,33 @@ function FixedTaskTemplateRow({
   }
 
   return (
-    <div
-      className="rounded-[12px] border border-border bg-surface-2 p-3.5"
-      style={{ opacity: template.active ? 1 : 0.55 }}
-    >
-      <div className="flex flex-wrap items-start gap-2.5">
-        <div className="mt-2">
+    <div className="fixed-task-row" style={{ opacity: template.active ? 1 : 0.55 }}>
+      <div className="fixed-task-row-top">
+        <div className="fixed-task-row-title">
           <Switch checked={template.active} onChange={(v) => onUpdate({ id: template.id, active: v })} />
+          <Input
+            className="min-w-0 flex-1 !bg-surface"
+            defaultValue={template.title}
+            onBlur={(e) => {
+              const v = e.target.value.trim();
+              if (v && v !== template.title) onUpdate({ id: template.id, title: v });
+            }}
+            disabled={!template.active}
+          />
         </div>
-        <Input
-          className="min-w-[120px] flex-1 !bg-surface"
-          defaultValue={template.title}
-          onBlur={(e) => {
-            const v = e.target.value.trim();
-            if (v && v !== template.title) onUpdate({ id: template.id, title: v });
-          }}
-          disabled={!template.active}
-        />
+        <button
+          type="button"
+          onClick={() => onDelete(template.id)}
+          className="fixed-task-row-delete"
+          aria-label="מחיקת משימה"
+        >
+          <Icon name="delete" size={18} />
+        </button>
+      </div>
+
+      <div className="fixed-task-row-meta">
         <Select
-          className="w-full min-w-[130px] flex-1 !bg-surface sm:max-w-[150px] sm:flex-none"
+          className="min-w-0 flex-1 !bg-surface"
           value={template.department_id ?? ""}
           onChange={(e) => {
             const v = e.target.value || null;
@@ -584,7 +592,7 @@ function FixedTaskTemplateRow({
           ))}
         </Select>
         <Select
-          className="w-full min-w-[120px] flex-1 !bg-surface sm:max-w-[130px] sm:flex-none"
+          className="min-w-0 flex-1 !bg-surface"
           value={recurrenceSelectValue(template.recurrence_weekday)}
           onChange={(e) => {
             const v = parseRecurrence(e.target.value);
@@ -601,28 +609,19 @@ function FixedTaskTemplateRow({
           ))}
         </Select>
         {!template.active ? <Badge tone="neutral">כבויה</Badge> : null}
-        <button
-          type="button"
-          onClick={() => onDelete(template.id)}
-          className="grid h-8 w-8 flex-none place-items-center rounded-lg text-text-3 hover:[background:var(--danger-bg)] hover:text-danger"
-        >
-          <Icon name="delete" size={18} />
-        </button>
       </div>
 
-      <div className="mt-2.5 pr-0 sm:pr-10">
-        <AutoGrowTextarea
-          key={`${template.id}-${template.description ?? ""}`}
-          defaultValue={template.description ?? ""}
-          placeholder="תיאור (אופציונלי)"
-          disabled={!template.active}
-          className="!min-h-[44px] !resize-y !bg-surface !py-2.5 text-[13px]"
-          onBlur={(e) => {
-            const v = e.target.value.trim() || null;
-            if (v !== (template.description ?? null)) onUpdate({ id: template.id, description: v });
-          }}
-        />
-      </div>
+      <AutoGrowTextarea
+        key={`${template.id}-${template.description ?? ""}`}
+        defaultValue={template.description ?? ""}
+        placeholder="תיאור (אופציונלי)"
+        disabled={!template.active}
+        className="fixed-task-row-desc !min-h-[44px] !resize-y !bg-surface !py-2.5 text-[13px]"
+        onBlur={(e) => {
+          const v = e.target.value.trim() || null;
+          if (v !== (template.description ?? null)) onUpdate({ id: template.id, description: v });
+        }}
+      />
     </div>
   );
 }
@@ -705,20 +704,15 @@ function FixedTasksPanel({
   return (
     <>
       <Card className="p-5">
-        <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
+        <div className="fixed-tasks-panel-header">
           <div className="flex items-center gap-2 text-[16px] font-bold">
             <Icon name="event_repeat" size={22} className="text-accent-2" />
             משימות קבועות
           </div>
           <Button icon="add" onClick={() => setAddOpen(true)}>
-            הוספת משימה קבועה
+            הוספה
           </Button>
         </div>
-        <p className="mb-4 text-[13px] text-text-2">
-          משימה קבועה מוגדרת פעם אחת ומופיעה אוטומטית אצל עובדי המחלקה שבחרת — או אצל כולם, אם לא
-          בחרת מחלקה. ניתן לקבוע תדירות יומית או לפי יום בשבוע. אין שיוך לעובד מסוים; לשיוך אישי
-          השתמשו במשימה חד-פעמית.
-        </p>
 
         {templates.length === 0 ? (
           <EmptyState
@@ -728,7 +722,7 @@ function FixedTasksPanel({
             description="הוסיפו את המשימות הקבועות של העסק — למשל ניקוי, ספירת מלאי, פתיחת קופה."
             action={
               <Button icon="add" onClick={() => setAddOpen(true)}>
-                הוספת משימה קבועה
+                הוספה
               </Button>
             }
           />

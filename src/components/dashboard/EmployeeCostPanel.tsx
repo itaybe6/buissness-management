@@ -10,9 +10,10 @@ import { formatCurrency } from "@/lib/db";
 import { fmtHours } from "@/lib/payrollShiftRows";
 import {
   aggregateByMonth,
-  aggregateByWeek,
   aggregateDailyLaborCosts,
   fillMonthDays,
+  fillWeekDays,
+  formatWeekRange,
   monthKeyFromDate,
   sumLaborCosts,
   weekStartISO,
@@ -87,11 +88,13 @@ function StackedBarChart({
   todayISO,
   height = 200,
   formatValue = compactCurrency,
+  compact = false,
 }: {
   data: LaborCostSlice[];
   todayISO?: string;
   height?: number;
   formatValue?: (n: number) => string;
+  compact?: boolean;
 }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
@@ -103,14 +106,14 @@ function StackedBarChart({
   const plotH = height - 52;
 
   return (
-    <div className="labor-chart" style={{ height }} dir="rtl">
+    <div className="labor-chart" style={{ height }} dir="rtl" data-compact={compact || undefined}>
       <div className="labor-chart-bars">
         {data.map((d, i) => {
           const totalH = (d.total / max) * plotH;
           const hourlyH = d.total > 0 ? (d.hourly / d.total) * totalH : 0;
           const topupH = d.total > 0 ? (d.topup / d.total) * totalH : 0;
           const bonusH = d.total > 0 ? (d.bonus / d.total) * totalH : 0;
-          const isToday = d.highlight || (todayISO && "date" in d && (d as { date?: string }).date === todayISO);
+          const isToday = d.highlight || (todayISO && d.date === todayISO);
 
           return (
             <div key={i} className="labor-chart-col group" data-today={isToday || undefined} data-empty={d.total <= 0 || undefined}>
@@ -225,6 +228,24 @@ export function EmployeeCostPanel({
     [profiles, attendance, tips, bonuses, templates],
   );
 
+  const prevMonthDailyRaw = useMemo(
+    () =>
+      aggregateDailyLaborCosts({
+        profiles,
+        attendance: prevAttendance,
+        tips: prevTips,
+        bonuses: prevBonuses,
+        templates,
+      }),
+    [profiles, prevAttendance, prevTips, prevBonuses, templates],
+  );
+
+  const extendedDailyRaw = useMemo(() => {
+    const byDate = new Map<string, DayLaborCost>();
+    for (const d of [...prevMonthDailyRaw, ...dailyRaw]) byDate.set(d.date, d);
+    return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+  }, [dailyRaw, prevMonthDailyRaw]);
+
   const dailyFilled = useMemo(
     () => fillMonthDays(dailyRaw, thisMonth, upToDay).map((d) => ({
       ...d,
@@ -236,19 +257,20 @@ export function EmployeeCostPanel({
 
   const currentWeekStart = weekStartISO(todayISO);
 
-  const weeklySlices = useMemo(
-    () =>
-      aggregateByWeek(dailyRaw).map((w, _i, arr) => {
-        const isCurrent = arr.length > 0 && w === arr[arr.length - 1];
-        return { ...w, highlight: isCurrent };
-      }),
-    [dailyRaw],
-  );
   const currentWeekDays = useMemo(
-    () => dailyRaw.filter((d) => weekStartISO(d.date) === currentWeekStart),
-    [dailyRaw, currentWeekStart],
+    () => extendedDailyRaw.filter((d) => weekStartISO(d.date) === currentWeekStart),
+    [extendedDailyRaw, currentWeekStart],
   );
   const currentWeekTotal = useMemo(() => sumLaborCosts(currentWeekDays), [currentWeekDays]);
+
+  const currentWeekDaily = useMemo(
+    () =>
+      fillWeekDays(currentWeekDays, currentWeekStart).map((d) => ({
+        ...d,
+        highlight: d.date === todayISO,
+      })),
+    [currentWeekDays, currentWeekStart, todayISO],
+  );
 
   const prevWeekStart = useMemo(() => {
     const d = new Date(currentWeekStart + "T12:00:00");
@@ -256,9 +278,9 @@ export function EmployeeCostPanel({
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   }, [currentWeekStart]);
   const prevWeekTotal = useMemo(() => {
-    const days = dailyRaw.filter((d) => weekStartISO(d.date) === prevWeekStart);
+    const days = extendedDailyRaw.filter((d) => weekStartISO(d.date) === prevWeekStart);
     return sumLaborCosts(days).total;
-  }, [dailyRaw, prevWeekStart]);
+  }, [extendedDailyRaw, prevWeekStart]);
   const weekTrend = pctChange(currentWeekTotal.total, prevWeekTotal);
 
   const monthSlices = useMemo(() => {
@@ -283,7 +305,9 @@ export function EmployeeCostPanel({
   }, [dailyRaw, historyMonths, historyQueries, profiles, templates, thisMonth]);
 
   const chartData: LaborCostSlice[] =
-    granularity === "day" ? dailyFilled : granularity === "week" ? weeklySlices : monthSlices;
+    granularity === "day" ? dailyFilled : granularity === "week" ? currentWeekDaily : monthSlices;
+
+  const chartTodayISO = granularity === "day" || granularity === "week" ? todayISO : undefined;
 
   const todayCost = dailyFilled.find((d) => d.date === todayISO) ?? { date: todayISO, hours: 0, hourly: 0, topup: 0, bonus: 0, total: 0 };
   const monthTotal = sumLaborCosts(dailyRaw);
@@ -334,24 +358,18 @@ export function EmployeeCostPanel({
 
   return (
     <section className="labor-cost-panel dash-rise" style={{ ["--rise-delay" as string]: "60ms" }}>
-      <div className="labor-cost-header">
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <div className="flex flex-wrap items-center gap-2.5">
-            <span className="labor-cost-badge">
-              <Icon name="payments" size={16} />
-              עלויות עובדים
-            </span>
-            <span className="text-[12px] font-semibold text-text-3">{heToday}</span>
+      <div className="labor-cost-top">
+        <div className="labor-cost-top-main">
+          <span className="dash-panel-icon">
+            <Icon name="payments" size={18} />
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-[15px] font-extrabold tracking-tight text-text sm:text-[16px]">עלויות שכר</h2>
+            <p className="mt-0.5 text-[12px] font-semibold text-text-3">{heToday}</p>
           </div>
-          <h2 className="text-[18px] font-extrabold tracking-tight text-text sm:text-[20px]">
-            כמה יוצא לך על שכר — לפי {granularity === "day" ? "יום" : granularity === "week" ? "שבוע" : "חודש"}
-          </h2>
-          <p className="max-w-[52ch] text-[12.5px] font-medium leading-relaxed text-text-2">
-            שכר שעתי + השלמות לעובדי טיפים שלא הגיעו למינימום + בונוסים מקופה. טיפים מהלקוחות לא נספרים.
-          </p>
         </div>
 
-        <div className="flex flex-none flex-col items-stretch gap-2.5 sm:items-end">
+        <div className="labor-cost-top-actions">
           <div className="labor-granularity" role="tablist" aria-label="תצוגת זמן">
             {(
               [
@@ -373,8 +391,8 @@ export function EmployeeCostPanel({
               </button>
             ))}
           </div>
-          <Link to="/payroll" className="labor-cost-link">
-            פירוט שכר מלא
+          <Link to="/payroll" className="labor-cost-more">
+            פירוט מלא
             <Icon name="chevron_left" size={16} />
           </Link>
         </div>
@@ -382,38 +400,33 @@ export function EmployeeCostPanel({
 
       <div className="labor-cost-body">
         <div className="labor-cost-hero-stat">
-          <div className="text-[11.5px] font-bold uppercase tracking-wide text-text-3">
+          <div className="labor-cost-hero-label">
             {granularity === "day" ? "עלות היום" : granularity === "week" ? "עלות השבוע" : "עלות החודש"}
           </div>
-          <div className="mt-1 flex flex-wrap items-end gap-2">
-            <span className="text-[36px] font-extrabold leading-none tracking-tight tabular-nums text-text sm:text-[42px]">
+          <div className="labor-cost-hero-row">
+            <span className="labor-cost-hero-amount">
               <CountUp value={heroTotal} format={formatCurrency} />
             </span>
             {granularity === "day" && dayTrend != null && <TrendBadge pct={dayTrend} />}
             {granularity === "week" && weekTrend != null && <TrendBadge pct={weekTrend} />}
             {granularity === "month" && monthTrend != null && <TrendBadge pct={monthTrend} />}
           </div>
-          <div className="mt-2 flex flex-wrap gap-2 text-[11.5px] font-semibold text-text-3">
+          <div className="labor-cost-hero-meta">
             {displayHours > 0 && (
               <span className="labor-hours-chip">
                 <Icon name="timer" size={14} />
                 {fmtHours(displayHours)} שעות
-                {avgCostPerHour > 0 && (
-                  <>
-                    {" · "}
-                    {formatCurrency(avgCostPerHour)}/שעה בממוצע
-                  </>
-                )}
+                {avgCostPerHour > 0 && <> · {formatCurrency(avgCostPerHour)}/שעה</>}
               </span>
             )}
             {granularity === "day" && yesterdayCost > 0 && (
-              <span>אתמול: {formatCurrency(yesterdayCost)}</span>
+              <span className="labor-meta-note">אתמול {formatCurrency(yesterdayCost)}</span>
             )}
             {granularity === "week" && prevWeekTotal > 0 && (
-              <span>שבוע קודם: {formatCurrency(prevWeekTotal)}</span>
+              <span className="labor-meta-note">שבוע קודם {formatCurrency(prevWeekTotal)}</span>
             )}
             {granularity === "month" && prevMonthTotal > 0 && (
-              <span>חודש קודם: {formatCurrency(prevMonthTotal)}</span>
+              <span className="labor-meta-note">חודש קודם {formatCurrency(prevMonthTotal)}</span>
             )}
             {laborPct != null && laborPct > 0 && (
               <span className="labor-pct-chip">{laborPct.toFixed(1)}% מההכנסות</span>
@@ -421,8 +434,7 @@ export function EmployeeCostPanel({
           </div>
 
           {(hasBreakdownMix || displayBreakdown.topup > 0.5 || displayBreakdown.bonus > 0.5) && (
-            <div className="mt-4 grid gap-2">
-              <div className="text-[10.5px] font-bold uppercase tracking-wide text-text-3">פירוט רכיבי עלות</div>
+            <div className="labor-breakdown-grid">
               <BreakdownPill
                 color="var(--violet-bg)"
                 icon="schedule"
@@ -431,14 +443,14 @@ export function EmployeeCostPanel({
                 pct={(displayBreakdown.hourly / breakdownDenom) * 100}
               />
               <BreakdownPill
-                color="var(--warning-bg)"
+                color="var(--labor-topup-bg)"
                 icon="trending_up"
                 label="השלמות (טיפים)"
                 value={displayBreakdown.topup}
                 pct={(displayBreakdown.topup / breakdownDenom) * 100}
               />
               <BreakdownPill
-                color="var(--info-bg)"
+                color="var(--labor-bonus-bg)"
                 icon="savings"
                 label="בונוס מקופה"
                 value={displayBreakdown.bonus}
@@ -449,12 +461,12 @@ export function EmployeeCostPanel({
         </div>
 
         <div className="labor-cost-chart-wrap">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <span className="text-[12.5px] font-extrabold text-text">
+          <div className="labor-chart-head">
+            <span className="labor-chart-title">
               {granularity === "day"
-                ? `פירוט יומי — ${periodLabel}`
+                ? `פירוט יומי · ${periodLabel}`
                 : granularity === "week"
-                  ? "לפי שבועות"
+                  ? `פירוט יומי · ${formatWeekRange(currentWeekStart)}`
                   : "6 חודשים אחרונים"}
             </span>
             <div className="flex flex-wrap gap-3">
@@ -476,16 +488,15 @@ export function EmployeeCostPanel({
           {hasData || chartData.some((d) => d.total > 0) ? (
             <StackedBarChart
               data={chartData}
-              todayISO={granularity === "day" ? todayISO : undefined}
+              todayISO={chartTodayISO}
+              compact={granularity === "week"}
             />
           ) : (
-            <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
-              <span className="grid h-12 w-12 place-items-center rounded-2xl bg-surface-2 text-text-3">
-                <Icon name="payments" size={24} />
+            <div className="labor-cost-empty">
+              <span className="labor-cost-empty-icon">
+                <Icon name="payments" size={22} />
               </span>
-              <p className="max-w-[32ch] text-[12.5px] font-semibold text-text-2">
-                עדיין אין נתוני שכר החודש — יופיעו כאן אחרי נוכחות, דוחות משמרת וטיפים.
-              </p>
+              <p>אין נתוני שכר החודש עדיין</p>
             </div>
           )}
         </div>

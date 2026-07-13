@@ -1,5 +1,5 @@
 import type { Attendance, Profile, ShiftBonus, ShiftTemplate, Tip } from "@/types/database";
-import { buildEmployeeShiftRows, type ShiftRow } from "@/lib/payrollShiftRows";
+import { HE_DAYS_SHORT, buildEmployeeShiftRows, type ShiftRow } from "@/lib/payrollShiftRows";
 
 /** Employer-facing labor cost for one calendar day (excludes customer-paid tips). */
 export interface DayLaborCost {
@@ -13,6 +13,7 @@ export interface DayLaborCost {
 
 export interface LaborCostSlice {
   label: string;
+  date?: string;
   hourly: number;
   topup: number;
   bonus: number;
@@ -161,4 +162,30 @@ export function fillMonthDays(days: DayLaborCost[], monthISO: string, upToDay?: 
     out.push(byDate.get(date) ?? { date, hours: 0, hourly: 0, topup: 0, bonus: 0, total: 0 });
   }
   return out;
+}
+
+/** Fill all 7 days of a week (Sun–Sat) with labels for chart display. */
+export function fillWeekDays(days: DayLaborCost[], weekStart: string): LaborCostSlice[] {
+  const byDate = new Map(days.map((d) => [d.date, d]));
+  const out: LaborCostSlice[] = [];
+  const start = new Date(weekStart + "T12:00:00");
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    const date = localDateISO(d);
+    const base = byDate.get(date) ?? { date, hours: 0, hourly: 0, topup: 0, bonus: 0, total: 0 };
+    out.push({
+      ...base,
+      label: HE_DAYS_SHORT[d.getDay()],
+    });
+  }
+  return out;
+}
+
+export function formatWeekRange(weekStart: string): string {
+  const start = new Date(weekStart + "T12:00:00");
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  const fmt = (dt: Date) => dt.toLocaleDateString("he-IL", { day: "numeric", month: "short" });
+  return `${fmt(start)}–${fmt(end)}`;
 }

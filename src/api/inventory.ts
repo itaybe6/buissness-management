@@ -42,6 +42,10 @@ export interface ItemWithQty extends InventoryItem {
   ordered_qty: number;
 }
 
+export function isTrackedLowStock(item: ItemWithQty): boolean {
+  return item.min_quantity > 0 && item.current_qty <= item.min_quantity;
+}
+
 /** An audit-log row enriched with the acting employee's name for display. */
 export interface ItemLog extends InventoryLog {
   employee_name: string | null;

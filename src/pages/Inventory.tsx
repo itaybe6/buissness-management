@@ -27,6 +27,7 @@ import {
   mainUnitToPieces,
   type ItemWithQty,
   type ItemLog,
+  isTrackedLowStock,
 } from "@/api/inventory";
 import { useWaste } from "@/api/waste";
 import type { InventoryAction, InventoryWaste } from "@/types/database";
@@ -312,6 +313,7 @@ function TabSearchBar<T extends string>({
 
 type OrderFilter = "all" | "today" | "week";
 type WasteFilter = "all" | "deducted" | "not_deducted";
+type StockFilter = "all" | "low";
 
 const ORDER_FILTERS: { key: OrderFilter; label: string }[] = [
   { key: "all", label: "הכל" },
@@ -323,6 +325,11 @@ const WASTE_FILTERS: { key: WasteFilter; label: string }[] = [
   { key: "all", label: "הכל" },
   { key: "deducted", label: "הופחת מהמלאי" },
   { key: "not_deducted", label: "לא הופחת" },
+];
+
+const STOCK_FILTERS: { key: StockFilter; label: string }[] = [
+  { key: "all", label: "הכל" },
+  { key: "low", label: "מלאי נמוך" },
 ];
 
 function isWithinDays(iso: string, days: number): boolean {
@@ -1107,6 +1114,17 @@ export function Inventory() {
     return "items";
   }
 
+  function resolveStockFilter(param: string | null): StockFilter {
+    return param === "low" ? "low" : "all";
+  }
+
+  function inventorySearchParams(nextTab: InventoryTab, nextStock: StockFilter) {
+    const params: Record<string, string> = {};
+    if (nextTab !== "items") params.tab = nextTab;
+    if (nextStock === "low") params.stock = "low";
+    return params;
+  }
+
   const [tab, setTab] = useState<InventoryTab>(() => resolveTab(searchParams.get("tab")));
   const [modalOpen, setModalOpen] = useState(false);
   const [orderModalOpen, setOrderModalOpen] = useState(false);
@@ -1121,6 +1139,7 @@ export function Inventory() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [stockFilter, setStockFilter] = useState<StockFilter>(() => resolveStockFilter(searchParams.get("stock")));
   const [orderSearchQuery, setOrderSearchQuery] = useState("");
   const [orderFilter, setOrderFilter] = useState<OrderFilter>("all");
   const [wasteSearchQuery, setWasteSearchQuery] = useState("");
@@ -1131,12 +1150,19 @@ export function Inventory() {
 
   function changeTab(next: InventoryTab) {
     setTab(next);
-    setSearchParams(next === "items" ? {} : { tab: next }, { replace: true });
+    setSearchParams(inventorySearchParams(next, stockFilter), { replace: true });
+  }
+
+  function changeStockFilter(next: StockFilter) {
+    setStockFilter(next);
+    setSearchParams(inventorySearchParams(tab, next), { replace: true });
   }
 
   useEffect(() => {
     const next = resolveTab(searchParams.get("tab"));
     if (next !== tab) setTab(next);
+    const nextStock = resolveStockFilter(searchParams.get("stock"));
+    if (nextStock !== stockFilter) setStockFilter(nextStock);
   }, [searchParams, showWaste, canManageOrders]);
 
   useEffect(() => {
@@ -1148,10 +1174,11 @@ export function Inventory() {
   const filteredList = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return list.filter((item) => {
+      if (stockFilter === "low" && !isTrackedLowStock(item)) return false;
       if (q && !item.name.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [list, searchQuery]);
+  }, [list, searchQuery, stockFilter]);
 
   const orderList = orders ?? [];
   const openBatches = groupOpenOrders(orderList, list);
@@ -1507,9 +1534,9 @@ export function Inventory() {
             <TabSearchBar
               query={searchQuery}
               onQueryChange={setSearchQuery}
-              filter="all"
-              onFilterChange={() => {}}
-              filters={[]}
+              filter={stockFilter}
+              onFilterChange={changeStockFilter}
+              filters={STOCK_FILTERS}
               placeholder="חיפוש מוצר..."
               resultCount={filteredList.length}
               totalCount={list.length}
@@ -1522,12 +1549,22 @@ export function Inventory() {
             {filteredList.length === 0 ? (
               <EmptyState
                 icon="search_off"
-                title="לא נמצאו מוצרים"
-                description="נסו מילת חיפוש אחרת."
+                title={stockFilter === "low" ? "אין מוצרים במלאי נמוך" : "לא נמצאו מוצרים"}
+                description={
+                  stockFilter === "low"
+                    ? "כל המוצרים מעל סף המלאי שהוגדר."
+                    : "נסו מילת חיפוש אחרת."
+                }
                 action={
-                  <Button variant="secondary" onClick={() => setSearchQuery("")}>
-                    ניקוי חיפוש
-                  </Button>
+                  stockFilter === "low" ? (
+                    <Button variant="secondary" onClick={() => changeStockFilter("all")}>
+                      הצג את כל המוצרים
+                    </Button>
+                  ) : (
+                    <Button variant="secondary" onClick={() => setSearchQuery("")}>
+                      ניקוי חיפוש
+                    </Button>
+                  )
                 }
               />
             ) : (

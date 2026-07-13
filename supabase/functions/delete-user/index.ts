@@ -2,7 +2,7 @@
 // Deletes an Auth user and all related employee data.
 // Authorization:
 //   - super_admin: may delete any user (except self)
-//   - manager: may delete users only in their own business (except self)
+//   - manager / office_manager: may delete users only in their own business (except self)
 //
 // Deploy:
 //   supabase functions deploy delete-user
@@ -58,7 +58,7 @@ Deno.serve(async (req) => {
 
     if (callerProfile.role === "super_admin") {
       // allowed
-    } else if (callerProfile.role === "manager") {
+    } else if (callerProfile.role === "manager" || callerProfile.role === "office_manager") {
       if (targetProfile.business_id !== callerProfile.business_id) {
         return json({ error: "forbidden" }, 403);
       }

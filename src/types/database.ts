@@ -96,6 +96,8 @@ export interface Profile {
   wage_type: WageType;
   /** Register-percentage bonus (0 = none). Applied when the employee worked the shift. */
   bonus_pct: number;
+  /** Whether the employee has active pension enrollment. */
+  pension_active: boolean;
   active: boolean;
   created_at: string;
   updated_at: string;

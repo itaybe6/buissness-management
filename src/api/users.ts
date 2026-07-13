@@ -42,6 +42,7 @@ export interface CreateUserInput {
   phone?: string;
   hourly_rate?: number;
   wage_type?: WageType;
+  pension_active?: boolean;
 }
 
 export function useCreateUser() {

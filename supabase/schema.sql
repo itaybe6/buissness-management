@@ -188,6 +188,8 @@ create table public.profiles (
   role        public.user_role not null default 'employee',
   hourly_rate numeric(10,2) default 0,  -- שכר שעתי (לעובד טיפים זהו מינימום/רצפה)
   wage_type   text not null default 'hourly' check (wage_type in ('hourly', 'tips')), -- שעתי / טיפים
+  bonus_pct   numeric(5,2) not null default 0,
+  pension_active boolean not null default false, -- פנסיה פעילה / לא פעילה
   active      boolean not null default true,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
@@ -197,7 +199,7 @@ create table public.profiles (
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
-  insert into public.profiles (id, email, full_name, business_id, role, department_id, phone, hourly_rate, wage_type)
+  insert into public.profiles (id, email, full_name, business_id, role, department_id, phone, hourly_rate, wage_type, pension_active)
   values (
     new.id,
     new.email,
@@ -207,7 +209,8 @@ begin
     (new.raw_user_meta_data->>'department_id')::uuid,
     new.raw_user_meta_data->>'phone',
     coalesce((new.raw_user_meta_data->>'hourly_rate')::numeric, 0),
-    coalesce(new.raw_user_meta_data->>'wage_type', 'hourly')
+    coalesce(new.raw_user_meta_data->>'wage_type', 'hourly'),
+    coalesce((new.raw_user_meta_data->>'pension_active')::boolean, false)
   );
   return new;
 end; $$;
@@ -688,10 +691,11 @@ create policy "profiles_self_update" on public.profiles
 -- חברי אותו עסק נראים זה לזה
 create policy "profiles_same_business" on public.profiles
   for select using (business_id = public.auth_business_id());
--- מנהל העסק יכול לעדכן פרופילים של עובדי העסק שלו (תפקיד, מחלקה, שכר, השבתה)
+-- מנהל העסק / מנהלת משרד יכולים לעדכן פרופילים של עובדי העסק (תפקיד, מחלקה, שכר, השבתה)
 create policy "profiles_manager_update" on public.profiles
   for update using (
-    business_id = public.auth_business_id() and public.auth_role() = 'manager'
+    business_id = public.auth_business_id()
+    and public.auth_role() in ('manager', 'office_manager')
   ) with check (
     business_id = public.auth_business_id()
   );

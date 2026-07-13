@@ -26,6 +26,9 @@ export const WAGE_TYPE_LABELS: Record<WageType, string> = {
   tips: "טיפים",
 };
 
+/** Roles that may create and manage business users. */
+export const USER_MANAGE_ROLES: UserRole[] = ["manager", "office_manager"];
+
 /** Roles that may receive a register-percentage bonus (profiles.bonus_pct). */
 export const BONUS_ELIGIBLE_ROLES: UserRole[] = [
   "employee",
@@ -149,7 +152,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "businesses", label: "עסקים", icon: "store", group: "platform", roles: ["super_admin"] },
   { key: "platform-users", label: "משתמשים", icon: "group", group: "platform", roles: ["super_admin"] },
 
-  { key: "users", label: "משתמשים", icon: "group", group: "team", roles: ["manager"] },
+  { key: "users", label: "משתמשים", icon: "group", group: "team", roles: ["manager", "office_manager"] },
   { key: "agreements", label: "מסמכים", icon: "draw", group: "team", roles: ["manager", "shift_manager", "office_manager", "employee"], feature: "agreements" },
   { key: "payroll", label: "שכר", icon: "payments", group: "team", roles: ["manager", "office_manager"], feature: "payroll" },
 

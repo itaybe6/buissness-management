@@ -1,15 +1,14 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Badge, Button, Card, Field, Icon, Input, PageHeader, PageLoader, ErrorState, Select } from "@/components/ui";
-import { Modal } from "@/components/ui/Modal";
+import { Badge, Button, Card, Icon, Input, PageHeader, PageLoader, ErrorState } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 import { WAGE_TYPE_LABELS } from "@/lib/constants";
-import { useBusinessId, formatCurrency, initialsOf, colorFor, todayISO } from "@/lib/db";
+import { useBusinessId, formatCurrency, initialsOf, colorFor } from "@/lib/db";
 import { useProfiles } from "@/api/users";
 import { useAttendanceMonth } from "@/api/attendance";
-import { useTips, useAddTip, useShiftBonuses } from "@/api/payroll";
-import { useActiveShiftTemplates } from "@/api/shifts";
+import { useTips, useShiftBonuses } from "@/api/payroll";
 import { computeEmployeePayroll, sumAttendanceHours } from "@/lib/payrollCompute";
+import { countEmployeeShifts, exportPayrollExcel } from "@/lib/payrollExport";
 
 function monthNow() {
   return new Date().toISOString().slice(0, 7);
@@ -36,9 +35,6 @@ export function Payroll() {
   const { data: attendance } = useAttendanceMonth(businessId, month);
   const { data: tips } = useTips(businessId, month);
   const { data: bonuses } = useShiftBonuses(businessId, month);
-  const { data: templates } = useActiveShiftTemplates(businessId);
-  const addTip = useAddTip(businessId);
-  const [tipOpen, setTipOpen] = useState(false);
 
   const isPayrollManager = profile && ["manager", "office_manager"].includes(profile.role);
 
@@ -60,7 +56,14 @@ export function Payroll() {
         bonusSum,
         attendanceHours: sumAttendanceHours(attendance ?? [], u.id),
       });
-      return { id: u.id, name: u.full_name, ...pay };
+      const shifts = countEmployeeShifts(wageType, u.id, attendance ?? [], myTips);
+      return {
+        id: u.id,
+        name: u.full_name,
+        pensionActive: u.pension_active ?? false,
+        shifts,
+        ...pay,
+      };
     });
   }, [users, attendance, tips, bonuses, isPayrollManager, profile?.id]);
 
@@ -87,7 +90,29 @@ export function Payroll() {
         actions={
           <div className="hidden items-center gap-2.5 md:flex">
             <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="!w-[150px]" />
-            {isPayrollManager && <Button icon="add" onClick={() => setTipOpen(true)}>הזנת טיפ</Button>}
+            {isPayrollManager && (
+              <>
+                <Button
+                  variant="secondary"
+                  icon="download"
+                  onClick={() =>
+                    exportPayrollExcel(
+                      rows.map((r) => ({
+                        name: r.name,
+                        hours: r.hours,
+                        shifts: r.shifts,
+                        rate: r.rate,
+                        total: r.total,
+                        pensionActive: r.pensionActive,
+                      })),
+                      month,
+                    )
+                  }
+                >
+                  ייצוא אקסל
+                </Button>
+              </>
+            )}
           </div>
         }
       />
@@ -116,9 +141,25 @@ export function Payroll() {
               </button>
             </div>
             {isPayrollManager && (
-              <button type="button" className="payroll-tip-btn btn-press" onClick={() => setTipOpen(true)}>
-                <Icon name="savings" size={17} />
-                הזנת טיפ
+              <button
+                type="button"
+                className="payroll-tip-btn btn-press"
+                onClick={() =>
+                  exportPayrollExcel(
+                    rows.map((r) => ({
+                      name: r.name,
+                      hours: r.hours,
+                      shifts: r.shifts,
+                      rate: r.rate,
+                      total: r.total,
+                      pensionActive: r.pensionActive,
+                    })),
+                    month,
+                  )
+                }
+              >
+                <Icon name="download" size={17} />
+                אקסל
               </button>
             )}
           </div>
@@ -245,63 +286,6 @@ export function Payroll() {
           </div>
         </div>
       </Card>
-
-      {tipOpen && (
-        <TipModal
-          users={(users ?? []).filter((u) => (u.wage_type ?? "hourly") === "tips")}
-          templates={(templates ?? []).map((t) => ({ id: t.id, name: t.name }))}
-          saving={addTip.isPending}
-          onClose={() => setTipOpen(false)}
-          onSave={async (input) => { await addTip.mutateAsync({ business_id: businessId!, ...input }); setTipOpen(false); }}
-        />
-      )}
     </div>
-  );
-}
-
-function TipModal({
-  users,
-  templates,
-  onClose,
-  onSave,
-  saving,
-}: {
-  users: { id: string; full_name: string | null }[];
-  templates: { id: string; name: string }[];
-  onClose: () => void;
-  onSave: (input: { employee_id: string; shift_date: string; shift_template_id: string | null; amount: number; hours: number }) => Promise<void>;
-  saving: boolean;
-}) {
-  const [employeeId, setEmployeeId] = useState(users[0]?.id ?? "");
-  const [date, setDate] = useState(todayISO());
-  const [templateId, setTemplateId] = useState("");
-  const [amount, setAmount] = useState("");
-  const [hours, setHours] = useState("");
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title="הזנת טיפ"
-      icon="savings"
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose}>ביטול</Button>
-          <Button className="flex-1" loading={saving} onClick={() => employeeId && onSave({ employee_id: employeeId, shift_date: date, shift_template_id: templateId || null, amount: Number(amount) || 0, hours: Number(hours) || 0 })}>שמירה</Button>
-        </>
-      }
-    >
-      <div className="flex flex-col gap-3.5">
-        <Field label="עובד"><Select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>{users.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}</Select></Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="תאריך"><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-          <Field label="משמרת"><Select value={templateId} onChange={(e) => setTemplateId(e.target.value)}><option value="">— כללי —</option>{templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</Select></Field>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="סכום טיפ (₪)"><Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
-          <Field label="שעות במשמרת"><Input type="number" value={hours} onChange={(e) => setHours(e.target.value)} /></Field>
-        </div>
-      </div>
-    </Modal>
   );
 }

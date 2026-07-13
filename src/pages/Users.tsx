@@ -17,7 +17,7 @@ import { useDepartments } from "@/api/departments";
 import { AddUserModal } from "@/components/AddUserModal";
 import { useBusinessId, colorFor, initialsOf, formatCurrency } from "@/lib/db";
 import { useAuth } from "@/lib/auth";
-import { ROLE_LABELS, WAGE_TYPE_LABELS, BONUS_ELIGIBLE_ROLES } from "@/lib/constants";
+import { ROLE_LABELS, WAGE_TYPE_LABELS, BONUS_ELIGIBLE_ROLES, USER_MANAGE_ROLES } from "@/lib/constants";
 import type { Profile, UserRole, WageType } from "@/types/database";
 
 const ASSIGNABLE_ROLES: UserRole[] = [
@@ -53,7 +53,10 @@ export function Users() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<UserRole | "all">("all");
+  const [roleFilterOpen, setRoleFilterOpen] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+
+  const canManageUsers = !!(currentUser && USER_MANAGE_ROLES.includes(currentUser.role));
 
   const deptName = useMemo(
     () => (id: string | null) => departments?.find((d) => d.id === id)?.name ?? "—",
@@ -99,35 +102,18 @@ export function Users() {
         title="משתמשים וצוות"
         subtitle="ניהול עובדי העסק והרשאות גישה"
         actions={
-          <Button icon="person_add" onClick={() => setAdd(true)} className="hidden md:inline-flex">
-            הוספת משתמש
-          </Button>
+          canManageUsers ? (
+            <Button icon="person_add" onClick={() => setAdd(true)} className="hidden md:inline-flex">
+              הוספת משתמש
+            </Button>
+          ) : undefined
         }
       />
 
       {users && users.length === 0 ? (
-        <EmptyState icon="group" title="אין עדיין עובדים" description="הוסיפו את חברי הצוות של העסק." action={<Button icon="person_add" onClick={() => setAdd(true)}>הוספת משתמש</Button>} />
+        <EmptyState icon="group" title="אין עדיין עובדים" description="הוסיפו את חברי הצוות של העסק." action={canManageUsers ? <Button icon="person_add" onClick={() => setAdd(true)}>הוספת משתמש</Button> : undefined} />
       ) : (
         <>
-          <div className="users-hero md:hidden">
-            <div className="min-w-0">
-              <h2 className="users-hero-title">הצוות שלי</h2>
-              <span className="users-hero-sub">
-                {(users ?? []).length} חברי צוות · {(users ?? []).filter((u) => u.active).length} פעילים
-              </span>
-            </div>
-            <div className="users-hero-stack" aria-hidden="true">
-              {(users ?? []).slice(0, 4).map((u) => (
-                <span key={u.id} className="person-chip" style={{ background: colorFor(u.id) }}>
-                  {initialsOf(u.full_name)}
-                </span>
-              ))}
-              {(users ?? []).length > 4 && (
-                <span className="users-hero-more">+{(users ?? []).length - 4}</span>
-              )}
-            </div>
-          </div>
-
           <div className="mb-4 flex flex-col gap-3">
             <div className="flex items-center gap-2">
               <div className="relative min-w-0 flex-1 md:max-w-[360px]">
@@ -139,16 +125,29 @@ export function Users() {
                   onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
-              <button
-                type="button"
-                onClick={() => setAdd(true)}
-                aria-label="הוספת משתמש"
-                className="users-add-btn btn-press md:hidden"
-              >
-                <Icon name="person_add" size={21} />
-              </button>
+              <div className="flex shrink-0 items-center gap-2 md:hidden">
+                <button
+                  type="button"
+                  onClick={() => setRoleFilterOpen(true)}
+                  aria-label="סינון לפי תפקיד"
+                  className="users-filter-btn btn-press"
+                  data-active={roleFilter !== "all"}
+                >
+                  <Icon name="filter_list" size={21} />
+                </button>
+                {canManageUsers && (
+                  <button
+                    type="button"
+                    onClick={() => setAdd(true)}
+                    aria-label="הוספת משתמש"
+                    className="users-add-btn btn-press"
+                  >
+                    <Icon name="person_add" size={21} />
+                  </button>
+                )}
+              </div>
             </div>
-            <div className="filter-pill-bar">
+            <div className="filter-pill-bar hidden md:flex">
               {FILTER_ROLES.map((r) => {
                 const active = roleFilter === r;
                 const count = roleCounts.get(r) ?? 0;
@@ -321,7 +320,38 @@ export function Users() {
         </>
       )}
 
-      <AddUserModal open={add} onClose={() => setAdd(false)} businessId={businessId} roles={ASSIGNABLE_ROLES} />
+      <Modal
+        open={roleFilterOpen}
+        onClose={() => setRoleFilterOpen(false)}
+        title="סינון לפי תפקיד"
+        icon="filter_list"
+      >
+        <div className="flex flex-col gap-1">
+          {FILTER_ROLES.map((r) => {
+            const active = roleFilter === r;
+            const count = roleCounts.get(r) ?? 0;
+            return (
+              <button
+                key={r}
+                type="button"
+                onClick={() => {
+                  setRoleFilter(r);
+                  setRoleFilterOpen(false);
+                }}
+                data-active={active}
+                className="users-role-filter-option"
+              >
+                <span>{r === "all" ? "הכל" : ROLE_LABELS[r]}</span>
+                {count > 0 && <span className="users-role-filter-count">{count}</span>}
+              </button>
+            );
+          })}
+        </div>
+      </Modal>
+
+      {canManageUsers && (
+        <AddUserModal open={add} onClose={() => setAdd(false)} businessId={businessId} roles={ASSIGNABLE_ROLES} />
+      )}
 
       {edit && (
         <EditUserModal
@@ -400,6 +430,7 @@ function EditUserModal({
   const [wageType, setWageType] = useState<WageType>(user.wage_type ?? "hourly");
   const [hourly, setHourly] = useState(String(user.hourly_rate ?? 0));
   const [bonusPct, setBonusPct] = useState(String(user.bonus_pct ?? 0));
+  const [pensionActive, setPensionActive] = useState(user.pension_active ?? false);
   const [active, setActive] = useState(user.active);
   const [error, setError] = useState<string | null>(null);
 
@@ -426,6 +457,7 @@ function EditUserModal({
                   hourly_rate: Number(hourly) || 0,
                   wage_type: wageType,
                   bonus_pct: BONUS_ELIGIBLE_ROLES.includes(role) ? Number(bonusPct) || 0 : 0,
+                  pension_active: pensionActive,
                   active,
                 });
               } catch (e) {
@@ -495,6 +527,16 @@ function EditUserModal({
             </span>
           </label>
         )}
+        <label className="flex cursor-pointer items-center gap-2.5 rounded-[11px] border border-border px-3.5 py-3">
+          <input
+            type="checkbox"
+            checked={pensionActive}
+            onChange={(e) => setPensionActive(e.target.checked)}
+            className="h-[17px] w-[17px]"
+            style={{ accentColor: "var(--accent-2)" }}
+          />
+          <span className="text-[14px] font-semibold">פנסיה פעילה</span>
+        </label>
         <label className="flex cursor-pointer items-center gap-2.5 rounded-[11px] border border-border px-3.5 py-3">
           <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} className="h-[17px] w-[17px]" style={{ accentColor: "var(--accent-2)" }} />
           <span className="text-[14px] font-semibold">משתמש פעיל</span>

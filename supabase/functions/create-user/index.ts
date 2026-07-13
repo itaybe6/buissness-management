@@ -2,7 +2,7 @@
 // Securely creates an Auth user (the DB trigger creates the matching profile).
 // Authorization:
 //   - super_admin: may create users in any business, any role
-//   - manager: may create users only in their own business, and not super_admin
+//   - manager / office_manager: may create users only in their own business, and not super_admin
 //
 // Deploy:
 //   supabase functions deploy create-user
@@ -47,14 +47,14 @@ Deno.serve(async (req) => {
     if (!callerProfile) return json({ error: "no profile" }, 403);
 
     const body = await req.json();
-    const { email, password, full_name, role, department_id, phone, hourly_rate, wage_type } = body;
+    const { email, password, full_name, role, department_id, phone, hourly_rate, wage_type, pension_active } = body;
     let business_id = body.business_id as string | null;
 
     if (!email || !password || !role) return json({ error: "missing fields" }, 400);
 
     if (callerProfile.role === "super_admin") {
       // can target any business
-    } else if (callerProfile.role === "manager") {
+    } else if (callerProfile.role === "manager" || callerProfile.role === "office_manager") {
       business_id = callerProfile.business_id; // force own business
       if (role === "super_admin") return json({ error: "forbidden role" }, 403);
     } else {
@@ -65,7 +65,7 @@ Deno.serve(async (req) => {
       email,
       password,
       email_confirm: true,
-      user_metadata: { full_name, role, business_id, department_id, phone, hourly_rate, wage_type },
+      user_metadata: { full_name, role, business_id, department_id, phone, hourly_rate, wage_type, pension_active: pension_active ?? false },
     });
 
     if (error) return json({ error: error.message }, 400);

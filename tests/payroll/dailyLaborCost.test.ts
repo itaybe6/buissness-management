@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aggregateDailyLaborCosts, employerCostFromRow } from "@/lib/payrollDailyCost";
+import { aggregateDailyLaborCosts, employerCostFromRow, fillWeekDays } from "@/lib/payrollDailyCost";
 import type { Profile, Tip } from "@/types/database";
 
 const hourlyEmployee: Profile = {
@@ -98,5 +98,17 @@ describe("aggregateDailyLaborCosts", () => {
     expect(day?.hourly).toBe(250);
     expect(day?.topup).toBe(100);
     expect(day?.total).toBe(350);
+  });
+});
+
+describe("fillWeekDays", () => {
+  it("returns 7 labeled days for a week", () => {
+    const days = fillWeekDays(
+      [{ date: "2026-07-12", hours: 5, hourly: 200, topup: 0, bonus: 0, total: 200 }],
+      "2026-07-12",
+    );
+    expect(days).toHaveLength(7);
+    expect(days[0]).toMatchObject({ date: "2026-07-12", label: "א׳", total: 200 });
+    expect(days[6].date).toBe("2026-07-18");
   });
 });

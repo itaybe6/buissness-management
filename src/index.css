@@ -2424,24 +2424,36 @@ select {
 }
 
 .tasks-mgr-tabs {
-  display: inline-flex;
-  gap: 0.25rem;
-  padding: 0.25rem;
-  border-radius: 12px;
+  display: flex;
+  width: 100%;
+  gap: 0.2rem;
+  padding: 0.3rem;
+  border-radius: 14px;
   border: 1px solid var(--border);
-  background: var(--surface-2);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
 }
 
 .tasks-mgr-tab-btn {
+  position: relative;
+  z-index: 1;
   display: inline-flex;
+  flex: 1;
   align-items: center;
-  gap: 0.375rem;
-  padding: 0.5rem 1rem;
+  justify-content: center;
+  gap: 0.35rem;
+  min-width: 0;
+  min-height: 2.5rem;
+  padding: 0.45rem 0.35rem;
   border: none;
-  border-radius: 10px;
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text-2);
+  border-radius: 11px;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  text-align: center;
+  color: var(--text-3);
   background: transparent;
   cursor: pointer;
   transition:
@@ -2451,17 +2463,113 @@ select {
   -webkit-tap-highlight-color: transparent;
 }
 
+.tasks-mgr-tab-label {
+  min-width: 0;
+}
+
+@media (max-width: 639px) {
+  .tasks-mgr-tab-btn {
+    flex-direction: column;
+    gap: 0.2rem;
+    padding: 0.4rem 0.2rem;
+    font-size: 10.5px;
+    min-height: 3.15rem;
+  }
+}
+
 .tasks-mgr-tab-btn[data-active="true"] {
   color: #fff;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--accent) 88%, #fff) 0%,
-    var(--accent-2) 100%
-  );
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
   box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.22),
-    0 1px 2px rgb(23 10 55 / 0.16),
-    0 8px 20px -8px color-mix(in srgb, var(--accent) 60%, transparent);
+    inset 0 1px 0 rgb(255 255 255 / 0.2),
+    0 4px 12px -6px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+@media (min-width: 480px) {
+  .tasks-mgr-tab-btn {
+    font-size: 12.5px;
+    padding: 0.5rem 0.5rem;
+    min-height: 2.6rem;
+  }
+}
+
+@media (min-width: 640px) {
+  .tasks-mgr-tab-btn {
+    gap: 0.4rem;
+    font-size: 13.5px;
+    padding: 0.55rem 0.75rem;
+    min-height: 2.65rem;
+  }
+
+  .tasks-mgr-tab-label {
+    white-space: nowrap;
+  }
+}
+
+.fixed-tasks-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.fixed-task-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.fixed-task-row-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.fixed-task-row-title {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.fixed-task-row-delete {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  border-radius: 10px;
+  color: var(--text-3);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color 160ms var(--ease-out),
+    background 160ms var(--ease-out);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.fixed-task-row-delete:hover {
+  color: var(--danger);
+  background: var(--danger-bg);
+}
+
+.fixed-task-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.fixed-task-row-desc {
+  width: 100%;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -8616,48 +8724,53 @@ select {
    Manager dashboard — employee labor cost panel
    ============================================================ */
 .labor-cost-panel {
-  border-radius: calc(var(--radius) + 2px);
+  --labor-hourly: var(--accent-2);
+  --labor-topup: #6d8f7a;
+  --labor-topup-bg: #e8f0eb;
+  --labor-bonus: #5a8fd4;
+  --labor-bonus-bg: #e6eef8;
+  border-radius: var(--radius);
   background: var(--surface);
   box-shadow: var(--shadow-card);
   border: 1px solid var(--border);
   overflow: hidden;
 }
 
-.labor-cost-header {
+.labor-cost-top {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 1rem 1.25rem;
-  padding: 1.25rem 1.35rem 1rem;
+  gap: 0.85rem 1rem;
+  padding: 1rem 1.25rem;
   border-bottom: 1px solid var(--border);
-  background: var(--surface-2);
 }
 
-.labor-cost-badge {
-  display: inline-flex;
+.labor-cost-top-main {
+  display: flex;
   align-items: center;
-  gap: 0.35rem;
-  padding: 0.28rem 0.65rem;
-  border-radius: 999px;
-  font-size: 11.5px;
-  font-weight: 800;
-  color: var(--accent-2);
-  background: var(--violet-bg);
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.labor-cost-top-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
 }
 
 .labor-granularity {
   display: inline-flex;
   padding: 3px;
   border-radius: 11px;
-  background: var(--surface);
+  background: var(--surface-2);
   border: 1px solid var(--border);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .labor-granularity-btn {
-  min-width: 3.1rem;
-  padding: 0.38rem 0.75rem;
+  min-width: 2.85rem;
+  padding: 0.36rem 0.72rem;
   border-radius: 8px;
   font-size: 12px;
   font-weight: 800;
@@ -8671,36 +8784,89 @@ select {
   box-shadow: var(--shadow-card);
 }
 
-.labor-cost-link {
+.labor-cost-more {
   display: inline-flex;
   align-items: center;
-  gap: 0.15rem;
+  gap: 0.1rem;
   font-size: 12px;
   font-weight: 800;
-  color: var(--accent-2);
-  transition: opacity 180ms var(--ease-out);
+  color: var(--text-3);
+  transition: color 180ms var(--ease-out);
 }
 
-.labor-cost-link:hover {
-  opacity: 0.82;
+.labor-cost-more:hover {
+  color: var(--accent-2);
 }
 
 .labor-cost-body {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 1.25rem;
-  padding: 1.25rem 1.35rem 1.1rem;
+  gap: 1rem;
+  padding: 1.1rem 1.25rem 1rem;
 }
 
 @media (min-width: 900px) {
   .labor-cost-body {
-    grid-template-columns: minmax(220px, 280px) 1fr;
+    grid-template-columns: minmax(210px, 250px) 1fr;
     align-items: stretch;
+    gap: 1.15rem;
   }
 }
 
 .labor-cost-hero-stat {
-  padding: 0.15rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 1rem 1.05rem;
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.labor-cost-hero-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.labor-cost-hero-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.45rem 0.55rem;
+}
+
+.labor-cost-hero-amount {
+  font-size: clamp(1.85rem, 5vw, 2.35rem);
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.labor-cost-hero-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.15rem;
+}
+
+.labor-meta-note {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-3);
+}
+
+.labor-breakdown-grid {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.35rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border);
 }
 
 .labor-breakdown-pill {
@@ -8742,21 +8908,64 @@ select {
 .labor-hours-chip {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0.15rem 0.55rem;
+  gap: 0.28rem;
+  padding: 0.18rem 0.52rem;
   border-radius: 999px;
-  background: var(--surface-2);
+  background: var(--surface);
   border: 1px solid var(--border);
   color: var(--text-2);
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .labor-cost-chart-wrap {
   min-width: 0;
-  padding: 0.85rem 0.95rem 0.35rem;
-  border-radius: var(--radius);
+  padding: 0.95rem 1rem 0.45rem;
+  border-radius: calc(var(--radius) - 2px);
   background: var(--surface-2);
   border: 1px solid var(--border);
+}
+
+.labor-chart-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.labor-chart-title {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.labor-cost-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  padding: 2.5rem 1rem;
+  text-align: center;
+}
+
+.labor-cost-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-3);
+}
+
+.labor-cost-empty p {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-3);
 }
 
 .labor-legend-item {
@@ -8775,15 +8984,15 @@ select {
 }
 
 .labor-legend-dot--hourly {
-  background: var(--accent-2);
+  background: var(--labor-hourly);
 }
 
 .labor-legend-dot--topup {
-  background: var(--warning);
+  background: var(--labor-topup);
 }
 
 .labor-legend-dot--bonus {
-  background: var(--info);
+  background: var(--labor-bonus);
 }
 
 .labor-chart-bars {
@@ -8828,15 +9037,15 @@ select {
 }
 
 .labor-chart-seg--hourly {
-  background: var(--accent-2);
+  background: var(--labor-hourly);
 }
 
 .labor-chart-seg--topup {
-  background: var(--warning);
+  background: var(--labor-topup);
 }
 
 .labor-chart-seg--bonus {
-  background: var(--info);
+  background: var(--labor-bonus);
 }
 
 .labor-chart-label {
@@ -8850,12 +9059,12 @@ select {
 }
 
 .labor-chart-col[data-today] .labor-chart-stack {
-  outline: 2px solid var(--accent-2);
+  outline: 2px solid var(--labor-hourly);
   outline-offset: 1px;
 }
 
 .labor-chart-col[data-today] .labor-chart-label {
-  color: var(--accent-2);
+  color: var(--labor-hourly);
   font-weight: 900;
 }
 
@@ -8863,11 +9072,28 @@ select {
   opacity: 0.45;
 }
 
+.labor-chart[data-compact] .labor-chart-col {
+  min-width: 2rem;
+}
+
+.labor-chart[data-compact] .labor-chart-label {
+  font-size: 10.5px;
+  font-weight: 800;
+}
+
+.labor-chart[data-compact] .labor-chart-value {
+  font-size: 9.5px;
+}
+
+.labor-chart[data-compact] .labor-chart-bars {
+  gap: 0.4rem;
+}
+
 .labor-cost-footer {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 0.65rem;
-  padding: 0.85rem 1.35rem 1.15rem;
+  gap: 0.55rem;
+  padding: 0.75rem 1.25rem 1rem;
   border-top: 1px solid var(--border);
   background: var(--surface);
 }
@@ -8875,8 +9101,8 @@ select {
 .labor-cost-footer-stat {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
-  padding: 0.55rem 0.65rem;
+  gap: 0.5rem;
+  padding: 0.55rem 0.6rem;
   border-radius: 11px;
   background: var(--surface-2);
   border: 1px solid var(--border);
@@ -8892,7 +9118,7 @@ select {
     grid-template-columns: 1fr;
   }
 
-  .labor-cost-header {
+  .labor-cost-top {
     padding-inline: 1rem;
   }
 
@@ -8902,6 +9128,11 @@ select {
 
   .labor-cost-footer {
     padding-inline: 1rem;
+  }
+
+  .labor-cost-top-actions {
+    width: 100%;
+    justify-content: space-between;
   }
 }
 
@@ -11486,6 +11717,73 @@ select {
   font-weight: 800;
   color: var(--text-2);
   background: var(--surface-2);
+}
+
+.users-filter-btn {
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  color: var(--text-2);
+  background: var(--surface);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  position: relative;
+}
+
+.users-filter-btn[data-active="true"] {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+
+.users-filter-btn:active {
+  filter: brightness(0.97);
+}
+
+.users-role-filter-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.75rem 0.875rem;
+  border: none;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  background: transparent;
+  cursor: pointer;
+  text-align: right;
+}
+
+.users-role-filter-option:hover {
+  background: var(--surface-2);
+}
+
+.users-role-filter-option[data-active="true"] {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+
+.users-role-filter-count {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-3);
+  background: var(--surface-2);
+  border-radius: 999px;
+  padding: 0.15rem 0.5rem;
+  min-width: 1.5rem;
+  text-align: center;
+}
+
+.users-role-filter-option[data-active="true"] .users-role-filter-count {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
 }
 
 .users-add-btn {

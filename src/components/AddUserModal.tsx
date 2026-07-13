@@ -28,6 +28,7 @@ export function AddUserModal({ open, onClose, businessId, businesses, roles }: P
   const [departmentId, setDepartmentId] = useState<string>("");
   const [wageType, setWageType] = useState<WageType>("hourly");
   const [hourlyRate, setHourlyRate] = useState("");
+  const [pensionActive, setPensionActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const effectiveBiz = businessId ?? bizId;
@@ -47,6 +48,7 @@ export function AddUserModal({ open, onClose, businessId, businesses, roles }: P
         phone: phone || undefined,
         hourly_rate: hourlyRate ? Number(hourlyRate) : 0,
         wage_type: wageType,
+        pension_active: pensionActive,
       });
       onClose();
       reset();
@@ -56,7 +58,7 @@ export function AddUserModal({ open, onClose, businessId, businesses, roles }: P
   }
 
   function reset() {
-    setFullName(""); setEmail(""); setPhone(""); setPassword(""); setHourlyRate(""); setDepartmentId(""); setWageType("hourly");
+    setFullName(""); setEmail(""); setPhone(""); setPassword(""); setHourlyRate(""); setDepartmentId(""); setWageType("hourly"); setPensionActive(false);
   }
 
   return (
@@ -135,6 +137,16 @@ export function AddUserModal({ open, onClose, businessId, businesses, roles }: P
             עובד טיפים מקבל את חלקו מקופת הטיפים. אם בחישוב המשמרת התעריף השעתי יוצא נמוך מהמינימום — משלימים לו עד המינימום שהוזן.
           </div>
         )}
+        <label className="flex cursor-pointer items-center gap-2.5 rounded-[11px] border border-border px-3.5 py-3">
+          <input
+            type="checkbox"
+            checked={pensionActive}
+            onChange={(e) => setPensionActive(e.target.checked)}
+            className="h-[17px] w-[17px]"
+            style={{ accentColor: "var(--accent-2)" }}
+          />
+          <span className="text-[14px] font-semibold">פנסיה פעילה</span>
+        </label>
         <Field label="סיסמה ראשונית">
           <Input type="text" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="לפחות 6 תווים" />
         </Field>
