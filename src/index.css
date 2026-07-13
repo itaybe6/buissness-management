@@ -3133,64 +3133,6 @@ select {
   }
 }
 
-/* Today's shift — footer of the hero card */
-.worker-shift-block--station {
-  margin-top: 1.05rem;
-  padding-top: 1rem;
-  border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
-  text-align: right;
-}
-
-.worker-shift-block-label {
-  margin-bottom: 0.6rem;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-3);
-}
-
-.worker-shift-row {
-  display: flex;
-  align-items: center;
-  gap: 0.7rem;
-  padding: 0.7rem 0.8rem;
-  border-radius: 16px;
-  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
-  background: color-mix(in srgb, var(--surface-2) 72%, var(--surface));
-}
-
-.worker-shift-icon {
-  display: grid;
-  place-items: center;
-  flex: none;
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: 13px;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.15);
-}
-
-.worker-shift-time {
-  flex: none;
-  padding: 0.26rem 0.55rem;
-  border-radius: 999px;
-  background: var(--surface);
-  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  font-family: ui-monospace, "SF Mono", "Cascadia Code", monospace;
-  font-size: 12px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-2);
-  white-space: nowrap;
-}
-
-.worker-shift-empty {
-  padding: 1rem;
-  border-radius: 16px;
-  border: 1px dashed var(--border);
-  background: color-mix(in srgb, var(--surface-2) 60%, var(--surface));
-  text-align: center;
-}
 
 /* Week schedule toggle */
 .worker-week-section {
@@ -11854,6 +11796,78 @@ select {
 .manager-on-shift-chip:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
+}
+
+/* Manager dashboard — attendance feed by department */
+.manager-attendance-feed {
+  overflow: hidden;
+}
+
+.manager-attendance-feed__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem 0;
+}
+
+.manager-attendance-feed__stats {
+  padding: 0.85rem 1rem 0;
+}
+
+.manager-attendance-feed__body {
+  padding: 0.85rem 1rem 1rem;
+}
+
+.manager-attendance-feed__body .attendance-feed--mobile {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.manager-attendance-feed__body .attendance-feed-sections--mobile {
+  gap: 0.65rem;
+}
+
+@media (min-width: 768px) {
+  .manager-attendance-feed__head {
+    padding: 1rem 1.25rem 0;
+  }
+
+  .manager-attendance-feed__body {
+    padding: 0 0 0.25rem;
+  }
+
+  .manager-attendance-feed__body .attendance-feed-sections {
+    padding: 0 1.25rem 1rem;
+  }
+}
+
+@media (max-width: 767px) {
+  .dash-hero .dash-hero-chip {
+    font-size: 11.5px;
+    padding: 0.35rem 0.65rem;
+  }
+
+  .dash-kpi {
+    padding: 0.85rem !important;
+  }
+
+  .dash-kpi .text-\[24px\] {
+    font-size: 1.35rem;
+  }
+
+  .dash-panel > .p-5 {
+    padding: 1rem;
+  }
+}
+
+.manager-attendance-feed--worker {
+  border-radius: 22px;
+  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  animation: userCellIn 380ms var(--ease-out) both;
 }
 
 

@@ -3,6 +3,7 @@ import { motion, useReducedMotion } from "motion/react";
 import { Icon } from "@/components/ui";
 import { HE_DAYS, addDays, formatDateShort, weekStart, todayISO } from "@/lib/db";
 import { matchesRecurrenceWeekday } from "@/lib/taskRecurrence";
+import { isRecurringTaskForDate, recurringOccurrenceDate } from "@/lib/todayTasks";
 import type { Department, Profile, Task, TaskTemplate } from "@/types/database";
 
 function dayIndex(iso: string): number {
@@ -10,11 +11,10 @@ function dayIndex(iso: string): number {
 }
 
 function tasksForCell(tasks: Task[], employeeId: string, date: string): Task[] {
-  const weekday = dayIndex(date);
   return tasks.filter((t) => {
     if (t.assigned_to !== employeeId) return false;
     if (t.type === "recurring" && t.recurrence_weekday != null) {
-      return matchesRecurrenceWeekday(t.recurrence_weekday, weekday);
+      return isRecurringTaskForDate(t, date);
     }
     if (t.type === "one_time" && t.due_date) {
       return t.due_date === date;
@@ -35,7 +35,7 @@ function templatesForCell(
       t.active &&
       matchesRecurrenceWeekday(t.recurrence_weekday, weekday) &&
       (t.department_id == null || t.department_id === emp.department_id) &&
-      !materialized.has(`${emp.id}:${t.id}`),
+      !materialized.has(`${emp.id}:${t.id}:${date}`),
   );
 }
 
@@ -254,7 +254,9 @@ export function TaskWeekSchedule({
   const materialized = useMemo(() => {
     const s = new Set<string>();
     tasks.forEach((t) => {
-      if (t.template_id && t.assigned_to) s.add(`${t.assigned_to}:${t.template_id}`);
+      if (!t.template_id || !t.assigned_to || t.type !== "recurring") return;
+      const date = recurringOccurrenceDate(t);
+      if (date) s.add(`${t.assigned_to}:${t.template_id}:${date}`);
     });
     return s;
   }, [tasks]);

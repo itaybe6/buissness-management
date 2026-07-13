@@ -4,6 +4,47 @@ import type { Task, TaskTemplate, UserRole } from "@/types/database";
 
 export const VIRTUAL_TASK_PREFIX = "tpl-";
 
+function weekdayFromDate(date: string): number {
+  return new Date(date + "T12:00:00").getDay();
+}
+
+/** Calendar day a materialized recurring task row belongs to. */
+export function recurringOccurrenceDate(
+  task: Pick<Task, "due_date" | "completed_at" | "created_at">,
+): string | null {
+  if (task.due_date) return task.due_date;
+  if (task.completed_at) return task.completed_at.slice(0, 10);
+  return null;
+}
+
+/** Whether a materialized recurring row belongs on a given calendar day. */
+export function isRecurringTaskForDate(
+  task: Pick<Task, "type" | "recurrence_weekday" | "due_date" | "completed_at" | "created_at">,
+  date: string,
+): boolean {
+  if (task.type !== "recurring") return false;
+  if (!matchesRecurrenceWeekday(task.recurrence_weekday, weekdayFromDate(date))) return false;
+
+  const occurrence = recurringOccurrenceDate(task);
+  if (occurrence) return occurrence === date;
+
+  // Legacy rows without an explicit occurrence date: only show on the day they were created.
+  return task.created_at.startsWith(date);
+}
+
+export function recurringMaterializedTemplateIds(
+  tasks: Task[],
+  profileId: string,
+  date: string,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const t of tasks) {
+    if (t.assigned_to !== profileId || !t.template_id || t.type !== "recurring") continue;
+    if (isRecurringTaskForDate(t, date)) ids.add(t.template_id);
+  }
+  return ids;
+}
+
 export function virtualRecurringTask(t: TaskTemplate, profileId: string, businessId: string): Task {
   return {
     id: `${VIRTUAL_TASK_PREFIX}${t.id}`,
@@ -37,7 +78,7 @@ export function isTaskVisibleInDailyChecklist(
   todayWeekday: number,
 ): boolean {
   if (task.type === "recurring") {
-    return matchesRecurrenceWeekday(task.recurrence_weekday, todayWeekday);
+    return isRecurringTaskForDate(task, today);
   }
   if (task.status !== "done") return true;
   if (task.due_date === today) return true;
@@ -69,9 +110,7 @@ export function buildTodayTasks(
 ): Task[] {
   const mine = tasks.filter((t) => t.assigned_to === profileId && t.approval_status !== "pending");
 
-  const materializedTemplateIds = new Set(
-    tasks.filter((t) => t.assigned_to === profileId && t.template_id).map((t) => t.template_id),
-  );
+  const materializedTemplateIds = recurringMaterializedTemplateIds(tasks, profileId, today);
 
   const virtualToday = templates
     .filter(

@@ -1,5 +1,4 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
 import { Button, Icon } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { AttendancePunchStation } from "@/components/attendance/AttendancePunchStation";
@@ -9,8 +8,7 @@ import { useAuth } from "@/lib/auth";
 import { useBusinessId } from "@/lib/db";
 import { ROLE_LABELS } from "@/lib/constants";
 import { useShiftPunch } from "@/hooks/useShiftPunch";
-import { TeamOnShiftPanel } from "@/components/dashboard/TeamOnShiftPanel";
-import type { ShiftTemplate } from "@/types/database";
+import { ManagerAttendanceFeed } from "@/components/dashboard/ManagerAttendanceFeed";
 
 type TimeOfDay = "morning" | "afternoon" | "evening" | "night";
 
@@ -45,30 +43,9 @@ function useLiveClock() {
   return now;
 }
 
-function TodayShiftRow({ template }: { template: ShiftTemplate }) {
-  return (
-    <div className="worker-shift-row">
-      <span
-        className="worker-shift-icon"
-        style={{ background: template.color ?? "var(--accent)" }}
-      >
-        <Icon name="schedule" size={20} className="text-white" />
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[14.5px] font-extrabold tracking-tight text-text">{template.name}</div>
-      </div>
-      <span className="worker-shift-time">
-        {template.start_time?.slice(0, 5)}–{template.end_time?.slice(0, 5)}
-      </span>
-    </div>
-  );
-}
-
 function WorkerClockStation({ time }: { time: string }) {
   const {
     showAttendance,
-    showShifts,
-    todayShifts,
     onShift,
     shiftElapsed,
     pending,
@@ -89,27 +66,6 @@ function WorkerClockStation({ time }: { time: string }) {
 
   const punchReady = Boolean(biz);
 
-  const shiftFooter = showShifts ? (
-    <div className="worker-shift-block--station">
-      <div className="worker-shift-block-label">המשמרת של היום</div>
-      {todayShifts.length > 0 ? (
-        <div className="flex flex-col gap-2">
-          {todayShifts.map((t) => (
-            <TodayShiftRow key={t.id} template={t} />
-          ))}
-        </div>
-      ) : (
-        <div className="worker-shift-empty">
-          <Icon name="event_busy" size={22} className="text-text-3" />
-          <div className="mt-2 text-[13px] font-bold text-text-2">אין משמרת משובצת להיום</div>
-          <Link to="/shifts" className="mt-1 inline-block text-[12.5px] font-semibold text-accent-2 hover:underline">
-            צפייה בלוח משמרות
-          </Link>
-        </div>
-      )}
-    </div>
-  ) : undefined;
-
   return (
     <>
       <div className="worker-hero-punch">
@@ -122,7 +78,6 @@ function WorkerClockStation({ time }: { time: string }) {
           onPunch={handleClock}
           compact
           bare
-          footer={shiftFooter}
         />
       </div>
 
@@ -191,6 +146,7 @@ export function WorkerHome({
   const firstName = (profile?.full_name ?? "").split(/\s+/)[0];
   const role = profile?.role ?? "employee";
   const showTasks = hasFeature("tasks");
+  const showAttendance = hasFeature("attendance");
   const slot = timeOfDay(now.getHours());
 
   return (
@@ -227,8 +183,6 @@ export function WorkerHome({
         <WorkerClockStation time={timeStr} />
       </section>
 
-      {variant === "shift_manager" && <TeamOnShiftPanel />}
-
       {showTasks && businessId && profile && (
         <DailyTasksChecklist
           tasks={todayTasks}
@@ -237,6 +191,10 @@ export function WorkerHome({
           onMedia={setMedia}
           variant={variant === "shift_manager" ? "dashboard" : "employee"}
         />
+      )}
+
+      {showAttendance && (
+        <ManagerAttendanceFeed className="manager-attendance-feed manager-attendance-feed--worker" />
       )}
 
       {children}

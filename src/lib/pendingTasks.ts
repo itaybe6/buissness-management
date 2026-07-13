@@ -1,6 +1,7 @@
 import type { Task, TaskTemplate, UserRole } from "@/types/database";
+import { todayISO } from "@/lib/db";
 import { matchesRecurrenceWeekday } from "@/lib/taskRecurrence";
-import { templateVisibleForDailyChecklist } from "@/lib/todayTasks";
+import { isRecurringTaskForDate, recurringMaterializedTemplateIds, templateVisibleForDailyChecklist } from "@/lib/todayTasks";
 
 export interface PendingTask {
   title: string;
@@ -21,12 +22,11 @@ export function pendingTasksForEmployee(
   weekday: number,
   role?: UserRole | null,
 ): PendingTask[] {
+  const today = todayISO();
   const result: PendingTask[] = [];
 
-  // Recurring templates of today not yet turned into a real row → still open.
-  const materializedTemplateIds = new Set(
-    tasks.filter((t) => t.assigned_to === profileId && t.template_id).map((t) => t.template_id),
-  );
+  // Recurring templates of today not yet turned into a real row for this date → still open.
+  const materializedTemplateIds = recurringMaterializedTemplateIds(tasks, profileId, today);
   templates.forEach((t) => {
     if (
       t.active &&
@@ -42,7 +42,7 @@ export function pendingTasksForEmployee(
   tasks.forEach((t) => {
     if (t.assigned_to !== profileId || t.approval_status === "pending" || t.status === "done") return;
     if (t.type === "recurring") {
-      if (matchesRecurrenceWeekday(t.recurrence_weekday, weekday)) result.push({ title: t.title, type: "recurring" });
+      if (isRecurringTaskForDate(t, today)) result.push({ title: t.title, type: "recurring" });
     } else {
       result.push({ title: t.title, type: "one_time" });
     }

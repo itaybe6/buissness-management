@@ -1,7 +1,7 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
-import { useBusinessId, formatCurrency, initialsOf, colorFor } from "@/lib/db";
+import { useBusinessId, formatCurrency } from "@/lib/db";
 import { useBusiness } from "@/api/businesses";
 import { useShiftReports } from "@/api/shiftReports";
 import { useProfiles } from "@/api/users";
@@ -10,11 +10,11 @@ import { useFaults } from "@/api/faults";
 import { useInventory, isTrackedLowStock } from "@/api/inventory";
 import { useWaste } from "@/api/waste";
 import { useAttendanceToday } from "@/api/attendance";
-import { ForceClockOutModal, type ForceClockOutTarget } from "@/components/attendance/ForceClockOutModal";
 import { Icon } from "@/components/ui";
 import type { FeatureKey } from "@/types/database";
 import { AreaChart, BarChart, CountUp, DonutChart, RadialGauge } from "./charts";
 import { EmployeeCostPanel } from "./EmployeeCostPanel";
+import { ManagerAttendanceFeed } from "./ManagerAttendanceFeed";
 
 /* ----------------------------- helpers ----------------------------- */
 function monthKey(d: Date): string {
@@ -147,7 +147,6 @@ export function ManagerDashboard() {
   const businessId = useBusinessId();
   const { profile, features } = useAuth();
   const on = (k: FeatureKey) => features.has(k);
-  const [clockOutTarget, setClockOutTarget] = useState<ForceClockOutTarget | null>(null);
 
   const now = useMemo(() => new Date(), []);
   const thisMonth = monthKey(now);
@@ -326,6 +325,20 @@ export function ManagerDashboard() {
         <div className="dash-hero-aurora dash-hero-aurora--2" />
         <div className="dash-hero-grid" />
         <div className="relative flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
+          <div className="min-w-0 md:hidden">
+            <h1 className="text-[22px] font-extrabold tracking-tight text-white">
+              {greeting()}{firstName ? `, ${firstName}` : ""}
+            </h1>
+            <p className="mt-1 text-[12.5px] font-medium text-white/65">{heToday}</p>
+            {on("attendance") && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Link to="/attendance" className="dash-hero-chip">
+                  <span className="dash-live-dot" />
+                  <strong>{onShiftPeople.length}</strong> במשמרת כעת
+                </Link>
+              </div>
+            )}
+          </div>
           <div className="hidden min-w-0 md:block">
             <div className="flex items-center gap-2 text-[12.5px] font-bold text-white/60">
               <Icon name="calendar_today" size={15} />
@@ -535,60 +548,6 @@ export function ManagerDashboard() {
           </Panel>
         )}
 
-        {/* Team on shift */}
-        {on("attendance") && (
-          <Panel title="הצוות כעת" icon="badge" to="/attendance" span="lg:col-span-8" delay={340}>
-            {onShift.length > 0 ? (
-              <div>
-                <div className="mb-3 flex items-center gap-2">
-                  <span className="dash-live-dot" />
-                  <span className="text-[13px] font-extrabold text-text">{onShift.length} עובדים במשמרת</span>
-                  <span className="text-[12px] font-semibold text-text-3">· {attendance.length} החתמות היום</span>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {onShift.map((a) => {
-                    const p = profilesById.get(a.employee_id);
-                    const since = a.clock_in
-                      ? new Date(a.clock_in).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })
-                      : "";
-                    const avatarColor = colorFor(a.employee_id);
-                    return (
-                      <button
-                        key={a.id}
-                        type="button"
-                        className="manager-on-shift-chip"
-                        onClick={() =>
-                          setClockOutTarget({
-                            attendanceId: a.id,
-                            employeeName: p?.full_name ?? "עובד/ת",
-                            clockIn: a.clock_in!,
-                            avatarColor,
-                          })
-                        }
-                        aria-label={`הוצא את ${p?.full_name ?? "העובד"} ממשמרת`}
-                      >
-                        <div className="min-w-0 text-right">
-                          <div className="truncate text-[12.5px] font-bold leading-tight text-text">{p?.full_name ?? "—"}</div>
-                          {since && <div className="text-[10.5px] font-semibold text-text-3">מאז {since}</div>}
-                        </div>
-                        <span
-                          className="grid h-8 w-8 flex-none place-items-center rounded-full text-[11px] font-extrabold text-white"
-                          style={{ background: avatarColor }}
-                          aria-hidden
-                        >
-                          {initialsOf(p?.full_name)}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : (
-              <EmptyPanel icon="nightlight" text={`אין עובדים מוחתמים כרגע · ${attendance.length} החתמות היום`} />
-            )}
-          </Panel>
-        )}
-
         {/* Team energy */}
         {on("shift_reports") && avgEnergy > 0 && (
           <Panel title="אנרגיית הצוות" icon="bolt" span="lg:col-span-4" delay={380}>
@@ -606,12 +565,8 @@ export function ManagerDashboard() {
           </Panel>
         )}
       </div>
-      <ForceClockOutModal
-        open={!!clockOutTarget}
-        target={clockOutTarget}
-        businessId={businessId}
-        onClose={() => setClockOutTarget(null)}
-      />
+
+      {on("attendance") && <ManagerAttendanceFeed />}
     </div>
   );
 }

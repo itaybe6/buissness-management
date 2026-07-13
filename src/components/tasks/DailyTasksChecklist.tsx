@@ -4,7 +4,7 @@ import { Button, Icon } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { EASE_OUT } from "@/components/motion/shared-motion";
 import { todayISO } from "@/lib/db";
-import { buildTodayTasks, VIRTUAL_TASK_PREFIX } from "@/lib/todayTasks";
+import { buildTodayTasks, isRecurringTaskForDate, VIRTUAL_TASK_PREFIX } from "@/lib/todayTasks";
 import { useCreateTask, useTasks, useUpdateTask, uploadTaskMedia } from "@/api/tasks";
 import { useTaskTemplates } from "@/api/taskTemplates";
 import type { Task, TaskStatus, UserRole } from "@/types/database";
@@ -18,13 +18,6 @@ const STATUS_META: Record<TaskStatus, { label: string; short: string; tone: Stat
   done: { label: "בוצע", short: "בוצע", tone: "success", color: "var(--success)", icon: "check_circle" },
 };
 const STATUS_ORDER: TaskStatus[] = ["open", "in_progress", "done"];
-type StatusFilter = "all" | "in_progress" | "done";
-
-const FILTER_OPTIONS: { key: StatusFilter; label: string; status?: "in_progress" | "done" }[] = [
-  { key: "all", label: "הכל" },
-  { key: "in_progress", label: STATUS_META.in_progress.short, status: "in_progress" },
-  { key: "done", label: STATUS_META.done.short, status: "done" },
-];
 
 const VIDEO_RE = /\.(mp4|mov|m4v|webm|avi|mkv|quicktime)$/i;
 
@@ -75,7 +68,10 @@ export function useDailyTaskActions(
           if (id.startsWith(VIRTUAL_TASK_PREFIX)) {
             const templateId = id.slice(VIRTUAL_TASK_PREFIX.length);
             const materialized = tasks.find(
-              (t) => t.assigned_to === profileId && t.template_id === templateId,
+              (t) =>
+                t.assigned_to === profileId &&
+                t.template_id === templateId &&
+                isRecurringTaskForDate(t, today),
             );
             if (materialized && prev[id]) {
               next[materialized.id] = { ...next[materialized.id], ...prev[id] };
@@ -115,6 +111,7 @@ export function useDailyTaskActions(
       description: tpl.description,
       type: "recurring",
       assigned_to: profileId,
+      due_date: today,
       recurrence_weekday: tpl.recurrence_weekday,
       ...extra,
     });
@@ -142,81 +139,48 @@ export function useDailyTaskActions(
   return { todayTasks, setStatus, setMedia };
 }
 
-function TaskStatusFilter({
+function tasksHeroSummary(open: number, inProgress: number, total: number) {
+  if (total === 0) return "אין משימות להיום";
+  if (!open && !inProgress) return "הכל בוצע · כל הכבוד";
+  const parts: string[] = [];
+  if (open) parts.push(open === 1 ? "משימה אחת מצריכה טיפול" : `${open} משימות מצריכות טיפול`);
+  if (inProgress) parts.push(inProgress === 1 ? "אחת בטיפול" : `${inProgress} בטיפול`);
+  return parts.join(" · ");
+}
+
+function TaskStatusTiles({
+  counts,
   value,
   onChange,
-  counts,
 }: {
-  value: StatusFilter;
-  onChange: (next: StatusFilter) => void;
-  counts: Record<StatusFilter, number>;
+  counts: Record<TaskStatus, number>;
+  value: TaskStatus | null;
+  onChange: (next: TaskStatus | null) => void;
 }) {
   return (
-    <div className="task-checklist-filters" role="group" aria-label="סינון לפי סטטוס">
-      {FILTER_OPTIONS.map((opt) => {
-        const active = value === opt.key;
-        const count = counts[opt.key];
-        const meta = opt.status ? STATUS_META[opt.status] : null;
+    <div className="task-tiles" role="group" aria-label="סינון לפי סטטוס">
+      {STATUS_ORDER.map((s) => {
+        const m = STATUS_META[s];
+        const active = value === s;
         return (
           <button
-            key={opt.key}
+            key={s}
             type="button"
-            onClick={() => onChange(opt.key)}
+            className="task-tile"
+            data-tone={m.tone}
+            data-active={active}
+            data-alert={s === "open" && counts[s] > 0}
             aria-pressed={active}
-            data-active={active ? "true" : "false"}
-            data-status={opt.status ?? "all"}
-            className="task-checklist-filter press"
+            onClick={() => onChange(active ? null : s)}
           >
-            {meta ? <Icon name={meta.icon} size={15} className="flex-none" /> : <Icon name="list" size={15} className="flex-none" />}
-            <span>{opt.label}</span>
-            <span className="task-checklist-filter-count">{count}</span>
+            <span className="task-tile__icon">
+              <Icon name={m.icon} size={17} />
+            </span>
+            <span className="task-tile__count">{counts[s]}</span>
+            <span className="task-tile__label">{m.short}</span>
           </button>
         );
       })}
-    </div>
-  );
-}
-
-function ChecklistProgress({ total, done }: { total: number; done: number }) {
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-  const allDone = total > 0 && done === total;
-  const accent = allDone ? "var(--success)" : "var(--accent-2)";
-
-  return (
-    <div className="flex items-center gap-3">
-      <div
-        className="relative grid h-11 w-11 flex-none place-items-center"
-        role="img"
-        aria-label={`${pct}% הושלמו`}
-      >
-        <svg viewBox="0 0 36 36" className="absolute inset-0 h-full w-full -rotate-90" aria-hidden>
-          <circle cx="18" cy="18" r="15.5" fill="none" stroke="var(--border-2)" strokeWidth="3" />
-          <circle
-            cx="18"
-            cy="18"
-            r="15.5"
-            fill="none"
-            stroke={accent}
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeDasharray={`${pct * 0.973} 100`}
-            style={{ transition: "stroke-dasharray 400ms var(--ease-out), stroke 200ms var(--ease-out)" }}
-          />
-        </svg>
-        {allDone ? (
-          <Icon name="check" size={18} style={{ color: "var(--success)" }} />
-        ) : (
-          <span className="text-[11px] font-extrabold tabular-nums" style={{ color: accent }}>
-            {done}/{total}
-          </span>
-        )}
-      </div>
-      <div className="min-w-0">
-        <div className="text-[13px] font-extrabold tracking-tight text-text">
-          {allDone ? "הכל בוצע" : done === 0 ? "עדיין לא התחלת" : `${total - done} נותרו`}
-        </div>
-        <div className="mt-0.5 text-[11px] text-text-3">{pct}% מהיום</div>
-      </div>
     </div>
   );
 }
