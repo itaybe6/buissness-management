@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { Button, Card, EmptyState, Icon, Input, PageHeader, PageLoader, ErrorState, Field, Textarea } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useProfiles } from "@/api/users";
@@ -6,7 +6,7 @@ import { useAuth } from "@/lib/auth";
 import { addDays, todayISO, toISODate, useBusinessId } from "@/lib/db";
 import { isVideoFile, isVideoUrl } from "@/lib/media";
 import { useFaults, useCreateFault, useUpdateFault, uploadFaultPhotos } from "@/api/faults";
-import type { FaultStatus } from "@/types/database";
+import type { Fault, FaultStatus } from "@/types/database";
 
 type StatusTone = "danger" | "warning" | "success";
 
@@ -92,6 +92,49 @@ function formatFaultTimeRelative(iso: string) {
   return `${date} · ${time}`;
 }
 
+function formatFaultExact(iso: string) {
+  const d = new Date(iso);
+  const time = d.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const date = d.toLocaleDateString("he-IL", { day: "numeric", month: "numeric", year: "numeric" });
+  return `${date} · ${time}`;
+}
+
+function faultDayLabel(day: string) {
+  const today = todayISO();
+  if (day === today) return "היום";
+  if (day === addDays(today, -1)) return "אתמול";
+  const d = new Date(`${day}T00:00:00`);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  const weekday = d.toLocaleDateString("he-IL", { weekday: "long" });
+  const date = d.toLocaleDateString("he-IL", {
+    day: "numeric",
+    month: "numeric",
+    ...(sameYear ? {} : { year: "numeric" as const }),
+  });
+  return `${weekday} · ${date}`;
+}
+
+type FaultDayGroup = { day: string; label: string; items: Fault[] };
+
+function groupFaultsByDay(list: Fault[]): FaultDayGroup[] {
+  const groups: FaultDayGroup[] = [];
+  for (const f of list) {
+    const day = faultDay(f.created_at);
+    const last = groups[groups.length - 1];
+    if (last?.day === day) last.items.push(f);
+    else groups.push({ day, label: faultDayLabel(day), items: [f] });
+  }
+  return groups;
+}
+
+function faultsHeroSummary(needsHandling: number, inProgress: number) {
+  if (!needsHandling && !inProgress) return "אין תקלות פתוחות · הכל טופל";
+  const parts: string[] = [];
+  if (needsHandling) parts.push(needsHandling === 1 ? "תקלה אחת דורשת טיפול" : `${needsHandling} תקלות דורשות טיפול`);
+  if (inProgress) parts.push(inProgress === 1 ? "אחת בטיפול" : `${inProgress} בטיפול`);
+  return parts.join(" · ");
+}
+
 function FaultMediaItem({ url }: { url: string }) {
   if (isVideoUrl(url)) {
     return (
@@ -106,7 +149,7 @@ function FaultMediaItem({ url }: { url: string }) {
   return <img src={url} alt="תקלה" className="h-full w-full object-cover" />;
 }
 
-function FaultMediaCarousel({ urls, tall, overlay }: { urls: string[]; tall?: boolean; overlay?: ReactNode }) {
+function FaultMediaCarousel({ urls, tall }: { urls: string[]; tall?: boolean }) {
   const [index, setIndex] = useState(0);
   const touchStart = useRef<number | null>(null);
   const count = urls.length;
@@ -141,8 +184,6 @@ function FaultMediaCarousel({ urls, tall, overlay }: { urls: string[]; tall?: bo
       <div key={index} className="absolute inset-0 animate-fadeIn">
         <FaultMediaItem url={urls[index]} />
       </div>
-
-      {overlay}
 
       {count > 1 && (
         <>
@@ -223,6 +264,117 @@ function FaultStatusSegmented({
         );
       })}
     </div>
+  );
+}
+
+function FaultRowMobile({
+  fault,
+  reporterName,
+  index,
+  expanded,
+  onToggle,
+  statusPending,
+  onStatusChange,
+}: {
+  fault: Fault;
+  reporterName?: string;
+  index: number;
+  expanded: boolean;
+  onToggle: () => void;
+  statusPending: boolean;
+  onStatusChange: (s: FaultStatus) => void;
+}) {
+  const meta = STATUS_META[fault.status];
+  const mediaUrls = fault.photo_urls ?? [];
+  const cover = mediaUrls[0];
+
+  return (
+    <article
+      className="fault-row"
+      data-tone={meta.tone}
+      data-expanded={expanded}
+      style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }}
+    >
+      <button type="button" className="fault-row__head" onClick={onToggle} aria-expanded={expanded}>
+        <span className="fault-row__edge" aria-hidden />
+
+        {cover ? (
+          <span className="fault-row__thumb">
+            {isVideoUrl(cover) ? (
+              <>
+                <video src={cover} muted playsInline preload="metadata" />
+                <span className="fault-row__thumb-play">
+                  <Icon name="play_arrow" size={20} />
+                </span>
+              </>
+            ) : (
+              <img src={cover} alt="" loading="lazy" />
+            )}
+            {mediaUrls.length > 1 && (
+              <span className="fault-row__thumb-count">
+                <Icon name="photo_library" size={10} />
+                {mediaUrls.length}
+              </span>
+            )}
+          </span>
+        ) : (
+          <span className="fault-row__thumb fault-row__thumb--icon">
+            <Icon name={meta.icon} size={22} />
+          </span>
+        )}
+
+        <span className="fault-row__copy">
+          <span className="fault-row__title">{fault.description}</span>
+          <span className="fault-row__meta">
+            <span className="fault-row__pill">
+              <span className="fault-row__pill-dot" aria-hidden />
+              {meta.label}
+            </span>
+            <span className="fault-row__meta-sep" aria-hidden>
+              ·
+            </span>
+            <time dateTime={fault.created_at}>{formatFaultTimeRelative(fault.created_at)}</time>
+            {reporterName && (
+              <>
+                <span className="fault-row__meta-sep" aria-hidden>
+                  ·
+                </span>
+                <span className="fault-row__meta-reporter">{reporterName}</span>
+              </>
+            )}
+          </span>
+        </span>
+
+        <span className="fault-row__chevron" aria-hidden>
+          <Icon name="expand_more" size={19} />
+        </span>
+      </button>
+
+      <div className="fault-row__panel">
+        <div className="fault-row__panel-inner">
+          {mediaUrls.length > 0 && <FaultMediaCarousel urls={mediaUrls} tall />}
+          <div className="fault-row__details">
+            <div className="fault-row__stamp">
+              <Icon name="schedule" size={14} />
+              <span>{formatFaultExact(fault.created_at)}</span>
+              {reporterName && (
+                <>
+                  <span className="fault-row__meta-sep" aria-hidden>
+                    ·
+                  </span>
+                  <Icon name="person" size={14} />
+                  <span>{reporterName}</span>
+                </>
+              )}
+            </div>
+            <div className="fault-row__seg">
+              <span className="fault-row__seg-label">עדכון סטטוס</span>
+              <FaultStatusSegmented value={fault.status} solid disabled={statusPending} onChange={onStatusChange} />
+            </div>
+          </div>
+        </div>
+      </div>
+    </article>
   );
 }
 
@@ -365,6 +517,7 @@ export function Faults() {
   const [datePreset, setDatePreset] = useState<DatePreset>("all");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const mediaRef = useRef(media);
   mediaRef.current = media;
@@ -391,6 +544,11 @@ export function Faults() {
 
   const visible = dateFiltered.filter((f) => (filter ? f.status === filter : true));
   const hasActiveFilters = filter !== null || datePreset !== "all";
+
+  const openNeedsHandling = (faults ?? []).filter((f) => f.status === "needs_handling").length;
+  const openInProgress = (faults ?? []).filter((f) => f.status === "in_progress").length;
+  const dayGroups = groupFaultsByDay(visible);
+  const indexById = new Map(visible.map((f, i) => [f.id, i]));
 
   function resetForm() {
     setDesc("");
@@ -576,7 +734,88 @@ export function Faults() {
     <div className="w-full animate-fadeUp">
       {/* ── Mobile ── */}
       <div className="faults-mobile md:hidden">
-        {filterBar}
+        <header className="faults-hero">
+          <span className="faults-hero__icon">
+            <Icon name="handyman" size={22} />
+          </span>
+          <div className="faults-hero__copy">
+            <h1 className="faults-hero__title">תקלות</h1>
+            <p className="faults-hero__sub">{faultsHeroSummary(openNeedsHandling, openInProgress)}</p>
+          </div>
+        </header>
+
+        <div className="faults-tiles" role="group" aria-label="סינון לפי סטטוס">
+          {STATUS_ORDER.map((s) => {
+            const m = STATUS_META[s];
+            return (
+              <button
+                key={s}
+                type="button"
+                className="faults-tile"
+                data-tone={m.tone}
+                data-active={filter === s}
+                data-alert={s === "needs_handling" && counts[s] > 0}
+                aria-pressed={filter === s}
+                onClick={() => setFilter(filter === s ? null : s)}
+              >
+                <span className="faults-tile__icon">
+                  <Icon name={m.icon} size={17} />
+                </span>
+                <span className="faults-tile__count">{counts[s]}</span>
+                <span className="faults-tile__label">{m.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="faults-date-row" role="group" aria-label="סינון לפי תאריך">
+          <span className="faults-date-row__icon" aria-hidden>
+            <Icon name="calendar_today" size={14} />
+          </span>
+          {DATE_PRESETS.map(({ key, label }) => (
+            <button
+              key={key}
+              type="button"
+              className="faults-filter-chip"
+              data-active={datePreset === key}
+              onClick={() => setDatePreset(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {datePreset === "custom" && (
+          <div className="faults-filter-bar__range">
+            <Input
+              type="date"
+              value={customFrom}
+              onChange={(e) => setCustomFrom(e.target.value)}
+              className="faults-filter-bar__date"
+              aria-label="מתאריך"
+            />
+            <span className="faults-filter-bar__range-sep">עד</span>
+            <Input
+              type="date"
+              value={customTo}
+              onChange={(e) => setCustomTo(e.target.value)}
+              className="faults-filter-bar__date"
+              aria-label="עד תאריך"
+            />
+          </div>
+        )}
+
+        {hasActiveFilters && (
+          <div className="faults-results">
+            <span className="faults-results__count">
+              {visible.length === total ? `${total} תקלות` : `${visible.length} מתוך ${total} תקלות`}
+            </span>
+            <button type="button" className="faults-filter-bar__clear" onClick={clearFilters}>
+              <Icon name="filter_alt_off" size={15} />
+              נקה סינון
+            </button>
+          </div>
+        )}
 
         {visible.length === 0 ? (
           <EmptyState
@@ -586,65 +825,29 @@ export function Faults() {
           />
         ) : (
           <div className="faults-feed">
-            {visible.map((f, i) => {
-              const meta = STATUS_META[f.status];
-              const mediaUrls = f.photo_urls ?? [];
-              const reporterName = f.reported_by ? reporterById.get(f.reported_by) : undefined;
-              return (
-                <article
-                  key={f.id}
-                  className="fault-card"
-                  style={{ animationDelay: `${Math.min(i, 8) * 45}ms` }}
-                >
-                  {mediaUrls.length > 0 && (
-                    <FaultMediaCarousel
-                      urls={mediaUrls}
-                      tall
-                      overlay={
-                        <span className="fault-media-chip" data-tone={meta.tone}>
-                          <Icon name={meta.icon} size={14} />
-                          {meta.label}
-                        </span>
-                      }
+            {dayGroups.map((group) => (
+              <section key={group.day} className="faults-day">
+                <header className="faults-day__head">
+                  <span className="faults-day__label">{group.label}</span>
+                  <span className="faults-day__count">{group.items.length}</span>
+                  <span className="faults-day__line" aria-hidden />
+                </header>
+                <div className="faults-day__list">
+                  {group.items.map((f) => (
+                    <FaultRowMobile
+                      key={f.id}
+                      fault={f}
+                      reporterName={f.reported_by ? reporterById.get(f.reported_by) : undefined}
+                      index={indexById.get(f.id) ?? 0}
+                      expanded={expandedId === f.id}
+                      onToggle={() => setExpandedId((prev) => (prev === f.id ? null : f.id))}
+                      statusPending={updateFault.isPending}
+                      onStatusChange={(status) => onStatusChange(f.id, status, f.status)}
                     />
-                  )}
-
-                  <div className="fault-card-body">
-                    <div className="fault-card-head">
-                      {mediaUrls.length === 0 && (
-                        <span className="fault-card-status" data-tone={meta.tone} aria-label={meta.label}>
-                          <Icon name={meta.icon} size={20} />
-                        </span>
-                      )}
-                      <div className="fault-card-copy">
-                        <h3 className="fault-card-title">{f.description}</h3>
-                        <div className="fault-card-meta">
-                          <time dateTime={f.created_at}>{formatFaultTimeRelative(f.created_at)}</time>
-                          {reporterName && (
-                            <>
-                              <span className="fault-card-meta-dot" aria-hidden>
-                                ·
-                              </span>
-                              <span className="fault-card-meta-reporter">
-                                <Icon name="person" size={13} />
-                                {reporterName}
-                              </span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <FaultStatusSegmented
-                      value={f.status}
-                      solid
-                      disabled={updateFault.isPending}
-                      onChange={(status) => onStatusChange(f.id, status, f.status)}
-                    />
-                  </div>
-                </article>
-              );
-            })}
+                  ))}
+                </div>
+              </section>
+            ))}
           </div>
         )}
 

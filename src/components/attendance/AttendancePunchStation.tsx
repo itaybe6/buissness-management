@@ -10,6 +10,7 @@ export function AttendancePunchStation({
   busy,
   onPunch,
   compact = false,
+  bare = false,
   footer,
 }: {
   timeStr: string;
@@ -19,11 +20,13 @@ export function AttendancePunchStation({
   busy: boolean;
   onPunch: () => void;
   compact?: boolean;
+  /** Renders without the card chrome, for embedding inside another card. */
+  bare?: boolean;
   footer?: ReactNode;
 }) {
   return (
     <section
-      className={`attendance-station${compact ? " attendance-station--mobile" : ""}`}
+      className={`attendance-station${compact ? " attendance-station--mobile" : ""}${bare ? " attendance-station--bare" : ""}`}
       data-on-shift={onShift}
       aria-label="שעון חי וסימון נוכחות"
     >

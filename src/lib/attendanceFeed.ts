@@ -1,4 +1,4 @@
-import { addDays } from "@/lib/db";
+import { addDays, toISODate } from "@/lib/db";
 import type { Attendance, ShiftAssignment, ShiftTemplate } from "@/types/database";
 
 function startTimeMinutes(time: string): number {
@@ -160,6 +160,20 @@ export function filterAttendanceForCalendarDay(records: Attendance[], today: str
   });
 }
 
+/**
+ * Whether a punch belongs in today's attendance feed.
+ * Completed shifts are attributed to the day they started — overnight shifts that
+ * ended after midnight are not shown on the following calendar day.
+ */
+export function attendanceBelongsToTodayFeed(record: Attendance, today: string): boolean {
+  if (!record.clock_in) return false;
+  const clockInDate = toISODate(new Date(record.clock_in));
+  if (clockInDate === today) return true;
+  // Still open from a prior day (forgot to clock out) — keep visible.
+  if (!record.clock_out && clockInDate < today) return true;
+  return false;
+}
+
 /** Keep punches for employees assigned to today's shifts whose times overlap their shift. */
 export function filterAttendanceForTodayShift(input: {
   records: Attendance[];
@@ -170,7 +184,7 @@ export function filterAttendanceForTodayShift(input: {
   now?: Date;
 }): Attendance[] {
   const { records, today, assignments, templates, shiftsEnabled, now = new Date() } = input;
-  const dayRecords = filterAttendanceForCalendarDay(records, today);
+  const dayRecords = records.filter((r) => attendanceBelongsToTodayFeed(r, today));
 
   if (!shiftsEnabled) return dayRecords;
 
@@ -188,7 +202,7 @@ export function filterAttendanceForTodayShift(input: {
     return empAssignments.some((a) => {
       const template = templateById.get(a.shift_template_id);
       if (!template) return true;
-      return punchOverlapsShiftWindow(record.clock_in!, record.clock_out, template, now);
+      return punchOverlapsShiftOnDate(record.clock_in!, record.clock_out, today, template, now);
     });
   });
 }

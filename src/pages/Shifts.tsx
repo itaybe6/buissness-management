@@ -229,10 +229,6 @@ function EmployeeView() {
   if (!isDesktop) {
     return (
       <div className="w-full animate-fadeUp employee-shifts-mobile">
-        <header className="employee-shifts-hero">
-          <h2 className="employee-shifts-hero-title">הגשת זמינות</h2>
-          <p className="employee-shifts-hero-sub">סמנו באילו משמרות אתם יכולים לעבוד בשבוע הבא</p>
-        </header>
         <EmployeeConstraints templates={templates} />
         <EmployeeSchedule templates={templates} collapsed />
       </div>
@@ -593,7 +589,6 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
             )}
           </div>
 
-          <span className="payroll-hero-label">משמרות שסימנת השבוע</span>
           <div className="payroll-hero-total prefs-hero-total">
             {filledCells}
             <span className="prefs-hero-of">/{totalCells}</span>
