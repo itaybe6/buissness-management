@@ -4,6 +4,7 @@ import { Badge, Button, EmptyState, Field, Icon, Input, ErrorState, Select, Spin
 import { Modal } from "@/components/ui/Modal";
 import { WastePanel } from "@/components/waste/WastePanel";
 import { DualUnitQtyInput } from "@/components/inventory/DualUnitQtyInput";
+import { InventoryQtyUpdatePanel } from "@/components/inventory/InventoryQtyUpdatePanel";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId, HE_DAYS } from "@/lib/db";
 import {
@@ -25,8 +26,6 @@ import {
   inventorySaveError,
   supportsPieceInput,
   mainUnitToPieces,
-  formatQtyWithPieces,
-  canUsePieceInput,
   type ItemWithQty,
   type ItemLog,
   isTrackedLowStock,
@@ -450,8 +449,10 @@ function ItemDetailModal({
   canUpdateCount,
   isManager,
   canManageOrders,
+  savingFactor,
   onClose,
   onSetQty,
+  onSaveUnitsPerPackage,
   onEdit,
   onHistory,
   onOrder,
@@ -461,8 +462,10 @@ function ItemDetailModal({
   canUpdateCount: boolean;
   isManager: boolean;
   canManageOrders: boolean;
+  savingFactor?: boolean;
   onClose: () => void;
   onSetQty: (qty: number) => void;
+  onSaveUnitsPerPackage?: (value: number) => void;
   onEdit: () => void;
   onHistory: () => void;
   onOrder: () => void;
@@ -471,7 +474,9 @@ function ItemDetailModal({
 
   const status = stockStatus(item);
   const meta = STOCK_META[status];
-  const dual = canUsePieceInput(item.unit, item.units_per_package);
+  const pieceUnit = supportsPieceInput(item.unit);
+  const effectiveFactor = item.units_per_package ?? 0;
+  const showPieces = pieceUnit && effectiveFactor > 0;
 
   return (
     <Modal
@@ -522,9 +527,9 @@ function ItemDetailModal({
             <div className="text-[10px] font-semibold text-text-3">במלאי</div>
             <div className="mt-1 text-[20px] font-extrabold tabular-nums leading-none">{item.current_qty}</div>
             {item.unit && <div className="mt-0.5 text-[11px] font-medium text-text-3">{item.unit}</div>}
-            {dual && (
+            {showPieces && (
               <div className="mt-0.5 text-[10px] font-medium text-text-3">
-                ({mainUnitToPieces(item.current_qty, item.units_per_package!)} יח׳)
+                ({mainUnitToPieces(item.current_qty, effectiveFactor)} יח׳)
               </div>
             )}
           </div>
@@ -557,22 +562,13 @@ function ItemDetailModal({
         <div className="rounded-[12px] border border-border bg-surface p-3.5">
           <div className="mb-3 text-[13px] font-bold text-text">עדכון מלאי</div>
           {canUpdateCount ? (
-            <>
-              <DualUnitQtyInput
-                value={item.current_qty}
-                mainUnit={item.unit}
-                unitsPerPackage={item.units_per_package}
-                onCommit={onSetQty}
-                variant="input"
-                defaultMode={dual ? "pieces" : "main"}
-              />
-              {dual && (
-                <p className="mt-2 text-[12px] leading-relaxed text-text-3">
-                  ניתן לעדכן ב{item.unit} או ביחידות בודדות — למשל להוסיף 3 חלבונים בלי לספור ארגז שלם.
-                  כרגע: {formatQtyWithPieces(item.current_qty, item.unit, item.units_per_package)}.
-                </p>
-              )}
-            </>
+            <InventoryQtyUpdatePanel
+              item={item}
+              isManager={isManager}
+              onSetQty={onSetQty}
+              onSaveUnitsPerPackage={onSaveUnitsPerPackage}
+              savingFactor={savingFactor}
+            />
           ) : (
             <p className="text-[13px] text-text-3">אין הרשאה לעדכן מלאי.</p>
           )}
@@ -1344,6 +1340,7 @@ export function Inventory() {
   const [orderFilter, setOrderFilter] = useState<OrderFilter>("all");
   const [wasteSearchQuery, setWasteSearchQuery] = useState("");
   const [wasteFilter, setWasteFilter] = useState<WasteFilter>("all");
+  const [savingFactor, setSavingFactor] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const isManager = !!(profile && ["manager", "shift_manager", "office_manager"].includes(profile.role));
@@ -1437,6 +1434,23 @@ export function Inventory() {
       quantity,
       previous_qty: item.current_qty,
     });
+  }
+
+  async function handleSaveUnitsPerPackage(item: ItemWithQty, value: number) {
+    setSavingFactor(true);
+    try {
+      await updateItem.mutateAsync({
+        id: item.id,
+        business_id: businessId!,
+        employee_id: profile?.id ?? null,
+        changes: { units_per_package: value },
+        note: `עודכן: יחידים ב${item.unit ?? "יחידה"} (${value})`,
+      });
+    } catch (e) {
+      window.alert(inventorySaveError(e));
+    } finally {
+      setSavingFactor(false);
+    }
   }
 
   function openEdit(item: ItemWithQty) {
@@ -1959,8 +1973,14 @@ export function Inventory() {
         canUpdateCount={canUpdateCount}
         isManager={isManager}
         canManageOrders={canManageOrders}
+        savingFactor={savingFactor}
         onClose={closeItemDetail}
         onSetQty={(quantity) => detailItemLive && handleSetQty(detailItemLive, quantity)}
+        onSaveUnitsPerPackage={
+          detailItemLive && isManager
+            ? (value) => handleSaveUnitsPerPackage(detailItemLive, value)
+            : undefined
+        }
         onEdit={() => {
           if (!detailItemLive) return;
           closeItemDetail();

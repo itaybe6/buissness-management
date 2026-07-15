@@ -9,12 +9,10 @@ import {
   useSignatures,
   useUpdateAgreement,
 } from "@/api/agreements";
-import { useAllForm101, useForm101 } from "@/api/forms";
 import { useProfiles } from "@/api/users";
 import { Modal } from "@/components/ui/Modal";
 import type { AgreementSignature, AgreementTemplate, Profile } from "@/types/database";
 import { AgreementEditorModal, ReadSignModal, type EditorVariant } from "./AgreementModals";
-import { Form101Modal } from "./Form101Modal";
 import {
   DocsEmployeeEmpty,
   DocsEmptyBox,
@@ -265,7 +263,6 @@ export function ManagerDocumentsView({
   const [tab, setTab] = useState<ManagerTab>(canReceipts && !canEdit ? "receipts" : "status");
   const { data: employees } = useProfiles(businessId);
   const { data: signatures } = useSignatures(businessId);
-  const { data: forms101 } = useAllForm101(businessId, TAX_YEAR);
 
   const staff = useMemo(
     () => (employees ?? []).filter((e) => e.active && ["employee", "shift_manager", "office_manager"].includes(e.role)),
@@ -288,9 +285,9 @@ export function ManagerDocumentsView({
         <OfficeReceiptsPanel businessId={businessId} profileId={profileId} canManage={canReceipts} />
       )}
       {tab === "status" && (
-        <DocumentStatusTable staff={staff} signatures={signatures ?? []} forms101={forms101 ?? []} globalFixed={globalFixed} globalWork={globalWork} agreements={agreements} taxYear={TAX_YEAR} />
+        <DocumentStatusTable staff={staff} signatures={signatures ?? []} globalFixed={globalFixed} globalWork={globalWork} agreements={agreements} taxYear={TAX_YEAR} />
       )}
-      {tab === "form101" && <Form101OverviewTable staff={staff} forms101={forms101 ?? []} taxYear={TAX_YEAR} />}
+      {tab === "form101" && <Form101OverviewTable staff={staff} agreements={agreements} signatures={signatures ?? []} taxYear={TAX_YEAR} />}
       {tab === "templates" && <TemplatesPanel businessId={businessId} agreements={agreements} employees={staff} canEdit={canEdit} profileId={profileId} />}
     </>
   );
@@ -317,17 +314,14 @@ export function EmployeeDocumentsView({
     [employees]
   );
   const { data: signatures } = useSignatures(businessId, employeeId);
-  const { data: form101 } = useForm101(businessId, employeeId, TAX_YEAR);
   const myAgreements = useMemo(() => agreementsForEmployee(agreements, employeeId), [agreements, employeeId]);
   const [reading, setReading] = useState<AgreementTemplate | null>(null);
-  const [form101Open, setForm101Open] = useState(false);
   const [fabVariant, setFabVariant] = useState<EditorVariant | null>(null);
   const [pageTab, setPageTab] = useState<"mine" | "manage">(canEditTemplates ? "manage" : "mine");
   const signedSet = new Set((signatures ?? []).filter((s) => s.agreed).map((s) => s.agreement_id));
 
-  const pending = myAgreements.filter((a) => !signedSet.has(a.id)).length + (form101?.submitted ? 0 : 1);
+  const pending = myAgreements.filter((a) => !signedSet.has(a.id)).length;
   const showTabs = Boolean(canEditTemplates && profileId);
-  const form101Done = form101?.submitted === true;
 
   return (
     <div className="docs-page">
@@ -342,29 +336,8 @@ export function EmployeeDocumentsView({
 
       {(!showTabs || pageTab === "mine") && (
         <>
-          {(myAgreements.length > 0 || !form101Done) ? (
+          {myAgreements.length > 0 ? (
             <div className="profile-card">
-              {!form101Done && (
-                <button
-                  type="button"
-                  className={`profile-action-row ${myAgreements.length === 0 ? "profile-action-row--last" : ""}`}
-                  onClick={() => setForm101Open(true)}
-                >
-                  <span className="profile-action-row-icon" data-tone="warning">
-                    <Icon name="description" size={20} />
-                  </span>
-                  <span className="profile-action-row-text">
-                    <span className="profile-action-row-title">
-                      טופס 101 · {TAX_YEAR}
-                      <span className="docs-pending-dot" aria-hidden />
-                    </span>
-                    <span className="profile-action-row-desc" data-pending>
-                      {form101 ? "טיוטה — ממתין להגשה" : "ממתין למילוי"}
-                    </span>
-                  </span>
-                  <Icon name="chevron_left" size={22} className="profile-action-row-chevron" />
-                </button>
-              )}
               {myAgreements.map((a, i) => {
                 const signedDoc = signedSet.has(a.id);
                 return (
@@ -385,9 +358,6 @@ export function EmployeeDocumentsView({
 
           {reading && (
             <ReadSignModal agreement={reading} employeeId={employeeId} signature={signatureOf(signatures ?? [], reading.id, employeeId)} onClose={() => setReading(null)} />
-          )}
-          {form101Open && (
-            <Form101Modal employeeId={employeeId} taxYear={TAX_YEAR} onClose={() => setForm101Open(false)} />
           )}
         </>
       )}

@@ -318,7 +318,7 @@ export function EmployeeDocRow({
           {!signed && <span className="docs-pending-dot" aria-hidden />}
         </span>
         <span className="profile-action-row-desc" data-pending={!signed || undefined}>
-          {signed ? TYPE_LABELS[type] : "ממתין לחתימה"}
+          {signed ? (type === "form_101" ? "נחתם" : TYPE_LABELS[type]) : "ממתין לחתימה"}
         </span>
       </span>
       <Icon name="chevron_left" size={22} className="profile-action-row-chevron" />

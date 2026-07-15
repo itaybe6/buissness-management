@@ -250,6 +250,7 @@ create table public.agreement_signatures (
   field_signatures jsonb not null default '{}'::jsonb, -- מיפוי fieldId -> תמונת חתימה (dataURL)
   signed_file_url text,                          -- ה-PDF הסופי החתום (חתימות מוטבעות)
   signed_at     timestamptz,
+  email_notified_at timestamptz,
   created_at    timestamptz not null default now(),
   unique (agreement_id, employee_id)
 );

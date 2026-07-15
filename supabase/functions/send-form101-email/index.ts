@@ -1,13 +1,12 @@
 // Supabase Edge Function: send-form101-email
-// Sends Form 101 submission details to the office manager(s) via Resend.
-// Called by the employee after submitting their form (best-effort from the client).
+// Sends a signed Form 101 PDF notification to office manager(s) via Resend.
+// Called by the employee after signing their Form 101 agreement (best-effort from client).
 //
 // Deploy:
 //   supabase functions deploy send-form101-email
 //   supabase secrets set RESEND_API_KEY=<resend-api-key>
 //   (or insert into private.runtime_secrets — service_role only)
 //   supabase secrets set FORM101_EMAIL_FROM="Business Manager <onboarding@resend.dev>"
-// (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY / SUPABASE_ANON_KEY are provided automatically.)
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -15,24 +14,6 @@ const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
-
-const FIELD_LABELS: Record<string, string> = {
-  id_number: "תעודת זהות",
-  address: "כתובת",
-  city: "עיר",
-  phone: "טלפון",
-  marital_status: "מצב משפחתי",
-  children: "מספר ילדים",
-  bank_account: "חשבון בנק",
-  notes: "הערות",
-};
-
-const MARITAL_LABELS: Record<string, string> = {
-  single: "רווק/ה",
-  married: "נשוי/אה",
-  divorced: "גרוש/ה",
-  widowed: "אלמן/ה",
 };
 
 Deno.serve(async (req) => {
@@ -54,10 +35,11 @@ Deno.serve(async (req) => {
     const caller = userData?.user;
     if (!caller) return json({ error: "unauthorized" }, 401);
 
-    const { employee_id, tax_year } = await req.json();
-    if (!employee_id || !tax_year) return json({ error: "missing employee_id or tax_year" }, 400);
+    const { agreement_id, employee_id } = await req.json();
+    if (!agreement_id || !employee_id) {
+      return json({ error: "missing agreement_id or employee_id" }, 400);
+    }
 
-    // Only the employee may trigger notification for their own form
     if (caller.id !== employee_id) return json({ error: "forbidden" }, 403);
 
     const admin = createClient(url, serviceKey);
@@ -67,16 +49,26 @@ Deno.serve(async (req) => {
       Deno.env.get("TASK_EMAIL_FROM") ??
       "onboarding@resend.dev";
 
-    const { data: form } = await admin
-      .from("form_101")
-      .select("id, business_id, employee_id, tax_year, data, submitted, submitted_at, email_notified_at")
+    const { data: agreement } = await admin
+      .from("agreement_templates")
+      .select("id, business_id, title, type, employee_id")
+      .eq("id", agreement_id)
+      .single();
+
+    if (!agreement) return json({ error: "agreement not found" }, 404);
+    if (agreement.type !== "form_101") return json({ error: "not_form_101" }, 400);
+    if (agreement.employee_id !== employee_id) return json({ error: "forbidden" }, 403);
+
+    const { data: sig } = await admin
+      .from("agreement_signatures")
+      .select("id, agreed, signed_at, signed_file_url, email_notified_at")
+      .eq("agreement_id", agreement_id)
       .eq("employee_id", employee_id)
-      .eq("tax_year", tax_year)
       .maybeSingle();
 
-    if (!form) return json({ error: "form not found" }, 404);
-    if (!form.submitted) return json({ skipped: "not_submitted" });
-    if (form.email_notified_at) return json({ skipped: "already_notified" });
+    if (!sig) return json({ error: "signature not found" }, 404);
+    if (!sig.agreed) return json({ skipped: "not_signed" });
+    if (sig.email_notified_at) return json({ skipped: "already_notified" });
 
     const { data: employee } = await admin
       .from("profiles")
@@ -87,7 +79,7 @@ Deno.serve(async (req) => {
     const { data: officeManagers } = await admin
       .from("profiles")
       .select("full_name, email")
-      .eq("business_id", form.business_id)
+      .eq("business_id", agreement.business_id)
       .eq("role", "office_manager")
       .eq("active", true)
       .not("email", "is", null);
@@ -97,7 +89,7 @@ Deno.serve(async (req) => {
       const { data: managers } = await admin
         .from("profiles")
         .select("full_name, email")
-        .eq("business_id", form.business_id)
+        .eq("business_id", agreement.business_id)
         .eq("role", "manager")
         .eq("active", true)
         .not("email", "is", null);
@@ -109,21 +101,21 @@ Deno.serve(async (req) => {
     const { data: business } = await admin
       .from("businesses")
       .select("name")
-      .eq("id", form.business_id)
+      .eq("id", agreement.business_id)
       .single();
 
     if (!resendKey) return json({ error: "email not configured (RESEND_API_KEY missing)" }, 500);
 
     const employeeName = employee?.full_name ?? "עובד/ת";
     const businessName = business?.name ?? "";
-    const subject = `טופס 101 הוגש — ${employeeName} · ${tax_year}`;
+    const subject = `טופס 101 נחתם — ${employeeName}`;
     const html = renderEmail({
       managerName: recipients[0].full_name ?? "",
       employeeName,
       businessName,
-      taxYear: tax_year,
-      submittedAt: form.submitted_at,
-      data: (form.data ?? {}) as Record<string, unknown>,
+      formTitle: agreement.title,
+      signedAt: sig.signed_at,
+      signedFileUrl: sig.signed_file_url,
     });
 
     const to = recipients.map((r) => r.email!);
@@ -142,9 +134,9 @@ Deno.serve(async (req) => {
     }
 
     await admin
-      .from("form_101")
+      .from("agreement_signatures")
       .update({ email_notified_at: new Date().toISOString() })
-      .eq("id", form.id);
+      .eq("id", sig.id);
 
     return json({ sent: true, to });
   } catch (e) {
@@ -164,49 +156,33 @@ async function resolveResendKey(admin: ReturnType<typeof createClient>): Promise
   return data?.value ?? undefined;
 }
 
-function formatFieldValue(key: string, value: unknown): string {
-  if (value == null || value === "") return "—";
-  if (key === "marital_status" && typeof value === "string") {
-    return MARITAL_LABELS[value] ?? value;
-  }
-  return String(value);
-}
-
 function renderEmail(p: {
   managerName: string;
   employeeName: string;
   businessName: string;
-  taxYear: number;
-  submittedAt: string | null;
-  data: Record<string, unknown>;
+  formTitle: string;
+  signedAt: string | null;
+  signedFileUrl: string | null;
 }) {
-  const submitted = p.submittedAt
-    ? new Date(p.submittedAt).toLocaleString("he-IL", { dateStyle: "medium", timeStyle: "short" })
+  const signed = p.signedAt
+    ? new Date(p.signedAt).toLocaleString("he-IL", { dateStyle: "medium", timeStyle: "short" })
     : "—";
 
-  const rows = Object.entries(FIELD_LABELS)
-    .map(([key, label]) => {
-      const val = formatFieldValue(key, p.data[key]);
-      return `<tr>
-        <td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600;color:#555;white-space:nowrap">${escapeHtml(label)}</td>
-        <td style="padding:8px 12px;border-bottom:1px solid #eee;color:#1a1a1a">${escapeHtml(val)}</td>
-      </tr>`;
-    })
-    .join("");
+  const download = p.signedFileUrl
+    ? `<p style="margin:16px 0 0"><a href="${escapeHtml(p.signedFileUrl)}" style="display:inline-block;padding:10px 16px;background:#2563eb;color:#fff;text-decoration:none;border-radius:8px;font-weight:600">צפייה בטופס החתום (PDF)</a></p>`
+    : "";
 
   return `
   <div dir="rtl" style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#1a1a1a">
     <h2 style="margin:0 0 4px">שלום${p.managerName ? ` ${escapeHtml(p.managerName)}` : ""},</h2>
     <p style="margin:0 0 16px;color:#555">
-      ${escapeHtml(p.employeeName)} הגיש/ה טופס 101 לשנת המס ${p.taxYear}${p.businessName ? ` ב${escapeHtml(p.businessName)}` : ""}.
+      ${escapeHtml(p.employeeName)} חתם/ה על ${escapeHtml(p.formTitle)}${p.businessName ? ` ב${escapeHtml(p.businessName)}` : ""}.
     </p>
-    <div style="border:1px solid #eee;border-radius:12px;padding:16px;background:#fafafa;margin-bottom:16px">
-      <div style="font-size:14px;color:#777;margin-bottom:8px">תאריך הגשה: ${submitted}</div>
-      <table style="width:100%;border-collapse:collapse;font-size:14px">
-        <tbody>${rows}</tbody>
-      </table>
+    <div style="border:1px solid #eee;border-radius:12px;padding:16px;background:#fafafa">
+      <div style="font-size:14px;color:#777">תאריך חתימה: ${signed}</div>
+      ${download}
     </div>
-    <p style="margin:0;color:#999;font-size:12px">הודעה אוטומטית ממערכת ניהול העסק · ניתן לצפות בטופס בעמוד מסמכי עובדים.</p>
+    <p style="margin:16px 0 0;color:#999;font-size:12px">הודעה אוטומטית ממערכת ניהול העסק · ניתן לצפות בטופס גם בעמוד מסמכי עובדים.</p>
   </div>`;
 }
 

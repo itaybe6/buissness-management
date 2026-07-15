@@ -172,3 +172,25 @@ export function signatureOf(
     (s) => s.agreement_id === agreementId && s.employee_id === employeeId && s.agreed
   );
 }
+
+/** Form 101 templates assigned to a specific employee. */
+export function form101ForEmployee(
+  templates: AgreementTemplate[],
+  employeeId: string
+): AgreementTemplate | undefined {
+  return templates.find((t) => t.type === "form_101" && t.employee_id === employeeId);
+}
+
+/**
+ * Best-effort email to office manager when a Form 101 PDF is signed.
+ * Never throws — a failed notification must not break signing.
+ */
+export async function notifyForm101Signed(agreementId: string, employeeId: string): Promise<void> {
+  try {
+    await supabase.functions.invoke("send-form101-email", {
+      body: { agreement_id: agreementId, employee_id: employeeId },
+    });
+  } catch {
+    // swallow — notification is non-critical
+  }
+}

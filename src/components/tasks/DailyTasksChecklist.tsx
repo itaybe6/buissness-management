@@ -533,24 +533,20 @@ function DailyTaskRow({
                   <span className="task-row-card__pill-dot" aria-hidden />
                   {meta.short}
                 </span>
-                <span className="task-row-card__meta-sep" aria-hidden>
-                  ·
-                </span>
-                <span className="task-row-card__meta-type">{task.type === "recurring" ? "קבועה" : "חד־פעמית"}</span>
-                {documenterName && (
+                {expanded && (
                   <>
                     <span className="task-row-card__meta-sep" aria-hidden>
                       ·
                     </span>
-                    <span className="task-row-card__meta-doc">תועד ע״י {documenterName}</span>
-                  </>
-                )}
-                {task.description && (
-                  <>
-                    <span className="task-row-card__meta-sep" aria-hidden>
-                      ·
-                    </span>
-                    <span className="task-row-card__meta-desc">{task.description}</span>
+                    <span className="task-row-card__meta-type">{task.type === "recurring" ? "קבועה" : "חד־פעמית"}</span>
+                    {documenterName && (
+                      <>
+                        <span className="task-row-card__meta-sep" aria-hidden>
+                          ·
+                        </span>
+                        <span className="task-row-card__meta-doc">תועד ע״י {documenterName}</span>
+                      </>
+                    )}
                   </>
                 )}
               </span>
@@ -694,20 +690,13 @@ export function DailyTasksChecklist({
   const isEmployee = variant === "employee";
   const isDashboard = variant === "dashboard";
   const wrapped = isEmployee || isDashboard;
-  const title = isEmployee ? "משימות להיום" : "צ'ק-ליסט משימות יומיות";
 
   if (tasks.length === 0) {
     if (wrapped) {
       return (
         <section className="task-checklist">
           <header className="task-hero">
-            <span className="task-hero__icon">
-              <Icon name="checklist" size={20} />
-            </span>
-            <div className="task-hero__copy">
-              <h2 className="task-hero__title">{title}</h2>
-              <p className="task-hero__sub">{todayLabel}</p>
-            </div>
+            <p className="task-hero__sub">{todayLabel}</p>
           </header>
           <div className="px-5 py-11 text-center sm:px-6">
             <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-success-bg">
@@ -735,13 +724,7 @@ export function DailyTasksChecklist({
     return (
       <section className="task-checklist">
         <header className="task-hero">
-          <span className="task-hero__icon">
-            <Icon name="checklist" size={20} />
-          </span>
-          <div className="task-hero__copy">
-            <h2 className="task-hero__title">{title}</h2>
-            <p className="task-hero__sub">{tasksHeroSummary(openCount, inProgressCount, tasks.length)}</p>
-          </div>
+          <p className="task-hero__sub">{tasksHeroSummary(openCount, inProgressCount, tasks.length)}</p>
         </header>
 
         <div className="task-checklist-body">

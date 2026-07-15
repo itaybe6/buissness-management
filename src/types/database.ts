@@ -163,6 +163,7 @@ export interface AgreementSignature {
   /** flattened, signed PDF with signatures stamped in */
   signed_file_url: string | null;
   signed_at: string | null;
+  email_notified_at: string | null;
   created_at: string;
 }
 

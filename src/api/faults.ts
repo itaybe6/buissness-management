@@ -74,9 +74,26 @@ export function useCreateFault() {
 export function useUpdateFault(businessId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { id: string; status?: FaultStatus; assigned_to?: string | null }) => {
+    mutationFn: async (input: {
+      id: string;
+      status?: FaultStatus;
+      assigned_to?: string | null;
+      description?: string;
+      photo_urls?: string[];
+    }) => {
       const { id, ...rest } = input;
       const { error } = await supabase.from("faults").update(rest).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["faults", businessId] }),
+  });
+}
+
+export function useDeleteFault(businessId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("faults").delete().eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["faults", businessId] }),

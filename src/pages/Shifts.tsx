@@ -123,9 +123,21 @@ function ProgressRing({ pct, done }: { pct: number; done: boolean }) {
   );
 }
 
-function WeekNav({ wkStart, onShift, onToday }: { wkStart: string; onShift: (d: number) => void; onToday?: () => void }) {
+function WeekNav({
+  wkStart,
+  onShift,
+  onToday,
+  maxWeekStart,
+}: {
+  wkStart: string;
+  onShift: (d: number) => void;
+  onToday?: () => void;
+  /** When set, blocks navigating past this week (ISO Sunday). */
+  maxWeekStart?: string;
+}) {
   const end = addDays(wkStart, 6);
   const isCurrentWeek = wkStart === weekStart();
+  const atMax = maxWeekStart != null && wkStart >= maxWeekStart;
   return (
     <div className="shift-week-nav-group">
       <div className="shift-week-nav">
@@ -133,7 +145,13 @@ function WeekNav({ wkStart, onShift, onToday }: { wkStart: string; onShift: (d: 
           <Icon name="chevron_right" size={20} />
         </button>
         <span className="shift-week-nav-label">{formatDateShort(wkStart)} – {formatDateShort(end)}</span>
-        <button type="button" onClick={() => onShift(-7)} className="shift-week-nav-btn" aria-label="שבוע הבא">
+        <button
+          type="button"
+          onClick={() => onShift(-7)}
+          className="shift-week-nav-btn"
+          aria-label="שבוע הבא"
+          disabled={atMax}
+        >
           <Icon name="chevron_left" size={20} />
         </button>
       </div>
@@ -503,18 +521,16 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
     return m;
   }, [prefs]);
 
-  const totalCells = templates.length * 7;
-  const filledCells = useMemo(() => {
-    let n = 0;
-    templates.forEach((t) => {
-      for (let i = 0; i < 7; i++) {
-        if (prefMap.has(`${t.id}_${addDays(wk, i)}`)) n++;
-      }
-    });
-    return n;
-  }, [templates, prefMap, wk]);
-
   const templateIds = useMemo(() => templates.map((t) => t.id), [templates]);
+  const totalDays = 7;
+  const filledDays = useMemo(() => {
+    let n = 0;
+    for (let i = 0; i < 7; i++) {
+      if (isShiftPrefsDayComplete(wk, i, templateIds, prefMap)) n++;
+    }
+    return n;
+  }, [wk, templateIds, prefMap]);
+
   const minimumRules = {
     minWeekdays: business?.shift_prefs_min_weekdays ?? null,
     minWeekend: business?.shift_prefs_min_weekend ?? null,
@@ -527,8 +543,12 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
   const dayComplete = (dayIndex: number) =>
     isShiftPrefsDayComplete(wk, dayIndex, templateIds, prefMap);
 
+  /** Max target week for submission: one week ahead (not two). */
   function shiftWeek(d: number) {
-    setWk((w) => addDays(w, d));
+    setWk((w) => {
+      const next = addDays(w, d);
+      return next > nextWk ? nextWk : next;
+    });
     setDayIdx(0);
   }
 
@@ -593,7 +613,8 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
     </div>
   );
 
-  const progressPct = totalCells ? (filledCells / totalCells) * 100 : 0;
+  const progressPct = totalDays ? (filledDays / totalDays) * 100 : 0;
+  const atMaxWeek = wk >= nextWk;
 
   return (
     <div>
@@ -617,37 +638,27 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
                 className="payroll-month-btn"
                 aria-label="שבוע הבא"
                 onClick={() => shiftWeek(-7)}
+                disabled={atMaxWeek}
               >
                 <Icon name="chevron_left" size={20} />
               </button>
             </div>
-            {wk !== nextWk ? (
-              <button
-                type="button"
-                className="payroll-tip-btn btn-press"
-                onClick={() => { setWk(nextWk); setDayIdx(0); }}
-              >
-                <Icon name="undo" size={15} />
-                שבוע הבא
-              </button>
-            ) : (
-              <span className="shifts-hero-badge" data-state={canEdit ? "open" : "locked"}>
-                <Icon name={canEdit ? "edit_calendar" : "lock"} size={14} />
-                {canEdit ? "פתוח להגשה" : "נעול"}
-              </span>
-            )}
+            <span className="shifts-hero-badge" data-state={canEdit ? "open" : "locked"}>
+              <Icon name={canEdit ? "edit_calendar" : "lock"} size={14} />
+              {canEdit ? "פתוח להגשה" : "נעול"}
+            </span>
           </div>
 
           <div className="prefs2-hero-main">
             <div className="prefs2-hero-nums">
               <p className="payroll-hero-label">הגשת זמינות</p>
               <div className="payroll-hero-total prefs-hero-total">
-                {filledCells}
-                <span className="prefs-hero-of">/{totalCells}</span>
+                {filledDays}
+                <span className="prefs-hero-of">/{totalDays}</span>
               </div>
-              <p className="prefs2-hero-label">משמרות סומנו</p>
+              <p className="prefs2-hero-label">ימים סומנו</p>
             </div>
-            <ProgressRing pct={progressPct} done={totalCells > 0 && filledCells === totalCells} />
+            <ProgressRing pct={progressPct} done={filledDays === totalDays} />
           </div>
 
           {hasMinimum && (
@@ -707,7 +718,7 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
         <div className="shift-toolbar">
           <div className="shift-toolbar-meta">
             <ShiftLegend />
-            <span className="shift-stat">{filledCells} מתוך {totalCells} משמרות מסומנות</span>
+            <span className="shift-stat">{filledDays} מתוך {totalDays} ימים סומנו</span>
             {hasMinimum && (
               <span
                 className="shift-stat"
@@ -723,7 +734,12 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
               </div>
             </div>
           </div>
-          <WeekNav wkStart={wk} onShift={shiftWeek} onToday={() => { setWk(addDays(weekStart(), 7)); setDayIdx(0); }} />
+          <WeekNav
+            wkStart={wk}
+            onShift={shiftWeek}
+            onToday={() => { setWk(nextWk); setDayIdx(0); }}
+            maxWeekStart={nextWk}
+          />
         </div>
       )}
 

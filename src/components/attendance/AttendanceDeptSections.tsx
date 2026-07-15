@@ -18,14 +18,17 @@ function AttendanceEmployeeRow({
   rowClass,
   canForceClockOut,
   onRequestClockOut,
+  index = 0,
 }: {
   group: AttendanceDepartmentSection["groups"][number];
   employeeName: string;
   rowClass: string;
   canForceClockOut: boolean;
   onRequestClockOut?: (target: ForceClockOutTarget) => void;
+  index?: number;
 }) {
   const rowInteractive = Boolean(canForceClockOut && onRequestClockOut && group.onShift);
+  const rowStyle = { ["--row-i" as string]: index } as React.CSSProperties;
 
   function openClockOut() {
     if (!onRequestClockOut || !group.onShift) return;
@@ -55,7 +58,7 @@ function AttendanceEmployeeRow({
         <div className="attendance-row-name">{employeeName}</div>
         <div className="attendance-row-sessions">
           {group.sessions.map((session) => (
-            <span key={session.id} className="attendance-row-session">
+            <span key={session.id} className="attendance-row-session" data-live={!session.clockOut}>
               {formatPunchTime(session.clockIn)}
               <span className="attendance-row-session-arrow">←</span>
               {session.clockOut ? formatPunchTime(session.clockOut) : "…"}
@@ -82,6 +85,7 @@ function AttendanceEmployeeRow({
         type="button"
         className={`${rowClass} attendance-row--action`}
         data-open={group.onShift}
+        style={rowStyle}
         onClick={openClockOut}
         onKeyDown={onKeyDown}
         aria-label={`הוצא את ${employeeName} ממשמרת`}
@@ -92,7 +96,7 @@ function AttendanceEmployeeRow({
   }
 
   return (
-    <article className={rowClass} data-open={group.onShift}>
+    <article className={rowClass} data-open={group.onShift} style={rowStyle}>
       {content}
     </article>
   );
@@ -109,11 +113,16 @@ export function AttendanceDeptSections({
 
   return (
     <>
-      {sections.map((section) => {
+      {sections.map((section, sectionIndex) => {
         const onShiftInSection = section.groups.filter((g) => g.onShift).length;
+        const livePct = section.groups.length > 0 ? (onShiftInSection / section.groups.length) * 100 : 0;
 
         return (
-          <section key={section.key} className="attendance-dept-card">
+          <section
+            key={section.key}
+            className="attendance-dept-card"
+            style={{ ["--dept-i" as string]: sectionIndex } as React.CSSProperties}
+          >
             <header className="attendance-dept-header">
               <div className="attendance-dept-title-wrap">
                 <span className="attendance-dept-name">{section.name}</span>
@@ -123,11 +132,17 @@ export function AttendanceDeptSections({
                     : `${section.groups.length} עובדים`}
                 </span>
               </div>
-              <span className="attendance-dept-count">{section.groups.length}</span>
+              <span className="attendance-dept-count" data-live={onShiftInSection > 0}>
+                {onShiftInSection}/{section.groups.length}
+              </span>
             </header>
 
+            <div className="attendance-dept-pulse" aria-hidden>
+              <span className="attendance-dept-pulse-fill" style={{ width: `${livePct}%` }} />
+            </div>
+
             <div className="attendance-dept-rows">
-              {section.groups.map((group) => {
+              {section.groups.map((group, rowIndex) => {
                 const u = userById.get(group.employeeId);
                 const employeeName = u?.name ?? "עובד/ת";
 
@@ -139,6 +154,7 @@ export function AttendanceDeptSections({
                     rowClass={rowClass}
                     canForceClockOut={canForceClockOut}
                     onRequestClockOut={onRequestClockOut}
+                    index={rowIndex}
                   />
                 );
               })}

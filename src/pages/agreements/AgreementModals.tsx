@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Button, Field, Icon, Input, Select } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useBusinessId } from "@/lib/db";
-import { uploadAgreementBlob, uploadAgreementFile, useSignAgreement } from "@/api/agreements";
+import { uploadAgreementBlob, uploadAgreementFile, useSignAgreement, notifyForm101Signed } from "@/api/agreements";
 import type { AgreementSignature, AgreementTemplate, AgreementType, Profile, SignatureField } from "@/types/database";
 import { TYPE_LABELS } from "./types";
 import { buildSignedPdf, FieldEditorOverlay, FieldSignOverlay, PdfDocViewer, SignaturePadModal } from "./pdf";
@@ -215,6 +215,9 @@ export function ReadSignModal({
           employee_id: employeeId,
           signature_data: dataUrl,
         });
+        if (agreement.type === "form_101") {
+          await notifyForm101Signed(agreement.id, employeeId);
+        }
         onClose();
       }}
     />
@@ -260,6 +263,9 @@ function PdfSignModal({
         field_signatures: sigs,
         signed_file_url: signedUrl,
       });
+      if (agreement.type === "form_101") {
+        await notifyForm101Signed(agreement.id, employeeId);
+      }
       onClose();
     } catch {
       setErr("שגיאה בשמירת המסמך החתום. נסו שוב.");

@@ -59,7 +59,7 @@ supabase secrets set RESEND_API_KEY=re_xxxxxxxx
 supabase secrets set FORM101_EMAIL_FROM="אביחי <onboarding@resend.dev>"
 ```
 
-כשעובד מגיש טופס 101, נשלח מייל אוטומטי למנהלת המשרד (`office_manager`) עם פרטי הטופס. אם אין מנהלת משרד עם אימייל — נשלח למנהל העסק.
+כשעובד **חותם** על טופס 101 (PDF שהועלה אליו), נשלח מייל אוטומטי למנהלת המשרד (`office_manager`) עם קישור לטופס החתום. אם אין מנהלת משרד עם אימייל — נשלח למנהל העסק.
 
 > **בדיקות:** עם `onboarding@resend.dev` ניתן לשלוח רק לכתובות שאומתו בחשבון Resend. לפרודקשן — אמתו דומיין ב-Resend והגדירו `FORM101_EMAIL_FROM` עם הדומיין שלכם.
 

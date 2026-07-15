@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { Badge, Button, Card, EmptyState, Icon } from "@/components/ui";
-import { Modal } from "@/components/ui/Modal";
-import { isSigned } from "@/api/agreements";
+import { isSigned, signatureOf } from "@/api/agreements";
 import type { AgreementSignature, AgreementTemplate, Profile } from "@/types/database";
 import { TAX_YEAR } from "./types";
 
@@ -17,7 +16,6 @@ function StatusIcon({ done, optional }: { done: boolean; optional?: boolean }) {
 export function DocumentStatusTable({
   staff,
   signatures,
-  forms101,
   globalFixed,
   globalWork,
   agreements,
@@ -25,13 +23,16 @@ export function DocumentStatusTable({
 }: {
   staff: Profile[];
   signatures: AgreementSignature[];
-  forms101: { employee_id: string; submitted: boolean }[];
   globalFixed: AgreementTemplate[];
   globalWork: AgreementTemplate | undefined;
   agreements: AgreementTemplate[];
   taxYear?: number;
 }) {
-  const formMap = useMemo(() => new Map(forms101.map((f) => [f.employee_id, f.submitted])), [forms101]);
+  function form101Status(empId: string): { done: boolean; optional: boolean } {
+    const template = agreements.find((a) => a.type === "form_101" && a.employee_id === empId);
+    if (!template) return { done: false, optional: true };
+    return { done: isSigned(signatures, template.id, empId), optional: false };
+  }
 
   function workStatus(empId: string): boolean {
     const personal = agreements.find((a) => a.type === "work" && a.employee_id === empId);
@@ -59,23 +60,28 @@ export function DocumentStatusTable({
             </tr>
           </thead>
           <tbody>
-            {staff.map((emp) => (
-              <tr key={emp.id} className="border-b border-border last:border-0">
-                <td className="px-4 py-3 font-semibold">{emp.full_name ?? "—"}</td>
-                <td className="px-4 py-3 text-center"><StatusIcon done={formMap.get(emp.id) === true} /></td>
-                <td className="px-4 py-3 text-center">
-                  <StatusIcon
-                    done={workStatus(emp.id)}
-                    optional={!globalWork && !agreements.some((a) => a.type === "work" && a.employee_id === emp.id)}
-                  />
-                </td>
-                {globalFixed.map((a) => (
-                  <td key={a.id} className="px-4 py-3 text-center">
-                    <StatusIcon done={isSigned(signatures, a.id, emp.id)} />
+            {staff.map((emp) => {
+              const form101 = form101Status(emp.id);
+              return (
+                <tr key={emp.id} className="border-b border-border last:border-0">
+                  <td className="px-4 py-3 font-semibold">{emp.full_name ?? "—"}</td>
+                  <td className="px-4 py-3 text-center">
+                    <StatusIcon done={form101.done} optional={form101.optional} />
                   </td>
-                ))}
-              </tr>
-            ))}
+                  <td className="px-4 py-3 text-center">
+                    <StatusIcon
+                      done={workStatus(emp.id)}
+                      optional={!globalWork && !agreements.some((a) => a.type === "work" && a.employee_id === emp.id)}
+                    />
+                  </td>
+                  {globalFixed.map((a) => (
+                    <td key={a.id} className="px-4 py-3 text-center">
+                      <StatusIcon done={isSigned(signatures, a.id, emp.id)} />
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -85,64 +91,73 @@ export function DocumentStatusTable({
 
 export function Form101OverviewTable({
   staff,
-  forms101,
+  agreements,
+  signatures,
   taxYear = TAX_YEAR,
 }: {
   staff: Profile[];
-  forms101: { employee_id: string; submitted: boolean; data: Record<string, unknown> }[];
+  agreements: AgreementTemplate[];
+  signatures: AgreementSignature[];
   taxYear?: number;
 }) {
-  const formMap = useMemo(() => new Map(forms101.map((f) => [f.employee_id, f])), [forms101]);
-  const [viewing, setViewing] = useState<{ emp: Profile; form: (typeof forms101)[0] } | null>(null);
+  const formMap = useMemo(() => {
+    const map = new Map<string, AgreementTemplate>();
+    for (const a of agreements) {
+      if (a.type === "form_101" && a.employee_id) map.set(a.employee_id, a);
+    }
+    return map;
+  }, [agreements]);
 
   return (
-    <>
-      <Card className="overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-[13.5px]">
-            <thead>
-              <tr className="border-b border-border bg-surface-2 text-right text-[12px] font-bold text-text-2">
-                <th className="px-4 py-3">עובד/ת</th>
-                <th className="px-4 py-3 text-center">סטטוס</th>
-                <th className="px-4 py-3 text-center">פעולות</th>
-              </tr>
-            </thead>
-            <tbody>
-              {staff.map((emp) => {
-                const form = formMap.get(emp.id);
-                const done = form?.submitted === true;
-                return (
-                  <tr key={emp.id} className="border-b border-border last:border-0">
-                    <td className="px-4 py-3 font-semibold">{emp.full_name ?? "—"}</td>
-                    <td className="px-4 py-3 text-center">
-                      {done ? <Badge tone="success">הוגש</Badge> : <Badge tone="warning">חסר / טיוטה</Badge>}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {form ? (
-                        <Button variant="ghost" icon="visibility" onClick={() => setViewing({ emp, form })}>צפייה</Button>
-                      ) : (
-                        <span className="text-[12px] text-text-3">לא התחיל</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-      {viewing && (
-        <Modal open onClose={() => setViewing(null)} title={`טופס 101 · ${viewing.emp.full_name}`} subtitle={`שנת מס ${taxYear}`} icon="description" footer={<Button className="flex-1" onClick={() => setViewing(null)}>סגירה</Button>}>
-          <div className="grid grid-cols-2 gap-3 text-[13px]">
-            {Object.entries(viewing.form.data ?? {}).map(([k, v]) => (
-              <div key={k}>
-                <div className="text-[11px] font-bold text-text-3">{k}</div>
-                <div className="font-medium">{String(v ?? "—")}</div>
-              </div>
-            ))}
-          </div>
-        </Modal>
-      )}
-    </>
+    <Card className="overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full text-[13.5px]">
+          <thead>
+            <tr className="border-b border-border bg-surface-2 text-right text-[12px] font-bold text-text-2">
+              <th className="px-4 py-3">עובד/ת</th>
+              <th className="px-4 py-3 text-center">סטטוס</th>
+              <th className="px-4 py-3 text-center">פעולות</th>
+            </tr>
+          </thead>
+          <tbody>
+            {staff.map((emp) => {
+              const template = formMap.get(emp.id);
+              const sig = template ? signatureOf(signatures, template.id, emp.id) : undefined;
+              const done = !!sig?.agreed;
+              return (
+                <tr key={emp.id} className="border-b border-border last:border-0">
+                  <td className="px-4 py-3 font-semibold">{emp.full_name ?? "—"}</td>
+                  <td className="px-4 py-3 text-center">
+                    {!template ? (
+                      <Badge tone="neutral">לא הועלה</Badge>
+                    ) : done ? (
+                      <Badge tone="success">נחתם</Badge>
+                    ) : (
+                      <Badge tone="warning">ממתין לחתימה</Badge>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    {done && sig?.signed_file_url ? (
+                      <a href={sig.signed_file_url} target="_blank" rel="noreferrer" className="text-link inline-flex items-center gap-1 text-[13px] font-semibold">
+                        <Icon name="visibility" size={18} />
+                        צפייה ב-PDF
+                      </a>
+                    ) : template?.file_url && !done ? (
+                      <a href={template.file_url} target="_blank" rel="noreferrer" className="text-link inline-flex items-center gap-1 text-[13px] font-semibold">
+                        <Icon name="description" size={18} />
+                        טיוטה
+                      </a>
+                    ) : (
+                      <span className="text-[12px] text-text-3">—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="border-t border-border px-4 py-2.5 text-[12px] text-text-3">שנת מס {taxYear} · העלו טופס 101 ייחודי לכל עובד תחת «הסכמים»</p>
+    </Card>
   );
 }

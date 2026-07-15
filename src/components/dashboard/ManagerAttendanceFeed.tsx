@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import { Icon } from "@/components/ui";
 import { AttendanceTodayFeedSection } from "@/components/attendance/AttendanceTodayFeedSection";
 import { ForceClockOutModal, type ForceClockOutTarget } from "@/components/attendance/ForceClockOutModal";
@@ -35,11 +34,9 @@ function useLiveClock() {
 
 export function ManagerAttendanceFeed({
   className = "manager-attendance-feed dash-rise dash-panel",
-  showLink = true,
   compact = false,
 }: {
   className?: string;
-  showLink?: boolean;
   /** Narrow sidebar on worker dashboard — always mobile-style list + stat filters. */
   compact?: boolean;
 } = {}) {
@@ -107,15 +104,6 @@ export function ManagerAttendanceFeed({
             </p>
           </div>
         </div>
-        {showLink && (
-          <Link
-            to="/attendance"
-            className="dash-panel-more flex shrink-0 items-center gap-0.5 text-[12px] font-bold text-text-3 transition-colors hover:text-accent-2"
-          >
-            שעון נוכחות
-            <Icon name="chevron_left" size={16} />
-          </Link>
-        )}
       </div>
 
       {(!isMdUp || compact) && (

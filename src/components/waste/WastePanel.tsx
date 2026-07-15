@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Badge, Button, EmptyState, Field, Icon, Input, Textarea } from "@/components/ui";
+import { Button, EmptyState, Field, Icon, Input, Textarea } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/lib/auth";
-import { useBusinessId } from "@/lib/db";
+import { useBusinessId, addDays, todayISO, toISODate } from "@/lib/db";
 import type { ItemWithQty } from "@/api/inventory";
 import { mainUnitToPieces, supportsPieceInput } from "@/api/inventory";
 import { DualUnitQtyInput } from "@/components/inventory/DualUnitQtyInput";
@@ -14,6 +14,12 @@ type WasteForm = { itemId: string; qty: number; note: string };
 const EMPTY_FORM: WasteForm = { itemId: "", qty: 1, note: "" };
 
 type StockStatus = "empty" | "low" | "ok";
+type WasteTone = "info" | "warning";
+
+const WASTE_STATUS: Record<"deducted" | "reported", { label: string; tone: WasteTone; icon: string }> = {
+  deducted: { label: "הופחת מהמלאי", tone: "info", icon: "inventory_2" },
+  reported: { label: "דווח בלבד", tone: "warning", icon: "report" },
+};
 
 function stockStatus(item: ItemWithQty): StockStatus {
   if (item.current_qty === 0) return "empty";
@@ -28,16 +34,71 @@ const STOCK_BADGE: Record<StockStatus, { tone: "danger" | "warning" | "success";
   ok: { tone: "success", label: "במלאי", dot: "var(--success)" },
 };
 
-function StockBadge({ item }: { item: ItemWithQty }) {
-  const status = stockStatus(item);
-  const meta = STOCK_BADGE[status];
-  return (
-    <Badge tone={meta.tone} className="flex-none tabular-nums">
-      <Icon name="inventory_2" size={13} />
-      {item.current_qty}
-      {item.unit ? ` ${item.unit}` : ""}
-    </Badge>
-  );
+function wasteDay(iso: string) {
+  return toISODate(new Date(iso));
+}
+
+function formatWasteTimeRelative(iso: string) {
+  const d = new Date(iso);
+  const now = new Date();
+  const diffMin = Math.floor((now.getTime() - d.getTime()) / 60000);
+  const time = d.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", hour12: false });
+  if (diffMin < 1) return "ממש עכשיו";
+  if (diffMin < 60) return `לפני ${diffMin} דק׳`;
+  if (d.toDateString() === now.toDateString()) return `היום · ${time}`;
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return `אתמול · ${time}`;
+  const date = d.toLocaleDateString("he-IL", {
+    day: "numeric",
+    month: "short",
+    ...(d.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}),
+  });
+  return `${date} · ${time}`;
+}
+
+function formatWasteExact(iso: string) {
+  const d = new Date(iso);
+  const time = d.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const date = d.toLocaleDateString("he-IL", { day: "numeric", month: "short", year: "numeric" });
+  return `${date} · ${time}`;
+}
+
+function wasteDayLabel(day: string) {
+  const today = todayISO();
+  if (day === today) return "היום";
+  if (day === addDays(today, -1)) return "אתמול";
+  const d = new Date(`${day}T00:00:00`);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  const weekday = d.toLocaleDateString("he-IL", { weekday: "long" });
+  const date = d.toLocaleDateString("he-IL", {
+    day: "numeric",
+    month: "numeric",
+    ...(sameYear ? {} : { year: "numeric" as const }),
+  });
+  return `${weekday} · ${date}`;
+}
+
+type WasteDayGroup = { day: string; label: string; items: InventoryWaste[] };
+
+function groupWasteByDay(list: InventoryWaste[]): WasteDayGroup[] {
+  const groups: WasteDayGroup[] = [];
+  for (const w of list) {
+    const day = wasteDay(w.created_at);
+    const last = groups[groups.length - 1];
+    if (last?.day === day) last.items.push(w);
+    else groups.push({ day, label: wasteDayLabel(day), items: [w] });
+  }
+  return groups;
+}
+
+function formatWasteQty(record: InventoryWaste, item?: ItemWithQty): string {
+  const unit = item?.unit ? ` ${item.unit}` : "";
+  const base = `−${record.quantity}${unit}`;
+  if (item && supportsPieceInput(item.unit) && item.units_per_package) {
+    return `${base} (${mainUnitToPieces(Number(record.quantity), item.units_per_package)} יח׳)`;
+  }
+  return base;
 }
 
 function WasteItemPicker({
@@ -128,7 +189,10 @@ function WasteItemPicker({
                   </span>
                 </div>
               </div>
-              <StockBadge item={selected} />
+              <span className="flex-none text-[12px] font-bold tabular-nums text-text-3">
+                {selected.current_qty}
+                {selected.unit ? ` ${selected.unit}` : ""}
+              </span>
             </>
           ) : (
             <span className="flex-1 text-[13px] font-semibold text-text-3">בחר מוצר...</span>
@@ -190,7 +254,10 @@ function WasteItemPicker({
                       </div>
                     </div>
                     <div className="flex flex-none items-center gap-2">
-                      <StockBadge item={it} />
+                      <span className="text-[12px] font-bold tabular-nums text-text-3">
+                        {it.current_qty}
+                        {it.unit ? ` ${it.unit}` : ""}
+                      </span>
                       {active && <Icon name="check" size={18} className="text-[var(--accent-2)]" />}
                     </div>
                   </button>
@@ -204,72 +271,114 @@ function WasteItemPicker({
   );
 }
 
-function WasteCard({
+function WasteRow({
   record,
   item,
   reporter,
   index,
+  expanded,
+  onToggle,
 }: {
   record: InventoryWaste;
   item?: ItemWithQty;
   reporter?: string;
   index: number;
+  expanded: boolean;
+  onToggle: () => void;
 }) {
-  const date = new Date(record.created_at).toLocaleDateString("he-IL", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+  const statusKey = record.deducted ? "deducted" : "reported";
+  const meta = WASTE_STATUS[statusKey];
+  const title = item?.name ?? "פריט";
 
   return (
     <article
-      className="inventory-card inventory-item-enter flex flex-col overflow-hidden rounded-card border-0 bg-surface"
+      className="fault-row"
+      data-tone={meta.tone}
+      data-expanded={expanded}
       style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }}
     >
-      <div className="inventory-card-image relative aspect-[5/4] overflow-hidden bg-surface-2">
+      <button type="button" className="fault-row__head" onClick={onToggle} aria-expanded={expanded}>
+        <span className="fault-row__edge" aria-hidden />
+
         {item?.image_url ? (
-          <img
-            src={item.image_url}
-            alt={item.name}
-            className="h-full w-full object-cover transition-transform duration-[400ms] [transition-timing-function:var(--ease-out)]"
-          />
-        ) : (
-          <div className="grid h-full place-items-center text-text-3/70">
-            <Icon name="delete_sweep" size={36} />
-          </div>
-        )}
-        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/55 to-transparent px-3 pb-3 pt-8">
-          <div className="text-[22px] font-extrabold tabular-nums leading-none text-white">
-            −{record.quantity}
-            {item?.unit ? <span className="mr-1 text-[13px] font-semibold opacity-90">{item.unit}</span> : null}
-          </div>
-        </div>
-      </div>
-
-      <div className="flex flex-1 flex-col p-4">
-        <h3 className="text-[15px] font-bold leading-snug tracking-tight">{item?.name ?? "פריט"}</h3>
-
-        <div className="mt-2 flex flex-wrap items-center gap-x-2 text-[12px] text-text-3">
-          <span className="inline-flex items-center gap-1">
-            <Icon name="event" size={14} />
-            {date}
+          <span className="fault-row__thumb">
+            <img src={item.image_url} alt="" loading="lazy" />
           </span>
-          {reporter && (
-            <span className="inline-flex items-center gap-1">
-              <Icon name="person" size={14} />
-              {reporter}
-            </span>
-          )}
-        </div>
-
-        {record.note && (
-          <p className="mt-2 line-clamp-2 text-[12.5px] leading-relaxed text-text-2">{record.note}</p>
+        ) : (
+          <span className="fault-row__thumb fault-row__thumb--icon">
+            <Icon name="delete_sweep" size={22} />
+          </span>
         )}
 
-        <div className="mt-auto pt-4">
-          <Badge tone={record.deducted ? "info" : "neutral"} className="w-full justify-center">
-            {record.deducted ? "הופחת מהמלאי" : "דווח בלבד"}
-          </Badge>
+        <span className="fault-row__copy">
+          <span className="fault-row__title">{title}</span>
+          <span className="fault-row__meta">
+            <span className="fault-row__pill">
+              <span className="fault-row__pill-dot" aria-hidden />
+              {meta.label}
+            </span>
+            <span className="fault-row__meta-sep" aria-hidden>
+              ·
+            </span>
+            <time dateTime={record.created_at}>{formatWasteTimeRelative(record.created_at)}</time>
+            {reporter && (
+              <>
+                <span className="fault-row__meta-sep" aria-hidden>
+                  ·
+                </span>
+                <span className="fault-row__meta-reporter">{reporter}</span>
+              </>
+            )}
+          </span>
+        </span>
+
+        <span className="fault-row__chevron" aria-hidden>
+          <Icon name="expand_more" size={19} />
+        </span>
+      </button>
+
+      <div className="fault-row__panel">
+        <div className="fault-row__panel-inner">
+          {item?.image_url && (
+            <div className="fault-media fault-media--tall">
+              <img src={item.image_url} alt={title} className="h-full w-full object-cover" />
+            </div>
+          )}
+          <div className="fault-row__details">
+            <div className="waste-row__qty">
+              {formatWasteQty(record, item)}
+            </div>
+
+            {record.note && <p className="waste-row__note">{record.note}</p>}
+
+            <div className="fault-row__stamp">
+              <Icon name="schedule" size={14} />
+              <span>{formatWasteExact(record.created_at)}</span>
+              {reporter && (
+                <>
+                  <span className="fault-row__meta-sep" aria-hidden>
+                    ·
+                  </span>
+                  <Icon name="person" size={14} />
+                  <span>{reporter}</span>
+                </>
+              )}
+            </div>
+
+            <div className="fault-row__seg">
+              <span className="fault-row__seg-label">סטטוס בלאי</span>
+              <div
+                className="inline-flex items-center gap-1.5 self-start rounded-full px-2.5 py-1 text-[11px] font-extrabold"
+                style={{
+                  color: `var(--${meta.tone})`,
+                  background: `color-mix(in srgb, var(--${meta.tone}) 14%, var(--surface))`,
+                }}
+              >
+                <Icon name={meta.icon} size={14} />
+                {meta.label}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </article>
@@ -319,6 +428,7 @@ export function WastePanel({
   const [pending, setPending] = useState<{ item: ItemWithQty; qty: number; note: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const wasteList = records ?? waste ?? [];
   const hasAnyRecords = (totalRecords ?? waste?.length ?? 0) > 0;
@@ -328,6 +438,9 @@ export function WastePanel({
     (profiles ?? []).forEach((p) => map.set(p.id, p.full_name ?? "משתמש"));
     return map;
   }, [profiles]);
+
+  const dayGroups = useMemo(() => groupWasteByDay(wasteList), [wasteList]);
+  const indexById = useMemo(() => new Map(wasteList.map((w, i) => [w.id, i])), [wasteList]);
 
   useEffect(() => {
     if (reportOpen) {
@@ -398,15 +511,28 @@ export function WastePanel({
           }
         />
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {wasteList.map((w, idx) => (
-            <WasteCard
-              key={w.id}
-              record={w}
-              item={items.find((i) => i.id === w.item_id)}
-              reporter={w.employee_id ? reporterById.get(w.employee_id) : undefined}
-              index={idx}
-            />
+        <div className="faults-feed">
+          {dayGroups.map((group) => (
+            <section key={group.day} className="faults-day">
+              <header className="faults-day__head">
+                <span className="faults-day__label">{group.label}</span>
+                <span className="faults-day__count">{group.items.length}</span>
+                <span className="faults-day__line" aria-hidden />
+              </header>
+              <div className="faults-day__list">
+                {group.items.map((w) => (
+                  <WasteRow
+                    key={w.id}
+                    record={w}
+                    item={items.find((i) => i.id === w.item_id)}
+                    reporter={w.employee_id ? reporterById.get(w.employee_id) : undefined}
+                    index={indexById.get(w.id) ?? 0}
+                    expanded={expandedId === w.id}
+                    onToggle={() => setExpandedId((prev) => (prev === w.id ? null : w.id))}
+                  />
+                ))}
+              </div>
+            </section>
           ))}
         </div>
       )}
