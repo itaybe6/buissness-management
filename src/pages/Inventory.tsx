@@ -25,6 +25,8 @@ import {
   inventorySaveError,
   supportsPieceInput,
   mainUnitToPieces,
+  formatQtyWithPieces,
+  canUsePieceInput,
   type ItemWithQty,
   type ItemLog,
   isTrackedLowStock,
@@ -405,11 +407,188 @@ function StockBar({ item }: { item: ItemWithQty }) {
   );
 }
 
+function formatLastUpdate(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  const now = new Date();
+  const sameDay =
+    d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+  if (sameDay) {
+    return d.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
+  }
+  return d.toLocaleDateString("he-IL", { day: "numeric", month: "short" });
+}
+
+function LastUpdatedLine({ item, compact }: { item: ItemWithQty; compact?: boolean }) {
+  if (!item.last_updated_at && !item.last_updated_by_name) return null;
+  return (
+    <p
+      className={`flex items-center gap-1 truncate font-medium text-text-3 ${compact ? "text-[9px]" : "text-[11px]"}`}
+      title={
+        item.last_updated_at
+          ? new Date(item.last_updated_at).toLocaleString("he-IL", {
+              day: "numeric",
+              month: "short",
+              hour: "2-digit",
+              minute: "2-digit",
+            })
+          : undefined
+      }
+    >
+      <Icon name="person" size={compact ? 11 : 13} className="shrink-0 opacity-70" />
+      <span className="truncate">
+        {item.last_updated_by_name ?? "לא ידוע"}
+        {item.last_updated_at ? ` · ${formatLastUpdate(item.last_updated_at)}` : ""}
+      </span>
+    </p>
+  );
+}
+
+function ItemDetailModal({
+  item,
+  open,
+  canUpdateCount,
+  isManager,
+  canManageOrders,
+  onClose,
+  onSetQty,
+  onEdit,
+  onHistory,
+  onOrder,
+}: {
+  item: ItemWithQty | null;
+  open: boolean;
+  canUpdateCount: boolean;
+  isManager: boolean;
+  canManageOrders: boolean;
+  onClose: () => void;
+  onSetQty: (qty: number) => void;
+  onEdit: () => void;
+  onHistory: () => void;
+  onOrder: () => void;
+}) {
+  if (!item) return null;
+
+  const status = stockStatus(item);
+  const meta = STOCK_META[status];
+  const dual = canUsePieceInput(item.unit, item.units_per_package);
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={item.name}
+      subtitle={inventoryCategoryLabel(item.category) ?? undefined}
+      icon="inventory_2"
+      maxWidth={520}
+      footer={
+        isManager ? (
+          <>
+            <Button variant="secondary" icon="edit" onClick={onEdit} className="active:scale-[0.97]">
+              עריכה
+            </Button>
+            <Button variant="secondary" icon="history" onClick={onHistory} className="active:scale-[0.97]">
+              היסטוריה
+            </Button>
+            {canManageOrders && (
+              <Button icon="add_shopping_cart" onClick={onOrder} className="flex-1 !bg-ink active:scale-[0.97]">
+                הזמנה
+              </Button>
+            )}
+          </>
+        ) : undefined
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <div className="relative aspect-[16/10] overflow-hidden rounded-[12px] border border-border bg-surface-2">
+          {item.image_url ? (
+            <img src={item.image_url} alt={item.name} className="h-full w-full object-cover" />
+          ) : (
+            <div className="grid h-full place-items-center text-text-3/70">
+              <Icon name="inventory_2" size={40} />
+            </div>
+          )}
+          <span
+            className="absolute top-2.5 right-2.5 inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-bold"
+            style={{ background: `color-mix(in srgb, ${meta.dot} 18%, var(--surface))`, color: meta.dot }}
+          >
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: meta.dot }} />
+            {meta.label}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2">
+          <div className="rounded-[11px] border border-border bg-surface-2 px-3 py-2.5">
+            <div className="text-[10px] font-semibold text-text-3">במלאי</div>
+            <div className="mt-1 text-[20px] font-extrabold tabular-nums leading-none">{item.current_qty}</div>
+            {item.unit && <div className="mt-0.5 text-[11px] font-medium text-text-3">{item.unit}</div>}
+            {dual && (
+              <div className="mt-0.5 text-[10px] font-medium text-text-3">
+                ({mainUnitToPieces(item.current_qty, item.units_per_package!)} יח׳)
+              </div>
+            )}
+          </div>
+          <div className="rounded-[11px] border border-border bg-surface-2 px-3 py-2.5">
+            <div className="text-[10px] font-semibold text-text-3">מינימום</div>
+            <div className="mt-1 text-[20px] font-extrabold tabular-nums leading-none">{item.min_quantity}</div>
+            {item.unit && <div className="mt-0.5 text-[11px] font-medium text-text-3">{item.unit}</div>}
+          </div>
+          <div className="rounded-[11px] border border-border bg-surface-2 px-3 py-2.5">
+            <div className="text-[10px] font-semibold text-text-3">בהזמנה</div>
+            <div className="mt-1 text-[20px] font-extrabold tabular-nums leading-none text-[var(--info)]">
+              {item.ordered_qty > 0 ? `+${item.ordered_qty}` : "—"}
+            </div>
+            {item.unit && item.ordered_qty > 0 && (
+              <div className="mt-0.5 text-[11px] font-medium text-text-3">{item.unit}</div>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 rounded-[11px] border border-border bg-surface-2 px-3 py-2.5 text-[13px] text-text-2">
+          <Icon name="local_shipping" size={17} className="shrink-0 text-text-3" />
+          <span>
+            אספקה מהספק:{" "}
+            <span className="font-semibold text-text">{formatDeliveryDay(item.supplier_delivery_day)}</span>
+          </span>
+        </div>
+
+        <LastUpdatedLine item={item} />
+
+        <div className="rounded-[12px] border border-border bg-surface p-3.5">
+          <div className="mb-3 text-[13px] font-bold text-text">עדכון מלאי</div>
+          {canUpdateCount ? (
+            <>
+              <DualUnitQtyInput
+                value={item.current_qty}
+                mainUnit={item.unit}
+                unitsPerPackage={item.units_per_package}
+                onCommit={onSetQty}
+                variant="input"
+                defaultMode={dual ? "pieces" : "main"}
+              />
+              {dual && (
+                <p className="mt-2 text-[12px] leading-relaxed text-text-3">
+                  ניתן לעדכן ב{item.unit} או ביחידות בודדות — למשל להוסיף 3 חלבונים בלי לספור ארגז שלם.
+                  כרגע: {formatQtyWithPieces(item.current_qty, item.unit, item.units_per_package)}.
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="text-[13px] text-text-3">אין הרשאה לעדכן מלאי.</p>
+          )}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function ItemCard({
   item,
   index,
   isManager,
+  canUpdateCount,
   canManageOrders,
+  onOpen,
   onEdit,
   onHistory,
   onOrder,
@@ -418,7 +597,9 @@ function ItemCard({
   item: ItemWithQty;
   index: number;
   isManager: boolean;
+  canUpdateCount: boolean;
   canManageOrders: boolean;
+  onOpen: () => void;
   onEdit: () => void;
   onHistory: () => void;
   onOrder: () => void;
@@ -434,53 +615,62 @@ function ItemCard({
     >
       {/* Mobile — compact product tile */}
       <div className="flex flex-col md:hidden">
-        <div className="inventory-product-image relative aspect-[5/4] max-h-[100px] shrink-0 overflow-hidden bg-surface-2">
-          {item.image_url ? (
-            <img src={item.image_url} alt={item.name} className="h-full w-full object-cover" />
-          ) : (
-            <div className="grid h-full place-items-center text-text-3/60">
-              <Icon name="inventory_2" size={26} />
-            </div>
-          )}
-          <span
-            className="inventory-product-badge absolute top-1.5 right-1.5 inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold backdrop-blur-sm"
-            style={{ background: `color-mix(in srgb, ${meta.dot} 18%, var(--surface))`, color: meta.dot }}
-          >
-            <span className="h-1.5 w-1.5 rounded-full" style={{ background: meta.dot }} />
-            {meta.label}
-          </span>
-          {item.ordered_qty > 0 && (
-            <span className="absolute top-1.5 left-1.5 rounded-full bg-[var(--info)] px-1.5 py-0.5 text-[9px] font-extrabold text-white">
-              +{item.ordered_qty}
+        <button
+          type="button"
+          onClick={onOpen}
+          className="flex flex-col text-right transition-opacity active:opacity-80"
+        >
+          <div className="inventory-product-image relative aspect-[5/4] max-h-[100px] shrink-0 overflow-hidden bg-surface-2">
+            {item.image_url ? (
+              <img src={item.image_url} alt={item.name} className="h-full w-full object-cover" />
+            ) : (
+              <div className="grid h-full place-items-center text-text-3/60">
+                <Icon name="inventory_2" size={26} />
+              </div>
+            )}
+            <span
+              className="inventory-product-badge absolute top-1.5 right-1.5 inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold backdrop-blur-sm"
+              style={{ background: `color-mix(in srgb, ${meta.dot} 18%, var(--surface))`, color: meta.dot }}
+            >
+              <span className="h-1.5 w-1.5 rounded-full" style={{ background: meta.dot }} />
+              {meta.label}
             </span>
-          )}
-        </div>
-
-        <div className="flex flex-1 flex-col gap-1.5 p-2">
-          <div className="flex items-start justify-between gap-1.5">
-            <div className="min-w-0 flex-1">
-              <h3 className="line-clamp-2 text-[12px] font-bold leading-snug tracking-tight">{item.name}</h3>
-              {inventoryCategoryLabel(item.category) && (
-                <span className="text-[10px] font-semibold text-text-3">{inventoryCategoryLabel(item.category)}</span>
-              )}
-            </div>
-            <div className="shrink-0 text-left leading-none">
-              <span className="text-[17px] font-extrabold tabular-nums">{item.current_qty}</span>
-              {item.unit && <span className="block text-[9px] font-semibold text-text-3">{item.unit}</span>}
-            </div>
+            {item.ordered_qty > 0 && (
+              <span className="absolute top-1.5 left-1.5 rounded-full bg-[var(--info)] px-1.5 py-0.5 text-[9px] font-extrabold text-white">
+                +{item.ordered_qty}
+              </span>
+            )}
           </div>
 
+          <div className="flex flex-1 flex-col gap-1 p-2">
+            <div className="flex items-start justify-between gap-1.5">
+              <div className="min-w-0 flex-1">
+                <h3 className="line-clamp-2 text-[12px] font-bold leading-snug tracking-tight">{item.name}</h3>
+                {inventoryCategoryLabel(item.category) && (
+                  <span className="text-[10px] font-semibold text-text-3">{inventoryCategoryLabel(item.category)}</span>
+                )}
+              </div>
+              <div className="shrink-0 text-left leading-none">
+                <span className="text-[17px] font-extrabold tabular-nums">{item.current_qty}</span>
+                {item.unit && <span className="block text-[9px] font-semibold text-text-3">{item.unit}</span>}
+              </div>
+            </div>
+            <LastUpdatedLine item={item} compact />
+          </div>
+        </button>
+
+        <div className="px-2 pb-2" onClick={(e) => e.stopPropagation()}>
           <QtyStepper
             value={item.current_qty}
             unit={item.unit}
             unitsPerPackage={item.units_per_package}
-            disabled={!isManager}
+            disabled={!canUpdateCount}
             onCommit={onSetQty}
             compact
           />
 
           {isManager && (
-            <div className="flex gap-1 border-t border-border-2 pt-1.5">
+            <div className="mt-1.5 flex gap-1 border-t border-border-2 pt-1.5">
               <button
                 type="button"
                 onClick={onEdit}
@@ -514,28 +704,37 @@ function ItemCard({
 
       {/* Desktop — detailed card */}
       <div className="hidden flex-col md:flex">
-        <div className="inventory-card-image relative aspect-[5/4] overflow-hidden bg-surface-2">
-          {item.image_url ? (
-            <img
-              src={item.image_url}
-              alt={item.name}
-              className="h-full w-full object-cover transition-transform duration-[400ms] [transition-timing-function:var(--ease-out)]"
-            />
-          ) : (
-            <div className="grid h-full place-items-center text-text-3/70">
-              <Icon name="inventory_2" size={36} />
-            </div>
-          )}
-        </div>
+        <button
+          type="button"
+          onClick={onOpen}
+          className="text-right transition-opacity hover:opacity-90 active:opacity-80"
+        >
+          <div className="inventory-card-image relative aspect-[5/4] overflow-hidden bg-surface-2">
+            {item.image_url ? (
+              <img
+                src={item.image_url}
+                alt={item.name}
+                className="h-full w-full object-cover transition-transform duration-[400ms] [transition-timing-function:var(--ease-out)]"
+              />
+            ) : (
+              <div className="grid h-full place-items-center text-text-3/70">
+                <Icon name="inventory_2" size={36} />
+              </div>
+            )}
+          </div>
+        </button>
 
         <div className="flex flex-1 flex-col p-4">
           <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
+            <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-right active:opacity-80">
               <h3 className="text-[15px] font-bold leading-snug tracking-tight">{item.name}</h3>
               {inventoryCategoryLabel(item.category) && (
                 <span className="mt-0.5 block text-[11px] font-semibold text-text-3">{inventoryCategoryLabel(item.category)}</span>
               )}
-            </div>
+              <div className="mt-1.5">
+                <LastUpdatedLine item={item} />
+              </div>
+            </button>
             {isManager && (
               <button
                 type="button"
@@ -588,7 +787,7 @@ function ItemCard({
               value={item.current_qty}
               unit={item.unit}
               unitsPerPackage={item.units_per_package}
-              disabled={!isManager}
+              disabled={!canUpdateCount}
               onCommit={onSetQty}
             />
           </div>
@@ -1135,6 +1334,7 @@ export function Inventory() {
   const [detailBatchId, setDetailBatchId] = useState<string | null>(null);
   const [editing, setEditing] = useState<ItemWithQty | null>(null);
   const [historyItem, setHistoryItem] = useState<ItemWithQty | null>(null);
+  const [detailItem, setDetailItem] = useState<ItemWithQty | null>(null);
   const [form, setForm] = useState<ItemForm>(EMPTY_FORM);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1147,6 +1347,7 @@ export function Inventory() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const isManager = !!(profile && ["manager", "shift_manager", "office_manager"].includes(profile.role));
+  const canUpdateCount = !!(profile && ["manager", "shift_manager", "office_manager", "employee"].includes(profile.role));
 
   function changeTab(next: InventoryTab) {
     setTab(next);
@@ -1171,6 +1372,7 @@ export function Inventory() {
   }, [canManageOrders, showWaste, tab]);
 
   const list = items ?? [];
+  const detailItemLive = detailItem ? list.find((i) => i.id === detailItem.id) ?? detailItem : null;
   const filteredList = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return list.filter((item) => {
@@ -1217,6 +1419,24 @@ export function Inventory() {
     setForm(EMPTY_FORM);
     setError(null);
     setModalOpen(true);
+  }
+
+  function openItemDetail(item: ItemWithQty) {
+    setDetailItem(item);
+  }
+
+  function closeItemDetail() {
+    setDetailItem(null);
+  }
+
+  function handleSetQty(item: ItemWithQty, quantity: number) {
+    setCount.mutate({
+      business_id: businessId!,
+      item_id: item.id,
+      employee_id: profile?.id ?? null,
+      quantity,
+      previous_qty: item.current_qty,
+    });
   }
 
   function openEdit(item: ItemWithQty) {
@@ -1575,19 +1795,22 @@ export function Inventory() {
                     item={it}
                     index={idx}
                     isManager={isManager}
+                    canUpdateCount={canUpdateCount}
                     canManageOrders={canManageOrders}
-                    onEdit={() => openEdit(it)}
-                    onHistory={() => setHistoryItem(it)}
-                    onOrder={() => openNewOrder(it.id)}
-                    onSetQty={(quantity) =>
-                      setCount.mutate({
-                        business_id: businessId!,
-                        item_id: it.id,
-                        employee_id: profile?.id ?? null,
-                        quantity,
-                        previous_qty: it.current_qty,
-                      })
-                    }
+                    onOpen={() => openItemDetail(it)}
+                    onEdit={() => {
+                      closeItemDetail();
+                      openEdit(it);
+                    }}
+                    onHistory={() => {
+                      closeItemDetail();
+                      setHistoryItem(it);
+                    }}
+                    onOrder={() => {
+                      closeItemDetail();
+                      openNewOrder(it.id);
+                    }}
+                    onSetQty={(quantity) => handleSetQty(it, quantity)}
                   />
                 ))}
               </div>
@@ -1729,6 +1952,31 @@ export function Inventory() {
           )}
         </div>
       </Modal>
+
+      <ItemDetailModal
+        item={detailItemLive}
+        open={!!detailItemLive}
+        canUpdateCount={canUpdateCount}
+        isManager={isManager}
+        canManageOrders={canManageOrders}
+        onClose={closeItemDetail}
+        onSetQty={(quantity) => detailItemLive && handleSetQty(detailItemLive, quantity)}
+        onEdit={() => {
+          if (!detailItemLive) return;
+          closeItemDetail();
+          openEdit(detailItemLive);
+        }}
+        onHistory={() => {
+          if (!detailItemLive) return;
+          closeItemDetail();
+          setHistoryItem(detailItemLive);
+        }}
+        onOrder={() => {
+          if (!detailItemLive) return;
+          closeItemDetail();
+          openNewOrder(detailItemLive.id);
+        }}
+      />
 
       <HistoryModal businessId={businessId} item={historyItem} onClose={() => setHistoryItem(null)} />
 

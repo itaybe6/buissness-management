@@ -55,7 +55,8 @@ create type public.user_role as enum (
   'shift_manager',     -- אחראי משמרת - סידור עבודה, אילוצים, חשבוניות ודוח סגירת קופה
   'office_manager',    -- מנהלת משרד / מזכירה - שכר ומלאי
   'employee',          -- עובד
-  'maintenance'        -- איש אחזקה - רואה רק תקלות
+  'maintenance',       -- איש אחזקה - רואה רק תקלות
+  'event_manager'      -- מנהלת אירועים - ניהול אירועים ומדיה
 );
 
 -- חלקי משמרת
@@ -266,6 +267,7 @@ create table public.form_101 (
   data          jsonb not null default '{}'::jsonb, -- כל שדות הטופס
   submitted     boolean not null default false,
   submitted_at  timestamptz,
+  email_notified_at timestamptz,
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now(),
   unique (employee_id, tax_year)
@@ -507,6 +509,7 @@ create table public.events (
   title       text not null,
   description text,
   event_date  timestamptz not null,
+  media_urls  text[] not null default '{}',          -- תמונות וסרטונים ב-Storage
   created_by  uuid references public.profiles(id),
   created_at  timestamptz not null default now()
 );
@@ -775,27 +778,67 @@ create policy "shift_bonuses_tenant" on public.shift_bonuses
 -- payroll_records
 create policy "payroll_tenant" on public.payroll_records
   for all using (public.can_access(business_id)) with check (public.can_access(business_id));
--- inventory_items
-create policy "inv_items_tenant" on public.inventory_items
-  for all using (public.can_access(business_id)) with check (public.can_access(business_id));
--- inventory_counts
-create policy "inv_counts_tenant" on public.inventory_counts
-  for all using (public.can_access(business_id)) with check (public.can_access(business_id));
+-- inventory_items — קריאה לכולם; עריכת קטלוג למנהלים בלבד
+create policy "inv_items_read" on public.inventory_items
+  for select using (public.can_access(business_id));
+create policy "inv_items_manager_insert" on public.inventory_items
+  for insert with check (
+    public.can_access(business_id)
+    and public.auth_role() in ('manager', 'shift_manager', 'office_manager')
+  );
+create policy "inv_items_manager_update" on public.inventory_items
+  for update using (
+    public.can_access(business_id)
+    and public.auth_role() in ('manager', 'shift_manager', 'office_manager')
+  ) with check (
+    public.can_access(business_id)
+    and public.auth_role() in ('manager', 'shift_manager', 'office_manager')
+  );
+create policy "inv_items_manager_delete" on public.inventory_items
+  for delete using (
+    public.can_access(business_id)
+    and public.auth_role() in ('manager', 'shift_manager', 'office_manager')
+  );
+-- inventory_counts — עדכון כמות (ספירה) לכל חברי העסק כולל עובדים
+create policy "inv_counts_read" on public.inventory_counts
+  for select using (public.can_access(business_id));
+create policy "inv_counts_insert" on public.inventory_counts
+  for insert with check (public.can_access(business_id));
 -- inventory_orders
 create policy "inv_orders_tenant" on public.inventory_orders
   for all using (public.can_access(business_id)) with check (public.can_access(business_id));
 -- inventory_waste
 create policy "inv_waste_tenant" on public.inventory_waste
   for all using (public.can_access(business_id)) with check (public.can_access(business_id));
--- inventory_logs
-create policy "inv_logs_tenant" on public.inventory_logs
-  for all using (public.can_access(business_id)) with check (public.can_access(business_id));
+-- inventory_logs — יומן לקריאה ורישום לכל חברי העסק
+create policy "inv_logs_read" on public.inventory_logs
+  for select using (public.can_access(business_id));
+create policy "inv_logs_insert" on public.inventory_logs
+  for insert with check (public.can_access(business_id));
 -- faults
 create policy "faults_tenant" on public.faults
   for all using (public.can_access(business_id)) with check (public.can_access(business_id));
--- events
-create policy "events_tenant" on public.events
-  for all using (public.can_access(business_id)) with check (public.can_access(business_id));
+-- events — קריאה לכולם; כתיבה למנהל / מנהלת אירועים
+create policy "events_read" on public.events
+  for select using (public.can_access(business_id));
+create policy "events_insert" on public.events
+  for insert with check (
+    public.can_access(business_id)
+    and public.auth_role() in ('manager', 'event_manager')
+  );
+create policy "events_update" on public.events
+  for update using (
+    public.can_access(business_id)
+    and public.auth_role() in ('manager', 'event_manager')
+  ) with check (
+    public.can_access(business_id)
+    and public.auth_role() in ('manager', 'event_manager')
+  );
+create policy "events_delete" on public.events
+  for delete using (
+    public.can_access(business_id)
+    and public.auth_role() in ('manager', 'event_manager')
+  );
 -- task_templates — קריאה לכולם, כתיבה למנהל בלבד
 create policy "task_templates_read" on public.task_templates
   for select using (public.can_access(business_id));

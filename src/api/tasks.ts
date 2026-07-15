@@ -61,6 +61,8 @@ export function useCreateTask() {
       completed_at?: string | null;
       photo_url?: string | null;
       media_urls?: string[];
+      last_documented_by?: string | null;
+      last_documented_at?: string | null;
     }): Promise<string> => {
       const { data, error } = await supabase.from("tasks").insert(input).select("id").single();
       if (error) throw error;
@@ -85,7 +87,16 @@ export async function notifyTaskAssigned(taskId: string): Promise<void> {
 export function useUpdateTask(businessId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { id: string; status?: TaskStatus; completed_at?: string | null; photo_url?: string | null; media_urls?: string[]; approval_status?: TaskApproval | null }) => {
+    mutationFn: async (input: {
+      id: string;
+      status?: TaskStatus;
+      completed_at?: string | null;
+      photo_url?: string | null;
+      media_urls?: string[];
+      approval_status?: TaskApproval | null;
+      last_documented_by?: string | null;
+      last_documented_at?: string | null;
+    }) => {
       const { id, ...rest } = input;
       const { error } = await supabase.from("tasks").update(rest).eq("id", id);
       if (error) throw error;

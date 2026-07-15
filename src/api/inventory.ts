@@ -40,6 +40,10 @@ export interface ItemWithQty extends InventoryItem {
   current_qty: number;
   /** Sum of quantities in open orders (status ≠ received) */
   ordered_qty: number;
+  /** Employee who recorded the latest inventory count */
+  last_updated_by: string | null;
+  last_updated_at: string | null;
+  last_updated_by_name: string | null;
 }
 
 export function isTrackedLowStock(item: ItemWithQty): boolean {
@@ -158,24 +162,54 @@ export function useInventory(businessId: string | null) {
     queryFn: async (): Promise<ItemWithQty[]> => {
       const [{ data: items, error }, { data: counts }, { data: orderRows }] = await Promise.all([
         supabase.from("inventory_items").select("*").eq("business_id", businessId).eq("active", true).order("name"),
-        supabase.from("inventory_counts").select("item_id, quantity, counted_at").eq("business_id", businessId).order("counted_at", { ascending: false }),
+        supabase
+          .from("inventory_counts")
+          .select("item_id, quantity, counted_at, employee_id")
+          .eq("business_id", businessId)
+          .order("counted_at", { ascending: false }),
         supabase.from("inventory_orders").select("item_id, quantity, status").eq("business_id", businessId),
       ]);
       throwDbError(error);
-      const latest = new Map<string, number>();
+      const latest = new Map<
+        string,
+        { qty: number; employee_id: string | null; counted_at: string }
+      >();
       (counts ?? []).forEach((c) => {
-        if (!latest.has(c.item_id)) latest.set(c.item_id, Number(c.quantity));
+        if (!latest.has(c.item_id)) {
+          latest.set(c.item_id, {
+            qty: Number(c.quantity),
+            employee_id: c.employee_id ?? null,
+            counted_at: c.counted_at,
+          });
+        }
       });
       const pending = new Map<string, number>();
       (orderRows ?? []).forEach((o) => {
         if (o.status === "received") return;
         pending.set(o.item_id, (pending.get(o.item_id) ?? 0) + Number(o.quantity));
       });
-      return (items ?? []).map((it) => ({
-        ...(it as InventoryItem),
-        current_qty: latest.get(it.id) ?? 0,
-        ordered_qty: pending.get(it.id) ?? 0,
-      }));
+
+      const updaterIds = [
+        ...new Set([...latest.values()].map((v) => v.employee_id).filter((id): id is string => !!id)),
+      ];
+      const updaterNames = new Map<string, string | null>();
+      if (updaterIds.length) {
+        const { data: people } = await supabase.from("profiles").select("id, full_name").in("id", updaterIds);
+        (people ?? []).forEach((p) => updaterNames.set(p.id, p.full_name));
+      }
+
+      return (items ?? []).map((it) => {
+        const count = latest.get(it.id);
+        const updaterId = count?.employee_id ?? null;
+        return {
+          ...(it as InventoryItem),
+          current_qty: count?.qty ?? 0,
+          ordered_qty: pending.get(it.id) ?? 0,
+          last_updated_by: updaterId,
+          last_updated_at: count?.counted_at ?? null,
+          last_updated_by_name: updaterId ? updaterNames.get(updaterId) ?? null : null,
+        };
+      });
     },
   });
 }

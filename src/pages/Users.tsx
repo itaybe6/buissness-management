@@ -23,6 +23,7 @@ import type { Profile, UserRole, WageType } from "@/types/database";
 const ASSIGNABLE_ROLES: UserRole[] = [
   "shift_manager",
   "office_manager",
+  "event_manager",
   "employee",
   "maintenance",
 ];

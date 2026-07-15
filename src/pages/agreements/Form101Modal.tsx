@@ -3,7 +3,7 @@ import { Button, Field, Input, Select } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId } from "@/lib/db";
-import { useForm101, useSaveForm101 } from "@/api/forms";
+import { notifyForm101Submitted, useForm101, useSaveForm101 } from "@/api/forms";
 
 interface FormData {
   id_number: string;
@@ -42,6 +42,7 @@ export function Form101Modal({ employeeId, taxYear, onClose }: { employeeId: str
     setValues((v) => ({ ...v, [k]: e.target.value }));
 
   async function persist(submitted: boolean) {
+    const wasSubmitted = form?.submitted === true;
     await save.mutateAsync({
       business_id: businessId!,
       employee_id: employeeId,
@@ -49,6 +50,9 @@ export function Form101Modal({ employeeId, taxYear, onClose }: { employeeId: str
       data: values as unknown as Record<string, unknown>,
       submitted,
     });
+    if (submitted && !wasSubmitted) {
+      await notifyForm101Submitted(employeeId, taxYear);
+    }
     if (submitted) onClose();
   }
 

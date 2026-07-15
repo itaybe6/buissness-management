@@ -51,6 +51,8 @@ function recurringTask(overrides: Partial<Task> = {}): Task {
     photo_url: null,
     media_urls: YESTERDAY_MEDIA,
     completed_at: `${YESTERDAY}T18:00:00.000Z`,
+    last_documented_by: null,
+    last_documented_at: null,
     created_at: `${YESTERDAY}T10:00:00.000Z`,
     updated_at: `${YESTERDAY}T18:00:00.000Z`,
     ...overrides,

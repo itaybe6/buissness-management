@@ -36,9 +36,12 @@ function useLiveClock() {
 export function ManagerAttendanceFeed({
   className = "manager-attendance-feed dash-rise dash-panel",
   showLink = true,
+  compact = false,
 }: {
   className?: string;
   showLink?: boolean;
+  /** Narrow sidebar on worker dashboard — always mobile-style list + stat filters. */
+  compact?: boolean;
 } = {}) {
   const businessId = useBusinessId();
   const { profile, hasFeature } = useAuth();
@@ -115,7 +118,7 @@ export function ManagerAttendanceFeed({
         )}
       </div>
 
-      {!isMdUp && (
+      {(!isMdUp || compact) && (
         <div className="manager-attendance-feed__stats">
           <div className="attendance-mobile-stats" role="group" aria-label="סינון נוכחות">
             {STAT_FILTERS.map(({ filter: id, label, countKey }) => {
@@ -145,9 +148,9 @@ export function ManagerAttendanceFeed({
           todayFeed={todayFeed}
           feedByDepartment={feedByDepartment}
           userById={userById}
-          variant={isMdUp ? "desktop" : "mobile"}
+          variant={isMdUp && !compact ? "desktop" : "mobile"}
           filter={filter}
-          showFilterBar={isMdUp}
+          showFilterBar={isMdUp && !compact}
           onFilterChange={setFilter}
           canForceClockOut={canForceClockOut}
           onRequestClockOut={setClockOutTarget}

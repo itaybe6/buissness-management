@@ -49,6 +49,22 @@ supabase secrets set SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
 
 > ללא פריסת הפונקציה, אפשר עדיין ליצור משתמשים ידנית דרך **Authentication → Users → Add user** (ראו למטה). הממשק יציג הודעה מתאימה אם הפונקציה לא פרוסה.
 
+5. **שליחת מיילים (Resend — חינמי עד 3,000 מיילים בחודש)** — נדרש להגשת טופס 101 ולהתראות משימות:
+
+```bash
+# הרשמה חינמית: https://resend.com → API Keys → Create API Key
+supabase functions deploy send-form101-email
+supabase secrets set RESEND_API_KEY=re_xxxxxxxx
+# אופציונלי — כתובת שולח (ברירת מחדל: onboarding@resend.dev לבדיקות)
+supabase secrets set FORM101_EMAIL_FROM="אביחי <onboarding@resend.dev>"
+```
+
+כשעובד מגיש טופס 101, נשלח מייל אוטומטי למנהלת המשרד (`office_manager`) עם פרטי הטופס. אם אין מנהלת משרד עם אימייל — נשלח למנהל העסק.
+
+> **בדיקות:** עם `onboarding@resend.dev` ניתן לשלוח רק לכתובות שאומתו בחשבון Resend. לפרודקשן — אמתו דומיין ב-Resend והגדירו `FORM101_EMAIL_FROM` עם הדומיין שלכם.
+
+אפשר גם להגדיר סודות ב-Supabase Dashboard → **Edge Functions → Secrets** (ללא CLI).
+
 ### יצירת סופר אדמין ראשון
 
 ב-**Authentication → Users → Add user**:

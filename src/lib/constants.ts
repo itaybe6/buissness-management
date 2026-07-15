@@ -10,6 +10,7 @@ export const ATTENDANCE_GEOFENCE_EXEMPT_ROLE_OPTIONS: UserRole[] = [
   "office_manager",
   "employee",
   "maintenance",
+  "event_manager",
 ];
 
 export const ROLE_LABELS: Record<UserRole, string> = {
@@ -19,6 +20,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   office_manager: "מנהלת משרד",
   employee: "עובד",
   maintenance: "איש אחזקה",
+  event_manager: "מנהלת אירועים",
 };
 
 export const WAGE_TYPE_LABELS: Record<WageType, string> = {
@@ -43,7 +45,11 @@ export const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
   office_manager: "שכר, מלאי וחשבוניות",
   employee: "משמרות, נוכחות",
   maintenance: "תקלות בלבד",
+  event_manager: "ניהול אירועים, תמונות וסרטונים",
 };
+
+/** Roles that can create, edit and delete business events. */
+export const EVENT_MANAGE_ROLES: UserRole[] = ["manager", "event_manager"];
 
 /** Roles that can see the employee documents compliance overview. */
 export const DOCUMENTS_OVERVIEW_ROLES: UserRole[] = ["manager", "office_manager"];
@@ -164,7 +170,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "tasks", label: "משימות", icon: "checklist", group: "ops", roles: ["manager", "shift_manager", "office_manager", "maintenance"], feature: "tasks" },
   { key: "inventory", label: "סחורות", icon: "inventory_2", group: "ops", roles: ["manager", "shift_manager", "office_manager", "employee", "maintenance"], feature: "inventory" },
   { key: "faults", label: "תקלות", icon: "build", group: "ops", roles: ["manager", "shift_manager", "employee"], feature: "faults" },
-  { key: "events", label: "אירועים", icon: "celebration", group: "ops", roles: ["manager"], feature: "events" },
+  { key: "events", label: "אירועים", icon: "celebration", group: "ops", roles: ["manager", "event_manager", "shift_manager", "office_manager", "employee"], feature: "events" },
 
   { key: "settings", label: "הגדרות עסק", icon: "settings", group: "settings", roles: ["manager"] },
 ];
@@ -172,6 +178,7 @@ export const NAV_ITEMS: NavItem[] = [
 /** Default landing route after login, per role. */
 export function getHomePath(role: UserRole): string {
   if (role === "employee") return "/dashboard";
+  if (role === "event_manager") return "/events";
   if (role === "super_admin") return "/platform";
   return "/dashboard";
 }

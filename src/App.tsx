@@ -27,6 +27,7 @@ import { Waste } from "@/pages/Waste";
 // Lazy — pulls in the PDF rendering/stamping libraries only when opened.
 const Agreements = lazy(() => import("@/pages/Agreements").then((m) => ({ default: m.Agreements })));
 import { Events } from "@/pages/Events";
+import { EventDetail } from "@/pages/EventDetail";
 import { Profile } from "@/pages/Profile";
 import { FeatureGate } from "@/components/FeatureGate";
 
@@ -75,6 +76,7 @@ export function App() {
         <Route path="faults" element={<FeatureGate feature="faults"><Faults /></FeatureGate>} />
         <Route path="agreements" element={<FeatureGate feature="agreements"><Suspense fallback={<PageLoader />}><Agreements /></Suspense></FeatureGate>} />
         <Route path="events" element={<FeatureGate feature="events"><Events /></FeatureGate>} />
+        <Route path="events/:eventId" element={<FeatureGate feature="events"><EventDetail /></FeatureGate>} />
         <Route path="settings" element={<Settings />} />
         <Route path="profile" element={<Profile />} />
       </Route>

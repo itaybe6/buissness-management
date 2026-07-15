@@ -45,6 +45,20 @@ export function useSaveForm101(businessId: string | null) {
   });
 }
 
+/**
+ * Best-effort email to office manager when Form 101 is submitted.
+ * Never throws — a failed notification must not break form submission.
+ */
+export async function notifyForm101Submitted(employeeId: string, taxYear: number): Promise<void> {
+  try {
+    await supabase.functions.invoke("send-form101-email", {
+      body: { employee_id: employeeId, tax_year: taxYear },
+    });
+  } catch {
+    // swallow — notification is non-critical
+  }
+}
+
 /** All Form 101 records for a business (manager overview). */
 export function useAllForm101(businessId: string | null, taxYear: number) {
   return useQuery({

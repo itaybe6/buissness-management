@@ -7,7 +7,7 @@ import { ROLE_LABELS } from "@/lib/constants";
 import { colorFor, initialsOf } from "@/lib/db";
 import type { UserRole } from "@/types/database";
 
-const ROLES: UserRole[] = ["super_admin", "manager", "shift_manager", "office_manager", "employee", "maintenance"];
+const ROLES: UserRole[] = ["super_admin", "manager", "shift_manager", "office_manager", "employee", "maintenance", "event_manager"];
 
 export function PlatformUsers() {
   const { data: users, isLoading, isError, refetch } = useProfiles();

@@ -4,6 +4,12 @@ import type { Task, TaskTemplate, UserRole } from "@/types/database";
 
 export const VIRTUAL_TASK_PREFIX = "tpl-";
 
+/** Stable key for expand/collapse — survives virtual → materialized id change. */
+export function taskExpansionKey(task: Pick<Task, "id" | "template_id">): string {
+  if (task.template_id) return `${VIRTUAL_TASK_PREFIX}${task.template_id}`;
+  return task.id;
+}
+
 function weekdayFromDate(date: string): number {
   return new Date(date + "T12:00:00").getDay();
 }
@@ -62,6 +68,8 @@ export function virtualRecurringTask(t: TaskTemplate, profileId: string, busines
     photo_url: null,
     media_urls: [],
     completed_at: null,
+    last_documented_by: null,
+    last_documented_at: null,
     created_at: t.created_at,
     updated_at: t.created_at,
   };

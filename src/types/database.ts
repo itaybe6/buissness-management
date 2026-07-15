@@ -6,7 +6,8 @@ export type UserRole =
   | "shift_manager"
   | "office_manager"
   | "employee"
-  | "maintenance";
+  | "maintenance"
+  | "event_manager";
 
 export type Availability = "prefer" | "available" | "cannot";
 /** How an employee's pay is computed. hourly = hours×rate; tips = tip pool, floored at their hourly_rate. */
@@ -173,6 +174,7 @@ export interface Form101 {
   data: Record<string, unknown>;
   submitted: boolean;
   submitted_at: string | null;
+  email_notified_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -432,6 +434,7 @@ export interface EventRecord {
   title: string;
   description: string | null;
   event_date: string;
+  media_urls: string[];
   created_by: string | null;
   created_at: string;
 }
@@ -465,6 +468,8 @@ export interface Task {
   photo_url: string | null;
   media_urls: string[];
   completed_at: string | null;
+  last_documented_by: string | null;
+  last_documented_at: string | null;
   created_at: string;
   updated_at: string;
 }

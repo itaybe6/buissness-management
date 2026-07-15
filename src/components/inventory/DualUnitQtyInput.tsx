@@ -20,6 +20,8 @@ type DualUnitQtyInputProps = {
   className?: string;
   placeholder?: string;
   compact?: boolean;
+  /** Initial input mode when dual-unit entry is available */
+  defaultMode?: InputMode;
 };
 
 export function DualUnitQtyInput({
@@ -33,10 +35,12 @@ export function DualUnitQtyInput({
   className = "",
   placeholder = "0",
   compact = false,
+  defaultMode = "main",
 }: DualUnitQtyInputProps) {
   const dualEnabled = canUsePieceInput(mainUnit, unitsPerPackage);
   const factor = unitsPerPackage ?? 1;
-  const [mode, setMode] = useState<InputMode>("main");
+  const initialMode: InputMode = dualEnabled && defaultMode === "pieces" ? "pieces" : "main";
+  const [mode, setMode] = useState<InputMode>(initialMode);
   const [local, setLocal] = useState(value);
   const [bump, setBump] = useState(false);
 

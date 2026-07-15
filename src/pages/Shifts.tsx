@@ -80,6 +80,49 @@ function todayIdxInWeek(wk: string) {
   return 0;
 }
 
+function shiftTimeIcon(start?: string | null) {
+  const h = Number((start ?? "").slice(0, 2));
+  if (Number.isNaN(h)) return "schedule";
+  if (h >= 5 && h < 11) return "wb_sunny";
+  if (h >= 11 && h < 16) return "light_mode";
+  if (h >= 16 && h < 21) return "wb_twilight";
+  return "bedtime";
+}
+
+function shiftDurationLabel(start?: string | null, end?: string | null) {
+  if (!start || !end) return null;
+  const [sh, sm] = start.split(":").map(Number);
+  const [eh, em] = end.split(":").map(Number);
+  if ([sh, sm, eh, em].some((n) => Number.isNaN(n))) return null;
+  let mins = eh * 60 + em - (sh * 60 + sm);
+  if (mins <= 0) mins += 24 * 60;
+  const hrs = mins / 60;
+  return `${Number.isInteger(hrs) ? hrs : hrs.toFixed(1)} שע׳`;
+}
+
+/* Circular week-progress ring for the availability hero */
+function ProgressRing({ pct, done }: { pct: number; done: boolean }) {
+  const r = 25;
+  const c = 2 * Math.PI * r;
+  const clamped = Math.max(0, Math.min(100, pct));
+  return (
+    <div className="prefs2-ring" data-done={done}>
+      <svg viewBox="0 0 60 60" aria-hidden="true">
+        <circle className="prefs2-ring-track" cx="30" cy="30" r={r} />
+        <circle
+          className="prefs2-ring-fill"
+          cx="30"
+          cy="30"
+          r={r}
+          strokeDasharray={c}
+          strokeDashoffset={c * (1 - clamped / 100)}
+        />
+      </svg>
+      <span className="prefs2-ring-label">{done ? <Icon name="check" size={22} /> : `${Math.round(clamped)}%`}</span>
+    </div>
+  );
+}
+
 function WeekNav({ wkStart, onShift, onToday }: { wkStart: string; onShift: (d: number) => void; onToday?: () => void }) {
   const end = addDays(wkStart, 6);
   const isCurrentWeek = wkStart === weekStart();
@@ -172,8 +215,14 @@ function DayStrip({
             )}
             <span className="shift-day-pill-name">{d}</span>
             <span className="shift-day-pill-date">{meta.date.slice(8, 10)}</span>
-            {meta.isToday && <span className="shift-day-pill-dot" />}
-            {dayComplete?.(i) && <span className="shift-day-pill-dot" style={{ background: "var(--success)" }} />}
+            <span className="shift-day-pill-inds">
+              {meta.isToday && <span className="shift-day-pill-dot" />}
+              {dayComplete?.(i) && (
+                <span className="shift-day-pill-check">
+                  <Icon name="check" size={11} />
+                </span>
+              )}
+            </span>
           </button>
         );
       })}
@@ -549,7 +598,7 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
   return (
     <div>
       {!isDesktop ? (
-        <section className="payroll-hero prefs-hero">
+        <section className="payroll-hero prefs-hero prefs2-hero">
           <div className="payroll-hero-top">
             <div className="payroll-month-nav">
               <button
@@ -589,12 +638,16 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
             )}
           </div>
 
-          <div className="payroll-hero-total prefs-hero-total">
-            {filledCells}
-            <span className="prefs-hero-of">/{totalCells}</span>
-          </div>
-          <div className="prefs-hero-bar">
-            <div className="prefs-hero-fill" style={{ width: `${progressPct}%` }} />
+          <div className="prefs2-hero-main">
+            <div className="prefs2-hero-nums">
+              <p className="payroll-hero-label">הגשת זמינות</p>
+              <div className="payroll-hero-total prefs-hero-total">
+                {filledCells}
+                <span className="prefs-hero-of">/{totalCells}</span>
+              </div>
+              <p className="prefs2-hero-label">משמרות סומנו</p>
+            </div>
+            <ProgressRing pct={progressPct} done={totalCells > 0 && filledCells === totalCells} />
           </div>
 
           {hasMinimum && (
@@ -739,57 +792,120 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
       {/* Phone: pick a day, mark availability per shift */}
       {!isDesktop ? (
       <div>
-        <DayStrip wk={wk} value={dayIdx} onChange={setDayIdx} stripId="constraints" dayComplete={hasMinimum ? dayComplete : undefined} />
+        <DayStrip wk={wk} value={dayIdx} onChange={setDayIdx} stripId="constraints" dayComplete={dayComplete} />
         <motion.div
           key={`${wk}-${dayIdx}`}
           initial={reduceMotion ? false : { opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ type: "spring", stiffness: 340, damping: 32 }}
         >
-          <Card className="overflow-hidden !p-0">
-            {templates.map((t) => {
+          <div className="prefs2-list">
+            {templates.map((t, idx) => {
               const date = addDays(wk, dayIdx);
               const key = `${t.id}_${date}`;
+              const val = prefMap.get(key) ?? null;
+              const saving = pending.has(key);
+              const duration = shiftDurationLabel(t.start_time, t.end_time);
               return (
-                <div key={t.id} className="shift-mobile-shift" style={{ "--shift-color": t.color ?? "var(--accent)" } as CSSProperties}>
-                  <div className="shift-mobile-shift-head">
-                    <span className="shift-mobile-shift-name">{t.name}</span>
-                    <span className="shift-shift-time">
-                      {t.start_time?.slice(0, 5)}–{t.end_time?.slice(0, 5)}
+                <div
+                  key={t.id}
+                  className="prefs2-card"
+                  data-state={val ?? "none"}
+                  style={{ "--shift-color": t.color ?? "var(--accent)", "--enter-delay": `${idx * 45}ms` } as CSSProperties}
+                >
+                  <div className="prefs2-card-head">
+                    <span className="prefs2-card-icon">
+                      <Icon name={shiftTimeIcon(t.start_time)} size={21} />
                     </span>
+                    <div className="prefs2-card-titles">
+                      <span className="prefs2-card-name">{t.name}</span>
+                      <span className="prefs2-card-time">
+                        <Icon name="schedule" size={13} />
+                        {t.start_time?.slice(0, 5)}–{t.end_time?.slice(0, 5)}
+                        {duration && <span className="prefs2-card-dur">{duration}</span>}
+                      </span>
+                    </div>
                   </div>
-                  <div className="mt-2.5">
-                    <AvailabilityCell
-                      horizontal
-                      value={prefMap.get(key) ?? null}
-                      saving={pending.has(key)}
-                      disabled={!canEdit}
-                      onSet={(v) => setAvailability(t.id, date, v)}
-                    />
-                  </div>
+                  {canEdit ? (
+                    <div className="pref-seg">
+                      <button
+                        type="button"
+                        className="pref-seg-btn"
+                        data-kind="yes"
+                        data-on={val === "available"}
+                        data-saving={saving}
+                        disabled={saving}
+                        onClick={() => setAvailability(t.id, date, val === "available" ? null : "available")}
+                      >
+                        <Icon name="check" size={17} />
+                        יכול
+                      </button>
+                      <button
+                        type="button"
+                        className="pref-seg-btn"
+                        data-kind="no"
+                        data-on={val === "cannot"}
+                        data-saving={saving}
+                        disabled={saving}
+                        onClick={() => setAvailability(t.id, date, val === "cannot" ? null : "cannot")}
+                      >
+                        <Icon name="close" size={17} />
+                        לא יכול
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="prefs2-locked" data-state={val ?? "none"}>
+                      <Icon
+                        name={val === "available" ? "check_circle" : val === "cannot" ? "cancel" : "lock"}
+                        size={15}
+                      />
+                      {val === "available" ? "יכול" : val === "cannot" ? "לא יכול" : "לא סומן"}
+                    </span>
+                  )}
                 </div>
               );
             })}
-            <div className="flex items-center justify-between gap-2 border-t border-border px-4 py-3">
-              <button
-                type="button"
-                disabled={!canEdit}
-                onClick={() => fillDay(dayIdx, "available")}
-                className="rounded-[9px] px-2.5 py-1.5 text-[12px] font-bold text-info transition hover:[background:var(--info-bg)] disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                סמן הכל — יכול
-              </button>
-              <button
-                type="button"
-                disabled={!canEdit}
-                onClick={() => clearDay(dayIdx)}
-                className="rounded-[9px] px-2.5 py-1.5 text-[12px] font-bold text-text-3 transition hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                נקה יום
-              </button>
-            </div>
-            {savingBar}
-          </Card>
+          </div>
+
+          <div className="prefs2-day-actions">
+            <button
+              type="button"
+              className="prefs2-action prefs2-action--fill btn-press"
+              disabled={!canEdit}
+              onClick={() => fillDay(dayIdx, "available")}
+            >
+              <Icon name="done_all" size={17} />
+              סמן הכל — יכול
+            </button>
+            <button
+              type="button"
+              className="prefs2-action prefs2-action--clear btn-press"
+              disabled={!canEdit}
+              onClick={() => clearDay(dayIdx)}
+            >
+              <Icon name="delete_sweep" size={17} />
+              נקה יום
+            </button>
+          </div>
+
+          <div className="prefs2-autosave">
+            {!canEdit ? (
+              <>
+                <Icon name="lock" size={14} />
+                נעול לעריכה — חלון ההגשה סגור
+              </>
+            ) : setPref.isPending || clearPref.isPending ? (
+              <>
+                <Icon name="sync" size={14} className="animate-spin" />
+                שומר...
+              </>
+            ) : (
+              <>
+                <Icon name="cloud_done" size={14} />
+                נשמר אוטומטית
+              </>
+            )}
+          </div>
         </motion.div>
       </div>
       ) : (

@@ -50,7 +50,7 @@ select
   'office_manager'::public.user_role,
   '044389b9-62b4-4f8b-ab05-6b069b9a2d3e'::uuid
 from auth.users u
-where u.email = 'lironhuri123@gmail.com'
+where u.email = 'itaybenyairforjobs@gmail.com'
 on conflict (id) do update set
   role = 'office_manager',
   business_id = '044389b9-62b4-4f8b-ab05-6b069b9a2d3e',

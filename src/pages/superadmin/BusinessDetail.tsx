@@ -21,6 +21,7 @@ const ASSIGNABLE_ROLES: UserRole[] = [
   "manager",
   "shift_manager",
   "office_manager",
+  "event_manager",
   "employee",
   "maintenance",
 ];

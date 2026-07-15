@@ -4,9 +4,10 @@ import { Button, Icon } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { EASE_OUT } from "@/components/motion/shared-motion";
 import { todayISO } from "@/lib/db";
-import { buildTodayTasks, isRecurringTaskForDate, VIRTUAL_TASK_PREFIX } from "@/lib/todayTasks";
+import { buildTodayTasks, isRecurringTaskForDate, taskExpansionKey, VIRTUAL_TASK_PREFIX } from "@/lib/todayTasks";
 import { useCreateTask, useTasks, useUpdateTask, uploadTaskMedia } from "@/api/tasks";
 import { useTaskTemplates } from "@/api/taskTemplates";
+import { useProfiles } from "@/api/users";
 import type { Task, TaskStatus, UserRole } from "@/types/database";
 
 type StatusTone = "danger" | "warning" | "success";
@@ -30,6 +31,11 @@ function taskMedia(task: Task): string[] {
   return task.photo_url ? [task.photo_url] : [];
 }
 
+function firstName(fullName: string | null | undefined): string | null {
+  if (!fullName?.trim()) return null;
+  return fullName.trim().split(/\s+/)[0] ?? fullName;
+}
+
 export function useDailyTaskActions(
   businessId: string,
   profileId: string,
@@ -41,11 +47,23 @@ export function useDailyTaskActions(
   const update = useUpdateTask(businessId);
   const createTask = useCreateTask();
   const [overrides, setOverrides] = useState<
-    Record<string, Partial<Pick<Task, "status" | "completed_at" | "media_urls">>>
+    Record<
+      string,
+      Partial<
+        Pick<Task, "status" | "completed_at" | "media_urls" | "last_documented_by" | "last_documented_at">
+      >
+    >
   >({});
 
   const today = todayISO();
   const todayWeekday = new Date().getDay();
+
+  function documentedPatch(): Pick<Task, "last_documented_by" | "last_documented_at"> {
+    return {
+      last_documented_by: profileId,
+      last_documented_at: new Date().toISOString(),
+    };
+  }
 
   const todayTasks = useMemo(() => {
     const built = buildTodayTasks(businessId, tasks, templates, profileId, deptId, today, todayWeekday, role);
@@ -89,7 +107,9 @@ export function useDailyTaskActions(
         const mediaOk =
           patch.media_urls == null ||
           JSON.stringify(server.media_urls ?? []) === JSON.stringify(patch.media_urls);
-        if (statusOk && mediaOk) {
+        const docOk =
+          patch.last_documented_by == null || server.last_documented_by === patch.last_documented_by;
+        if (statusOk && mediaOk && docOk) {
           delete next[id];
           changed = true;
         }
@@ -100,7 +120,13 @@ export function useDailyTaskActions(
 
   function materialize(
     templateId: string,
-    extra: { status?: TaskStatus; completed_at?: string | null; media_urls?: string[] },
+    extra: {
+      status?: TaskStatus;
+      completed_at?: string | null;
+      media_urls?: string[];
+      last_documented_by?: string | null;
+      last_documented_at?: string | null;
+    },
   ) {
     const tpl = templates.find((t) => t.id === templateId);
     if (!tpl) return;
@@ -119,21 +145,23 @@ export function useDailyTaskActions(
 
   function setStatus(id: string, status: TaskStatus) {
     const completed_at = status === "done" ? new Date().toISOString() : null;
-    setOverrides((prev) => ({ ...prev, [id]: { ...prev[id], status, completed_at } }));
+    const patch = { status, completed_at, ...documentedPatch() };
+    setOverrides((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
     if (id.startsWith(VIRTUAL_TASK_PREFIX)) {
-      materialize(id.slice(VIRTUAL_TASK_PREFIX.length), { status, completed_at });
+      materialize(id.slice(VIRTUAL_TASK_PREFIX.length), patch);
       return;
     }
-    update.mutate({ id, status, completed_at });
+    update.mutate({ id, ...patch });
   }
 
   function setMedia(id: string, media_urls: string[]) {
-    setOverrides((prev) => ({ ...prev, [id]: { ...prev[id], media_urls } }));
+    const patch = { media_urls, ...documentedPatch() };
+    setOverrides((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
     if (id.startsWith(VIRTUAL_TASK_PREFIX)) {
-      materialize(id.slice(VIRTUAL_TASK_PREFIX.length), { media_urls });
+      materialize(id.slice(VIRTUAL_TASK_PREFIX.length), patch);
       return;
     }
-    update.mutate({ id, media_urls });
+    update.mutate({ id, ...patch });
   }
 
   return { todayTasks, setStatus, setMedia };
@@ -146,43 +174,6 @@ function tasksHeroSummary(open: number, inProgress: number, total: number) {
   if (open) parts.push(open === 1 ? "משימה אחת מצריכה טיפול" : `${open} משימות מצריכות טיפול`);
   if (inProgress) parts.push(inProgress === 1 ? "אחת בטיפול" : `${inProgress} בטיפול`);
   return parts.join(" · ");
-}
-
-function TaskStatusTiles({
-  counts,
-  value,
-  onChange,
-}: {
-  counts: Record<TaskStatus, number>;
-  value: TaskStatus | null;
-  onChange: (next: TaskStatus | null) => void;
-}) {
-  return (
-    <div className="task-tiles" role="group" aria-label="סינון לפי סטטוס">
-      {STATUS_ORDER.map((s) => {
-        const m = STATUS_META[s];
-        const active = value === s;
-        return (
-          <button
-            key={s}
-            type="button"
-            className="task-tile"
-            data-tone={m.tone}
-            data-active={active}
-            data-alert={s === "open" && counts[s] > 0}
-            aria-pressed={active}
-            onClick={() => onChange(active ? null : s)}
-          >
-            <span className="task-tile__icon">
-              <Icon name={m.icon} size={17} />
-            </span>
-            <span className="task-tile__count">{counts[s]}</span>
-            <span className="task-tile__label">{m.short}</span>
-          </button>
-        );
-      })}
-    </div>
-  );
 }
 
 function StatusSegmented({
@@ -400,6 +391,9 @@ function DailyTaskRow({
   onStatus,
   onMedia,
   variant,
+  expanded,
+  onToggle,
+  documenterName,
 }: {
   task: Task;
   index: number;
@@ -407,6 +401,9 @@ function DailyTaskRow({
   onStatus: (id: string, status: TaskStatus) => void;
   onMedia: (id: string, media_urls: string[]) => void;
   variant: ChecklistVariant;
+  expanded?: boolean;
+  onToggle?: () => void;
+  documenterName?: string | null;
 }) {
   const reduce = useReducedMotion();
   const cameraRef = useRef<HTMLInputElement | null>(null);
@@ -419,6 +416,7 @@ function DailyTaskRow({
   const done = task.status === "done";
   const media = taskMedia(task);
   const wrapped = variant === "employee" || variant === "dashboard";
+  const cover = media[0];
 
   async function handleFiles(files: FileList | null) {
     const list = files ? Array.from(files) : [];
@@ -441,13 +439,172 @@ function DailyTaskRow({
     }
   }
 
+  const fileInputs = (
+    <>
+      <input
+        ref={cameraRef}
+        type="file"
+        accept="image/*,video/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => {
+          handleFiles(e.target.files);
+          e.target.value = "";
+        }}
+      />
+      <input
+        ref={galleryRef}
+        type="file"
+        accept="image/*,video/*"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          handleFiles(e.target.files);
+          e.target.value = "";
+        }}
+      />
+    </>
+  );
+
+  if (wrapped) {
+    return (
+      <>
+        <motion.article
+          initial={reduce ? false : { opacity: 0, transform: "translateY(8px)" }}
+          animate={{ opacity: 1, transform: "translateY(0)" }}
+          transition={{ delay: Math.min(index, 8) * 0.04, duration: 0.24, ease: EASE_OUT }}
+          className="task-row-card"
+          data-tone={meta.tone}
+          data-done={done ? "true" : "false"}
+          data-expanded={expanded ? "true" : "false"}
+        >
+          <div className="task-row-card__head">
+            <span className="task-row-card__edge" aria-hidden />
+
+            {cover ? (
+              <button
+                type="button"
+                className="task-row-card__thumb"
+                onClick={() => {
+                  if (!expanded) onToggle?.();
+                }}
+                aria-label="פתיחת פרטי משימה"
+              >
+                {isVideoUrl(cover) ? (
+                  <>
+                    <video src={cover} muted playsInline preload="metadata" />
+                    <span className="task-row-card__thumb-play">
+                      <Icon name="play_arrow" size={20} />
+                    </span>
+                  </>
+                ) : (
+                  <img src={cover} alt="" loading="lazy" />
+                )}
+                {media.length > 1 && (
+                  <span className="task-row-card__thumb-count">
+                    <Icon name="photo_library" size={10} />
+                    {media.length}
+                  </span>
+                )}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onStatus(task.id, done ? "open" : "done")}
+                className="task-row-card__thumb task-row-card__thumb--check"
+                aria-label={done ? "סמן כפתוח" : "סמן כבוצע"}
+                title={done ? "סמן כפתוח" : "סמן כבוצע"}
+              >
+                <Icon name={meta.icon} size={22} />
+              </button>
+            )}
+
+            <button
+              type="button"
+              className="task-row-card__head-copy"
+              onClick={() => {
+                if (!expanded) onToggle?.();
+              }}
+              aria-expanded={expanded}
+            >
+              <span className={`task-row-card__title ${done ? "task-row-card__title--done" : ""}`}>{task.title}</span>
+              <span className="task-row-card__meta">
+                <span className="task-row-card__pill">
+                  <span className="task-row-card__pill-dot" aria-hidden />
+                  {meta.short}
+                </span>
+                <span className="task-row-card__meta-sep" aria-hidden>
+                  ·
+                </span>
+                <span className="task-row-card__meta-type">{task.type === "recurring" ? "קבועה" : "חד־פעמית"}</span>
+                {documenterName && (
+                  <>
+                    <span className="task-row-card__meta-sep" aria-hidden>
+                      ·
+                    </span>
+                    <span className="task-row-card__meta-doc">תועד ע״י {documenterName}</span>
+                  </>
+                )}
+                {task.description && (
+                  <>
+                    <span className="task-row-card__meta-sep" aria-hidden>
+                      ·
+                    </span>
+                    <span className="task-row-card__meta-desc">{task.description}</span>
+                  </>
+                )}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              className="task-row-card__chevron"
+              aria-label={expanded ? "סגירת פרטי משימה" : "פתיחת פרטי משימה"}
+              onClick={() => onToggle?.()}
+            >
+              <Icon name="expand_more" size={19} />
+            </button>
+          </div>
+
+          <div className="task-row-card__panel">
+            <div className="task-row-card__panel-inner">
+              <div className="task-row-card__details">
+                {task.description && <p className="task-row-card__description">{task.description}</p>}
+
+                <div className="task-row-card__seg">
+                  <span className="task-row-card__seg-label">עדכון סטטוס</span>
+                  <StatusSegmented value={task.status} onChange={(s) => onStatus(task.id, s)} />
+                </div>
+
+                {fileInputs}
+                <TaskMediaBar
+                  media={media}
+                  uploading={uploading}
+                  uploadProgress={uploadProgress}
+                  onCamera={() => cameraRef.current?.click()}
+                  onGallery={() => galleryRef.current?.click()}
+                  onPreview={setPreviewUrl}
+                  onRemove={(url) => onMedia(task.id, media.filter((u) => u !== url))}
+                />
+
+                {error && <span className="block text-[12px] font-semibold text-danger">{error}</span>}
+              </div>
+            </div>
+          </div>
+        </motion.article>
+
+        <MediaLightbox url={previewUrl} onClose={() => setPreviewUrl(null)} />
+      </>
+    );
+  }
+
   return (
     <>
       <motion.div
         initial={reduce ? false : { opacity: 0, transform: "translateY(8px)" }}
         animate={{ opacity: 1, transform: "translateY(0)" }}
         transition={{ delay: Math.min(index, 8) * 0.04, duration: 0.24, ease: EASE_OUT }}
-        className={wrapped ? "task-card" : "task-row task-enter border-b border-border-2 px-4 py-3.5 last:border-0 hover:bg-surface-2"}
+        className="task-row task-enter border-b border-border-2 px-4 py-3.5 last:border-0 hover:bg-surface-2"
         data-status={task.status}
         data-done={done ? "true" : "false"}
         style={
@@ -492,28 +649,7 @@ function DailyTaskRow({
         </div>
 
         <div className="mt-3">
-          <input
-            ref={cameraRef}
-            type="file"
-            accept="image/*,video/*"
-            capture="environment"
-            className="hidden"
-            onChange={(e) => {
-              handleFiles(e.target.files);
-              e.target.value = "";
-            }}
-          />
-          <input
-            ref={galleryRef}
-            type="file"
-            accept="image/*,video/*"
-            multiple
-            className="hidden"
-            onChange={(e) => {
-              handleFiles(e.target.files);
-              e.target.value = "";
-            }}
-          />
+          {fileInputs}
           <TaskMediaBar
             media={media}
             uploading={uploading}
@@ -546,20 +682,14 @@ export function DailyTasksChecklist({
   onMedia: (id: string, media_urls: string[]) => void;
   variant?: ChecklistVariant;
 }) {
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const doneCount = tasks.filter((t) => t.status === "done").length;
-  const statusCounts = useMemo(
-    () => ({
-      all: tasks.length,
-      in_progress: tasks.filter((t) => t.status === "in_progress").length,
-      done: doneCount,
-    }),
-    [tasks, doneCount],
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const { data: users = [] } = useProfiles(businessId);
+  const userById = useMemo(
+    () => new Map(users.map((u) => [u.id, u.full_name] as const)),
+    [users],
   );
-  const visibleTasks = useMemo(
-    () => (statusFilter === "all" ? tasks : tasks.filter((t) => t.status === statusFilter)),
-    [tasks, statusFilter],
-  );
+  const openCount = tasks.filter((t) => t.status === "open").length;
+  const inProgressCount = tasks.filter((t) => t.status === "in_progress").length;
   const todayLabel = new Date().toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long" });
   const isEmployee = variant === "employee";
   const isDashboard = variant === "dashboard";
@@ -570,10 +700,13 @@ export function DailyTasksChecklist({
     if (wrapped) {
       return (
         <section className="task-checklist">
-          <header className="task-checklist-header">
-            <div>
-              <h2 className="task-checklist-title">{title}</h2>
-              <p className="task-checklist-date">{todayLabel}</p>
+          <header className="task-hero">
+            <span className="task-hero__icon">
+              <Icon name="checklist" size={20} />
+            </span>
+            <div className="task-hero__copy">
+              <h2 className="task-hero__title">{title}</h2>
+              <p className="task-hero__sub">{todayLabel}</p>
             </div>
           </header>
           <div className="px-5 py-11 text-center sm:px-6">
@@ -601,33 +734,40 @@ export function DailyTasksChecklist({
   if (wrapped) {
     return (
       <section className="task-checklist">
-        <header className="task-checklist-header">
-          <div className="min-w-0">
-            <h2 className="task-checklist-title">{title}</h2>
-            <p className="task-checklist-date">{todayLabel}</p>
+        <header className="task-hero">
+          <span className="task-hero__icon">
+            <Icon name="checklist" size={20} />
+          </span>
+          <div className="task-hero__copy">
+            <h2 className="task-hero__title">{title}</h2>
+            <p className="task-hero__sub">{tasksHeroSummary(openCount, inProgressCount, tasks.length)}</p>
           </div>
-          <ChecklistProgress total={tasks.length} done={doneCount} />
         </header>
-        <TaskStatusFilter value={statusFilter} onChange={setStatusFilter} counts={statusCounts} />
-        <div className="task-checklist-list">
-          {visibleTasks.length === 0 ? (
-            <div className="task-checklist-filter-empty">
-              <Icon name="filter_list_off" size={22} className="text-text-3" />
-              <span>אין משימות בסטטוס זה</span>
-            </div>
-          ) : (
-            visibleTasks.map((t, i) => (
-              <DailyTaskRow
-                key={t.id}
-                task={t}
-                index={i}
-                businessId={businessId}
-                onStatus={onStatus}
-                onMedia={onMedia}
-                variant={variant}
-              />
-            ))
-          )}
+
+        <div className="task-checklist-body">
+          <div className="task-checklist-list">
+            {tasks.map((t, i) => {
+              const expandKey = taskExpansionKey(t);
+              return (
+                <DailyTaskRow
+                  key={expandKey}
+                  task={t}
+                  index={i}
+                  businessId={businessId}
+                  onStatus={onStatus}
+                  onMedia={onMedia}
+                  variant={variant}
+                  expanded={expandedKey === expandKey}
+                  documenterName={firstName(
+                    t.last_documented_by ? userById.get(t.last_documented_by) : null,
+                  )}
+                  onToggle={() =>
+                    setExpandedKey((prev) => (prev === expandKey ? null : expandKey))
+                  }
+                />
+              );
+            })}
+          </div>
         </div>
       </section>
     );

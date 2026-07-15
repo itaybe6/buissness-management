@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button, Icon } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { AttendancePunchStation } from "@/components/attendance/AttendancePunchStation";
@@ -8,7 +8,11 @@ import { useAuth } from "@/lib/auth";
 import { useBusinessId } from "@/lib/db";
 import { ROLE_LABELS } from "@/lib/constants";
 import { useShiftPunch } from "@/hooks/useShiftPunch";
+import { useIsMdUp } from "@/hooks/useMediaQuery";
+import { useAttendanceToday } from "@/api/attendance";
 import { ManagerAttendanceFeed } from "@/components/dashboard/ManagerAttendanceFeed";
+
+type WorkerPanel = "tasks" | "team";
 
 type TimeOfDay = "morning" | "afternoon" | "evening" | "night";
 
@@ -148,10 +152,34 @@ export function WorkerHome({
   const showTasks = hasFeature("tasks");
   const showAttendance = hasFeature("attendance");
   const slot = timeOfDay(now.getHours());
+  const isMdUp = useIsMdUp();
+  const [activePanel, setActivePanel] = useState<WorkerPanel>("tasks");
+
+  const showBothPanels = showTasks && showAttendance && !!businessId;
+  const splitLayout = showBothPanels && isMdUp;
+  const tabLayout = showBothPanels && !isMdUp;
+
+  const pendingTasks = useMemo(
+    () => todayTasks.filter((t) => t.status !== "done").length,
+    [todayTasks],
+  );
+
+  const { data: attendanceRecords = [] } = useAttendanceToday(showBothPanels ? businessId : null);
+  const onShiftCount = useMemo(
+    () => attendanceRecords.filter((r) => !r.clock_out).length,
+    [attendanceRecords],
+  );
 
   return (
-    <PageEnter className="worker-home w-full max-w-lg mx-auto md:max-w-2xl lg:max-w-3xl">
+    <PageEnter className="worker-home w-full">
+      <div className="worker-home__shell w-full max-w-lg mx-auto md:max-w-2xl lg:max-w-5xl">
       <section className="worker-hero" aria-label="כותרת דשבורד">
+        <div className="worker-hero-fx" aria-hidden>
+          <span className="worker-hero-aurora worker-hero-aurora--1" />
+          <span className="worker-hero-aurora worker-hero-aurora--2" />
+          <span className="worker-hero-grid" />
+          <span className="worker-hero-grain" />
+        </div>
         <div className="worker-hero-head">
           <div className="worker-hero-copy">
             <p className="worker-hero-kicker">
@@ -183,21 +211,97 @@ export function WorkerHome({
         <WorkerClockStation time={timeStr} />
       </section>
 
-      {showTasks && businessId && profile && (
-        <DailyTasksChecklist
-          tasks={todayTasks}
-          businessId={businessId}
-          onStatus={setStatus}
-          onMedia={setMedia}
-          variant={variant === "shift_manager" ? "dashboard" : "employee"}
-        />
-      )}
+      {(showTasks || showAttendance) && (
+        <div className="worker-home__workspace">
+          {tabLayout && (
+            <div className="worker-home__tabs" role="tablist" aria-label="תצוגת דשבורד">
+              <button
+                type="button"
+                role="tab"
+                id="worker-tab-tasks"
+                aria-selected={activePanel === "tasks"}
+                aria-controls="worker-panel-tasks"
+                data-active={activePanel === "tasks"}
+                className="worker-home__tab seg-btn"
+                onClick={() => setActivePanel("tasks")}
+              >
+                <Icon name="checklist" size={17} className="flex-none" />
+                <span>משימות</span>
+                {pendingTasks > 0 && (
+                  <span className="worker-home__tab-badge" data-tone="accent">
+                    {pendingTasks}
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                id="worker-tab-team"
+                aria-selected={activePanel === "team"}
+                aria-controls="worker-panel-team"
+                data-active={activePanel === "team"}
+                className="worker-home__tab seg-btn"
+                onClick={() => setActivePanel("team")}
+              >
+                <Icon name="groups" size={17} className="flex-none" />
+                <span>הצוות</span>
+                {onShiftCount > 0 && (
+                  <span className="worker-home__tab-badge" data-tone="live">
+                    {onShiftCount}
+                  </span>
+                )}
+              </button>
+            </div>
+          )}
 
-      {showAttendance && (
-        <ManagerAttendanceFeed className="manager-attendance-feed manager-attendance-feed--worker" />
+          <div
+            className="worker-home__panels"
+            data-mode={splitLayout ? "split" : tabLayout ? "tabs" : "stack"}
+          >
+            {showTasks && businessId && profile && (
+              <div
+                id="worker-panel-tasks"
+                role={tabLayout ? "tabpanel" : undefined}
+                aria-labelledby={tabLayout ? "worker-tab-tasks" : undefined}
+                className="worker-home__panel worker-home__panel--tasks"
+                data-active={!tabLayout || activePanel === "tasks"}
+                hidden={tabLayout && activePanel !== "tasks"}
+              >
+                <div className="worker-home__panel-scroll">
+                  <DailyTasksChecklist
+                    tasks={todayTasks}
+                    businessId={businessId}
+                    onStatus={setStatus}
+                    onMedia={setMedia}
+                    variant={variant === "shift_manager" ? "dashboard" : "employee"}
+                  />
+                </div>
+              </div>
+            )}
+
+            {showAttendance && (
+              <div
+                id="worker-panel-team"
+                role={tabLayout ? "tabpanel" : undefined}
+                aria-labelledby={tabLayout ? "worker-tab-team" : undefined}
+                className="worker-home__panel worker-home__panel--team"
+                data-active={!tabLayout || activePanel === "team"}
+                hidden={tabLayout && activePanel !== "team"}
+              >
+                <div className="worker-home__panel-scroll">
+                  <ManagerAttendanceFeed
+                    compact={splitLayout}
+                    className="manager-attendance-feed manager-attendance-feed--worker"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {children}
+      </div>
     </PageEnter>
   );
 }

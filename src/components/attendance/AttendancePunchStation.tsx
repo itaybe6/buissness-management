@@ -32,6 +32,8 @@ export function AttendancePunchStation({
     >
       <div className="attendance-station-body attendance-station-body--mobile">
         <div className={`attendance-orbit-wrap${compact ? " attendance-orbit-wrap--compact" : ""}`}>
+          <span className="attendance-orbit-ticks" aria-hidden />
+          <span className="attendance-orbit-sweep" aria-hidden />
           <span className="attendance-orbit-ring" aria-hidden />
           <span className="attendance-orbit-ring attendance-orbit-ring--inner" aria-hidden />
           <button

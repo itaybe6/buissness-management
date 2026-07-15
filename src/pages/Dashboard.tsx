@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { memo, useEffect, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { useAuth } from "@/lib/auth";
@@ -451,6 +451,7 @@ export function Dashboard() {
   const { profile } = useAuth();
   const role = profile?.role ?? "employee";
 
+  if (role === "event_manager") return <Navigate to="/events" replace />;
   if (role === "manager" && profile?.business_id) {
     return <ManagerDashboard />;
   }
