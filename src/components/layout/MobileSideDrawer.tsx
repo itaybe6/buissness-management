@@ -82,7 +82,7 @@ export function MobileSideDrawer({
 
   const reduce = useReducedMotion();
   const isProfileActive = currentKey === "profile";
-  const navGroups = groupNavItems(items);
+  const navGroups = groupNavItems(items, { flat: role === "employee" });
 
 
 

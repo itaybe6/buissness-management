@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Navigate } from "react-router-dom";
 import { Badge, Button, Icon, PageLoader, ErrorState } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import {
@@ -137,6 +138,11 @@ export function Attendance() {
     } catch {
       setStatus({ ok: false, text: "החתמת יציאה נכשלה" });
     }
+  }
+
+  // Workers / shift managers punch from the home dashboard, not this page.
+  if (profile && (profile.role === "employee" || profile.role === "shift_manager")) {
+    return <Navigate to="/dashboard" replace />;
   }
 
   if (isLoading) return <PageLoader />;

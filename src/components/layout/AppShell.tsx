@@ -65,7 +65,8 @@ export function AppShell() {
 
 
 
-  const navGroups = useMemo(() => groupNavItems(navItems), [navItems]);
+  const flatNav = role === "employee";
+  const navGroups = useMemo(() => groupNavItems(navItems, { flat: flatNav }), [navItems, flatNav]);
 
 
 

@@ -509,7 +509,8 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
   const openDow = business?.shift_prefs_open_dow;
   const openTime = business?.shift_prefs_open_time;
   const windowStatus = getShiftPrefsWindowStatus(wk, closeDow, closeTime, openDow, openTime);
-  const canEdit = isShiftPrefsOpenForWeek(wk, closeDow, closeTime, openDow, openTime);
+  const canEdit =
+    wk <= nextWk && isShiftPrefsOpenForWeek(wk, closeDow, closeTime, openDow, openTime);
   const hasWindow = closeDow != null && closeTime != null;
 
   const prefMap = useMemo(() => {
@@ -827,16 +828,17 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
                   key={t.id}
                   className="prefs2-card"
                   data-state={val ?? "none"}
+                  data-editable={canEdit ? "true" : "false"}
                   style={{ "--shift-color": t.color ?? "var(--accent)", "--enter-delay": `${idx * 45}ms` } as CSSProperties}
                 >
                   <div className="prefs2-card-head">
                     <span className="prefs2-card-icon">
-                      <Icon name={shiftTimeIcon(t.start_time)} size={21} />
+                      <Icon name={shiftTimeIcon(t.start_time)} size={18} />
                     </span>
                     <div className="prefs2-card-titles">
                       <span className="prefs2-card-name">{t.name}</span>
                       <span className="prefs2-card-time">
-                        <Icon name="schedule" size={13} />
+                        <Icon name="schedule" size={12} />
                         {t.start_time?.slice(0, 5)}–{t.end_time?.slice(0, 5)}
                         {duration && <span className="prefs2-card-dur">{duration}</span>}
                       </span>
@@ -853,7 +855,7 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
                         disabled={saving}
                         onClick={() => setAvailability(t.id, date, val === "available" ? null : "available")}
                       >
-                        <Icon name="check" size={17} />
+                        <Icon name="check" size={15} />
                         יכול
                       </button>
                       <button
@@ -865,7 +867,7 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
                         disabled={saving}
                         onClick={() => setAvailability(t.id, date, val === "cannot" ? null : "cannot")}
                       >
-                        <Icon name="close" size={17} />
+                        <Icon name="close" size={15} />
                         לא יכול
                       </button>
                     </div>
@@ -873,7 +875,7 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
                     <span className="prefs2-locked" data-state={val ?? "none"}>
                       <Icon
                         name={val === "available" ? "check_circle" : val === "cannot" ? "cancel" : "lock"}
-                        size={15}
+                        size={14}
                       />
                       {val === "available" ? "יכול" : val === "cannot" ? "לא יכול" : "לא סומן"}
                     </span>

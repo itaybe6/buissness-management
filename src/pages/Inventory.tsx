@@ -449,10 +449,8 @@ function ItemDetailModal({
   canUpdateCount,
   isManager,
   canManageOrders,
-  savingFactor,
   onClose,
   onSetQty,
-  onSaveUnitsPerPackage,
   onEdit,
   onHistory,
   onOrder,
@@ -462,10 +460,8 @@ function ItemDetailModal({
   canUpdateCount: boolean;
   isManager: boolean;
   canManageOrders: boolean;
-  savingFactor?: boolean;
   onClose: () => void;
   onSetQty: (qty: number) => void;
-  onSaveUnitsPerPackage?: (value: number) => void;
   onEdit: () => void;
   onHistory: () => void;
   onOrder: () => void;
@@ -475,7 +471,8 @@ function ItemDetailModal({
   const status = stockStatus(item);
   const meta = STOCK_META[status];
   const pieceUnit = supportsPieceInput(item.unit);
-  const effectiveFactor = item.units_per_package ?? 0;
+  const effectiveFactor =
+    pieceUnit && (item.units_per_package ?? 0) > 0 ? item.units_per_package! : pieceUnit ? 12 : 0;
   const showPieces = pieceUnit && effectiveFactor > 0;
 
   return (
@@ -562,13 +559,7 @@ function ItemDetailModal({
         <div className="rounded-[12px] border border-border bg-surface p-3.5">
           <div className="mb-3 text-[13px] font-bold text-text">עדכון מלאי</div>
           {canUpdateCount ? (
-            <InventoryQtyUpdatePanel
-              item={item}
-              isManager={isManager}
-              onSetQty={onSetQty}
-              onSaveUnitsPerPackage={onSaveUnitsPerPackage}
-              savingFactor={savingFactor}
-            />
+            <InventoryQtyUpdatePanel item={item} onSetQty={onSetQty} />
           ) : (
             <p className="text-[13px] text-text-3">אין הרשאה לעדכן מלאי.</p>
           )}
@@ -1340,7 +1331,6 @@ export function Inventory() {
   const [orderFilter, setOrderFilter] = useState<OrderFilter>("all");
   const [wasteSearchQuery, setWasteSearchQuery] = useState("");
   const [wasteFilter, setWasteFilter] = useState<WasteFilter>("all");
-  const [savingFactor, setSavingFactor] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const isManager = !!(profile && ["manager", "shift_manager", "office_manager"].includes(profile.role));
@@ -1434,23 +1424,6 @@ export function Inventory() {
       quantity,
       previous_qty: item.current_qty,
     });
-  }
-
-  async function handleSaveUnitsPerPackage(item: ItemWithQty, value: number) {
-    setSavingFactor(true);
-    try {
-      await updateItem.mutateAsync({
-        id: item.id,
-        business_id: businessId!,
-        employee_id: profile?.id ?? null,
-        changes: { units_per_package: value },
-        note: `עודכן: יחידים ב${item.unit ?? "יחידה"} (${value})`,
-      });
-    } catch (e) {
-      window.alert(inventorySaveError(e));
-    } finally {
-      setSavingFactor(false);
-    }
   }
 
   function openEdit(item: ItemWithQty) {
@@ -1973,14 +1946,8 @@ export function Inventory() {
         canUpdateCount={canUpdateCount}
         isManager={isManager}
         canManageOrders={canManageOrders}
-        savingFactor={savingFactor}
         onClose={closeItemDetail}
         onSetQty={(quantity) => detailItemLive && handleSetQty(detailItemLive, quantity)}
-        onSaveUnitsPerPackage={
-          detailItemLive && isManager
-            ? (value) => handleSaveUnitsPerPackage(detailItemLive, value)
-            : undefined
-        }
         onEdit={() => {
           if (!detailItemLive) return;
           closeItemDetail();

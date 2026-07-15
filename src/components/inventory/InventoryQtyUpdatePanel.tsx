@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
-import { Button, Field, Icon, Input } from "@/components/ui";
-import { DualUnitQtyInput } from "@/components/inventory/DualUnitQtyInput";
+import { Icon, Input } from "@/components/ui";
 import {
   BASE_UNIT,
-  formatQtyWithPieces,
+  mainUnitToPieces,
   piecesToMainUnit,
   supportsPieceInput,
   type ItemWithQty,
@@ -11,152 +10,180 @@ import {
 
 type InventoryQtyUpdatePanelProps = {
   item: ItemWithQty;
-  isManager: boolean;
   onSetQty: (qty: number) => void;
-  onSaveUnitsPerPackage?: (value: number) => void;
-  savingFactor?: boolean;
+  disabled?: boolean;
 };
 
-function PieceDeltaAdjust({
-  currentQty,
-  factor,
-  disabled,
-  onApply,
-}: {
-  currentQty: number;
-  factor: number;
-  disabled?: boolean;
-  onApply: (qty: number) => void;
-}) {
-  function adjustPieces(pieces: number) {
-    const delta = piecesToMainUnit(pieces, factor);
-    const next = Math.max(0, Math.round((currentQty + delta) * 10000) / 10000);
-    if (next !== currentQty) onApply(next);
-  }
+/** Soft default when product unit is a package but units_per_package was never set. */
+const DEFAULT_UNITS_PER_PACKAGE = 12;
 
+function splitQty(qty: number, factor: number) {
+  const totalPieces = Math.round(mainUnitToPieces(qty, factor));
+  return {
+    packages: Math.floor(totalPieces / factor),
+    pieces: totalPieces % factor,
+  };
+}
+
+function combineQty(packages: number, pieces: number, factor: number) {
+  const pkg = Math.max(0, packages);
+  const pcs = Math.max(0, pieces);
+  return Math.round((pkg + piecesToMainUnit(pcs, factor)) * 10000) / 10000;
+}
+
+function StepperField({
+  label,
+  value,
+  onChange,
+  onCommit,
+  disabled,
+}: {
+  label: string;
+  value: number;
+  onChange: (n: number) => void;
+  onCommit: (n: number) => void;
+  disabled?: boolean;
+}) {
   return (
-    <div className="rounded-[10px] border border-border bg-surface-2 p-3">
-      <div className="mb-2 text-[11px] font-semibold text-text-3">הוסף / הורד יחידות בודדות</div>
-      <div className="flex items-center justify-center gap-2">
+    <div className="flex flex-col gap-1.5">
+      <span className="text-[11px] font-semibold text-text-3">{label}</span>
+      <div className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-surface px-1 py-0.5">
         <button
           type="button"
           disabled={disabled}
-          onClick={() => adjustPieces(-1)}
-          className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-surface text-text-3 transition-colors hover:bg-surface hover:text-text active:scale-[0.97] disabled:opacity-35"
-          aria-label="הורדת יחידה אחת"
+          onClick={() => {
+            const next = Math.max(0, value - 1);
+            onChange(next);
+            onCommit(next);
+          }}
+          className="grid h-8 w-8 place-items-center rounded-md text-text-3 transition-colors hover:bg-surface-2 hover:text-text active:scale-[0.97] disabled:opacity-35"
+          aria-label={`הפחתת ${label}`}
         >
-          <Icon name="remove" size={18} />
+          <Icon name="remove" size={16} />
         </button>
-        <span className="min-w-[72px] text-center text-[13px] font-bold text-text">1 {BASE_UNIT}</span>
+        <input
+          type="number"
+          min={0}
+          disabled={disabled}
+          value={value}
+          onChange={(e) => onChange(Math.max(0, Number(e.target.value) || 0))}
+          onBlur={() => onCommit(value)}
+          className="w-12 bg-transparent text-center text-[15px] font-bold tabular-nums text-text outline-none"
+        />
         <button
           type="button"
           disabled={disabled}
-          onClick={() => adjustPieces(1)}
-          className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-surface text-text-3 transition-colors hover:bg-surface hover:text-text active:scale-[0.97] disabled:opacity-35"
-          aria-label="הוספת יחידה אחת"
+          onClick={() => {
+            const next = value + 1;
+            onChange(next);
+            onCommit(next);
+          }}
+          className="grid h-8 w-8 place-items-center rounded-md text-text-3 transition-colors hover:bg-surface-2 hover:text-text active:scale-[0.97] disabled:opacity-35"
+          aria-label={`הוספת ${label}`}
         >
-          <Icon name="add" size={18} />
+          <Icon name="add" size={16} />
         </button>
       </div>
-      <p className="mt-2 text-center text-[10px] leading-relaxed text-text-3">
-        מתאים כשמשתמשים בבקבוקים בודדים ולא סופרים ארגז שלם
-      </p>
     </div>
   );
 }
 
-export function InventoryQtyUpdatePanel({
-  item,
-  isManager,
-  onSetQty,
-  onSaveUnitsPerPackage,
-  savingFactor,
-}: InventoryQtyUpdatePanelProps) {
-  const pieceUnit = supportsPieceInput(item.unit);
-  const [factorDraft, setFactorDraft] = useState(
-    item.units_per_package != null ? String(item.units_per_package) : "",
-  );
+export function InventoryQtyUpdatePanel({ item, onSetQty, disabled }: InventoryQtyUpdatePanelProps) {
+  const dual = supportsPieceInput(item.unit);
+  const factor =
+    dual && (item.units_per_package ?? 0) > 0
+      ? item.units_per_package!
+      : dual
+        ? DEFAULT_UNITS_PER_PACKAGE
+        : 1;
+
+  const split = dual ? splitQty(item.current_qty, factor) : { packages: item.current_qty, pieces: 0 };
+  const [packages, setPackages] = useState(split.packages);
+  const [pieces, setPieces] = useState(split.pieces);
+  const [simpleQty, setSimpleQty] = useState(item.current_qty);
 
   useEffect(() => {
-    setFactorDraft(item.units_per_package != null ? String(item.units_per_package) : "");
-  }, [item.id, item.units_per_package]);
+    if (dual) {
+      const next = splitQty(item.current_qty, factor);
+      setPackages(next.packages);
+      setPieces(next.pieces);
+    } else {
+      setSimpleQty(item.current_qty);
+    }
+  }, [item.id, item.current_qty, dual, factor]);
 
-  const effectiveFactor = item.units_per_package ?? (Math.max(0, Number(factorDraft)) || 0);
-  const dualReady = pieceUnit && effectiveFactor > 0;
-  const needsFactorSetup = pieceUnit && !item.units_per_package;
+  if (!dual) {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <span className="text-[11px] font-semibold text-text-3">כמות ({item.unit ?? BASE_UNIT})</span>
+        <div className="flex items-center gap-2">
+          <Input
+            type="number"
+            min={0}
+            disabled={disabled}
+            value={simpleQty === 0 && !item.current_qty ? "" : simpleQty}
+            onChange={(e) => setSimpleQty(e.target.value === "" ? 0 : Math.max(0, Number(e.target.value) || 0))}
+            onBlur={() => {
+              const next = Math.max(0, simpleQty);
+              if (next !== item.current_qty) onSetQty(next);
+            }}
+            className="flex-1"
+          />
+          {item.unit && <span className="flex-none text-[12px] font-medium text-text-3">{item.unit}</span>}
+        </div>
+      </div>
+    );
+  }
+
+  function commit(nextPackages: number, nextPieces: number) {
+    const combined = combineQty(nextPackages, nextPieces, factor);
+    if (combined !== item.current_qty) onSetQty(combined);
+  }
 
   return (
     <div className="flex flex-col gap-3">
-      {needsFactorSetup && (
-        <Field label={`כמה ${BASE_UNIT} ב${item.unit}?`}>
-          <Input
-            type="number"
-            min={1}
-            value={factorDraft}
-            placeholder="לדוגמה: 12"
-            onChange={(e) => setFactorDraft(e.target.value)}
-          />
-          {effectiveFactor > 0 ? (
-            <p className="mt-1.5 text-[11px] text-text-3">
-              1 {item.unit} = {effectiveFactor} {BASE_UNIT}
-            </p>
-          ) : (
-            <p className="mt-1.5 text-[11px] text-text-3">
-              הגדירו כמה יחידות בודדות יש ב{item.unit} כדי לאפשר עדכון ביחידות
-            </p>
-          )}
-          {isManager && effectiveFactor > 0 && onSaveUnitsPerPackage && (
-            <Button
-              variant="secondary"
-              className="mt-2 w-full !py-2.5 text-[12px] active:scale-[0.97]"
-              loading={savingFactor}
-              onClick={() => onSaveUnitsPerPackage(effectiveFactor)}
-            >
-              שמור לפריט
-            </Button>
-          )}
-        </Field>
-      )}
-
-      {dualReady ? (
-        <>
-          <div>
-            <div className="mb-1.5 text-[11px] font-semibold text-text-3">כמות כוללת</div>
-            <DualUnitQtyInput
-              value={item.current_qty}
-              mainUnit={item.unit}
-              unitsPerPackage={effectiveFactor}
-              onCommit={onSetQty}
-              variant="input"
-              defaultMode="pieces"
-            />
-            <p className="mt-2 text-[12px] leading-relaxed text-text-3">
-              ניתן לעדכן ב{item.unit} או ב{BASE_UNIT} — למשל 27 בקבוקים במקום 1 ארגז ו-3 בקבוקים.
-              כרגע: {formatQtyWithPieces(item.current_qty, item.unit, effectiveFactor)}.
-            </p>
-          </div>
-          <PieceDeltaAdjust
-            currentQty={item.current_qty}
-            factor={effectiveFactor}
-            onApply={onSetQty}
-          />
-        </>
-      ) : (
-        <>
-          <DualUnitQtyInput
-            value={item.current_qty}
-            mainUnit={item.unit}
-            unitsPerPackage={item.units_per_package}
-            onCommit={onSetQty}
-            variant="input"
-          />
-          {pieceUnit && effectiveFactor === 0 && (
-            <p className="text-[12px] leading-relaxed text-text-3">
-              הזינו למעלה כמה יחידות ב{item.unit} כדי לעדכן גם ב{BASE_UNIT} בודדות.
-            </p>
-          )}
-        </>
-      )}
+      <div className="grid grid-cols-2 gap-3">
+        <StepperField
+          label={item.unit ?? "ארגז"}
+          value={packages}
+          disabled={disabled}
+          onChange={setPackages}
+          onCommit={(n) => commit(n, pieces)}
+        />
+        <StepperField
+          label={BASE_UNIT}
+          value={pieces}
+          disabled={disabled}
+          onChange={(n) => {
+            // Allow loose pieces to roll into packages (e.g. 12 units → +1 package)
+            if (n >= factor) {
+              const addPkg = Math.floor(n / factor);
+              const rem = n % factor;
+              const nextPkg = packages + addPkg;
+              setPackages(nextPkg);
+              setPieces(rem);
+              commit(nextPkg, rem);
+            } else {
+              setPieces(n);
+            }
+          }}
+          onCommit={(n) => {
+            if (n >= factor) {
+              const addPkg = Math.floor(n / factor);
+              const rem = n % factor;
+              const nextPkg = packages + addPkg;
+              setPackages(nextPkg);
+              setPieces(rem);
+              commit(nextPkg, rem);
+            } else {
+              commit(packages, n);
+            }
+          }}
+        />
+      </div>
+      <p className="text-[12px] leading-relaxed text-text-3">
+        עדכנו ארגזים ויחידות בנפרד — למשל 1 ארגז + 3 יחידות.
+      </p>
     </div>
   );
 }

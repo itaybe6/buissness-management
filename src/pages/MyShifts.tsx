@@ -62,7 +62,7 @@ export function MyShifts() {
         <div className="min-w-0">
           <p className="text-[11.5px] font-bold uppercase tracking-[0.14em] text-text-3">השכר שלי</p>
           <h1 className="mt-0.5 text-[clamp(1.4rem,5vw,1.9rem)] font-extrabold leading-none tracking-tight text-text">
-            המשמרות שלי
+            מעקב שכר
           </h1>
         </div>
         <MonthStepper

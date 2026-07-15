@@ -131,7 +131,14 @@ export interface NavGroup {
 }
 
 /** Group filtered nav items into ordered sections (skips empty groups). */
-export function groupNavItems(items: NavItem[]): NavGroup[] {
+export function groupNavItems(items: NavItem[], options?: { flat?: boolean }): NavGroup[] {
+  if (options?.flat) {
+    // Keep relative order, but pin מסמכים last in the flat (employee) menu.
+    const rest = items.filter((item) => item.key !== "agreements");
+    const docs = items.filter((item) => item.key === "agreements");
+    const flatItems = [...rest, ...docs];
+    return flatItems.length > 0 ? [{ id: "overview", label: "", items: flatItems }] : [];
+  }
   const byGroup = new Map<NavGroupId, NavItem[]>();
   for (const item of items) {
     const list = byGroup.get(item.group);
@@ -164,8 +171,8 @@ export const NAV_ITEMS: NavItem[] = [
 
   { key: "shifts", label: "משמרות", icon: "calendar_month", group: "shifts", roles: ["manager", "shift_manager", "employee"], feature: "shifts" },
   { key: "shift-reports", label: "דוח משמרת", icon: "receipt_long", group: "shifts", roles: ["manager", "shift_manager"], feature: "shift_reports" },
-  { key: "attendance", label: "שעון נוכחות", icon: "schedule", group: "shifts", roles: ["manager", "shift_manager", "employee"], feature: "attendance" },
-  { key: "my-shifts", label: "המשמרות שלי", icon: "event_available", group: "shifts", roles: ["manager", "shift_manager", "office_manager", "employee", "maintenance"] },
+  { key: "attendance", label: "שעון נוכחות", icon: "schedule", group: "shifts", roles: ["manager"], feature: "attendance" },
+  { key: "my-shifts", label: "מעקב שכר", icon: "event_available", group: "shifts", roles: ["manager", "shift_manager", "office_manager", "employee", "maintenance"] },
 
   { key: "tasks", label: "משימות", icon: "checklist", group: "ops", roles: ["manager", "shift_manager", "office_manager", "maintenance"], feature: "tasks" },
   { key: "inventory", label: "סחורות", icon: "inventory_2", group: "ops", roles: ["manager", "shift_manager", "office_manager", "employee", "maintenance"], feature: "inventory" },
