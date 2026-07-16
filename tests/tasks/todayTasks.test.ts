@@ -84,7 +84,7 @@ describe("recurring task daily reset — פחים with yesterday documentation",
   });
 
   it("hides yesterday's row from today's daily checklist", () => {
-    expect(isTaskVisibleInDailyChecklist(yesterdayRow, TODAY, TODAY_WEEKDAY)).toBe(false);
+    expect(isTaskVisibleInDailyChecklist(yesterdayRow, TODAY)).toBe(false);
   });
 
   it("does not block a fresh virtual task for today", () => {

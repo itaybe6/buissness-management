@@ -83,7 +83,6 @@ function completedToday(task: Pick<Task, "completed_at">, today: string): boolea
 export function isTaskVisibleInDailyChecklist(
   task: Task,
   today: string,
-  todayWeekday: number,
 ): boolean {
   if (task.type === "recurring") {
     return isRecurringTaskForDate(task, today);
@@ -132,7 +131,7 @@ export function buildTodayTasks(
 
   return [
     ...virtualToday,
-    ...mine.filter((t) => isTaskVisibleInDailyChecklist(t, today, todayWeekday)),
+    ...mine.filter((t) => isTaskVisibleInDailyChecklist(t, today)),
   ].sort((a, b) => {
     if ((a.status === "done") !== (b.status === "done")) return a.status === "done" ? 1 : -1;
     return a.type === b.type ? 0 : a.type === "recurring" ? -1 : 1;

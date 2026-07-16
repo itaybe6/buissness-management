@@ -466,6 +466,18 @@ function ItemDetailModal({
   onHistory: () => void;
   onOrder: () => void;
 }) {
+  const [editingQty, setEditingQty] = useState(false);
+  const [draftQty, setDraftQty] = useState(0);
+
+  useEffect(() => {
+    if (!open || !item) {
+      setEditingQty(false);
+      return;
+    }
+    setDraftQty(item.current_qty);
+    setEditingQty(false);
+  }, [open, item?.id]);
+
   if (!item) return null;
 
   const status = stockStatus(item);
@@ -474,6 +486,17 @@ function ItemDetailModal({
   const effectiveFactor =
     pieceUnit && (item.units_per_package ?? 0) > 0 ? item.units_per_package! : pieceUnit ? 12 : 0;
   const showPieces = pieceUnit && effectiveFactor > 0;
+  const draftDirty = draftQty !== item.current_qty;
+
+  function handleSaveQty() {
+    if (draftDirty) onSetQty(draftQty);
+    setEditingQty(false);
+  }
+
+  function handleCancelQty() {
+    setDraftQty(item!.current_qty);
+    setEditingQty(false);
+  }
 
   return (
     <Modal
@@ -487,10 +510,7 @@ function ItemDetailModal({
         isManager ? (
           <>
             <Button variant="secondary" icon="edit" onClick={onEdit} className="active:scale-[0.97]">
-              עריכה
-            </Button>
-            <Button variant="secondary" icon="history" onClick={onHistory} className="active:scale-[0.97]">
-              היסטוריה
+              עריכת פריט
             </Button>
             {canManageOrders && (
               <Button icon="add_shopping_cart" onClick={onOrder} className="flex-1 !bg-ink active:scale-[0.97]">
@@ -557,9 +577,63 @@ function ItemDetailModal({
         <LastUpdatedLine item={item} />
 
         <div className="rounded-[12px] border border-border bg-surface p-3.5">
-          <div className="mb-3 text-[13px] font-bold text-text">עדכון מלאי</div>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="text-[13px] font-bold text-text">עדכון מלאי</div>
+            {!editingQty && (
+              <Button
+                variant="ghost"
+                icon="history"
+                onClick={onHistory}
+                className="!px-2.5 !py-1.5 text-[12px] active:scale-[0.97]"
+              >
+                היסטוריית עדכונים
+              </Button>
+            )}
+          </div>
+
           {canUpdateCount ? (
-            <InventoryQtyUpdatePanel item={item} onSetQty={onSetQty} />
+            <>
+              <InventoryQtyUpdatePanel
+                key={`${item.id}-${editingQty ? "edit" : "view"}`}
+                item={item}
+                disabled={!editingQty}
+                autoCommit={false}
+                onDraftChange={setDraftQty}
+                onSetQty={onSetQty}
+              />
+              <div className="mt-3 flex gap-2">
+                {editingQty ? (
+                  <>
+                    <Button
+                      variant="secondary"
+                      onClick={handleCancelQty}
+                      className="flex-1 active:scale-[0.97]"
+                    >
+                      ביטול
+                    </Button>
+                    <Button
+                      icon="check"
+                      onClick={handleSaveQty}
+                      disabled={!draftDirty}
+                      className="flex-1 !bg-ink active:scale-[0.97]"
+                    >
+                      שמור
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    icon="edit"
+                    onClick={() => {
+                      setDraftQty(item.current_qty);
+                      setEditingQty(true);
+                    }}
+                    className="flex-1 !bg-ink active:scale-[0.97]"
+                  >
+                    עריכה
+                  </Button>
+                )}
+              </div>
+            </>
           ) : (
             <p className="text-[13px] text-text-3">אין הרשאה לעדכן מלאי.</p>
           )}

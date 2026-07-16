@@ -12,6 +12,13 @@ type InventoryQtyUpdatePanelProps = {
   item: ItemWithQty;
   onSetQty: (qty: number) => void;
   disabled?: boolean;
+  /**
+   * When false, quantity changes stay local until the parent calls onSetQty
+   * (e.g. via a Save button). Defaults to true for immediate commit.
+   */
+  autoCommit?: boolean;
+  /** Fires whenever the draft quantity changes (useful with autoCommit=false). */
+  onDraftChange?: (qty: number) => void;
 };
 
 /** Soft default when product unit is a package but units_per_package was never set. */
@@ -68,7 +75,7 @@ function StepperField({
           value={value}
           onChange={(e) => onChange(Math.max(0, Number(e.target.value) || 0))}
           onBlur={() => onCommit(value)}
-          className="w-12 bg-transparent text-center text-[15px] font-bold tabular-nums text-text outline-none"
+          className="w-12 bg-transparent text-center text-[15px] font-bold tabular-nums text-text outline-none disabled:opacity-60"
         />
         <button
           type="button"
@@ -88,7 +95,13 @@ function StepperField({
   );
 }
 
-export function InventoryQtyUpdatePanel({ item, onSetQty, disabled }: InventoryQtyUpdatePanelProps) {
+export function InventoryQtyUpdatePanel({
+  item,
+  onSetQty,
+  disabled,
+  autoCommit = true,
+  onDraftChange,
+}: InventoryQtyUpdatePanelProps) {
   const dual = supportsPieceInput(item.unit);
   const factor =
     dual && (item.units_per_package ?? 0) > 0
@@ -107,10 +120,19 @@ export function InventoryQtyUpdatePanel({ item, onSetQty, disabled }: InventoryQ
       const next = splitQty(item.current_qty, factor);
       setPackages(next.packages);
       setPieces(next.pieces);
+      onDraftChange?.(item.current_qty);
     } else {
       setSimpleQty(item.current_qty);
+      onDraftChange?.(item.current_qty);
     }
+    // Only re-sync when the stored qty / item identity changes — not on every parent render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onDraftChange is a stable notifier from parent
   }, [item.id, item.current_qty, dual, factor]);
+
+  function applyQty(next: number) {
+    onDraftChange?.(next);
+    if (autoCommit && next !== item.current_qty) onSetQty(next);
+  }
 
   if (!dual) {
     return (
@@ -122,10 +144,14 @@ export function InventoryQtyUpdatePanel({ item, onSetQty, disabled }: InventoryQ
             min={0}
             disabled={disabled}
             value={simpleQty === 0 && !item.current_qty ? "" : simpleQty}
-            onChange={(e) => setSimpleQty(e.target.value === "" ? 0 : Math.max(0, Number(e.target.value) || 0))}
+            onChange={(e) => {
+              const next = e.target.value === "" ? 0 : Math.max(0, Number(e.target.value) || 0);
+              setSimpleQty(next);
+              if (!autoCommit) onDraftChange?.(next);
+            }}
             onBlur={() => {
               const next = Math.max(0, simpleQty);
-              if (next !== item.current_qty) onSetQty(next);
+              applyQty(next);
             }}
             className="flex-1"
           />
@@ -136,8 +162,7 @@ export function InventoryQtyUpdatePanel({ item, onSetQty, disabled }: InventoryQ
   }
 
   function commit(nextPackages: number, nextPieces: number) {
-    const combined = combineQty(nextPackages, nextPieces, factor);
-    if (combined !== item.current_qty) onSetQty(combined);
+    applyQty(combineQty(nextPackages, nextPieces, factor));
   }
 
   return (
@@ -165,6 +190,7 @@ export function InventoryQtyUpdatePanel({ item, onSetQty, disabled }: InventoryQ
               commit(nextPkg, rem);
             } else {
               setPieces(n);
+              if (!autoCommit) onDraftChange?.(combineQty(packages, n, factor));
             }
           }}
           onCommit={(n) => {

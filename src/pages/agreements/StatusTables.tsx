@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Badge, Button, Card, EmptyState, Icon } from "@/components/ui";
+import { useMemo } from "react";
+import { Badge, Card, EmptyState, Icon } from "@/components/ui";
 import { isSigned, signatureOf } from "@/api/agreements";
 import type { AgreementSignature, AgreementTemplate, Profile } from "@/types/database";
 import { TAX_YEAR } from "./types";

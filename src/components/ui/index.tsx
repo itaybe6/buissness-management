@@ -10,6 +10,7 @@ import { Icon } from "./Icon";
 export { Icon };
 export { Select } from "./Select";
 export { MultiSelect, type MultiSelectOption } from "./MultiSelect";
+export { GlobalLoadingBar } from "./GlobalLoadingBar";
 
 /* ----------------------------- Button ----------------------------- */
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
@@ -46,12 +47,20 @@ Button.displayName = "Button";
 
 /* ----------------------------- Spinner ----------------------------- */
 export function Spinner({ size = 22 }: { size?: number }) {
+  const stroke = Math.max(2, Math.round(size / 8.5));
   return (
-    <span
-      className="inline-block animate-spin rounded-full border-2 border-current border-t-transparent"
-      style={{ width: size, height: size, opacity: 0.7 }}
+    <svg
+      className="ui-spinner"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      role="status"
       aria-label="טוען"
-    />
+    >
+      <circle className="ui-spinner-track" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={stroke} />
+      <circle className="ui-spinner-arc" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth={stroke} />
+    </svg>
   );
 }
 
@@ -209,15 +218,39 @@ export function EmptyState({
 
 /* ----------------------------- PageLoader ----------------------------- */
 export function PageLoader({ label = "טוען..." }: { label?: string }) {
+  // Trailing dots are rendered as the animated ellipsis instead.
+  const text = label.replace(/(\.{2,}|…)\s*$/, "");
   return (
-    <div className="grid min-h-[50dvh] place-items-center text-text-3 md:min-h-[60vh]">
-      <div className="flex w-full max-w-xs flex-col items-center gap-4 px-4">
-        <div className="flex w-full flex-col gap-2">
-          <div className="skeleton-shimmer h-3 w-3/4 rounded-md" />
-          <div className="skeleton-shimmer h-3 w-1/2 rounded-md" />
+    <div className="grid min-h-[50dvh] place-items-center md:min-h-[60vh]" role="status" aria-live="polite">
+      <div className="loader-hero flex flex-col items-center gap-7 px-4">
+        <div className="loader-stage">
+          <span className="loader-halo" />
+          <svg className="loader-orbit loader-orbit--outer" viewBox="0 0 100 100">
+            <circle cx="50" cy="50" r="48" />
+          </svg>
+          <svg className="loader-orbit loader-orbit--inner" viewBox="0 0 100 100">
+            <circle cx="50" cy="50" r="48" />
+          </svg>
+          <span className="loader-satellite" />
+          <div className="loader-mark">
+            <span />
+            <span />
+            <span />
+          </div>
         </div>
-        <Spinner size={28} />
-        <span className="text-[13px] font-medium">{label}</span>
+        <div className="flex flex-col items-center gap-3.5">
+          <span className="loader-label">
+            {text}
+            <span className="loader-ellipsis">
+              <i />
+              <i />
+              <i />
+            </span>
+          </span>
+          <span className="loader-track">
+            <span />
+          </span>
+        </div>
       </div>
     </div>
   );
