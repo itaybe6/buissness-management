@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { Icon, Input } from "@/components/ui";
 import {
   BASE_UNIT,
-  mainUnitToPieces,
   piecesToMainUnit,
+  splitPackageQty,
   supportsPieceInput,
   type ItemWithQty,
 } from "@/api/inventory";
@@ -25,11 +25,8 @@ type InventoryQtyUpdatePanelProps = {
 const DEFAULT_UNITS_PER_PACKAGE = 12;
 
 function splitQty(qty: number, factor: number) {
-  const totalPieces = Math.round(mainUnitToPieces(qty, factor));
-  return {
-    packages: Math.floor(totalPieces / factor),
-    pieces: totalPieces % factor,
-  };
+  const { packages, pieces } = splitPackageQty(qty, factor);
+  return { packages, pieces };
 }
 
 function combineQty(packages: number, pieces: number, factor: number) {

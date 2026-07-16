@@ -18,9 +18,22 @@ interface ModalProps {
    * handle float over it instead.
    */
   hero?: ReactNode;
+  /** On phones, expand the card to the full viewport instead of a bottom sheet. */
+  fullScreenMobile?: boolean;
 }
 
-export function Modal({ open, onClose, title, subtitle, icon, children, footer, maxWidth = 480, hero }: ModalProps) {
+export function Modal({
+  open,
+  onClose,
+  title,
+  subtitle,
+  icon,
+  children,
+  footer,
+  maxWidth = 480,
+  hero,
+  fullScreenMobile = false,
+}: ModalProps) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -35,15 +48,18 @@ export function Modal({ open, onClose, title, subtitle, icon, children, footer, 
   if (!open) return null;
 
   return createPortal(
-    <div onClick={onClose} className="modal-overlay">
+    <div
+      onClick={onClose}
+      className={`modal-overlay${fullScreenMobile ? " modal-overlay--fullscreen-mobile" : ""}`}
+    >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="modal-card relative"
+        className={`modal-card relative${fullScreenMobile ? " modal-card--fullscreen-mobile" : ""}`}
         style={{ maxWidth }}
       >
         {hero ? (
           <>
-            <span className="modal-handle-hero" aria-hidden="true" />
+            {!fullScreenMobile && <span className="modal-handle-hero" aria-hidden="true" />}
             <button onClick={onClose} aria-label="סגירה" className="modal-hero-close">
               <Icon name="close" size={20} />
             </button>

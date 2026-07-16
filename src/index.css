@@ -8997,6 +8997,28 @@ select {
     border-radius: 999px;
     background: var(--border);
   }
+
+  /* Opt-in: edge-to-edge product / hero screens */
+  .modal-overlay--fullscreen-mobile {
+    place-items: stretch;
+    background: var(--surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .modal-card--fullscreen-mobile {
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+    padding-bottom: env(safe-area-inset-bottom);
+    box-shadow: none;
+    animation: modal-sheet-in 420ms var(--ease-spring) both;
+  }
+
+  .modal-card--fullscreen-mobile .modal-hero-close {
+    top: max(12px, env(safe-area-inset-top));
+    inset-inline-end: max(12px, env(safe-area-inset-left));
+  }
 }
 
 @keyframes modal-sheet-in {
@@ -15887,9 +15909,17 @@ button.pd-stat {
   transition: background-color 160ms var(--ease-out), transform 160ms var(--ease-out);
 }
 
+button.pd-stat:hover {
+  background: color-mix(in srgb, var(--info) 6%, var(--surface));
+}
+
 button.pd-stat:active {
   transform: scale(0.97);
   background: color-mix(in srgb, var(--info) 7%, var(--surface));
+}
+
+button.pd-stat[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--info) 8%, var(--surface));
 }
 
 .pd-stat-label {

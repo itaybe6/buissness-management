@@ -26,6 +26,7 @@ import {
   inventorySaveError,
   supportsPieceInput,
   mainUnitToPieces,
+  splitPackageQty,
   type ItemWithQty,
   type ItemLog,
   isTrackedLowStock,
@@ -509,6 +510,7 @@ function ItemDetailModal({
   const effectiveFactor =
     pieceUnit && (item.units_per_package ?? 0) > 0 ? item.units_per_package! : pieceUnit ? 12 : 0;
   const showPieces = pieceUnit && effectiveFactor > 0;
+  const stockSplit = showPieces ? splitPackageQty(item.current_qty, effectiveFactor) : null;
   const draftDirty = draftQty !== item.current_qty;
   const orderCardInteractive = canUpdateOrderArrival && item.ordered_qty > 0;
 
@@ -529,6 +531,7 @@ function ItemDetailModal({
       open={open}
       onClose={onClose}
       maxWidth={520}
+      fullScreenMobile
       hero={
         <div className="pd-hero">
           {item.image_url ? (
@@ -574,14 +577,23 @@ function ItemDetailModal({
         <div className="pd-stats">
           <div className="pd-stat">
             <span className="pd-stat-label">במלאי</span>
-            <span key={item.current_qty} className="pd-stat-num pd-num-pop">
-              {item.current_qty}
-            </span>
-            {(item.unit || showPieces) && (
-              <span className="pd-stat-unit">
-                {item.unit ?? ""}
-                {showPieces ? ` · ${mainUnitToPieces(item.current_qty, effectiveFactor)} יח׳` : ""}
-              </span>
+            {stockSplit ? (
+              <>
+                <span key={item.current_qty} className="pd-stat-num pd-num-pop">
+                  {stockSplit.packages}
+                </span>
+                <span className="pd-stat-unit">
+                  {item.unit ?? "ארגז"}
+                  {stockSplit.pieces > 0 ? ` + ${stockSplit.pieces} יח׳` : ""}
+                </span>
+              </>
+            ) : (
+              <>
+                <span key={item.current_qty} className="pd-stat-num pd-num-pop">
+                  {item.current_qty}
+                </span>
+                {item.unit && <span className="pd-stat-unit">{item.unit}</span>}
+              </>
             )}
           </div>
           <div className="pd-stat">
@@ -593,16 +605,19 @@ function ItemDetailModal({
             <button
               type="button"
               onClick={() => setOrderPanelOpen((v) => !v)}
-              className="pd-stat"
+              className="pd-stat pd-stat-action"
               aria-expanded={orderPanelOpen}
-              aria-label="עדכון סטטוס הזמנה"
+              aria-label="עדכון סטטוס הזמנה — הגיע או לא הגיע"
             >
               <span className="pd-stat-label text-[var(--info)]">
                 בהזמנה
                 <Icon name={orderPanelOpen ? "expand_less" : "expand_more"} size={13} />
               </span>
               <span className="pd-stat-num text-[var(--info)]">+{item.ordered_qty}</span>
-              <span className="pd-stat-unit text-[var(--info)]">הגיע / לא הגיע</span>
+              <span className="pd-stat-unit text-[var(--info)]">
+                {item.unit ? `${item.unit} · ` : ""}
+                {orderPanelOpen ? "סגירה" : "הגיע / לא הגיע"}
+              </span>
             </button>
           ) : (
             <div className="pd-stat">
@@ -867,6 +882,10 @@ function ItemCard({
 }) {
   const status = stockStatus(item);
   const meta = STOCK_META[status];
+  const qtySplit =
+    supportsPieceInput(item.unit) && (item.units_per_package ?? 0) > 0
+      ? splitPackageQty(item.current_qty, item.units_per_package!)
+      : null;
 
   return (
     <article
@@ -911,8 +930,20 @@ function ItemCard({
                 )}
               </div>
               <div className="shrink-0 text-left leading-none">
-                <span className="text-[17px] font-extrabold tabular-nums">{item.current_qty}</span>
-                {item.unit && <span className="block text-[9px] font-semibold text-text-3">{item.unit}</span>}
+                {qtySplit ? (
+                  <>
+                    <span className="text-[17px] font-extrabold tabular-nums">{qtySplit.packages}</span>
+                    <span className="block text-[9px] font-semibold text-text-3">
+                      {item.unit}
+                      {qtySplit.pieces > 0 ? ` + ${qtySplit.pieces}` : ""}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-[17px] font-extrabold tabular-nums">{item.current_qty}</span>
+                    {item.unit && <span className="block text-[9px] font-semibold text-text-3">{item.unit}</span>}
+                  </>
+                )}
               </div>
             </div>
             <LastUpdatedLine item={item} compact />
@@ -1023,12 +1054,17 @@ function ItemCard({
             <div className="flex items-end gap-5">
               <div>
                 <div className="text-[10px] font-semibold uppercase tracking-wide text-text-3">כמות</div>
-                <div className="mt-1 text-[22px] font-extrabold tabular-nums leading-none">{item.current_qty}</div>
-                {supportsPieceInput(item.unit) && item.units_per_package ? (
-                  <div className="mt-0.5 text-[11px] font-medium text-text-3">
-                    ({mainUnitToPieces(item.current_qty, item.units_per_package)} יח׳)
-                  </div>
-                ) : null}
+                {qtySplit ? (
+                  <>
+                    <div className="mt-1 text-[22px] font-extrabold tabular-nums leading-none">{qtySplit.packages}</div>
+                    <div className="mt-0.5 text-[11px] font-medium text-text-3">
+                      {item.unit ?? "ארגז"}
+                      {qtySplit.pieces > 0 ? ` + ${qtySplit.pieces} יח׳` : ""}
+                    </div>
+                  </>
+                ) : (
+                  <div className="mt-1 text-[22px] font-extrabold tabular-nums leading-none">{item.current_qty}</div>
+                )}
                 {item.ordered_qty > 0 && (
                   <div className="mt-1 text-[12px] font-bold tabular-nums text-[var(--info)]">+{item.ordered_qty} בהזמנה</div>
                 )}
@@ -1514,8 +1550,10 @@ export function Inventory() {
   const showWaste = hasFeature("waste");
   const { data: items, isLoading, isError, refetch } = useInventory(businessId);
   const canManageOrders = !!(profile && ["manager", "office_manager"].includes(profile.role));
-  /** Only shift managers (אחמש) may mark orders as arrived / not arrived from the product card. */
-  const canUpdateOrderArrival = profile?.role === "shift_manager";
+  /** Managers / office / shift managers may mark orders as arrived / not arrived from the product card. */
+  const canUpdateOrderArrival = !!(
+    profile && ["manager", "office_manager", "shift_manager"].includes(profile.role)
+  );
   const { data: orders } = useOrders(businessId, canManageOrders || canUpdateOrderArrival);
   const { data: wasteRecords } = useWaste(showWaste ? businessId : null);
   const createItem = useCreateItem(businessId);
@@ -1739,7 +1777,7 @@ export function Inventory() {
   }
 
   async function handleMarkNotArrived(order: InventoryOrderWithUser) {
-    if (!canUpdateOrderArrival) return;
+    if (!canManageOrders && !canUpdateOrderArrival) return;
     const ok = window.confirm("לסמן שההזמנה לא הגיעה? הכמות תוסר מרשימת «בהזמנה» ולא תתווסף למלאי.");
     if (!ok) return;
     try {

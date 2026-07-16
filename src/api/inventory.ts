@@ -134,13 +134,42 @@ export function mainUnitToPieces(qty: number, unitsPerPackage: number): number {
   return Math.round(qty * unitsPerPackage * 100) / 100;
 }
 
-/** Format quantity with optional piece equivalent, e.g. "2.5 ארגז (60 יח׳)". */
-export function formatQtyWithPieces(qty: number, unit: string | null, unitsPerPackage: number | null | undefined): string {
-  const unitLabel = unit ? ` ${unit}` : "";
-  const base = `${qty}${unitLabel}`;
-  if (!canUsePieceInput(unit, unitsPerPackage)) return base;
-  const pieces = mainUnitToPieces(qty, unitsPerPackage!);
-  return `${base} (${pieces} יח׳)`;
+/** Split a main-unit qty into whole packages + leftover pieces (no decimals). */
+export function splitPackageQty(
+  qty: number,
+  unitsPerPackage: number,
+): { packages: number; pieces: number; totalPieces: number } {
+  const totalPieces = Math.round(mainUnitToPieces(qty, unitsPerPackage));
+  if (unitsPerPackage <= 0) {
+    return { packages: totalPieces, pieces: 0, totalPieces };
+  }
+  return {
+    packages: Math.floor(totalPieces / unitsPerPackage),
+    pieces: totalPieces % unitsPerPackage,
+    totalPieces,
+  };
+}
+
+/**
+ * Format quantity for display.
+ * Package units with units_per_package → "7 ארגז + 2 יח׳" (never a decimal package count).
+ */
+export function formatQtyWithPieces(
+  qty: number,
+  unit: string | null,
+  unitsPerPackage: number | null | undefined,
+): string {
+  const unitLabel = unit?.trim() || "";
+  if (!canUsePieceInput(unit, unitsPerPackage)) {
+    return unitLabel ? `${qty} ${unitLabel}` : String(qty);
+  }
+  const { packages, pieces } = splitPackageQty(qty, unitsPerPackage!);
+  if (packages === 0 && pieces === 0) {
+    return unitLabel ? `0 ${unitLabel}` : "0";
+  }
+  if (packages === 0) return `${pieces} יח׳`;
+  if (pieces === 0) return unitLabel ? `${packages} ${unitLabel}` : String(packages);
+  return unitLabel ? `${packages} ${unitLabel} + ${pieces} יח׳` : `${packages} + ${pieces} יח׳`;
 }
 
 export async function uploadItemImage(businessId: string, file: File): Promise<string> {
