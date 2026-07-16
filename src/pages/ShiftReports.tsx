@@ -2,14 +2,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Badge,
   Button,
-  Card,
   EmptyState,
   ErrorState,
   Field,
   Icon,
   Input,
   MultiSelect,
-  PageHeader,
   PageLoader,
   Select,
   Switch,
@@ -49,6 +47,29 @@ function monthNow() {
   return new Date().toISOString().slice(0, 7);
 }
 
+const MONTH_NAMES = [
+  "ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני",
+  "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר",
+];
+const WEEKDAY_LETTERS = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
+const WEEKDAY_NAMES = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
+
+function shiftMonth(month: string, delta: number): string {
+  const [y, m] = month.split("-").map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthTitle(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  return `${MONTH_NAMES[m - 1] ?? ""} ${y}`;
+}
+
+function daysInMonth(month: string): number {
+  const [y, m] = month.split("-").map(Number);
+  return new Date(y, m, 0).getDate();
+}
+
 export function ShiftReports() {
   const businessId = useBusinessId();
   const { profile } = useAuth();
@@ -72,23 +93,126 @@ export function ShiftReports() {
     [users],
   );
 
+  const list = reports ?? [];
+  const stats = useMemo(() => {
+    const totalSales = list.reduce((sum, r) => sum + (Number(r.total_sales) || 0), 0);
+    const totalTips = list.reduce((sum, r) => sum + (Number(r.total_tips) || 0), 0);
+    const hourlyVals = list.map((r) => Number(r.tips_hourly) || 0).filter((v) => v > 0);
+    const avgHourly = hourlyVals.length > 0 ? hourlyVals.reduce((a, b) => a + b, 0) / hourlyVals.length : 0;
+    const maxSales = list.reduce((max, r) => Math.max(max, Number(r.total_sales) || 0), 0);
+    const best = maxSales > 0 ? list.find((r) => (Number(r.total_sales) || 0) === maxSales) : undefined;
+    const byDay = new Map<number, ShiftReport>();
+    for (const r of list) {
+      const day = new Date(r.report_date + "T00:00:00").getDate();
+      if (!byDay.has(day)) byDay.set(day, r);
+    }
+    return { totalSales, totalTips, avgHourly, maxSales, bestId: best?.id, byDay };
+  }, [list]);
+
   if (isLoading) return <PageLoader />;
   if (isError) return <ErrorState onRetry={refetch} />;
 
+  const isCurrentMonth = month === monthNow();
+  const todayDay = new Date().getDate();
+  const monthDays = daysInMonth(month);
+
   return (
     <div className="w-full animate-fadeUp">
-      <PageHeader
-        title="דוח סגירת משמרת"
-        subtitle="סיכום משמרת, סגירת קופה, חשבוניות וטיפים"
-        actions={
-          <div className="flex items-center gap-2.5">
-            <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="!w-[150px]" />
-            {canManage && <Button icon="add" onClick={() => setEditing("new")}>דוח חדש</Button>}
+      <section className="sr-hero">
+        <div className="sr-hero-top">
+          <div className="sr-month-nav">
+            <button
+              type="button"
+              className="sr-month-btn"
+              onClick={() => setMonth(shiftMonth(month, -1))}
+              aria-label="חודש קודם"
+            >
+              <Icon name="chevron_right" size={20} />
+            </button>
+            <label className="sr-month-label">
+              <Icon name="calendar_month" size={16} />
+              <span>{monthTitle(month)}</span>
+              <input
+                type="month"
+                value={month}
+                onChange={(e) => e.target.value && setMonth(e.target.value)}
+                className="sr-month-input"
+                aria-label="בחירת חודש"
+              />
+            </label>
+            <button
+              type="button"
+              className="sr-month-btn"
+              onClick={() => setMonth(shiftMonth(month, 1))}
+              aria-label="חודש הבא"
+            >
+              <Icon name="chevron_left" size={20} />
+            </button>
           </div>
-        }
-      />
+          {canManage && <Button icon="add" onClick={() => setEditing("new")}>דוח חדש</Button>}
+        </div>
 
-      {(reports ?? []).length === 0 ? (
+        <div className="sr-kpis">
+          <div className="sr-kpi sr-kpi--sales" style={{ "--i": 0 } as React.CSSProperties}>
+            <span className="sr-kpi-icon"><Icon name="point_of_sale" size={19} /></span>
+            <div className="sr-kpi-text">
+              <span className="sr-kpi-label">מכירות החודש</span>
+              <span className="sr-kpi-value">{formatCurrency(stats.totalSales)}</span>
+            </div>
+          </div>
+          <div className="sr-kpi sr-kpi--tips" style={{ "--i": 1 } as React.CSSProperties}>
+            <span className="sr-kpi-icon"><Icon name="savings" size={19} /></span>
+            <div className="sr-kpi-text">
+              <span className="sr-kpi-label">טיפים החודש</span>
+              <span className="sr-kpi-value">{formatCurrency(stats.totalTips)}</span>
+            </div>
+          </div>
+          <div className="sr-kpi sr-kpi--hourly" style={{ "--i": 2 } as React.CSSProperties}>
+            <span className="sr-kpi-icon"><Icon name="timer" size={19} /></span>
+            <div className="sr-kpi-text">
+              <span className="sr-kpi-label">ממוצע שעתי מטיפים</span>
+              <span className="sr-kpi-value">{formatCurrency(stats.avgHourly)}</span>
+            </div>
+          </div>
+          <div className="sr-kpi sr-kpi--count" style={{ "--i": 3 } as React.CSSProperties}>
+            <span className="sr-kpi-icon"><Icon name="receipt_long" size={19} /></span>
+            <div className="sr-kpi-text">
+              <span className="sr-kpi-label">דוחות שהוגשו</span>
+              <span className="sr-kpi-value">{list.length}</span>
+            </div>
+          </div>
+        </div>
+
+        {list.length > 0 && (
+          <div className="sr-chart" aria-label="מכירות לפי יום בחודש">
+            {Array.from({ length: monthDays }, (_, i) => i + 1).map((day) => {
+              const report = stats.byDay.get(day);
+              const sales = report ? Number(report.total_sales) || 0 : 0;
+              const pct = report && stats.maxSales > 0 ? Math.max(9, (sales / stats.maxSales) * 100) : 0;
+              const isToday = isCurrentMonth && day === todayDay;
+              const showLabel = day === 1 || day % 5 === 0;
+              return (
+                <button
+                  key={day}
+                  type="button"
+                  disabled={!report}
+                  onClick={() => report && setViewing(report)}
+                  className={`sr-bar${report ? " sr-bar--filled" : ""}${isToday ? " sr-bar--today" : ""}`}
+                  title={report ? `${formatDateShort(report.report_date)} · ${formatCurrency(sales)}` : undefined}
+                  aria-label={report ? `דוח ${formatDateShort(report.report_date)}, מכירות ${formatCurrency(sales)}` : undefined}
+                >
+                  <span className="sr-bar-track">
+                    <i style={report ? { height: `${pct}%` } : undefined} />
+                  </span>
+                  <span className="sr-bar-day">{showLabel ? day : "\u00a0"}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {list.length === 0 ? (
         <EmptyState
           icon="receipt_long"
           title="אין דוחות לחודש זה"
@@ -96,64 +220,113 @@ export function ShiftReports() {
           action={canManage ? <Button icon="add" onClick={() => setEditing("new")}>דוח חדש</Button> : undefined}
         />
       ) : (
-        <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2 lg:grid-cols-3">
-          {(reports ?? []).map((r) => (
-            <Card key={r.id} className="flex flex-col gap-3 p-[18px]">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <div className="text-[17px] font-extrabold tracking-tight">{formatDateShort(r.report_date)}</div>
-                  <div className="mt-0.5 text-[12.5px] text-text-2">דוח יומי</div>
-                </div>
-                <Badge tone="violet">{formatCurrency(Number(r.total_tips))} טיפים</Badge>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 text-[13px]">
-                <div className="rounded-[10px] bg-surface-2 px-3 py-2">
-                  <div className="text-[11px] text-text-3">מכירות</div>
-                  <div className="font-bold">{formatCurrency(Number(r.total_sales))}</div>
-                </div>
-                <div className="rounded-[10px] bg-surface-2 px-3 py-2">
-                  <div className="text-[11px] text-text-3">שכר שעתי מטיפים</div>
-                  <div className="font-bold">{formatCurrency(Number(r.tips_hourly))}</div>
-                </div>
-              </div>
-
-              {r.manager_names && <div className="text-[12.5px] text-text-2">אחמ״ש: {r.manager_names}</div>}
-
-              <div className="mt-auto flex items-center justify-between border-t border-border-2 pt-3">
-                <span className="text-[12px] text-text-3">{(r.invoice_urls ?? []).length} חשבוניות</span>
-                <div className="flex gap-1">
-                  <button
-                    onClick={() => setViewing(r)}
-                    className="grid h-8 w-8 place-items-center rounded-lg text-text-3 hover:bg-surface-2 hover:text-text"
-                    title="צפייה בדוח"
-                  >
-                    <Icon name="visibility" size={18} />
-                  </button>
-                  {canManage && (
-                    <>
-                      <button
-                        onClick={() => setEditing(r)}
-                        className="grid h-8 w-8 place-items-center rounded-lg text-text-3 hover:bg-surface-2 hover:text-text"
-                        title="עריכה"
-                      >
-                        <Icon name="edit" size={18} />
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (confirm("למחוק את הדוח? הטיפים והתוספות שכר שנוצרו ממנו יימחקו גם הם.")) del.mutate(r.id);
-                        }}
-                        className="grid h-8 w-8 place-items-center rounded-lg text-text-3 hover:[background:var(--danger-bg)] hover:text-danger"
-                        title="מחיקה"
-                      >
-                        <Icon name="delete" size={18} />
-                      </button>
-                    </>
+        <div className="sr-grid">
+          {list.map((r, idx) => {
+            const d = new Date(r.report_date + "T00:00:00");
+            const dow = d.getDay();
+            const sales = Number(r.total_sales) || 0;
+            const salesPct = stats.maxSales > 0 ? Math.round((sales / stats.maxSales) * 100) : 0;
+            const isBest = stats.bestId === r.id && list.length > 1;
+            const invoices = (r.invoice_urls ?? []).length;
+            const teamCount = (r.extra?.team_members ?? []).length;
+            return (
+              <article
+                key={r.id}
+                className="sr-card"
+                style={{ "--i": idx } as React.CSSProperties}
+                role="button"
+                tabIndex={0}
+                onClick={() => setViewing(r)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setViewing(r);
+                  }
+                }}
+              >
+                <header className="sr-card-top">
+                  <span className="sr-date-tile" aria-hidden="true">
+                    <b>{d.getDate()}</b>
+                    <i>{WEEKDAY_LETTERS[dow]}</i>
+                  </span>
+                  <div className="sr-card-heading">
+                    <span className="sr-card-title">יום {WEEKDAY_NAMES[dow]} · {formatDateShort(r.report_date)}</span>
+                    <span className="sr-card-sub">
+                      {r.manager_names ? `אחמ״ש · ${r.manager_names}` : "דוח סגירת משמרת"}
+                    </span>
+                  </div>
+                  {isBest && (
+                    <span className="sr-best">
+                      <Icon name="emoji_events" size={13} />
+                      שיא החודש
+                    </span>
                   )}
+                </header>
+
+                <div className="sr-card-stats">
+                  <div className="sr-stat sr-stat--sales">
+                    <span className="sr-stat-label">מכירות</span>
+                    <span className="sr-stat-value">{formatCurrency(sales)}</span>
+                    <span className="sr-stat-bar"><i style={{ width: `${salesPct}%` }} /></span>
+                  </div>
+                  <div className="sr-stat sr-stat--tips">
+                    <span className="sr-stat-label">טיפים</span>
+                    <span className="sr-stat-value">{formatCurrency(Number(r.total_tips))}</span>
+                    <span className="sr-stat-hint">{formatCurrency(Number(r.tips_hourly))} לשעה</span>
+                  </div>
                 </div>
-              </div>
-            </Card>
-          ))}
+
+                <footer className="sr-card-foot">
+                  <div className="sr-chips">
+                    {teamCount > 0 && (
+                      <span className="sr-chip sr-chip--team"><Icon name="groups" size={14} />{teamCount} בצוות</span>
+                    )}
+                    {invoices > 0 && (
+                      <span className="sr-chip sr-chip--invoice"><Icon name="receipt" size={14} />{invoices} חשבוניות</span>
+                    )}
+                    {r.energy_level != null && (
+                      <span className="sr-chip sr-chip--energy"><Icon name="bolt" size={14} />אנרגיה {r.energy_level}/10</span>
+                    )}
+                  </div>
+                  <div className="sr-actions" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      onClick={() => setViewing(r)}
+                      className="sr-icon-btn"
+                      title="צפייה בדוח"
+                      aria-label="צפייה בדוח"
+                    >
+                      <Icon name="visibility" size={18} />
+                    </button>
+                    {canManage && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setEditing(r)}
+                          className="sr-icon-btn"
+                          title="עריכה"
+                          aria-label="עריכה"
+                        >
+                          <Icon name="edit" size={18} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (confirm("למחוק את הדוח? הטיפים והתוספות שכר שנוצרו ממנו יימחקו גם הם.")) del.mutate(r.id);
+                          }}
+                          className="sr-icon-btn sr-icon-btn--danger"
+                          title="מחיקה"
+                          aria-label="מחיקה"
+                        >
+                          <Icon name="delete" size={18} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </footer>
+              </article>
+            );
+          })}
         </div>
       )}
 

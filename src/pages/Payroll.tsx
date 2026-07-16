@@ -8,7 +8,8 @@ import { useProfiles } from "@/api/users";
 import { useAttendanceMonth } from "@/api/attendance";
 import { useTips, useShiftBonuses } from "@/api/payroll";
 import { computeEmployeePayroll, sumAttendanceHours } from "@/lib/payrollCompute";
-import { countEmployeeShifts, exportPayrollExcel } from "@/lib/payrollExport";
+import { countEmployeeShifts, exportPayrollExcel, type PayrollExportRow } from "@/lib/payrollExport";
+import type { WageType } from "@/types/database";
 
 function monthNow() {
   return new Date().toISOString().slice(0, 7);
@@ -25,12 +26,43 @@ function monthLabel(m: string): string {
   return new Date(y, mo - 1, 1).toLocaleDateString("he-IL", { month: "long", year: "numeric" });
 }
 
+function toExportRows(
+  rows: {
+    name: string | null;
+    wageType: WageType;
+    hours: number;
+    shifts: number;
+    rate: number;
+    base: number;
+    tips: number;
+    topup: number;
+    bonus: number;
+    total: number;
+    pensionActive: boolean;
+  }[],
+): PayrollExportRow[] {
+  return rows.map((r) => ({
+    name: r.name,
+    wageType: r.wageType,
+    wageTypeLabel: WAGE_TYPE_LABELS[r.wageType],
+    hours: r.hours,
+    shifts: r.shifts,
+    rate: r.rate,
+    baseOrTips: r.wageType === "tips" ? r.tips : r.base,
+    topup: r.topup,
+    bonus: r.bonus,
+    total: r.total,
+    pensionActive: r.pensionActive,
+  }));
+}
+
 export function Payroll() {
   const businessId = useBusinessId();
   const { profile } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [month, setMonth] = useState(searchParams.get("month") ?? monthNow());
+  const [search, setSearch] = useState("");
   const { data: users, isLoading, isError, refetch } = useProfiles(businessId);
   const { data: attendance } = useAttendanceMonth(businessId, month);
   const { data: tips } = useTips(businessId, month);
@@ -67,10 +99,16 @@ export function Payroll() {
     });
   }, [users, attendance, tips, bonuses, isPayrollManager, profile?.id]);
 
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r) => (r.name ?? "").toLowerCase().includes(q));
+  }, [rows, search]);
+
   if (isLoading) return <PageLoader />;
   if (isError) return <ErrorState onRetry={refetch} />;
 
-  const totals = rows.reduce(
+  const totals = filteredRows.reduce(
     (acc, r) => ({
       hours: acc.hours + r.hours,
       base: acc.base + (r.wageType === "hourly" ? r.base : 0),
@@ -85,34 +123,30 @@ export function Payroll() {
   return (
     <div className="w-full animate-fadeUp">
       <PageHeader
-        title="שכר וטיפים"
-        subtitle="חישוב לפי שעות נוכחות + טיפים + תוספת מאחוז קופה"
         actions={
-          <div className="hidden items-center gap-2.5 md:flex">
-            <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="!w-[150px]" />
-            {isPayrollManager && (
-              <>
+          <div className="flex w-full flex-col gap-2.5 md:flex-row md:items-center md:justify-between">
+            <div className="relative min-w-0 flex-1 md:max-w-[380px]">
+              <Icon name="search" size={19} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-3" />
+              <Input
+                className="pr-10"
+                placeholder="חיפוש עובד..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                aria-label="חיפוש עובד"
+              />
+            </div>
+            <div className="hidden items-center gap-2.5 md:flex">
+              <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="!w-[150px]" />
+              {isPayrollManager && (
                 <Button
                   variant="secondary"
                   icon="download"
-                  onClick={() =>
-                    exportPayrollExcel(
-                      rows.map((r) => ({
-                        name: r.name,
-                        hours: r.hours,
-                        shifts: r.shifts,
-                        rate: r.rate,
-                        total: r.total,
-                        pensionActive: r.pensionActive,
-                      })),
-                      month,
-                    )
-                  }
+                  onClick={() => exportPayrollExcel(toExportRows(filteredRows), month)}
                 >
                   ייצוא אקסל
                 </Button>
-              </>
-            )}
+              )}
+            </div>
           </div>
         }
       />
@@ -144,19 +178,7 @@ export function Payroll() {
               <button
                 type="button"
                 className="payroll-tip-btn btn-press"
-                onClick={() =>
-                  exportPayrollExcel(
-                    rows.map((r) => ({
-                      name: r.name,
-                      hours: r.hours,
-                      shifts: r.shifts,
-                      rate: r.rate,
-                      total: r.total,
-                      pensionActive: r.pensionActive,
-                    })),
-                    month,
-                  )
-                }
+                onClick={() => exportPayrollExcel(toExportRows(filteredRows), month)}
               >
                 <Icon name="download" size={17} />
                 אקסל
@@ -172,7 +194,7 @@ export function Payroll() {
             </span>
             <span className="payroll-hero-chip">
               <Icon name="group" size={15} />
-              {rows.length} עובדים
+              {filteredRows.length} עובדים
             </span>
           </div>
         </section>
@@ -197,14 +219,14 @@ export function Payroll() {
           ))}
         </div>
 
-        {rows.length === 0 ? (
+        {filteredRows.length === 0 ? (
           <div className="users-roster-empty">
             <Icon name="account_balance_wallet" size={30} />
-            <span>אין נתונים לחודש זה</span>
+            <span>{search.trim() ? "לא נמצאו עובדים" : "אין נתונים לחודש זה"}</span>
           </div>
         ) : (
           <div className="users-roster">
-            {rows.map((r, i) => (
+            {filteredRows.map((r, i) => (
               <button
                 key={r.id}
                 type="button"
@@ -262,7 +284,7 @@ export function Payroll() {
             <div className="grid grid-cols-[1.7fr_0.8fr_0.7fr_0.8fr_1fr_0.9fr_0.9fr_1fr] gap-2 border-b border-border bg-surface-2 px-5 py-3 text-[11.5px] font-bold uppercase tracking-wide text-text-3">
               <span>עובד</span><span>סוג</span><span>שעות</span><span>תעריף</span><span>בסיס / טיפים</span><span>השלמה</span><span>תוספת קופה</span><span>סה״כ</span>
             </div>
-            {rows.map((r) => (
+            {filteredRows.map((r) => (
               <button
                 key={r.id}
                 type="button"
@@ -282,7 +304,11 @@ export function Payroll() {
                 <span className="font-extrabold tabular-nums">{formatCurrency(r.total)}</span>
               </button>
             ))}
-            {rows.length === 0 && <div className="px-5 py-10 text-center text-text-2">אין נתונים לחודש זה.</div>}
+            {filteredRows.length === 0 && (
+              <div className="px-5 py-10 text-center text-text-2">
+                {search.trim() ? "לא נמצאו עובדים." : "אין נתונים לחודש זה."}
+              </div>
+            )}
           </div>
         </div>
       </Card>

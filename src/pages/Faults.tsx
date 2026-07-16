@@ -127,10 +127,8 @@ function groupFaultsByDay(list: Fault[]): FaultDayGroup[] {
   return groups;
 }
 
-function canModifyFault(fault: Fault, profileId?: string | null, role?: string | null) {
-  if (!profileId) return false;
-  if (role === "manager" || role === "shift_manager" || role === "office_manager") return true;
-  return fault.reported_by === profileId;
+function canModifyFault(profileId?: string | null) {
+  return !!profileId;
 }
 
 function FaultActions({
@@ -359,23 +357,16 @@ function FaultRowMobile({
                 <span className="fault-row__pill-dot" aria-hidden />
                 {meta.label}
               </span>
-              <span className="fault-row__meta-sep" aria-hidden>
-                ·
-              </span>
               <time dateTime={fault.created_at}>{formatFaultTimeRelative(fault.created_at)}</time>
-              {reporterName && (
-                <>
-                  <span className="fault-row__meta-sep" aria-hidden>
-                    ·
-                  </span>
-                  <span className="fault-row__meta-reporter">{reporterName}</span>
-                </>
-              )}
             </span>
+            {reporterName && (
+              <span className="fault-row__reporter">
+                <Icon name="person" size={13} />
+                <span>{reporterName}</span>
+              </span>
+            )}
           </span>
         </button>
-
-        {canModify && onEdit && onDelete && <FaultActions onEdit={onEdit} onDelete={onDelete} />}
 
         <button
           type="button"
@@ -387,6 +378,12 @@ function FaultRowMobile({
           <Icon name="expand_more" size={19} />
         </button>
       </div>
+
+      {canModify && onEdit && onDelete && (
+        <div className="fault-row__tools">
+          <FaultActions onEdit={onEdit} onDelete={onDelete} />
+        </div>
+      )}
 
       <div className="fault-row__panel">
         <div className="fault-row__panel-inner">
@@ -1049,7 +1046,7 @@ export function Faults() {
             </header>
             <div className="faults-day__list">
               {group.items.map((f) => {
-                const modifiable = canModifyFault(f, profile?.id, profile?.role);
+                const modifiable = canModifyFault(profile?.id);
                 return (
                   <FaultRowMobile
                     key={f.id}
@@ -1076,7 +1073,7 @@ export function Faults() {
           const meta = STATUS_META[f.status];
           const mediaUrls = f.photo_urls ?? [];
           const reporterName = f.reported_by ? reporterById.get(f.reported_by) : undefined;
-          const modifiable = canModifyFault(f, profile?.id, profile?.role);
+          const modifiable = canModifyFault(profile?.id);
           return (
             <Card key={f.id} className="flex flex-col overflow-hidden p-0">
               <div className="h-1.5" style={{ background: meta.color }} />

@@ -1,5 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { addDays } from "@/lib/db";
+import {
+  WEEKLY_DAY_OFF_ERROR,
+  canAssignEmployeeOnDate,
+  weekStartFromDateISO,
+} from "@/lib/shift-assignment-limits";
 import { ensureDefaultShiftTemplates, sortShiftTemplates } from "@/lib/shiftTemplates";
 import type { Availability, ShiftAssignment, ShiftPreference, ShiftTemplate } from "@/types/database";
 
@@ -168,10 +174,35 @@ export function useAddAssignment(businessId: string | null) {
       shift_template_id: string;
       assigned_by?: string | null;
     }) => {
+      const wk = weekStartFromDateISO(input.shift_date);
+      const weekEnd = addDays(wk, 6);
+      const { data: weekRows, error: weekError } = await supabase
+        .from("shift_assignments")
+        .select("employee_id, shift_date")
+        .eq("employee_id", input.employee_id)
+        .gte("shift_date", wk)
+        .lte("shift_date", weekEnd);
+      if (weekError) throw weekError;
+
+      if (
+        !canAssignEmployeeOnDate(
+          (weekRows ?? []) as { employee_id: string; shift_date: string }[],
+          input.employee_id,
+          input.shift_date,
+        )
+      ) {
+        throw new Error(WEEKLY_DAY_OFF_ERROR);
+      }
+
       const { error } = await supabase
         .from("shift_assignments")
         .upsert(input, { onConflict: "employee_id,shift_date,shift_template_id" });
-      if (error) throw error;
+      if (error) {
+        if (error.message?.includes("WEEKLY_DAY_OFF_REQUIRED")) {
+          throw new Error(WEEKLY_DAY_OFF_ERROR);
+        }
+        throw error;
+      }
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["shift_assignments", businessId] }),
   });

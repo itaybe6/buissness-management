@@ -1,10 +1,13 @@
 import {
   forwardRef,
+  useEffect,
+  useState,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
   type TextareaHTMLAttributes,
 } from "react";
+import { createPortal } from "react-dom";
 import { Icon } from "./Icon";
 
 export { Icon };
@@ -162,7 +165,9 @@ export function PageHeader({
           {subtitle && <div className="mt-1 text-[13.5px] text-text-2 sm:text-[14.5px]">{subtitle}</div>}
         </div>
       )}
-      {actions && <div className="flex flex-wrap gap-2 sm:gap-2.5">{actions}</div>}
+      {actions && (
+        <div className={`flex flex-wrap gap-2 sm:gap-2.5 ${title ? "" : "w-full"}`}>{actions}</div>
+      )}
     </div>
   );
 }
@@ -217,42 +222,79 @@ export function EmptyState({
 }
 
 /* ----------------------------- PageLoader ----------------------------- */
-export function PageLoader({ label = "טוען..." }: { label?: string }) {
+function LoaderCore({ label }: { label: string }) {
   // Trailing dots are rendered as the animated ellipsis instead.
   const text = label.replace(/(\.{2,}|…)\s*$/, "");
   return (
-    <div className="grid min-h-[50dvh] place-items-center md:min-h-[60vh]" role="status" aria-live="polite">
-      <div className="loader-hero flex flex-col items-center gap-7 px-4">
-        <div className="loader-stage">
-          <span className="loader-halo" />
-          <svg className="loader-orbit loader-orbit--outer" viewBox="0 0 100 100">
-            <circle cx="50" cy="50" r="48" />
-          </svg>
-          <svg className="loader-orbit loader-orbit--inner" viewBox="0 0 100 100">
-            <circle cx="50" cy="50" r="48" />
-          </svg>
-          <span className="loader-satellite" />
-          <div className="loader-mark">
-            <span />
-            <span />
-            <span />
-          </div>
-        </div>
-        <div className="flex flex-col items-center gap-3.5">
-          <span className="loader-label">
-            {text}
-            <span className="loader-ellipsis">
-              <i />
-              <i />
-              <i />
-            </span>
-          </span>
-          <span className="loader-track">
-            <span />
-          </span>
+    <>
+      <div className="loader-stage">
+        <span className="loader-halo" />
+        <svg className="loader-orbit loader-orbit--outer" viewBox="0 0 100 100">
+          <circle cx="50" cy="50" r="48" />
+        </svg>
+        <svg className="loader-orbit loader-orbit--inner" viewBox="0 0 100 100">
+          <circle cx="50" cy="50" r="48" />
+        </svg>
+        <span className="loader-satellite" />
+        <div className="loader-mark">
+          <span />
+          <span />
+          <span />
         </div>
       </div>
+      <div className="flex flex-col items-center gap-3.5">
+        <span className="loader-label">
+          {text}
+          <span className="loader-ellipsis">
+            <i />
+            <i />
+            <i />
+          </span>
+        </span>
+        <span className="loader-track">
+          <span />
+        </span>
+      </div>
+    </>
+  );
+}
+
+export function PageLoader({ label = "טוען..." }: { label?: string }) {
+  return (
+    <div className="grid min-h-[50dvh] place-items-center px-4 md:min-h-[60vh]" role="status" aria-live="polite">
+      <div className="loader-hero loader-float">
+        <LoaderCore label={label} />
+      </div>
     </div>
+  );
+}
+
+/* ----------------------------- LoadingOverlay ----------------------------- */
+/**
+ * Full-screen floating loader for blocking waits (saving, syncing).
+ * Fades/scales in over a blurred backdrop and animates out when done.
+ */
+export function LoadingOverlay({ show, label = "מעדכן..." }: { show: boolean; label?: string }) {
+  const [mounted, setMounted] = useState(show);
+
+  useEffect(() => {
+    if (show) {
+      setMounted(true);
+      return;
+    }
+    const t = setTimeout(() => setMounted(false), 230);
+    return () => clearTimeout(t);
+  }, [show]);
+
+  if (!mounted) return null;
+
+  return createPortal(
+    <div className="loading-overlay" data-closing={!show} role="status" aria-live="polite">
+      <div className="loader-float">
+        <LoaderCore label={label} />
+      </div>
+    </div>,
+    document.body
   );
 }
 

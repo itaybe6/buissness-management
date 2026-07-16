@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import { useQueries } from "@tanstack/react-query";
 import { useAttendanceMonth } from "@/api/attendance";
 import { useTips, useShiftBonuses } from "@/api/payroll";
@@ -11,7 +10,6 @@ import { fmtHours } from "@/lib/payrollShiftRows";
 import {
   aggregateByMonth,
   aggregateDailyLaborCosts,
-  fillMonthDays,
   fillWeekDays,
   formatWeekRange,
   monthKeyFromDate,
@@ -24,7 +22,7 @@ import type { Attendance, ShiftBonus, Tip } from "@/types/database";
 import { Icon } from "@/components/ui";
 import { CountUp } from "./charts";
 
-type Granularity = "day" | "week" | "month";
+type Granularity = "week" | "month";
 
 function compactCurrency(n: number): string {
   if (Math.abs(n) >= 1000) return "₪" + (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k";
@@ -190,7 +188,7 @@ export function EmployeeCostPanel({
   const prevMonth = shiftMonth(thisMonth, -1);
   const upToDay = now.getDate();
 
-  const [granularity, setGranularity] = useState<Granularity>("day");
+  const [granularity, setGranularity] = useState<Granularity>("week");
 
   const { data: profiles = [] } = useProfiles(businessId);
   const { data: templates = [] } = useShiftTemplates(businessId);
@@ -246,15 +244,6 @@ export function EmployeeCostPanel({
     return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
   }, [dailyRaw, prevMonthDailyRaw]);
 
-  const dailyFilled = useMemo(
-    () => fillMonthDays(dailyRaw, thisMonth, upToDay).map((d) => ({
-      ...d,
-      label: String(new Date(d.date + "T12:00:00").getDate()),
-      highlight: d.date === todayISO,
-    })),
-    [dailyRaw, thisMonth, upToDay, todayISO],
-  );
-
   const currentWeekStart = weekStartISO(todayISO);
 
   const currentWeekDays = useMemo(
@@ -304,12 +293,9 @@ export function EmployeeCostPanel({
     }));
   }, [dailyRaw, historyMonths, historyQueries, profiles, templates, thisMonth]);
 
-  const chartData: LaborCostSlice[] =
-    granularity === "day" ? dailyFilled : granularity === "week" ? currentWeekDaily : monthSlices;
+  const chartData: LaborCostSlice[] = granularity === "week" ? currentWeekDaily : monthSlices;
+  const chartTodayISO = granularity === "week" ? todayISO : undefined;
 
-  const chartTodayISO = granularity === "day" || granularity === "week" ? todayISO : undefined;
-
-  const todayCost = dailyFilled.find((d) => d.date === todayISO) ?? { date: todayISO, hours: 0, hourly: 0, topup: 0, bonus: 0, total: 0 };
   const monthTotal = sumLaborCosts(dailyRaw);
   const prevMonthTotal = useMemo(
     () =>
@@ -325,35 +311,18 @@ export function EmployeeCostPanel({
     [profiles, prevAttendance, prevTips, prevBonuses, templates],
   );
 
-  const displayBreakdown =
-    granularity === "day" ? todayCost : granularity === "week" ? currentWeekTotal : monthTotal;
-
-  const heroTotal =
-    granularity === "day" ? todayCost.total : granularity === "week" ? currentWeekTotal.total : monthTotal.total;
+  const displayBreakdown = granularity === "week" ? currentWeekTotal : monthTotal;
+  const heroTotal = displayBreakdown.total;
   const displayHours = displayBreakdown.hours;
   const avgCostPerHour = displayHours > 0 ? heroTotal / displayHours : 0;
   const breakdownDenom = displayBreakdown.total || 1;
   const hasBreakdownMix =
     [displayBreakdown.hourly, displayBreakdown.topup, displayBreakdown.bonus].filter((v) => v > 0.5).length > 1;
 
-  const yesterdayISO = useMemo(() => {
-    const d = new Date(now);
-    d.setDate(d.getDate() - 1);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  }, [now]);
-  const yesterdayCost = dailyFilled.find((d) => d.date === yesterdayISO)?.total ?? 0;
-  const dayTrend = pctChange(todayCost.total, yesterdayCost);
   const monthTrend = pctChange(monthTotal.total, prevMonthTotal);
   const laborPct = monthRevenue > 0 ? (monthTotal.total / monthRevenue) * 100 : null;
 
   const heToday = now.toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long" });
-  const periodLabel =
-    granularity === "day"
-      ? "היום"
-      : granularity === "week"
-        ? "השבוע"
-        : now.toLocaleDateString("he-IL", { month: "long" });
-
   const hasData = monthTotal.total > 0 || dailyRaw.some((d) => d.total > 0);
 
   return (
@@ -373,7 +342,6 @@ export function EmployeeCostPanel({
           <div className="labor-granularity" role="tablist" aria-label="תצוגת זמן">
             {(
               [
-                ["day", "יום"],
                 ["week", "שבוע"],
                 ["month", "חודש"],
               ] as const
@@ -391,23 +359,18 @@ export function EmployeeCostPanel({
               </button>
             ))}
           </div>
-          <Link to="/payroll" className="labor-cost-more">
-            פירוט מלא
-            <Icon name="chevron_left" size={16} />
-          </Link>
         </div>
       </div>
 
       <div className="labor-cost-body">
         <div className="labor-cost-hero-stat">
           <div className="labor-cost-hero-label">
-            {granularity === "day" ? "עלות היום" : granularity === "week" ? "עלות השבוע" : "עלות החודש"}
+            {granularity === "week" ? "עלות השבוע" : "עלות החודש"}
           </div>
           <div className="labor-cost-hero-row">
             <span className="labor-cost-hero-amount">
               <CountUp value={heroTotal} format={formatCurrency} />
             </span>
-            {granularity === "day" && dayTrend != null && <TrendBadge pct={dayTrend} />}
             {granularity === "week" && weekTrend != null && <TrendBadge pct={weekTrend} />}
             {granularity === "month" && monthTrend != null && <TrendBadge pct={monthTrend} />}
           </div>
@@ -418,9 +381,6 @@ export function EmployeeCostPanel({
                 {fmtHours(displayHours)} שעות
                 {avgCostPerHour > 0 && <> · {formatCurrency(avgCostPerHour)}/שעה</>}
               </span>
-            )}
-            {granularity === "day" && yesterdayCost > 0 && (
-              <span className="labor-meta-note">אתמול {formatCurrency(yesterdayCost)}</span>
             )}
             {granularity === "week" && prevWeekTotal > 0 && (
               <span className="labor-meta-note">שבוע קודם {formatCurrency(prevWeekTotal)}</span>
@@ -463,11 +423,9 @@ export function EmployeeCostPanel({
         <div className="labor-cost-chart-wrap">
           <div className="labor-chart-head">
             <span className="labor-chart-title">
-              {granularity === "day"
-                ? `פירוט יומי · ${periodLabel}`
-                : granularity === "week"
-                  ? `פירוט יומי · ${formatWeekRange(currentWeekStart)}`
-                  : "6 חודשים אחרונים"}
+              {granularity === "week"
+                ? `פירוט שבועי · ${formatWeekRange(currentWeekStart)}`
+                : "6 חודשים אחרונים"}
             </span>
             <div className="flex flex-wrap gap-3">
               <span className="labor-legend-item">

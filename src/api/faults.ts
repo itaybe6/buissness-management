@@ -52,6 +52,27 @@ export async function uploadFaultPhotos(businessId: string, files: File[]): Prom
   return Promise.all(files.map((file) => uploadFaultMedia(businessId, file)));
 }
 
+/**
+ * Best-effort "new fault" email to maintenance users (via send-fault-email).
+ * Never throws — a failed notification must not break fault creation.
+ */
+export async function notifyFaultCreated(faultId: string): Promise<void> {
+  try {
+    const { data, error } = await supabase.functions.invoke("send-fault-email", {
+      body: { fault_id: faultId },
+    });
+    if (error) {
+      console.warn("[notifyFaultCreated] invoke failed", error.message, data);
+      return;
+    }
+    if (data && typeof data === "object" && "error" in data) {
+      console.warn("[notifyFaultCreated] function error", data);
+    }
+  } catch (e) {
+    console.warn("[notifyFaultCreated] unexpected", e);
+  }
+}
+
 export function useCreateFault() {
   const qc = useQueryClient();
   return useMutation({
@@ -61,11 +82,18 @@ export function useCreateFault() {
       photo_urls?: string[];
       reported_by?: string | null;
     }) => {
-      const { error } = await supabase.from("faults").insert({
-        ...input,
-        photo_urls: input.photo_urls ?? [],
-      });
+      const { data, error } = await supabase
+        .from("faults")
+        .insert({
+          ...input,
+          photo_urls: input.photo_urls ?? [],
+        })
+        .select("id")
+        .single();
       if (error) throw error;
+      // Await so the request isn't cancelled if the modal closes immediately.
+      if (data?.id) await notifyFaultCreated(data.id);
+      return data;
     },
     onSuccess: (_d, v) => qc.invalidateQueries({ queryKey: ["faults", v.business_id] }),
   });

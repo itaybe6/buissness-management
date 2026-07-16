@@ -128,3 +128,38 @@ export function useClockOut(businessId: string | null) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["attendance", businessId] }),
   });
 }
+
+/** Close or correct a punch with explicit clock-in / clock-out timestamps. */
+export function useUpdateAttendanceSession(businessId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { id: string; clock_in: string; clock_out: string }) => {
+      const { error } = await supabase
+        .from("attendance")
+        .update({ clock_in: input.clock_in, clock_out: input.clock_out })
+        .eq("id", input.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["attendance", businessId] });
+      qc.invalidateQueries({ queryKey: ["attendance_month"] });
+      qc.invalidateQueries({ queryKey: ["attendance_around"] });
+    },
+  });
+}
+
+/** Remove a punch entirely (as if the employee was never on that shift). */
+export function useDeleteAttendance(businessId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("attendance").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["attendance", businessId] });
+      qc.invalidateQueries({ queryKey: ["attendance_month"] });
+      qc.invalidateQueries({ queryKey: ["attendance_around"] });
+    },
+  });
+}

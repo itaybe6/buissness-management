@@ -243,7 +243,8 @@ export function AppShell() {
 
       <div className="flex min-w-0 flex-1 flex-col">
 
-        <header className="app-header mobile-header sticky top-0 z-30 flex flex-none items-center gap-3 px-4 md:h-[66px] md:gap-4 md:px-[26px]">
+        {/* Mobile-only top bar — desktop has the sidebar, so no empty header strip */}
+        <header className="app-header mobile-header sticky top-0 z-30 flex flex-none items-center gap-3 px-4 md:hidden">
 
           <NavLink
 
@@ -251,7 +252,7 @@ export function AppShell() {
 
             aria-label="פרופיל"
 
-            className="mobile-header-profile btn-press md:hidden"
+            className="mobile-header-profile btn-press"
 
             data-active={isProfileActive}
 
@@ -297,7 +298,7 @@ export function AppShell() {
 
 
 
-          <div className="flex-1 md:hidden" />
+          <div className="flex-1" />
 
 
 
@@ -311,17 +312,13 @@ export function AppShell() {
 
             aria-expanded={menuOpen}
 
-            className="mobile-header-menu btn-press md:hidden"
+            className="mobile-header-menu btn-press"
 
           >
 
             <Icon name="menu" size={22} />
 
           </button>
-
-
-
-          <div className="hidden flex-1 md:block" />
 
         </header>
 

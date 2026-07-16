@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { Badge, Button, EmptyState, Field, Icon, Input, ErrorState, Select, Spinner } from "@/components/ui";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { Badge, Button, EmptyState, Field, Icon, Input, ErrorState, LoadingOverlay, Select, Spinner } from "@/components/ui";
+import { useQueryClient } from "@tanstack/react-query";
 import { Modal } from "@/components/ui/Modal";
 import { WastePanel } from "@/components/waste/WastePanel";
 import { DualUnitQtyInput } from "@/components/inventory/DualUnitQtyInput";
@@ -13,10 +14,9 @@ import {
   useUpdateItem,
   useSetCount,
   useOrders,
-  useCreateOrdersBatch,
-  useUpdateOrdersBatch,
   useDeleteOrdersBatch,
   useReceiveOrder,
+  useMarkOrderNotArrived,
   type InventoryOrderWithUser,
   useItemLogs,
   uploadItemImage,
@@ -449,34 +449,57 @@ function ItemDetailModal({
   canUpdateCount,
   isManager,
   canManageOrders,
+  canUpdateOrderArrival,
+  pendingOrders,
+  orderArrivalBusy,
   onClose,
   onSetQty,
   onEdit,
   onHistory,
   onOrder,
+  onMarkArrived,
+  onMarkNotArrived,
 }: {
   item: ItemWithQty | null;
   open: boolean;
   canUpdateCount: boolean;
   isManager: boolean;
   canManageOrders: boolean;
+  canUpdateOrderArrival: boolean;
+  pendingOrders: InventoryOrderWithUser[];
+  orderArrivalBusy: boolean;
   onClose: () => void;
   onSetQty: (qty: number) => void;
   onEdit: () => void;
   onHistory: () => void;
   onOrder: () => void;
+  onMarkArrived: (order: InventoryOrderWithUser) => void;
+  onMarkNotArrived: (order: InventoryOrderWithUser) => void;
 }) {
   const [editingQty, setEditingQty] = useState(false);
   const [draftQty, setDraftQty] = useState(0);
+  const [orderPanelOpen, setOrderPanelOpen] = useState(false);
 
   useEffect(() => {
     if (!open || !item) {
       setEditingQty(false);
+      setOrderPanelOpen(false);
       return;
     }
     setDraftQty(item.current_qty);
     setEditingQty(false);
+    setOrderPanelOpen(false);
   }, [open, item?.id]);
+
+  useEffect(() => {
+    if (orderPanelOpen && pendingOrders.length === 0) setOrderPanelOpen(false);
+  }, [orderPanelOpen, pendingOrders.length]);
+
+  const businessId = useBusinessId();
+  const { data: recentLogs, isLoading: recentLogsLoading } = useItemLogs(
+    businessId,
+    open && item ? item.id : null
+  );
 
   if (!item) return null;
 
@@ -487,6 +510,7 @@ function ItemDetailModal({
     pieceUnit && (item.units_per_package ?? 0) > 0 ? item.units_per_package! : pieceUnit ? 12 : 0;
   const showPieces = pieceUnit && effectiveFactor > 0;
   const draftDirty = draftQty !== item.current_qty;
+  const orderCardInteractive = canUpdateOrderArrival && item.ordered_qty > 0;
 
   function handleSaveQty() {
     if (draftDirty) onSetQty(draftQty);
@@ -498,14 +522,39 @@ function ItemDetailModal({
     setEditingQty(false);
   }
 
+  const categoryLabel = inventoryCategoryLabel(item.category);
+
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title={item.name}
-      subtitle={inventoryCategoryLabel(item.category) ?? undefined}
-      icon="inventory_2"
       maxWidth={520}
+      hero={
+        <div className="pd-hero">
+          {item.image_url ? (
+            <img src={item.image_url} alt={item.name} />
+          ) : (
+            <div className="pd-hero-fallback">
+              <Icon name="inventory_2" size={88} />
+            </div>
+          )}
+          <div className="pd-hero-scrim" />
+          <div className="pd-hero-content">
+            <span className="pd-status-chip" style={{ color: meta.dot }}>
+              <span />
+              {meta.label}
+            </span>
+            <h2 className="pd-hero-title">{item.name}</h2>
+            {(categoryLabel || item.unit) && (
+              <div className="pd-hero-sub">
+                {categoryLabel && <span>{categoryLabel}</span>}
+                {categoryLabel && item.unit && <span className="opacity-50">·</span>}
+                {item.unit && <span>{item.unit}</span>}
+              </div>
+            )}
+          </div>
+        </div>
+      }
       footer={
         isManager ? (
           <>
@@ -522,73 +571,145 @@ function ItemDetailModal({
       }
     >
       <div className="flex flex-col gap-4">
-        <div className="relative aspect-[16/10] overflow-hidden rounded-[12px] border border-border bg-surface-2">
-          {item.image_url ? (
-            <img src={item.image_url} alt={item.name} className="h-full w-full object-cover" />
+        <div className="pd-stats">
+          <div className="pd-stat">
+            <span className="pd-stat-label">במלאי</span>
+            <span key={item.current_qty} className="pd-stat-num pd-num-pop">
+              {item.current_qty}
+            </span>
+            {(item.unit || showPieces) && (
+              <span className="pd-stat-unit">
+                {item.unit ?? ""}
+                {showPieces ? ` · ${mainUnitToPieces(item.current_qty, effectiveFactor)} יח׳` : ""}
+              </span>
+            )}
+          </div>
+          <div className="pd-stat">
+            <span className="pd-stat-label">מינימום</span>
+            <span className="pd-stat-num">{item.min_quantity}</span>
+            {item.unit && <span className="pd-stat-unit">{item.unit}</span>}
+          </div>
+          {orderCardInteractive ? (
+            <button
+              type="button"
+              onClick={() => setOrderPanelOpen((v) => !v)}
+              className="pd-stat"
+              aria-expanded={orderPanelOpen}
+              aria-label="עדכון סטטוס הזמנה"
+            >
+              <span className="pd-stat-label text-[var(--info)]">
+                בהזמנה
+                <Icon name={orderPanelOpen ? "expand_less" : "expand_more"} size={13} />
+              </span>
+              <span className="pd-stat-num text-[var(--info)]">+{item.ordered_qty}</span>
+              <span className="pd-stat-unit text-[var(--info)]">הגיע / לא הגיע</span>
+            </button>
           ) : (
-            <div className="grid h-full place-items-center text-text-3/70">
-              <Icon name="inventory_2" size={40} />
+            <div className="pd-stat">
+              <span className="pd-stat-label">בהזמנה</span>
+              <span className={`pd-stat-num ${item.ordered_qty > 0 ? "text-[var(--info)]" : "text-text-3"}`}>
+                {item.ordered_qty > 0 ? `+${item.ordered_qty}` : "—"}
+              </span>
+              {item.unit && item.ordered_qty > 0 && <span className="pd-stat-unit">{item.unit}</span>}
             </div>
           )}
-          <span
-            className="absolute top-2.5 right-2.5 inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-bold"
-            style={{ background: `color-mix(in srgb, ${meta.dot} 18%, var(--surface))`, color: meta.dot }}
+        </div>
+
+        {orderPanelOpen && orderCardInteractive && (
+          <div
+            className="rounded-[18px] border bg-surface p-4"
+            style={{ borderColor: "color-mix(in srgb, var(--info) 28%, var(--border))" }}
           >
-            <span className="h-1.5 w-1.5 rounded-full" style={{ background: meta.dot }} />
-            {meta.label}
-          </span>
-        </div>
-
-        <div className="grid grid-cols-3 gap-2">
-          <div className="rounded-[11px] border border-border bg-surface-2 px-3 py-2.5">
-            <div className="text-[10px] font-semibold text-text-3">במלאי</div>
-            <div className="mt-1 text-[20px] font-extrabold tabular-nums leading-none">{item.current_qty}</div>
-            {item.unit && <div className="mt-0.5 text-[11px] font-medium text-text-3">{item.unit}</div>}
-            {showPieces && (
-              <div className="mt-0.5 text-[10px] font-medium text-text-3">
-                ({mainUnitToPieces(item.current_qty, effectiveFactor)} יח׳)
-              </div>
-            )}
-          </div>
-          <div className="rounded-[11px] border border-border bg-surface-2 px-3 py-2.5">
-            <div className="text-[10px] font-semibold text-text-3">מינימום</div>
-            <div className="mt-1 text-[20px] font-extrabold tabular-nums leading-none">{item.min_quantity}</div>
-            {item.unit && <div className="mt-0.5 text-[11px] font-medium text-text-3">{item.unit}</div>}
-          </div>
-          <div className="rounded-[11px] border border-border bg-surface-2 px-3 py-2.5">
-            <div className="text-[10px] font-semibold text-text-3">בהזמנה</div>
-            <div className="mt-1 text-[20px] font-extrabold tabular-nums leading-none text-[var(--info)]">
-              {item.ordered_qty > 0 ? `+${item.ordered_qty}` : "—"}
-            </div>
-            {item.unit && item.ordered_qty > 0 && (
-              <div className="mt-0.5 text-[11px] font-medium text-text-3">{item.unit}</div>
-            )}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 rounded-[11px] border border-border bg-surface-2 px-3 py-2.5 text-[13px] text-text-2">
-          <Icon name="local_shipping" size={17} className="shrink-0 text-text-3" />
-          <span>
-            אספקה מהספק:{" "}
-            <span className="font-semibold text-text">{formatDeliveryDay(item.supplier_delivery_day)}</span>
-          </span>
-        </div>
-
-        <LastUpdatedLine item={item} />
-
-        <div className="rounded-[12px] border border-border bg-surface p-3.5">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <div className="text-[13px] font-bold text-text">עדכון מלאי</div>
-            {!editingQty && (
-              <Button
-                variant="ghost"
-                icon="history"
-                onClick={onHistory}
-                className="!px-2.5 !py-1.5 text-[12px] active:scale-[0.97]"
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div className="text-[13px] font-bold text-text">עדכון הזמנה</div>
+              <button
+                type="button"
+                onClick={() => setOrderPanelOpen(false)}
+                className="grid h-7 w-7 place-items-center rounded-full text-text-3 hover:bg-surface-2"
+                aria-label="סגור"
               >
-                היסטוריית עדכונים
-              </Button>
-            )}
+                <Icon name="close" size={16} />
+              </button>
+            </div>
+            <p className="mb-3 text-[12px] leading-relaxed text-text-3">
+              סמנו אם ההזמנה הגיעה (תתווסף למלאי) או לא הגיעה (תוסר מההזמנות).
+            </p>
+            <ul className="flex flex-col gap-2.5">
+              {pendingOrders.map((order) => (
+                <li
+                  key={order.id}
+                  className="rounded-[14px] border border-border bg-surface-2 px-3 py-2.5"
+                >
+                  <div className="mb-2.5 flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-[15px] font-extrabold tabular-nums text-[var(--info)]">
+                        +{order.quantity}
+                        {item.unit ? (
+                          <span className="mr-1 text-[12px] font-semibold text-text-3">{item.unit}</span>
+                        ) : null}
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-text-3">
+                        {new Date(order.created_at).toLocaleDateString("he-IL", {
+                          day: "numeric",
+                          month: "short",
+                        })}
+                        {order.ordered_by_name ? ` · ${order.ordered_by_name}` : ""}
+                      </div>
+                    </div>
+                    <Icon name="local_shipping" size={18} className="text-text-3" />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="secondary"
+                      disabled={orderArrivalBusy}
+                      onClick={() => onMarkNotArrived(order)}
+                      className="flex-1 !py-2.5 active:scale-[0.97]"
+                    >
+                      לא הגיע
+                    </Button>
+                    <Button
+                      icon="check_circle"
+                      disabled={orderArrivalBusy}
+                      onClick={() => onMarkArrived(order)}
+                      className="flex-1 !bg-ink !py-2.5 active:scale-[0.97]"
+                    >
+                      הגיע
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <div className="pd-list">
+          <div className="pd-list-row">
+            <span className="pd-list-icon">
+              <Icon name="local_shipping" size={17} />
+            </span>
+            <span className="pd-list-label">אספקה מהספק</span>
+            <span className="pd-list-value">{formatDeliveryDay(item.supplier_delivery_day)}</span>
+          </div>
+          {(item.last_updated_at || item.last_updated_by_name) && (
+            <div className="pd-list-row">
+              <span className="pd-list-icon">
+                <Icon name="schedule" size={17} />
+              </span>
+              <span className="pd-list-label">עדכון אחרון</span>
+              <span className="pd-list-value">
+                {item.last_updated_by_name ?? "לא ידוע"}
+                {item.last_updated_at && <small>{formatLastUpdate(item.last_updated_at)}</small>}
+              </span>
+            </div>
+          )}
+        </div>
+
+        <div className="pd-qty-card">
+          <div className="mb-3.5 flex items-center justify-between gap-2">
+            <span className="pd-section-title">
+              <Icon name="edit_square" size={14} />
+              עדכון מלאי
+            </span>
           </div>
 
           {canUpdateCount ? (
@@ -601,7 +722,7 @@ function ItemDetailModal({
                 onDraftChange={setDraftQty}
                 onSetQty={onSetQty}
               />
-              <div className="mt-3 flex gap-2">
+              <div className="mt-3.5 flex gap-2">
                 {editingQty ? (
                   <>
                     <Button
@@ -636,6 +757,84 @@ function ItemDetailModal({
             </>
           ) : (
             <p className="text-[13px] text-text-3">אין הרשאה לעדכן מלאי.</p>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-2.5">
+          <div className="pd-section-head">
+            <span className="pd-section-title">
+              <Icon name="history" size={14} />
+              היסטוריית עדכונים
+            </span>
+            {(recentLogs?.length ?? 0) > 0 && (
+              <button type="button" className="pd-all-btn" onClick={onHistory}>
+                הצג הכל
+                <Icon name="chevron_left" size={14} />
+              </button>
+            )}
+          </div>
+
+          {recentLogsLoading ? (
+            <div className="pd-mini-log">
+              <div className="pd-mini-row">
+                <div className="skeleton-shimmer pd-mini-skeleton w-full" />
+              </div>
+              <div className="pd-mini-row">
+                <div className="skeleton-shimmer pd-mini-skeleton w-2/3" />
+              </div>
+            </div>
+          ) : recentLogs && recentLogs.length > 0 ? (
+            <div className="pd-mini-log">
+              {recentLogs.slice(0, 3).map((log) => {
+                const lm = LOG_META[log.action];
+                const delta =
+                  log.action === "count" && log.previous_qty != null && log.new_qty != null
+                    ? log.new_qty - log.previous_qty
+                    : null;
+                return (
+                  <div key={log.id} className="pd-mini-row">
+                    <span
+                      className="pd-mini-node"
+                      style={{
+                        background: `color-mix(in srgb, ${lm.color} 12%, var(--surface))`,
+                        color: lm.color,
+                      }}
+                    >
+                      <Icon name={lm.icon} size={16} />
+                    </span>
+                    <div className="pd-mini-main">
+                      <div className="pd-mini-title">
+                        {lm.label}
+                        {delta != null && delta !== 0 && (
+                          <span className={`pd-delta ${delta > 0 ? "pd-delta--up" : "pd-delta--down"}`}>
+                            {delta > 0 ? `+${delta}` : delta}
+                          </span>
+                        )}
+                      </div>
+                      <div className="pd-mini-sub">
+                        {log.employee_name ?? "לא ידוע"} · {formatLogTime(log.created_at)}
+                      </div>
+                    </div>
+                    {log.action === "count" && log.new_qty != null && (
+                      <span className="text-[13.5px] font-extrabold tabular-nums text-text-2">
+                        {log.new_qty}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="pd-mini-log">
+              <div className="pd-mini-row">
+                <span className="pd-mini-node bg-surface-2 text-text-3">
+                  <Icon name="history" size={16} />
+                </span>
+                <div className="pd-mini-main">
+                  <div className="pd-mini-sub">אין עדכונים עדיין — כל שינוי יתועד כאן</div>
+                </div>
+              </div>
+            </div>
           )}
         </div>
       </div>
@@ -1146,101 +1345,6 @@ function OrdersEmptyState({ onCreate }: { onCreate: () => void }) {
   );
 }
 
-function NewOrderModal({
-  open,
-  items,
-  lines,
-  busy,
-  error,
-  isEditing,
-  onClose,
-  onChange,
-  onSubmit,
-}: {
-  open: boolean;
-  items: ItemWithQty[];
-  lines: Record<string, string>;
-  busy: boolean;
-  error: string | null;
-  isEditing: boolean;
-  onClose: () => void;
-  onChange: (itemId: string, qty: string) => void;
-  onSubmit: () => void;
-}) {
-  const selected = items.filter((it) => (Number(lines[it.id]) || 0) > 0);
-
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={isEditing ? "עריכת הזמנה" : "הזמנה חדשה"}
-      subtitle={isEditing ? "עדכנו מוצרים וכמויות" : "בחרו מוצרים וכמויות לשליחה לספק"}
-      icon={isEditing ? "edit" : "add_shopping_cart"}
-      maxWidth={540}
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose} className="active:scale-[0.97]">
-            ביטול
-          </Button>
-          <Button className="flex-1 !bg-ink active:scale-[0.97]" loading={busy} disabled={selected.length === 0} onClick={onSubmit}>
-            {isEditing ? `שמירה (${selected.length})` : `שליחת הזמנה (${selected.length})`}
-          </Button>
-        </>
-      }
-    >
-      {items.length > 0 && (
-        <div className="inventory-order-picker-summary">
-          <span className="inventory-order-picker-summary-label">נבחרו להזמנה</span>
-          <span className="inventory-order-picker-summary-value">{selected.length} פריטים</span>
-        </div>
-      )}
-      <div className="inventory-order-picker-list">
-        {items.length === 0 ? (
-          <p className="py-8 text-center text-[13px] text-text-3">אין מוצרים במלאי להזמנה</p>
-        ) : (
-          items.map((it) => {
-            const qty = Number(lines[it.id]) || 0;
-            return (
-              <div key={it.id} className="inventory-order-picker-row" data-selected={qty > 0}>
-                <div className="inventory-order-picker-thumb">
-                  {it.image_url ? (
-                    <img src={it.image_url} alt={it.name} />
-                  ) : (
-                    <span className="grid h-full place-items-center text-text-3">
-                      <Icon name="inventory_2" size={18} />
-                    </span>
-                  )}
-                </div>
-                <div className="inventory-order-picker-info">
-                  <div className="inventory-order-picker-name">{it.name}</div>
-                  <div className="inventory-order-picker-stock">
-                    במלאי {it.current_qty}
-                    {it.unit ? ` ${it.unit}` : ""}
-                    {it.ordered_qty > 0 ? ` · ${it.ordered_qty} בהזמנה` : ""}
-                  </div>
-                </div>
-                <DualUnitQtyInput
-                  value={qty}
-                  mainUnit={it.unit}
-                  unitsPerPackage={it.units_per_package}
-                  onCommit={(mainQty) => onChange(it.id, mainQty > 0 ? String(mainQty) : "")}
-                  variant="input"
-                  className="inventory-order-picker-qty-wrap min-w-[120px]"
-                />
-              </div>
-            );
-          })
-        )}
-        {error && (
-          <div className="flex items-start gap-2 rounded-[11px] [background:var(--danger-bg)] px-3 py-2.5 text-[13px] font-semibold text-danger">
-            <Icon name="error" size={18} /> {error}
-          </div>
-        )}
-      </div>
-    </Modal>
-  );
-}
-
 function SkeletonCard() {
   return (
     <div className="overflow-hidden rounded-card border-0 bg-surface shadow-card">
@@ -1273,6 +1377,26 @@ function formatLogTime(iso: string) {
   });
 }
 
+function formatLogClock(iso: string) {
+  return new Date(iso).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
+}
+
+/** "היום" / "אתמול" / formatted date — for the timeline day groups. */
+function historyDayLabel(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startThat = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const diffDays = Math.round((startToday - startThat) / 86_400_000);
+  if (diffDays === 0) return "היום";
+  if (diffDays === 1) return "אתמול";
+  return d.toLocaleDateString("he-IL", {
+    day: "numeric",
+    month: "long",
+    ...(d.getFullYear() !== now.getFullYear() ? { year: "numeric" as const } : {}),
+  });
+}
+
 function HistoryModal({
   businessId,
   item,
@@ -1298,7 +1422,7 @@ function HistoryModal({
       case "waste":
         return `בלאי: ${log.new_qty}${unit}${log.note ? ` · ${log.note}` : ""}`;
       case "order":
-        return `הוזמנו ${log.new_qty}${unit}`;
+        return log.note ?? (log.new_qty != null ? `הוזמנו ${log.new_qty}${unit}` : "עדכון הזמנה");
       default:
         return "";
     }
@@ -1319,32 +1443,66 @@ function HistoryModal({
           description="כל שינוי בכמות, עריכת פרטים או דיווח בלאי יתועד כאן עם שם העובד והשעה."
         />
       ) : (
-        <ol className="flex flex-col">
-          {logs.map((log) => {
-            const meta = LOG_META[log.action];
-            return (
-              <li key={log.id} className="flex gap-3 border-b border-border-2 py-3 last:border-0">
-                <span
-                  className="mt-0.5 grid h-8 w-8 flex-none place-items-center rounded-full"
-                  style={{ background: `color-mix(in srgb, ${meta.color} 14%, transparent)`, color: meta.color }}
-                >
-                  <Icon name={meta.icon} size={17} />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[13.5px] font-bold">{meta.label}</span>
-                    <span className="flex-none text-[11.5px] text-text-3">{formatLogTime(log.created_at)}</span>
-                  </div>
-                  <p className="mt-0.5 text-[13px] text-text-2">{detail(log)}</p>
-                  <p className="mt-1 flex items-center gap-1 text-[12px] font-medium text-text-3">
-                    <Icon name="person" size={13} />
-                    {log.employee_name ?? "לא ידוע"}
-                  </p>
+        <div className="pd-timeline">
+          {logs
+            .reduce<{ label: string; items: ItemLog[] }[]>((groups, log) => {
+              const label = historyDayLabel(log.created_at);
+              const last = groups[groups.length - 1];
+              if (last && last.label === label) last.items.push(log);
+              else groups.push({ label, items: [log] });
+              return groups;
+            }, [])
+            .map((group) => (
+              <Fragment key={group.label}>
+                <div className="pd-tl-day">
+                  <span>{group.label}</span>
                 </div>
-              </li>
-            );
-          })}
-        </ol>
+                {group.items.map((log) => {
+                  const meta = LOG_META[log.action];
+                  const isCountFlow =
+                    log.action === "count" && log.previous_qty != null && log.new_qty != null;
+                  const delta = isCountFlow ? log.new_qty! - log.previous_qty! : 0;
+                  return (
+                    <div key={log.id} className="pd-tl-row">
+                      <span
+                        className="pd-tl-node"
+                        style={{
+                          background: `color-mix(in srgb, ${meta.color} 13%, var(--surface))`,
+                          color: meta.color,
+                        }}
+                      >
+                        <Icon name={meta.icon} size={17} />
+                      </span>
+                      <div className="pd-tl-body">
+                        <div className="pd-tl-head">
+                          <span className="pd-tl-action">{meta.label}</span>
+                          <span className="pd-tl-time">{formatLogClock(log.created_at)}</span>
+                        </div>
+                        {isCountFlow ? (
+                          <span className="pd-qty-flow">
+                            <b>{log.previous_qty}</b>
+                            <Icon name="west" size={14} className="text-text-3" />
+                            <b className="pd-qty-new">{log.new_qty}</b>
+                            {delta !== 0 && (
+                              <span className={`pd-delta ${delta > 0 ? "pd-delta--up" : "pd-delta--down"}`}>
+                                {delta > 0 ? `+${delta}` : delta}
+                              </span>
+                            )}
+                          </span>
+                        ) : (
+                          <p className="pd-tl-detail">{detail(log)}</p>
+                        )}
+                        <div className="pd-tl-person">
+                          <span>{(log.employee_name ?? "?").trim().charAt(0) || "?"}</span>
+                          {log.employee_name ?? "לא ידוע"}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </Fragment>
+            ))}
+        </div>
       )}
     </Modal>
   );
@@ -1356,15 +1514,19 @@ export function Inventory() {
   const showWaste = hasFeature("waste");
   const { data: items, isLoading, isError, refetch } = useInventory(businessId);
   const canManageOrders = !!(profile && ["manager", "office_manager"].includes(profile.role));
-  const { data: orders } = useOrders(businessId, canManageOrders);
+  /** Only shift managers (אחמש) may mark orders as arrived / not arrived from the product card. */
+  const canUpdateOrderArrival = profile?.role === "shift_manager";
+  const { data: orders } = useOrders(businessId, canManageOrders || canUpdateOrderArrival);
   const { data: wasteRecords } = useWaste(showWaste ? businessId : null);
   const createItem = useCreateItem(businessId);
   const updateItem = useUpdateItem(businessId);
   const setCount = useSetCount(businessId);
-  const createOrdersBatch = useCreateOrdersBatch(businessId);
-  const updateOrdersBatch = useUpdateOrdersBatch(businessId);
+  const qc = useQueryClient();
+  const [qtySaving, setQtySaving] = useState(false);
   const deleteOrdersBatch = useDeleteOrdersBatch(businessId);
   const receiveOrder = useReceiveOrder(businessId);
+  const markOrderNotArrived = useMarkOrderNotArrived(businessId);
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [wasteReportOpen, setWasteReportOpen] = useState(false);
 
@@ -1387,11 +1549,6 @@ export function Inventory() {
 
   const [tab, setTab] = useState<InventoryTab>(() => resolveTab(searchParams.get("tab")));
   const [modalOpen, setModalOpen] = useState(false);
-  const [orderModalOpen, setOrderModalOpen] = useState(false);
-  const [editingOrderBatch, setEditingOrderBatch] = useState<OrderBatch | null>(null);
-  const [orderLines, setOrderLines] = useState<Record<string, string>>({});
-  const [orderBusy, setOrderBusy] = useState(false);
-  const [orderError, setOrderError] = useState<string | null>(null);
   const [detailBatchId, setDetailBatchId] = useState<string | null>(null);
   const [editing, setEditing] = useState<ItemWithQty | null>(null);
   const [historyItem, setHistoryItem] = useState<ItemWithQty | null>(null);
@@ -1444,6 +1601,10 @@ export function Inventory() {
   }, [list, searchQuery, stockFilter]);
 
   const orderList = orders ?? [];
+  const detailPendingOrders = useMemo(() => {
+    if (!detailItemLive) return [];
+    return orderList.filter((o) => o.item_id === detailItemLive.id && o.status !== "received");
+  }, [orderList, detailItemLive]);
   const openBatches = groupOpenOrders(orderList, list);
   const filteredOrderBatches = useMemo(
     () => filterOrderBatches(openBatches, orderSearchQuery, orderFilter),
@@ -1491,13 +1652,23 @@ export function Inventory() {
   }
 
   function handleSetQty(item: ItemWithQty, quantity: number) {
-    setCount.mutate({
-      business_id: businessId!,
-      item_id: item.id,
-      employee_id: profile?.id ?? null,
-      quantity,
-      previous_qty: item.current_qty,
-    });
+    setQtySaving(true);
+    setCount.mutate(
+      {
+        business_id: businessId!,
+        item_id: item.id,
+        employee_id: profile?.id ?? null,
+        quantity,
+        previous_qty: item.current_qty,
+      },
+      {
+        // Keep the overlay up until the fresh quantities are actually on screen.
+        onSettled: () => {
+          qc.invalidateQueries({ queryKey: ["inventory", businessId] })
+            .finally(() => setQtySaving(false));
+        },
+      }
+    );
   }
 
   function openEdit(item: ItemWithQty) {
@@ -1524,65 +1695,13 @@ export function Inventory() {
     setError(null);
   }
 
+  /** Order composing moved to a dedicated page — /inventory/order. */
   function openNewOrder(presetItemId?: string) {
-    const init: Record<string, string> = {};
-    if (presetItemId) init[presetItemId] = "1";
-    setEditingOrderBatch(null);
-    setOrderLines(init);
-    setOrderError(null);
-    setOrderModalOpen(true);
+    navigate(presetItemId ? `/inventory/order?item=${presetItemId}` : "/inventory/order");
   }
 
   function openEditOrder(batch: OrderBatch) {
-    const init: Record<string, string> = {};
-    batch.lines.forEach((l) => {
-      init[l.item_id] = String(l.quantity);
-    });
-    setEditingOrderBatch(batch);
-    setOrderLines(init);
-    setOrderError(null);
-    setOrderModalOpen(true);
-    setDetailBatchId(null);
-  }
-
-  function closeOrderModal() {
-    setOrderModalOpen(false);
-    setEditingOrderBatch(null);
-    setOrderLines({});
-    setOrderError(null);
-  }
-
-  async function submitOrder() {
-    setOrderError(null);
-    const lines = Object.entries(orderLines)
-      .map(([item_id, qty]) => ({ item_id, quantity: Number(qty) || 0 }))
-      .filter((l) => l.quantity > 0);
-    if (!lines.length) return setOrderError("נא לבחור לפחות מוצר אחד עם כמות");
-    setOrderBusy(true);
-    try {
-      if (editingOrderBatch) {
-        const batchId = editingOrderBatch.batch_id ?? editingOrderBatch.id;
-        await updateOrdersBatch.mutateAsync({
-          batch_id: batchId,
-          business_id: businessId!,
-          ordered_by: editingOrderBatch.ordered_by ?? profile?.id ?? null,
-          line_ids: editingOrderBatch.lines.map((l) => l.id),
-          lines,
-        });
-      } else {
-        await createOrdersBatch.mutateAsync({
-          business_id: businessId!,
-          ordered_by: profile?.id ?? null,
-          lines,
-        });
-      }
-      closeOrderModal();
-      changeTab("orders");
-    } catch (e) {
-      setOrderError(inventorySaveError(e));
-    } finally {
-      setOrderBusy(false);
-    }
+    navigate(`/inventory/order?batch=${encodeURIComponent(batch.batch_id ?? batch.id)}`);
   }
 
   async function handleDeleteOrder(batch: OrderBatch) {
@@ -1601,17 +1720,39 @@ export function Inventory() {
     }
   }
 
-  async function handleReceive(line: OrderLine) {
+  async function handleReceive(line: OrderLine | InventoryOrderWithUser) {
+    if (!canManageOrders && !canUpdateOrderArrival) return;
     const item = list.find((i) => i.id === line.item_id);
     if (!item) return;
-    await receiveOrder.mutateAsync({
-      order_id: line.id,
-      business_id: businessId!,
-      item_id: line.item_id,
-      quantity: Number(line.quantity),
-      current_qty: item.current_qty,
-      employee_id: profile?.id ?? null,
-    });
+    try {
+      await receiveOrder.mutateAsync({
+        order_id: line.id,
+        business_id: businessId!,
+        item_id: line.item_id,
+        quantity: Number(line.quantity),
+        current_qty: item.current_qty,
+        employee_id: profile?.id ?? null,
+      });
+    } catch (e) {
+      window.alert(inventorySaveError(e));
+    }
+  }
+
+  async function handleMarkNotArrived(order: InventoryOrderWithUser) {
+    if (!canUpdateOrderArrival) return;
+    const ok = window.confirm("לסמן שההזמנה לא הגיעה? הכמות תוסר מרשימת «בהזמנה» ולא תתווסף למלאי.");
+    if (!ok) return;
+    try {
+      await markOrderNotArrived.mutateAsync({
+        order_id: order.id,
+        business_id: businessId!,
+        item_id: order.item_id,
+        quantity: Number(order.quantity),
+        employee_id: profile?.id ?? null,
+      });
+    } catch (e) {
+      window.alert(inventorySaveError(e));
+    }
   }
 
   async function submitItem() {
@@ -2020,6 +2161,9 @@ export function Inventory() {
         canUpdateCount={canUpdateCount}
         isManager={isManager}
         canManageOrders={canManageOrders}
+        canUpdateOrderArrival={canUpdateOrderArrival}
+        pendingOrders={detailPendingOrders}
+        orderArrivalBusy={receiveOrder.isPending || markOrderNotArrived.isPending}
         onClose={closeItemDetail}
         onSetQty={(quantity) => detailItemLive && handleSetQty(detailItemLive, quantity)}
         onEdit={() => {
@@ -2037,21 +2181,11 @@ export function Inventory() {
           closeItemDetail();
           openNewOrder(detailItemLive.id);
         }}
+        onMarkArrived={handleReceive}
+        onMarkNotArrived={handleMarkNotArrived}
       />
 
       <HistoryModal businessId={businessId} item={historyItem} onClose={() => setHistoryItem(null)} />
-
-      <NewOrderModal
-        open={orderModalOpen}
-        items={list}
-        lines={orderLines}
-        busy={orderBusy}
-        error={orderError}
-        isEditing={!!editingOrderBatch}
-        onClose={closeOrderModal}
-        onChange={(itemId, qty) => setOrderLines((prev) => ({ ...prev, [itemId]: qty }))}
-        onSubmit={submitOrder}
-      />
 
       <OrderDetailsModal
         batch={detailBatch}
@@ -2059,6 +2193,8 @@ export function Inventory() {
         onClose={() => setDetailBatchId(null)}
         onReceive={handleReceive}
       />
+
+      <LoadingOverlay show={qtySaving} label="מעדכן מלאי..." />
     </div>
   );
 }

@@ -524,10 +524,40 @@ export function useReceiveOrder(businessId: string | null) {
         business_id: input.business_id,
         item_id: input.item_id,
         employee_id: input.employee_id,
-        action: "count",
+        action: "order",
         previous_qty: input.current_qty,
         new_qty: newQty,
-        note: `התקבל מהזמנה: +${input.quantity}`,
+        note: `הגיע · נוסף למלאי +${input.quantity}`,
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["inventory_orders", businessId] });
+      qc.invalidateQueries({ queryKey: ["inventory", businessId] });
+      qc.invalidateQueries({ queryKey: ["inventory_logs"] });
+    },
+  });
+}
+
+/** Mark a pending order as not arrived — removes it from «בהזמנה» without adding stock. */
+export function useMarkOrderNotArrived(businessId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      order_id: string;
+      business_id: string;
+      item_id: string;
+      quantity: number;
+      employee_id: string | null;
+    }) => {
+      const { error } = await supabase.from("inventory_orders").delete().eq("id", input.order_id);
+      throwDbError(error);
+      await logInventory({
+        business_id: input.business_id,
+        item_id: input.item_id,
+        employee_id: input.employee_id,
+        action: "order",
+        new_qty: input.quantity,
+        note: `לא הגיע · הוסר מהזמנות (${input.quantity})`,
       });
     },
     onSuccess: () => {

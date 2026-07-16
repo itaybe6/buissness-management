@@ -32,6 +32,13 @@ import {
   hasShiftPrefsMinimumRules,
   isShiftPrefsDayComplete,
 } from "@/lib/shift-prefs-minimum";
+import {
+  MAX_ASSIGNED_DAYS_PER_WEEK,
+  canAssignEmployeeOnDate,
+  countAssignedDaysInWeek,
+  weekStartFromDateISO,
+} from "@/lib/shift-assignment-limits";
+import { getHebrewDayInfo } from "@/lib/hebrewCalendar";
 import type { Availability, Profile, ShiftAssignment } from "@/types/database";
 
 const AVAIL_META: Record<"available" | "cannot", { label: string; short: string; bg: string; color: string; border: string }> = {
@@ -67,11 +74,57 @@ function colorDotStyle(color: string | null | undefined, ring = 3): CSSPropertie
 function dayMeta(wk: string, index: number) {
   const date = addDays(wk, index);
   const today = todayISO();
+  const hebrew = getHebrewDayInfo(date);
   return {
     date,
     isToday: date === today,
     isWeekend: index >= 5,
+    hebrewDate: hebrew.hebrewDate,
+    holiday: hebrew.holiday,
+    isMajorHoliday: hebrew.isMajor,
   };
+}
+
+function ShiftDayHead({
+  name,
+  meta,
+  children,
+}: {
+  name: string;
+  meta: ReturnType<typeof dayMeta>;
+  children?: ReactNode;
+}) {
+  const title = meta.holiday ? `${meta.hebrewDate} · ${meta.holiday}` : meta.hebrewDate;
+  return (
+    <div
+      className="shift-grid-day"
+      data-today={meta.isToday}
+      data-weekend={meta.isWeekend}
+      data-holiday={!!meta.holiday}
+      data-major-holiday={meta.isMajorHoliday}
+      title={title}
+    >
+      <span className="shift-grid-day-name">{name}</span>
+      <span className="shift-grid-day-date">{formatDateShort(meta.date)}</span>
+      <span className="shift-grid-day-hebrew">{meta.hebrewDate}</span>
+      {meta.holiday && <span className="shift-grid-day-holiday">{meta.holiday}</span>}
+      {meta.isToday && <span className="shift-grid-day-today">היום</span>}
+      {children}
+    </div>
+  );
+}
+
+function SelectedDayHolidayNote({ wk, dayIdx }: { wk: string; dayIdx: number }) {
+  const meta = dayMeta(wk, dayIdx);
+  if (!meta.holiday) return null;
+  return (
+    <div className="shift-day-holiday-note" data-major-holiday={meta.isMajorHoliday}>
+      <Icon name="event" size={16} />
+      <span>
+        {HE_DAYS[dayIdx]} · {meta.hebrewDate} · <strong>{meta.holiday}</strong>
+      </span>
+    </div>
+  );
 }
 
 function todayIdxInWeek(wk: string) {
@@ -215,12 +268,16 @@ function DayStrip({
       {HE_DAYS.map((d, i) => {
         const meta = dayMeta(wk, i);
         const active = i === value;
+        const pillTitle = meta.holiday ? `${meta.hebrewDate} · ${meta.holiday}` : meta.hebrewDate;
         return (
           <button
             key={i}
             type="button"
             className="shift-day-pill"
             data-active={active}
+            data-holiday={!!meta.holiday}
+            data-major-holiday={meta.isMajorHoliday}
+            title={pillTitle}
             onClick={() => onChange(i)}
             aria-pressed={active}
           >
@@ -235,6 +292,7 @@ function DayStrip({
             <span className="shift-day-pill-date">{meta.date.slice(8, 10)}</span>
             <span className="shift-day-pill-inds">
               {meta.isToday && <span className="shift-day-pill-dot" />}
+              {meta.holiday && !meta.isToday && <span className="shift-day-pill-holiday-dot" aria-hidden />}
               {dayComplete?.(i) && (
                 <span className="shift-day-pill-check">
                   <Icon name="check" size={11} />
@@ -378,15 +436,23 @@ function EmployeeSchedule({
               const meta = dayMeta(wk, i);
               const dayTemplates = templates.filter((t) => assignMap.has(`${t.id}_${meta.date}`));
               return (
-                <div key={i} className="employee-shifts-assignment-row">
+                <div key={i} className="employee-shifts-assignment-row" data-holiday={!!meta.holiday}>
                   <div
                     className="employee-shifts-assignment-date"
                     data-today={meta.isToday}
+                    data-holiday={!!meta.holiday}
+                    title={meta.holiday ? `${meta.hebrewDate} · ${meta.holiday}` : meta.hebrewDate}
                   >
                     <span className="employee-shifts-assignment-dow">{d}</span>
                     <span className="employee-shifts-assignment-num">{meta.date.slice(8, 10)}</span>
+                    {meta.holiday && <span className="employee-shifts-assignment-holiday-dot" />}
                   </div>
                   <div className="employee-shifts-assignment-shifts">
+                    {meta.holiday && (
+                      <span className="employee-shifts-assignment-holiday" data-major-holiday={meta.isMajorHoliday}>
+                        {meta.holiday}
+                      </span>
+                    )}
                     {dayTemplates.length === 0 ? (
                       <span className="employee-shifts-assignment-empty">אין שיבוץ</span>
                     ) : (
@@ -408,16 +474,9 @@ function EmployeeSchedule({
               <div className="shift-grid min-w-[680px]">
                 <div className="shift-grid-head">
                   <div className="shift-grid-corner">משמרת</div>
-                  {HE_DAYS.map((d, i) => {
-                    const meta = dayMeta(wk, i);
-                    return (
-                      <div key={i} className="shift-grid-day" data-today={meta.isToday} data-weekend={meta.isWeekend}>
-                        <span className="shift-grid-day-name">{d}</span>
-                        <span className="shift-grid-day-date">{formatDateShort(meta.date)}</span>
-                        {meta.isToday && <span className="shift-grid-day-today">היום</span>}
-                      </div>
-                    );
-                  })}
+                  {HE_DAYS.map((d, i) => (
+                    <ShiftDayHead key={i} name={d} meta={dayMeta(wk, i)} />
+                  ))}
                 </div>
                 {templates.map((t) => (
                   <div key={t.id} className="shift-grid-row">
@@ -439,6 +498,7 @@ function EmployeeSchedule({
                           className="shift-grid-cell flex items-center justify-center !min-h-[3.25rem]"
                           data-today={meta.isToday}
                           data-weekend={meta.isWeekend}
+                          data-holiday={!!meta.holiday}
                         >
                           {assigned ? (
                             <span className="shift-assigned-badge">
@@ -810,6 +870,7 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
       {!isDesktop ? (
       <div>
         <DayStrip wk={wk} value={dayIdx} onChange={setDayIdx} stripId="constraints" dayComplete={dayComplete} />
+        <SelectedDayHolidayNote wk={wk} dayIdx={dayIdx} />
         <motion.div
           key={`${wk}-${dayIdx}`}
           initial={reduceMotion ? false : { opacity: 0, y: 10 }}
@@ -936,10 +997,7 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
               {HE_DAYS.map((d, i) => {
                 const meta = dayMeta(wk, i);
                 return (
-                  <div key={i} className="shift-grid-day" data-today={meta.isToday} data-weekend={meta.isWeekend}>
-                    <span className="shift-grid-day-name">{d}</span>
-                    <span className="shift-grid-day-date">{formatDateShort(meta.date)}</span>
-                    {meta.isToday && <span className="shift-grid-day-today">היום</span>}
+                  <ShiftDayHead key={i} name={d} meta={meta}>
                     {hasMinimum && dayComplete(i) && (
                       <span className="shift-grid-day-today" style={{ color: "var(--success)" }}>
                         מלא
@@ -965,7 +1023,7 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
                         נקה
                       </button>
                     </div>
-                  </div>
+                  </ShiftDayHead>
                 );
               })}
             </div>
@@ -989,7 +1047,13 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
                   const isSaving = pending.has(key);
                   const meta = dayMeta(wk, i);
                   return (
-                    <div key={i} className="shift-grid-cell" data-today={meta.isToday} data-weekend={meta.isWeekend}>
+                    <div
+                      key={i}
+                      className="shift-grid-cell"
+                      data-today={meta.isToday}
+                      data-weekend={meta.isWeekend}
+                      data-holiday={!!meta.holiday}
+                    >
                       <AvailabilityCell
                         value={cur}
                         saving={isSaving}
@@ -1314,6 +1378,7 @@ function SchedulerConstraintsBoard({
       {!isDesktop ? (
       <div className="shift-constraints-mobile">
         <DayStrip wk={wk} value={dayIdx} onChange={setDayIdx} stripId="constraints-board" />
+        <SelectedDayHolidayNote wk={wk} dayIdx={dayIdx} />
         <motion.div
           key={`${wk}-${dayIdx}-constraints`}
           initial={reduceMotion ? false : { opacity: 0, y: 10 }}
@@ -1390,16 +1455,9 @@ function SchedulerConstraintsBoard({
               <div className="shift-grid">
                 <div className="shift-grid-head">
                   <div className="shift-grid-corner">משמרת</div>
-                  {HE_DAYS.map((d, i) => {
-                    const meta = dayMeta(wk, i);
-                    return (
-                      <div key={i} className="shift-grid-day" data-today={meta.isToday} data-weekend={meta.isWeekend}>
-                        <span className="shift-grid-day-name">{d}</span>
-                        <span className="shift-grid-day-date">{formatDateShort(meta.date)}</span>
-                        {meta.isToday && <span className="shift-grid-day-today">היום</span>}
-                      </div>
-                    );
-                  })}
+                  {HE_DAYS.map((d, i) => (
+                    <ShiftDayHead key={i} name={d} meta={dayMeta(wk, i)} />
+                  ))}
                 </div>
                 {templates.map((t) => (
                   <div key={t.id} className="shift-grid-row">
@@ -1423,6 +1481,7 @@ function SchedulerConstraintsBoard({
                           className="shift-grid-cell shift-constraint-cell"
                           data-today={meta.isToday}
                           data-weekend={meta.isWeekend}
+                          data-holiday={!!meta.holiday}
                           data-empty={empty}
                         >
                           {empty ? (
@@ -1631,6 +1690,7 @@ function SchedulerView() {
       {!isDesktop ? (
       <div>
         <DayStrip wk={wk} value={dayIdx} onChange={setDayIdx} stripId="scheduler" />
+        <SelectedDayHolidayNote wk={wk} dayIdx={dayIdx} />
         <motion.div
           key={`${wk}-${dayIdx}`}
           initial={reduceMotion ? false : { opacity: 0, y: 10 }}
@@ -1746,16 +1806,9 @@ function SchedulerView() {
                   <div className="shift-grid">
                     <div className="shift-grid-head">
                       <div className="shift-grid-corner">משמרת</div>
-                      {HE_DAYS.map((d, i) => {
-                        const meta = dayMeta(wk, i);
-                        return (
-                          <div key={i} className="shift-grid-day" data-today={meta.isToday} data-weekend={meta.isWeekend}>
-                            <span className="shift-grid-day-name">{d}</span>
-                            <span className="shift-grid-day-date">{formatDateShort(meta.date)}</span>
-                            {meta.isToday && <span className="shift-grid-day-today">היום</span>}
-                          </div>
-                        );
-                      })}
+                      {HE_DAYS.map((d, i) => (
+                        <ShiftDayHead key={i} name={d} meta={dayMeta(wk, i)} />
+                      ))}
                     </div>
                     {templates.map((t) => (
                       <div key={t.id} className="shift-grid-row">
@@ -1778,6 +1831,7 @@ function SchedulerView() {
                               className="shift-grid-cell"
                               data-today={meta.isToday}
                               data-weekend={meta.isWeekend}
+                              data-holiday={!!meta.holiday}
                               data-empty={cellAssignments.length === 0}
                             >
                               <AnimatePresence initial={false}>
@@ -1834,7 +1888,12 @@ function SchedulerView() {
               >
                 <PickerPanel
                   picker={picker}
-                  subtitle={`${pickerTemplate?.name ?? ""} · ${formatDateShort(picker.date)}`}
+                  subtitle={(() => {
+                    const he = getHebrewDayInfo(picker.date);
+                    return `${pickerTemplate?.name ?? ""} · ${formatDateShort(picker.date)} · ${
+                      he.holiday ?? he.hebrewDate
+                    }`;
+                  })()}
                   list={employeesBySection.get(picker.dept ?? "null") ?? []}
                   prefMap={prefMap}
                   assignments={assignments ?? []}
@@ -1923,13 +1982,18 @@ function PickerPanel({
           const already = assignments.some(
             (a) => a.employee_id === e.id && a.shift_template_id === picker.templateId && a.shift_date === picker.date
           );
+          const weekStartISO = weekStartFromDateISO(picker.date);
+          const assignedDays = countAssignedDaysInWeek(assignments, e.id, weekStartISO);
+          const dayOffBlocked = !already && !canAssignEmployeeOnDate(assignments, e.id, picker.date);
+          const disabled = already || dayOffBlocked;
           return (
             <button
               key={e.id}
               type="button"
-              disabled={already}
+              disabled={disabled}
               onClick={() => onPick(e.id)}
               className="shift-picker-item"
+              title={dayOffBlocked ? "חובה יום חופש אחד לפחות בשבוע (מקסימום 6 ימי שיבוץ)" : undefined}
             >
               <span
                 className="grid h-9 w-9 flex-none place-items-center rounded-full text-[12.5px] font-bold text-white"
@@ -1939,11 +2003,16 @@ function PickerPanel({
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block text-[13.5px] font-semibold leading-tight">{e.full_name}</span>
-                <span className="shift-picker-pref" style={{ color: prefStatus.color }}>
-                  {prefStatus.label}
+                <span className="shift-picker-pref" style={{ color: dayOffBlocked ? "var(--danger)" : prefStatus.color }}>
+                  {dayOffBlocked
+                    ? `${MAX_ASSIGNED_DAYS_PER_WEEK}/${MAX_ASSIGNED_DAYS_PER_WEEK} ימים · חובה יום חופש`
+                    : assignedDays > 0
+                      ? `${prefStatus.label} · ${assignedDays}/${MAX_ASSIGNED_DAYS_PER_WEEK} ימים`
+                      : prefStatus.label}
                 </span>
               </span>
               {already && <Badge tone="neutral">משובץ</Badge>}
+              {dayOffBlocked && <Badge tone="danger">יום חופש</Badge>}
             </button>
           );
         })}

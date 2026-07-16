@@ -5,7 +5,6 @@ import { Modal } from "@/components/ui/Modal";
 import {
   AttendancePanel,
   AttendanceStatusToast,
-  AttendanceSummaryCell,
   GeofenceRadar,
   LiveClockDigits,
   PunchButton,
@@ -259,41 +258,37 @@ export function Attendance() {
       </div>
 
       {/* ── Desktop ── */}
-      <div className="hidden px-1 md:block">
-      <header className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div className="hidden max-w-xl md:block">
-          <p className="text-[12px] font-bold uppercase tracking-[0.14em] text-text-3">נוכחות · היום</p>
-          <h1 className="mt-1 text-[clamp(1.75rem,4vw,2.35rem)] font-extrabold tracking-tight leading-none text-text">
-            שעון נוכחות
-          </h1>
-          <p className="mt-2 max-w-[52ch] text-[14.5px] leading-relaxed text-text-2">
-            {geofenceExempt
-              ? "התפקיד שלך פטור מבדיקת מיקום — ניתן להחתים נוכחות מכל מקום."
-              : geofenceEnabled
-                ? `החתמה מותנית במיקום GPS בתוך רדיוס של ${radiusM} מטרים ממקום העבודה.`
-                : "בדיקת מיקום כבויה — ניתן להחתים נוכחות מכל מקום."}
-          </p>
-        </div>
-        <div className="attendance-summary shrink-0">
-          <AttendanceSummaryCell value={onShiftCount} label="במשמרת עכשיו" accent="var(--accent-2)" index={0} />
-          <AttendanceSummaryCell value={completedCount} label="סיימו היום" index={1} />
-          <AttendanceSummaryCell value={todayFeed.length} label="עובדים היום" index={2} />
-        </div>
-      </header>
+      <div className="attendance-desk hidden md:block">
+        <h1 className="sr-only">שעון נוכחות</h1>
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.05fr_0.95fr] lg:gap-6">
-        <AttendancePanel>
-          <div className="grid gap-0 lg:grid-cols-[1fr_auto] lg:items-center">
-            <div className="border-b border-border-2 p-6 lg:border-b-0 lg:border-l lg:pl-8 lg:pr-6">
-              <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="attendance-desk-grid">
+          <AttendancePanel className="attendance-desk-station">
+            <div className="attendance-desk-station-inner">
+              <div className="attendance-desk-station-top">
                 <div>
-                  <LiveClockDigits time={timeStr} />
-                  <div className="mt-2 text-[14px] font-medium capitalize text-text-2">{dateStr}</div>
+                  <div className="attendance-desk-date">תחנת החתמה</div>
+                  <p className="attendance-desk-station-hint">
+                    {onShift ? "אתם במשמרת פעילה — לחצו ליציאה כשתסיימו" : "לחצו להחתמת כניסה לתחילת המשמרת"}
+                  </p>
                 </div>
-                {onShift && shiftElapsed && <ShiftPulse label={`במשמרת · ${shiftElapsed}`} />}
+                {onShift && shiftElapsed ? (
+                  <ShiftPulse label={`במשמרת · ${shiftElapsed}`} />
+                ) : (
+                  <span className="attendance-desk-idle-chip">מחוץ למשמרת</span>
+                )}
               </div>
 
-              <div className="mt-5 min-h-[44px]">
+              <div className="attendance-desk-clock-block" data-on-shift={onShift}>
+                <div className="attendance-desk-clock-ring" aria-hidden>
+                  <GeofenceRadar active={onShift} compact />
+                </div>
+                <div className="attendance-desk-clock-face">
+                  <LiveClockDigits time={timeStr} />
+                  <div className="attendance-desk-clock-caption">{dateStr}</div>
+                </div>
+              </div>
+
+              <div className="attendance-desk-status">
                 <StatusBanner>
                   {status ? (
                     <AttendanceStatusToast key={status.text} ok={status.ok} text={status.text} />
@@ -301,16 +296,16 @@ export function Attendance() {
                 </StatusBanner>
               </div>
 
-              <div className="mt-6 space-y-3">
+              <div className="attendance-desk-actions">
                 <PunchButton onShift={onShift} busy={busy} onClick={handleClock} />
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[12.5px] text-text-3">
+                <div className="attendance-desk-meta">
                   {geofenceRequired && (
-                    <span className="inline-flex items-center gap-1.5">
+                    <span className="attendance-desk-meta-item">
                       <Icon name="radar" size={16} />
                       רדיוס מאושר: {radiusM} מ׳
                     </span>
                   )}
-                  <span className="inline-flex items-center gap-1.5">
+                  <span className="attendance-desk-meta-item">
                     <Icon
                       name={
                         geofenceExempt
@@ -334,28 +329,23 @@ export function Attendance() {
                 </div>
               </div>
             </div>
+          </AttendancePanel>
 
-            <div className="flex items-center justify-center px-6 py-8 lg:py-10">
-              <GeofenceRadar active={onShift} />
-            </div>
-          </div>
-        </AttendancePanel>
-
-        <AttendancePanel>
-          <AttendanceTodayFeedSection
-            shiftsEnabled={shiftsEnabled}
-            todayFeed={todayFeed}
-            feedByDepartment={feedByDepartment}
-            userById={userById}
-            variant="desktop"
-            filter={feedFilter}
-            showFilterBar
-            onFilterChange={setFeedFilter}
-            canForceClockOut={canForceClockOut}
-            onRequestClockOut={setClockOutTarget}
-          />
-        </AttendancePanel>
-      </div>
+          <AttendancePanel className="attendance-desk-feed">
+            <AttendanceTodayFeedSection
+              shiftsEnabled={shiftsEnabled}
+              todayFeed={todayFeed}
+              feedByDepartment={feedByDepartment}
+              userById={userById}
+              variant="desktop"
+              filter={feedFilter}
+              showFilterBar
+              onFilterChange={setFeedFilter}
+              canForceClockOut={canForceClockOut}
+              onRequestClockOut={setClockOutTarget}
+            />
+          </AttendancePanel>
+        </div>
       </div>
 
       <Modal

@@ -27,17 +27,19 @@ function AttendanceEmployeeRow({
   onRequestClockOut?: (target: ForceClockOutTarget) => void;
   index?: number;
 }) {
-  const rowInteractive = Boolean(canForceClockOut && onRequestClockOut && group.onShift);
+  const rowInteractive = Boolean(canForceClockOut && onRequestClockOut);
   const rowStyle = { ["--row-i" as string]: index } as React.CSSProperties;
 
-  function openClockOut() {
-    if (!onRequestClockOut || !group.onShift) return;
-    const activeSession = group.sessions.find((s) => !s.clockOut);
+  function openManage() {
+    if (!onRequestClockOut) return;
+    const activeSession =
+      group.sessions.find((s) => !s.clockOut) ?? group.sessions[group.sessions.length - 1];
     if (!activeSession) return;
     onRequestClockOut({
       attendanceId: activeSession.id,
       employeeName,
       clockIn: activeSession.clockIn,
+      clockOut: activeSession.clockOut,
       avatarColor: colorFor(group.employeeId),
     });
   }
@@ -45,7 +47,7 @@ function AttendanceEmployeeRow({
   function onKeyDown(e: KeyboardEvent) {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      openClockOut();
+      openManage();
     }
   }
 
@@ -54,7 +56,7 @@ function AttendanceEmployeeRow({
       <span className="attendance-row-avatar" style={{ background: colorFor(group.employeeId) }}>
         {initialsOf(employeeName)}
       </span>
-      <div className="min-w-0 flex-1">
+      <div className="attendance-row-main min-w-0 flex-1">
         <div className="attendance-row-name">{employeeName}</div>
         <div className="attendance-row-sessions">
           {group.sessions.map((session) => (
@@ -72,6 +74,8 @@ function AttendanceEmployeeRow({
             <span className="attendance-row-live" aria-hidden />
             {rowInteractive ? "הוצאה" : "במשמרת"}
           </>
+        ) : rowInteractive ? (
+          "עריכה"
         ) : (
           "יצא/ה"
         )}
@@ -86,9 +90,11 @@ function AttendanceEmployeeRow({
         className={`${rowClass} attendance-row--action`}
         data-open={group.onShift}
         style={rowStyle}
-        onClick={openClockOut}
+        onClick={openManage}
         onKeyDown={onKeyDown}
-        aria-label={`הוצא את ${employeeName} ממשמרת`}
+        aria-label={
+          group.onShift ? `הוצא את ${employeeName} ממשמרת` : `ערוך נוכחות של ${employeeName}`
+        }
       >
         {content}
       </button>

@@ -34,27 +34,32 @@ export function AttendanceStatusToast({
   );
 }
 
-export const GeofenceRadar = memo(function GeofenceRadar({ active }: { active: boolean }) {
+export const GeofenceRadar = memo(function GeofenceRadar({
+  active,
+  compact = false,
+}: {
+  active: boolean;
+  compact?: boolean;
+}) {
   const reduce = useReducedMotion();
+  const size = compact ? 168 : 220;
+  const core = compact ? 64 : 92;
+  const iconSize = compact ? 28 : 38;
 
   return (
-    <div className="relative mx-auto grid h-[220px] w-[220px] place-items-center">
-      <div
-        className="absolute inset-0 rounded-full opacity-40"
-        style={{
-          background: active
-            ? "radial-gradient(circle, color-mix(in srgb, var(--accent) 18%, transparent) 0%, transparent 72%)"
-            : "radial-gradient(circle, color-mix(in srgb, var(--accent) 14%, transparent) 0%, transparent 72%)",
-        }}
-      />
+    <div
+      className="relative mx-auto grid place-items-center"
+      style={{ width: size, height: size }}
+      data-active={active}
+    >
       {[0, 1, 2].map((i) => (
         <motion.span
           key={i}
           className="pointer-events-none absolute inset-0 rounded-full border"
           style={{
             borderColor: active
-              ? "color-mix(in srgb, var(--accent) 35%, transparent)"
-              : "color-mix(in srgb, var(--accent) 28%, transparent)",
+              ? "color-mix(in srgb, var(--success) 40%, transparent)"
+              : "color-mix(in srgb, var(--border) 90%, var(--text-3))",
           }}
           animate={
             reduce
@@ -77,19 +82,26 @@ export const GeofenceRadar = memo(function GeofenceRadar({ active }: { active: b
         />
       ))}
       <div
-        className={`relative grid h-[92px] w-[92px] place-items-center rounded-full border shadow-lg ${
-          active
-            ? "border-accent/30 bg-ink text-accent"
-            : "border-white/10 bg-ink text-accent"
-        }`}
-        style={{ boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08), var(--shadow-lg)" }}
+        className="relative grid place-items-center rounded-full border"
+        style={{
+          width: core,
+          height: core,
+          borderColor: active
+            ? "color-mix(in srgb, var(--success) 35%, var(--border))"
+            : "var(--border)",
+          background: active ? "var(--ink)" : "var(--surface-2)",
+          color: active ? "var(--success)" : "var(--text-2)",
+          boxShadow: active
+            ? "inset 0 1px 0 rgba(255,255,255,0.08), var(--shadow)"
+            : "var(--shadow-sm)",
+        }}
       >
         <motion.span
           animate={reduce || !active ? undefined : { scale: [1, 1.06, 1] }}
           transition={reduce ? undefined : { duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
           className="grid place-items-center"
         >
-          <Icon name={active ? "verified_user" : "my_location"} size={38} />
+          <Icon name={active ? "verified_user" : "schedule"} size={iconSize} />
         </motion.span>
       </div>
     </div>
@@ -118,9 +130,9 @@ export function ShiftPulse({ label }: { label: string }) {
   const reduce = useReducedMotion();
 
   return (
-    <span className="inline-flex items-center gap-2 rounded-full border border-accent/25 bg-violet-bg px-3 py-1.5 text-[12px] font-bold text-accent-2">
+    <span className="attendance-shift-pulse">
       <motion.span
-        className="h-2 w-2 rounded-full bg-accent"
+        className="attendance-shift-pulse-dot"
         animate={reduce ? undefined : { opacity: [1, 0.35, 1], scale: [1, 1.25, 1] }}
         transition={reduce ? undefined : { duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
       />
@@ -146,20 +158,12 @@ export function PunchButton({
       onClick={onClick}
       disabled={busy}
       whileHover={reduce ? undefined : { scale: 1.01 }}
-      whileTap={reduce ? undefined : { scale: 0.98 }}
+      whileTap={reduce ? undefined : { scale: 0.97 }}
       transition={SPRING}
-      className={`group relative flex w-full items-center justify-center gap-2.5 overflow-hidden rounded-[18px] px-5 py-[18px] text-[16px] font-extrabold text-white shadow-sm transition-[filter] disabled:cursor-not-allowed disabled:opacity-60 ${
-        onShift ? "[background:var(--danger)]" : "[background:var(--ink)]"
+      className={`attendance-punch-btn group relative flex w-full items-center justify-center gap-2.5 overflow-hidden rounded-[16px] px-5 py-[17px] text-[16px] font-extrabold text-white transition-[filter,box-shadow] duration-200 disabled:cursor-not-allowed disabled:opacity-60 ${
+        onShift ? "attendance-punch-btn--out" : "attendance-punch-btn--in"
       }`}
     >
-      <span
-        className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-        style={{
-          background: onShift
-            ? "linear-gradient(120deg, transparent 30%, rgba(255,255,255,0.12) 50%, transparent 70%)"
-            : "linear-gradient(120deg, transparent 30%, rgba(255,255,255,0.08) 50%, transparent 70%)",
-        }}
-      />
       <Icon name={onShift ? "logout" : "login"} size={22} />
       {busy ? "מאתר מיקום…" : onShift ? "החתמת יציאה" : "החתמת כניסה"}
     </motion.button>
@@ -170,11 +174,13 @@ export function AttendanceSummaryCell({
   value,
   label,
   accent,
+  tone = "muted",
   index,
 }: {
   value: number | string;
   label: string;
   accent?: string;
+  tone?: "live" | "muted" | "total";
   index: number;
 }) {
   const reduce = useReducedMotion();
@@ -184,15 +190,16 @@ export function AttendanceSummaryCell({
       initial={reduce ? false : { opacity: 0, transform: "translateY(8px)" }}
       animate={{ opacity: 1, transform: "translateY(0)" }}
       transition={{ duration: 0.24, delay: reduce ? 0 : index * 0.05, ease: EASE_OUT }}
-      className="attendance-summary-cell"
+      className="attendance-summary-cell page-hero-stat"
+      data-tone={tone}
     >
-      <div
-        className="font-mono text-[26px] font-bold tabular-nums leading-none"
+      <strong
+        className="font-mono tabular-nums leading-none"
         style={accent ? { color: accent } : undefined}
       >
         {value}
-      </div>
-      <div className="mt-1.5 text-[12px] font-semibold text-text-3">{label}</div>
+      </strong>
+      <span>{label}</span>
     </motion.div>
   );
 }
@@ -244,9 +251,15 @@ export function AttendanceFeedEmpty() {
   );
 }
 
-export function AttendancePanel({ children }: { children: ReactNode }) {
+export function AttendancePanel({
+  children,
+  className = "",
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
   return (
-    <div className="overflow-hidden rounded-[28px] border border-border/80 bg-surface shadow-[0_20px_40px_-15px_rgba(0,0,0,0.05)]">
+    <div className={`attendance-panel ${className}`.trim()}>
       {children}
     </div>
   );

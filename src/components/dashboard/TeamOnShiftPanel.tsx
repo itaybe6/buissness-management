@@ -175,6 +175,7 @@ export function TeamOnShiftPanel() {
                               attendanceId: activeSession.id,
                               employeeName: person?.full_name ?? "עובד/ת",
                               clockIn: activeSession.clockIn,
+                              clockOut: activeSession.clockOut,
                               avatarColor: deptColor,
                             })
                           }

@@ -66,17 +66,15 @@ export function AttendanceTodayFeedSection({
       aria-label={isMobile ? "נוכחות היום לפי מחלקות" : undefined}
     >
       {!isMobile && (
-        <div className="border-b border-border-2 px-5 py-4">
-          <div className="flex items-center justify-between gap-3">
+        <div className="attendance-desk-feed-head">
+          <div className="attendance-desk-feed-title-row">
             <div>
-              <h2 className="text-[16px] font-bold text-text">נוכחות היום</h2>
-              <p className="mt-0.5 text-[12.5px] text-text-3">
+              <h2 className="attendance-desk-feed-title">נוכחות היום</h2>
+              <p className="attendance-desk-feed-sub">
                 {shiftsEnabled ? "לפי מחלקות · משמרת היום" : "לפי מחלקות · החתמות בזמן אמת"}
               </p>
             </div>
-            <span className="rounded-full bg-surface-2 px-3 py-1 font-mono text-[12px] font-bold tabular-nums text-text-2">
-              {filteredFeed.length}
-            </span>
+            <span className="attendance-desk-feed-count">{filteredFeed.length}</span>
           </div>
 
           {showFilterBar && hasAny && onFilterChange && (
@@ -84,7 +82,6 @@ export function AttendanceTodayFeedSection({
               className="attendance-shift-filter"
               role="group"
               aria-label="סינון נוכחות"
-              style={{ marginTop: "0.75rem" }}
             >
               {FILTER_BAR_OPTIONS.map((opt) => {
                 const active = filter === opt.id;

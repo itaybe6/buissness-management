@@ -147,6 +147,12 @@ Deno.serve(async (req) => {
 async function resolveResendKey(admin: ReturnType<typeof createClient>): Promise<string | undefined> {
   const fromEnv = Deno.env.get("RESEND_API_KEY");
   if (fromEnv) return fromEnv;
+
+  const { data: viaRpc, error: rpcErr } = await admin.rpc("read_runtime_secret", {
+    p_key: "RESEND_API_KEY",
+  });
+  if (!rpcErr && typeof viaRpc === "string" && viaRpc.trim()) return viaRpc;
+
   const { data } = await admin
     .schema("private")
     .from("runtime_secrets")
