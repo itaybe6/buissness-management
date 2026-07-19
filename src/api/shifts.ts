@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { addDays } from "@/lib/db";
 import {
@@ -10,12 +10,21 @@ import { ensureDefaultShiftTemplates, sortShiftTemplates } from "@/lib/shiftTemp
 import type { Availability, ShiftAssignment, ShiftPreference, ShiftTemplate } from "@/types/database";
 
 async function fetchShiftTemplates(businessId: string, activeOnly: boolean): Promise<ShiftTemplate[]> {
-  await ensureDefaultShiftTemplates(businessId);
-  let q = supabase.from("shift_templates").select("*").eq("business_id", businessId);
-  if (activeOnly) q = q.eq("active", true);
-  const { data, error } = await q.order("sort_order", { ascending: true });
-  if (error) throw error;
-  return sortShiftTemplates((data ?? []) as ShiftTemplate[]);
+  const load = async (): Promise<ShiftTemplate[]> => {
+    const { data, error } = await supabase
+      .from("shift_templates")
+      .select("*")
+      .eq("business_id", businessId)
+      .order("sort_order", { ascending: true });
+    if (error) throw error;
+    return (data ?? []) as ShiftTemplate[];
+  };
+
+  // Single round trip on the hot path; the defaults bootstrap only runs for a
+  // brand-new business with missing templates.
+  let rows = await load();
+  if (await ensureDefaultShiftTemplates(businessId, rows)) rows = await load();
+  return sortShiftTemplates(activeOnly ? rows.filter((t) => t.active) : rows);
 }
 
 /* ----------------------------- shift templates ----------------------------- */
@@ -87,6 +96,8 @@ export function useShiftPreferences(businessId: string | null, weekStartISO: str
   return useQuery({
     queryKey: ["shift_preferences", businessId, weekStartISO, employeeId ?? "all"],
     enabled: !!businessId,
+    // Keep showing the previous week's rows while the next week loads.
+    placeholderData: keepPreviousData,
     queryFn: async (): Promise<ShiftPreference[]> => {
       let q = supabase
         .from("shift_preferences")
@@ -148,6 +159,7 @@ export function useShiftAssignments(
   return useQuery({
     queryKey: ["shift_assignments", businessId, weekStartISO, employeeId ?? "all"],
     enabled: !!businessId,
+    placeholderData: keepPreviousData,
     queryFn: async (): Promise<ShiftAssignment[]> => {
       let q = supabase
         .from("shift_assignments")

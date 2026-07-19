@@ -340,7 +340,12 @@ function AssignChip({
 function EmployeeView() {
   const businessId = useBusinessId();
   const isDesktop = useIsMdUp();
+  const { profile } = useAuth();
   const { data: templates, isLoading } = useActiveShiftTemplates(businessId);
+  // Warm the child queries in parallel with templates (same keys as
+  // EmployeeSchedule/EmployeeConstraints) — avoids a fetch waterfall on mobile.
+  useShiftAssignments(businessId, weekStart(), addDays(weekStart(), 6), profile?.id);
+  useShiftPreferences(businessId, addDays(weekStart(), 7), profile?.id);
 
   if (isLoading) return <PageLoader />;
   if (!templates || templates.length === 0) {

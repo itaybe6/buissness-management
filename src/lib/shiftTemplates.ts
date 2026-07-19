@@ -36,13 +36,19 @@ export function sortShiftTemplates<T extends { shift_key: ShiftKey | null; sort_
   });
 }
 
-export async function ensureDefaultShiftTemplates(businessId: string): Promise<void> {
-  const { data, error } = await supabase.from("shift_templates").select("shift_key").eq("business_id", businessId);
-  if (error) throw error;
-
-  const keys = new Set((data ?? []).map((r) => r.shift_key).filter(Boolean));
+/**
+ * Bootstrap the built-in templates for a business that doesn't have them yet,
+ * based on rows the caller already fetched (no extra read). Returns true when
+ * rows were inserted. Never throws — RLS may deny the insert for employees,
+ * and the page must still render with whatever templates exist.
+ */
+export async function ensureDefaultShiftTemplates(
+  businessId: string,
+  existing: { shift_key: ShiftKey | null }[]
+): Promise<boolean> {
+  const keys = new Set(existing.map((r) => r.shift_key).filter(Boolean));
   const missing = DEFAULT_SHIFT_DEFINITIONS.filter((d) => !keys.has(d.key));
-  if (missing.length === 0) return;
+  if (missing.length === 0) return false;
 
   const { error: insErr } = await supabase.from("shift_templates").insert(
     missing.map((d) => ({
@@ -56,5 +62,9 @@ export async function ensureDefaultShiftTemplates(businessId: string): Promise<v
       sort_order: d.sortOrder,
     }))
   );
-  if (insErr) throw insErr;
+  if (insErr) {
+    console.warn("ensureDefaultShiftTemplates: insert failed", insErr.message);
+    return false;
+  }
+  return true;
 }

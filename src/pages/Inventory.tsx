@@ -127,6 +127,22 @@ function orderDeliveryDaysLabel(lines: OrderLine[]): string {
   return days.map((d) => formatDeliveryDay(d)).join(", ");
 }
 
+const HE_DAYS_SHORT = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
+
+/** Compact delivery-days label for chips, e.g. "ג׳ · ד׳". */
+function orderDeliveryDaysShortLabel(lines: OrderLine[]): string | null {
+  const days = [
+    ...new Set(
+      lines
+        .map((l) => l.item?.supplier_delivery_day)
+        .filter((d): d is number => d != null && d >= 0 && d <= 6),
+    ),
+  ].sort((a, b) => a - b);
+
+  if (days.length === 0) return null;
+  return days.map((d) => HE_DAYS_SHORT[d]).join(" · ");
+}
+
 type StockStatus = "empty" | "low" | "ok";
 
 function stockStatus(item: ItemWithQty): StockStatus {
@@ -1218,68 +1234,51 @@ function OrderBatchRow({
 }) {
   const totalQty = batch.lines.reduce((sum, l) => sum + Number(l.quantity), 0);
   const date = formatOrderDate(batch.created_at);
-  const deliveryLabel = orderDeliveryDaysLabel(batch.lines);
+  const deliveryShort = orderDeliveryDaysShortLabel(batch.lines);
 
   return (
     <article
       className="inventory-order-card inventory-item-enter"
       style={{ animationDelay: `${Math.min(index, 10) * 45}ms` }}
     >
-      <div className="inventory-order-card-head">
+      <button type="button" className="inventory-order-card-main" onClick={onDetails}>
         <div className="inventory-order-date">
           <span className="inventory-order-date-day">{date.day}</span>
           <span className="inventory-order-date-month">{date.month}</span>
         </div>
-        <span className="inventory-order-status">
-          <span className="inventory-order-status-dot" aria-hidden />
-          בהזמנה
-        </span>
-      </div>
-
-      <button type="button" className="inventory-order-card-main" onClick={onDetails}>
-        <h3 className="inventory-order-title">{orderPreviewLabel(batch.lines)}</h3>
-        <OrderPreviewStack lines={batch.lines} />
-
-        <div className="inventory-order-card-stats">
-          <div className="inventory-order-stat">
-            <span className="inventory-order-stat-value">{batch.lines.length}</span>
-            <span className="inventory-order-stat-label">פריטים</span>
-          </div>
-          <div className="inventory-order-stat">
-            <span className="inventory-order-stat-value">{totalQty}</span>
-            <span className="inventory-order-stat-label">יחידות</span>
-          </div>
-          <div className="inventory-order-stat">
-            <span className="inventory-order-stat-value">{date.time}</span>
-            <span className="inventory-order-stat-label">הוזמן</span>
-          </div>
-        </div>
-
-        <div className="inventory-order-card-infos">
-          <div className="inventory-order-info-row">
-            <Icon name="event" size={15} />
-            <span>
-              אמורה להגיע: <strong>{deliveryLabel}</strong>
+        <div className="inventory-order-heading">
+          <div className="inventory-order-title-row">
+            <h3 className="inventory-order-title">{orderPreviewLabel(batch.lines)}</h3>
+            <span className="inventory-order-status">
+              <span className="inventory-order-status-dot" aria-hidden />
+              בהזמנה
             </span>
           </div>
-          <div className="inventory-order-info-row">
-            <Icon name="person" size={15} />
-            <span>
-              {batchOrderedByLabel(batch)}
-            </span>
-          </div>
+          <p className="inventory-order-sub">
+            <b>{batch.lines.length}</b> פריטים · <b>{totalQty}</b> יח׳ · הוזמן {date.time} · {batchOrderedByLabel(batch)}
+          </p>
         </div>
       </button>
 
-      <div className="inventory-order-card-actions">
-        <Button
-          variant="secondary"
-          icon="visibility"
-          className="inventory-order-details-btn active:scale-[0.97]"
-          onClick={onDetails}
+      <div className="inventory-order-card-foot">
+        <OrderPreviewStack lines={batch.lines} />
+        <span
+          className="inventory-order-delivery-chip"
+          title={`אמורה להגיע: ${orderDeliveryDaysLabel(batch.lines)}`}
         >
-          פרטים
-        </Button>
+          <Icon name="local_shipping" size={13} />
+          {deliveryShort ? `אספקה ${deliveryShort}` : "אספקה לא הוגדרה"}
+        </span>
+        <span className="inventory-order-foot-spacer" />
+        <button
+          type="button"
+          className="inventory-order-icon-btn"
+          onClick={onDetails}
+          aria-label="פרטי הזמנה"
+          title="פרטים"
+        >
+          <Icon name="visibility" size={17} />
+        </button>
         {canManageOrders && (
           <>
             <button
@@ -1289,7 +1288,7 @@ function OrderBatchRow({
               aria-label="עריכת הזמנה"
               title="עריכה"
             >
-              <Icon name="edit" size={18} />
+              <Icon name="edit" size={17} />
             </button>
             <button
               type="button"
@@ -1298,7 +1297,7 @@ function OrderBatchRow({
               aria-label="מחיקת הזמנה"
               title="מחיקה"
             >
-              <Icon name="delete" size={18} />
+              <Icon name="delete" size={17} />
             </button>
           </>
         )}
