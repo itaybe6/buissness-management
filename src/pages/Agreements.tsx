@@ -34,13 +34,18 @@ export function Agreements() {
           <h1 className="text-[22px] font-extrabold tracking-tight">{title}</h1>
           <p className="mt-0.5 text-[13.5px] text-text-2">{subtitle}</p>
         </div>
-        <div className="docs-mobile-hero md:hidden">
-          <span className="docs-mobile-hero__icon" aria-hidden>
-            <Icon name="draw" size={22} />
+        <div className="docs-hero md:hidden">
+          <span className="docs-hero__glyph" aria-hidden>
+            <Icon name="history_edu" size={110} />
           </span>
-          <div>
-            <h1 className="docs-mobile-hero__title">{title}</h1>
-            <p className="docs-mobile-hero__sub">{subtitle}</p>
+          <div className="docs-hero__row">
+            <span className="docs-hero__icon" aria-hidden>
+              <Icon name="draw" size={24} />
+            </span>
+            <div className="docs-hero__copy">
+              <h1 className="docs-hero__title">{title}</h1>
+              <p className="docs-hero__sub">{subtitle}</p>
+            </div>
           </div>
         </div>
       </header>

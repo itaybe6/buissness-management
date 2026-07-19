@@ -20,6 +20,7 @@ import {
   DocsMgmtStats,
   DocsMgmtToolbar,
   DocsPageTabs,
+  DocsSearchBar,
   DocsTabs,
   EmployeeDocRow,
   filterMgmtAgreements,
@@ -261,6 +262,7 @@ export function ManagerDocumentsView({
   profileId: string;
 }) {
   const [tab, setTab] = useState<ManagerTab>(canReceipts && !canEdit ? "receipts" : "status");
+  const [staffSearch, setStaffSearch] = useState("");
   const { data: employees } = useProfiles(businessId);
   const { data: signatures } = useSignatures(businessId);
 
@@ -268,26 +270,45 @@ export function ManagerDocumentsView({
     () => (employees ?? []).filter((e) => e.active && ["employee", "shift_manager", "office_manager"].includes(e.role)),
     [employees]
   );
+  const visibleStaff = useMemo(() => {
+    const q = staffSearch.trim().toLowerCase();
+    if (!q) return staff;
+    return staff.filter((e) => (e.full_name ?? "").toLowerCase().includes(q));
+  }, [staff, staffSearch]);
   const globalFixed = useMemo(() => globalAgreements(agreements).filter((a) => a.type === "sexual_harassment"), [agreements]);
   const globalWork = useMemo(() => globalAgreements(agreements).find((a) => a.type === "work"), [agreements]);
 
-  const tabs: { key: ManagerTab; label: string }[] = [
-    ...(canReceipts ? [{ key: "receipts" as const, label: "חשבוניות וקבלות" }] : []),
-    { key: "status", label: "מצב מסמכים" },
-    { key: "form101", label: "טפסי 101" },
-    { key: "templates", label: "הסכמים" },
+  const tabs: { key: ManagerTab; label: string; icon: string }[] = [
+    ...(canReceipts ? [{ key: "receipts" as const, label: "חשבוניות וקבלות", icon: "receipt_long" }] : []),
+    { key: "status", label: "מצב מסמכים", icon: "fact_check" },
+    { key: "form101", label: "טפסי 101", icon: "description" },
+    { key: "templates", label: "הסכמים", icon: "history_edu" },
   ];
+
+  const staffTab = tab === "status" || tab === "form101";
+  const searchMiss = staffTab && staff.length > 0 && visibleStaff.length === 0;
 
   return (
     <>
       <DocsTabs tabs={tabs} active={tab} onChange={setTab} />
+      {staffTab && staff.length > 0 && (
+        <div className="docs-staff-search">
+          <DocsSearchBar value={staffSearch} onChange={setStaffSearch} placeholder="חיפוש עובד..." />
+        </div>
+      )}
       {tab === "receipts" && canReceipts && (
         <OfficeReceiptsPanel businessId={businessId} profileId={profileId} canManage={canReceipts} />
       )}
-      {tab === "status" && (
-        <DocumentStatusTable staff={staff} signatures={signatures ?? []} globalFixed={globalFixed} globalWork={globalWork} agreements={agreements} taxYear={TAX_YEAR} />
+      {searchMiss ? (
+        <DocsListEmpty query={staffSearch} />
+      ) : (
+        <>
+          {tab === "status" && (
+            <DocumentStatusTable staff={visibleStaff} signatures={signatures ?? []} globalFixed={globalFixed} globalWork={globalWork} agreements={agreements} taxYear={TAX_YEAR} />
+          )}
+          {tab === "form101" && <Form101OverviewTable staff={visibleStaff} agreements={agreements} signatures={signatures ?? []} taxYear={TAX_YEAR} />}
+        </>
       )}
-      {tab === "form101" && <Form101OverviewTable staff={staff} agreements={agreements} signatures={signatures ?? []} taxYear={TAX_YEAR} />}
       {tab === "templates" && <TemplatesPanel businessId={businessId} agreements={agreements} employees={staff} canEdit={canEdit} profileId={profileId} />}
     </>
   );

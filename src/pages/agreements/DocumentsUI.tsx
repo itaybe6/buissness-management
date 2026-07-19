@@ -45,6 +45,37 @@ export function DocsPageTabs({
   );
 }
 
+/* ── Search bar (shared) ── */
+
+export function DocsSearchBar({
+  value,
+  onChange,
+  placeholder = "חיפוש...",
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <div className="docs-mgmt-search">
+      <Icon name="search" size={18} className="docs-mgmt-search__icon" />
+      <input
+        type="search"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="docs-mgmt-search__input"
+        aria-label={placeholder}
+      />
+      {value && (
+        <button type="button" className="docs-mgmt-search__clear" onClick={() => onChange("")} aria-label="נקה חיפוש">
+          <Icon name="close" size={16} />
+        </button>
+      )}
+    </div>
+  );
+}
+
 /* ── Management toolbar: search + filters ── */
 
 export function DocsMgmtToolbar({
@@ -66,22 +97,7 @@ export function DocsMgmtToolbar({
 }) {
   return (
     <div className="docs-mgmt-toolbar">
-      <div className="docs-mgmt-search">
-        <Icon name="search" size={18} className="docs-mgmt-search__icon" />
-        <input
-          type="search"
-          value={search}
-          onChange={(e) => onSearchChange(e.target.value)}
-          placeholder="חיפוש מסמך..."
-          className="docs-mgmt-search__input"
-          aria-label="חיפוש מסמך"
-        />
-        {search && (
-          <button type="button" className="docs-mgmt-search__clear" onClick={() => onSearchChange("")} aria-label="נקה חיפוש">
-            <Icon name="close" size={16} />
-          </button>
-        )}
-      </div>
+      <DocsSearchBar value={search} onChange={onSearchChange} placeholder="חיפוש מסמך..." />
 
       <div className="docs-mgmt-filters docs-mgmt-filters--scroll" role="group" aria-label="סינון לפי סוג">
         {MGMT_CATEGORIES.map(({ key, label, icon }) => (
@@ -354,13 +370,13 @@ export function DocsTabs<T extends string>({
   active,
   onChange,
 }: {
-  tabs: { key: T; label: string }[];
+  tabs: { key: T; label: string; icon?: string }[];
   active: T;
   onChange: (key: T) => void;
 }) {
   return (
     <div className="docs-tabs" role="tablist">
-      {tabs.map(({ key, label }) => (
+      {tabs.map(({ key, label, icon }) => (
         <button
           key={key}
           type="button"
@@ -370,6 +386,7 @@ export function DocsTabs<T extends string>({
           data-active={active === key}
           onClick={() => onChange(key)}
         >
+          {icon && <Icon name={icon} size={17} className="docs-tab__icon" />}
           {label}
         </button>
       ))}

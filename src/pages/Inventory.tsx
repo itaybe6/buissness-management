@@ -1128,7 +1128,7 @@ function ItemCard({
 }
 
 function OrderPreviewStack({ lines }: { lines: OrderLine[] }) {
-  const shown = lines.slice(0, 4);
+  const shown = lines.slice(0, 3);
   const extra = lines.length - shown.length;
 
   return (
@@ -1160,59 +1160,44 @@ function OrderDetailLine({
 }) {
   const item = line.item;
   const pending = line.status !== "received";
+  const pieces =
+    item && supportsPieceInput(item.unit) && item.units_per_package
+      ? mainUnitToPieces(Number(line.quantity), item.units_per_package)
+      : null;
+  const deliveryDay = item?.supplier_delivery_day;
 
   return (
     <div className="inventory-order-detail-line inventory-item-enter" style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}>
-      <div className="inventory-order-detail-main">
-        <div className="inventory-order-detail-thumb">
-          {item?.image_url ? (
-            <img src={item.image_url} alt={item.name} />
-          ) : (
-            <span className="grid h-full place-items-center text-text-3">
-              <Icon name="inventory_2" size={20} />
-            </span>
-          )}
-        </div>
-        <div className="inventory-order-detail-info">
-          <div className="inventory-order-detail-name">{item?.name ?? "פריט"}</div>
-          <div className="inventory-order-detail-sub">
-            <Icon name="event" size={12} />
-            אמורה להגיע: {formatDeliveryDay(item?.supplier_delivery_day)}
-          </div>
-          <div className="inventory-order-detail-qty-mobile">
-            <span className="inventory-order-detail-qty-value">{line.quantity}</span>
-            {item?.unit ? <span className="inventory-order-detail-qty-unit">{item.unit}</span> : null}
-            {item && supportsPieceInput(item.unit) && item.units_per_package ? (
-              <span className="inventory-order-detail-qty-pieces">
-                ({mainUnitToPieces(Number(line.quantity), item.units_per_package)} יח׳)
-              </span>
-            ) : null}
-          </div>
-        </div>
-        <div className="inventory-order-detail-qty inventory-order-detail-qty-desktop">
-          {line.quantity}
-          {item?.unit ? <span className="mr-0.5 text-[10px] font-semibold text-text-3">{item.unit}</span> : null}
-          {item && supportsPieceInput(item.unit) && item.units_per_package ? (
-            <span className="block text-[10px] font-medium text-text-3">
-              ({mainUnitToPieces(Number(line.quantity), item.units_per_package)} יח׳)
-            </span>
-          ) : null}
-        </div>
-      </div>
-      <div className="inventory-order-detail-action">
-        {pending ? (
-          <Button
-            variant="secondary"
-            icon="check_circle"
-            className="inventory-order-receive-btn !w-full !bg-ink !py-2.5 !px-3 !text-[13px] !text-white hover:brightness-110 active:scale-[0.97] md:!w-auto"
-            onClick={onReceive}
-          >
-            סמן כהתקבל
-          </Button>
+      <div className="inventory-order-detail-thumb">
+        {item?.image_url ? (
+          <img src={item.image_url} alt={item.name} />
         ) : (
-          <Badge tone="success">במלאי</Badge>
+          <span className="grid h-full place-items-center text-text-3">
+            <Icon name="inventory_2" size={20} />
+          </span>
         )}
       </div>
+      <div className="inventory-order-detail-info">
+        <div className="inventory-order-detail-name">{item?.name ?? "פריט"}</div>
+        <div className="inventory-order-detail-sub">
+          <b>
+            {line.quantity}
+            {item?.unit ? ` ${item.unit}` : ""}
+          </b>
+          {pieces != null && <span>({pieces} יח׳)</span>}
+          {deliveryDay != null && deliveryDay >= 0 && deliveryDay <= 6 && (
+            <span>· אספקה {HE_DAYS_SHORT[deliveryDay]}</span>
+          )}
+        </div>
+      </div>
+      {pending ? (
+        <button type="button" className="inventory-order-receive-btn" onClick={onReceive}>
+          <Icon name="check_circle" size={16} />
+          התקבל
+        </button>
+      ) : (
+        <Badge tone="success">במלאי</Badge>
+      )}
     </div>
   );
 }
@@ -1323,31 +1308,32 @@ function OrderDetailsModal({
   const totalQty = batch.lines.reduce((sum, l) => sum + Number(l.quantity), 0);
   const pendingCount = batch.lines.filter((l) => l.status !== "received").length;
 
+  const facts = [
+    { icon: "inventory_2", label: "פריטים", value: String(batch.lines.length) },
+    { icon: "tag", label: "סה״כ יחידות", value: String(totalQty) },
+    {
+      icon: "local_shipping",
+      label: "אספקה מהספק",
+      value: orderDeliveryDaysShortLabel(batch.lines) ?? "לא הוגדר",
+      title: orderDeliveryDaysLabel(batch.lines),
+    },
+    { icon: "person", label: "הוזמן על ידי", value: batchOrderedByLabel(batch) },
+  ];
+
   return (
     <Modal open={open} onClose={onClose} title="פרטי הזמנה" subtitle={date.full} icon="local_shipping" maxWidth={540}>
-      <div className="inventory-order-detail-summary">
-        <div className="inventory-order-detail-stat">
-          <div className="inventory-order-detail-stat-label">פריטים</div>
-          <div className="inventory-order-detail-stat-value">{batch.lines.length}</div>
-        </div>
-        <div className="inventory-order-detail-stat">
-          <div className="inventory-order-detail-stat-label">סה״כ יחידות</div>
-          <div className="inventory-order-detail-stat-value">{totalQty}</div>
-        </div>
-      </div>
-      <div className="inventory-order-delivery-banner">
-        <Icon name="event" size={18} />
-        <div>
-          <div className="text-[11px] font-semibold text-text-3">יום אספקה מהספק</div>
-          <div className="text-[14px] font-bold text-text">{orderDeliveryDaysLabel(batch.lines)}</div>
-        </div>
-      </div>
-      <div className="inventory-order-delivery-banner inventory-order-by-banner">
-        <Icon name="person" size={18} />
-        <div>
-          <div className="text-[11px] font-semibold text-text-3">הוזמן על ידי</div>
-          <div className="text-[14px] font-bold text-text">{batchOrderedByLabel(batch)}</div>
-        </div>
+      <div className="inventory-order-hero">
+        {facts.map((fact) => (
+          <div key={fact.label} className="inventory-order-hero-fact" title={fact.title}>
+            <span className="inventory-order-hero-icon">
+              <Icon name={fact.icon} size={16} />
+            </span>
+            <span className="min-w-0">
+              <span className="inventory-order-hero-label">{fact.label}</span>
+              <span className="inventory-order-hero-value">{fact.value}</span>
+            </span>
+          </div>
+        ))}
       </div>
       {pendingCount > 0 && (
         <p className="mb-3 text-[12px] font-medium text-text-3">

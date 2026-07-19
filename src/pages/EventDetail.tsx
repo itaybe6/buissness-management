@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { Button, Card, Field, Icon, Input, PageLoader, ErrorState, Textarea } from "@/components/ui";
+import { Button, Field, Icon, Input, PageLoader, ErrorState, Textarea } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
+import { EventCountdown } from "@/components/events/EventCountdown";
 import { EventMediaCarousel } from "@/components/events/EventMediaCarousel";
 import { EventMediaPicker, revokeEventMediaEntries, type MediaEntry } from "@/components/events/EventMediaPicker";
+import { daysUntilEvent, daysUntilLabel, parseEventDay } from "@/components/events/eventTime";
 import { useAuth } from "@/lib/auth";
 import { EVENT_MANAGE_ROLES } from "@/lib/constants";
 import { useBusinessId } from "@/lib/db";
@@ -36,7 +38,10 @@ export function EventDetail() {
   if (isError) return <ErrorState onRetry={refetch} />;
   if (!event) return <ErrorState message="האירוע לא נמצא." onRetry={() => navigate("/events")} />;
 
-  const d = new Date(event.event_date);
+  const d = parseEventDay(event.event_date);
+  const days = daysUntilEvent(event.event_date);
+  const isPast = days < 0;
+  const isToday = days === 0;
   const mediaUrls = event.media_urls ?? [];
   const dateLabel = d.toLocaleDateString("he-IL", {
     weekday: "long",
@@ -95,70 +100,122 @@ export function EventDetail() {
   }
 
   return (
-    <div className="w-full animate-fadeUp">
-      <div className="mb-5 flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={() => navigate("/events")}
-          className="inline-flex items-center gap-1.5 rounded-[10px] border border-border bg-surface px-3 py-2 text-[13px] font-bold text-text-2 hover:bg-surface-2"
-        >
-          <Icon name="arrow_forward" size={18} />
-          חזרה לאירועים
-        </button>
-        {canManage && (
-          <div className="mr-auto flex items-center gap-2">
-            <Button variant="secondary" icon="edit" onClick={openEdit}>עריכה</Button>
-            <Button variant="secondary" icon="delete" onClick={() => setDeleteOpen(true)}>מחיקה</Button>
+    <div className="w-full page-enter">
+      <div className="evtd-cover" data-empty={mediaUrls.length === 0}>
+        {mediaUrls.length > 0 ? (
+          <EventMediaCarousel urls={mediaUrls} tall />
+        ) : (
+          <div className="evtd-cover-fallback" aria-hidden>
+            <span className="evt-poster-aurora evt-poster-aurora--1" />
+            <span className="evt-poster-aurora evt-poster-aurora--2" />
+            <span className="evt-poster-grid" />
+            <Icon name="celebration" size={72} className="evt-poster-icon" />
           </div>
         )}
-      </div>
-
-      <Card className="overflow-hidden p-0">
-        {mediaUrls.length > 0 && <EventMediaCarousel urls={mediaUrls} tall />}
-
-        <div className="p-5 sm:p-6">
-          <div className="flex flex-wrap items-start gap-4">
-            <div className="avatar-chip grid h-16 w-16 flex-none place-items-center rounded-[14px]">
-              <span className="text-[22px] font-extrabold leading-none text-white">{d.getDate()}</span>
-              <span className="text-[11px] font-bold text-white/85">{d.toLocaleDateString("he-IL", { month: "short" })}</span>
-            </div>
-            <div className="min-w-0 flex-1">
-              <h1 className="text-[clamp(1.35rem,4vw,1.75rem)] font-extrabold tracking-tight text-text">{event.title}</h1>
-              <p className="mt-1.5 text-[14px] text-text-2">{dateLabel}</p>
-            </div>
-          </div>
-
-          {event.description && (
-            <div className="mt-5 rounded-[14px] border border-border-2 bg-surface-2 p-4">
-              <div className="mb-2 text-[12px] font-bold uppercase tracking-wide text-text-3">תיאור האירוע</div>
-              <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-text">{event.description}</p>
-            </div>
-          )}
-
-          {mediaUrls.length > 1 && (
-            <div className="mt-5">
-              <div className="mb-2.5 text-[12px] font-bold uppercase tracking-wide text-text-3">גלריה ({mediaUrls.length})</div>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {mediaUrls.map((url) => (
-                  <a
-                    key={url}
-                    href={url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="relative aspect-square overflow-hidden rounded-[11px] border border-border bg-surface-2"
-                  >
-                    {isVideoUrl(url) ? (
-                      <video src={url} className="h-full w-full object-cover" muted playsInline preload="metadata" />
-                    ) : (
-                      <img src={url} alt="" className="h-full w-full object-cover" />
-                    )}
-                  </a>
-                ))}
-              </div>
+        <span className="evtd-cover-scrim" aria-hidden />
+        <div className="evtd-cover-bar">
+          <button
+            type="button"
+            className="evtd-glass-btn"
+            onClick={() => navigate("/events")}
+            aria-label="חזרה לאירועים"
+          >
+            <Icon name="arrow_forward" size={20} />
+          </button>
+          {canManage && (
+            <div className="flex items-center gap-2">
+              <button type="button" className="evtd-glass-btn" onClick={openEdit} aria-label="עריכת האירוע">
+                <Icon name="edit" size={19} />
+              </button>
+              <button
+                type="button"
+                className="evtd-glass-btn evtd-glass-btn--danger"
+                onClick={() => setDeleteOpen(true)}
+                aria-label="מחיקת האירוע"
+              >
+                <Icon name="delete" size={19} />
+              </button>
             </div>
           )}
         </div>
-      </Card>
+      </div>
+
+      <div className="evtd-sheet">
+        <div className="evtd-daterow">
+          <span className="evtd-datechip" aria-hidden>
+            <b>{d.getDate()}</b>
+            <i>{d.toLocaleDateString("he-IL", { month: "short" })}</i>
+          </span>
+          <div className="min-w-0 flex-1">
+            <span
+              className="evtd-pill"
+              data-tone={isPast ? "past" : days <= 1 ? "hot" : "soon"}
+            >
+              {isPast ? "האירוע התקיים" : daysUntilLabel(days)}
+            </span>
+            <p className="evtd-datelabel">{dateLabel}</p>
+          </div>
+        </div>
+
+        <h1 className="evtd-title">{event.title}</h1>
+
+        {days > 0 && (
+          <div className="evtd-ticket">
+            <span className="evtd-ticket-notch evtd-ticket-notch--start" aria-hidden />
+            <span className="evtd-ticket-notch evtd-ticket-notch--end" aria-hidden />
+            <span className="evtd-ticket-aurora" aria-hidden />
+            <div className="evtd-ticket-head">
+              <Icon name="local_activity" size={15} />
+              הספירה לאחור
+            </div>
+            <EventCountdown dateStr={event.event_date} />
+          </div>
+        )}
+
+        {isToday && (
+          <div className="evtd-today">
+            <span className="evt-live-dot" aria-hidden />
+            האירוע מתקיים היום
+          </div>
+        )}
+
+        {event.description && (
+          <section className="evtd-desc">
+            <h2 className="evtd-label">פרטי האירוע</h2>
+            <p>{event.description}</p>
+          </section>
+        )}
+
+        {mediaUrls.length > 1 && (
+          <section className="evtd-gallery-wrap">
+            <h2 className="evtd-label">
+              גלריה <span>({mediaUrls.length})</span>
+            </h2>
+            <div className="evtd-gallery" data-rich={mediaUrls.length >= 3} data-count={mediaUrls.length}>
+              {mediaUrls.map((url, i) => (
+                <a key={url} href={url} target="_blank" rel="noreferrer" className="evtd-gallery-item">
+                  {isVideoUrl(url) ? (
+                    <>
+                      <video src={url} muted playsInline preload="metadata" />
+                      <span className="evtd-gallery-play" aria-hidden>
+                        <Icon name="play_circle" size={26} />
+                      </span>
+                    </>
+                  ) : (
+                    <img src={url} alt={`תמונה ${i + 1} מתוך ${mediaUrls.length}`} loading="lazy" />
+                  )}
+                </a>
+              ))}
+            </div>
+          </section>
+        )}
+
+        <p className="evtd-foot">
+          <Icon name="history" size={13} />
+          נוסף ללו״ז ב־
+          {new Date(event.created_at).toLocaleDateString("he-IL", { day: "numeric", month: "long", year: "numeric" })}
+        </p>
+      </div>
 
       <Modal
         open={editOpen}

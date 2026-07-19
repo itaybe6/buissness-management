@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Button, Card, EmptyState, Field, Icon, Input, PageHeader, PageLoader, ErrorState, Textarea } from "@/components/ui";
+import { Button, Field, Icon, Input, PageLoader, ErrorState, Textarea } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
+import { EventCountdown } from "@/components/events/EventCountdown";
 import { EventMediaPicker, revokeEventMediaEntries, type MediaEntry } from "@/components/events/EventMediaPicker";
+import { daysUntilEvent, daysUntilLabel, parseEventDay } from "@/components/events/eventTime";
 import { useAuth } from "@/lib/auth";
 import { EVENT_MANAGE_ROLES } from "@/lib/constants";
 import { useBusinessId, todayISO } from "@/lib/db";
@@ -30,7 +32,10 @@ export function Events() {
 
   const now = todayISO();
   const upcoming = (events ?? []).filter((e) => e.event_date.slice(0, 10) >= now);
-  const past = (events ?? []).filter((e) => e.event_date.slice(0, 10) < now);
+  const past = (events ?? []).filter((e) => e.event_date.slice(0, 10) < now).reverse();
+  const featured = upcoming[0];
+  const rest = upcoming.slice(1);
+  const hasEvents = (events ?? []).length > 0;
 
   function resetForm() {
     setTitle("");
@@ -67,28 +72,99 @@ export function Events() {
   }
 
   return (
-    <div className="w-full animate-fadeUp">
-      <PageHeader
-        title="אירועים"
-        subtitle="אירועים מיוחדים והזמנות"
-        actions={
-          canManage ? (
-            <Button icon="add" onClick={() => setOpen(true)}>אירוע חדש</Button>
-          ) : undefined
-        }
-      />
+    <div className="w-full page-enter">
+      <header className="evt-header">
+        <div className="min-w-0">
+          <p className="evt-kicker">
+            <Icon name="nightlife" size={15} />
+            הלו״ז של הבר
+          </p>
+          <h1 className="evt-title">אירועים</h1>
+        </div>
+        {canManage && (
+          <button type="button" className="evt-add" onClick={() => setOpen(true)}>
+            <Icon name="add" size={22} />
+            <span className="evt-add-label">אירוע חדש</span>
+          </button>
+        )}
+      </header>
 
-      {(events ?? []).length === 0 ? (
-        <EmptyState
-          icon="celebration"
-          title="אין אירועים"
-          description="הוסיפו אירועים מיוחדים ליומן העסק."
-          action={canManage ? <Button icon="add" onClick={() => setOpen(true)}>אירוע חדש</Button> : undefined}
-        />
+      {hasEvents && (
+        <div className="evt-stats">
+          <span className="evt-stat">
+            <strong>{upcoming.length}</strong> קרובים
+          </span>
+          {featured && (
+            <span className="evt-stat evt-stat--live">
+              <span className="evt-live-dot" aria-hidden />
+              הבא {daysUntilLabel(daysUntilEvent(featured.event_date))}
+            </span>
+          )}
+          {past.length > 0 && (
+            <span className="evt-stat">
+              <strong>{past.length}</strong> עברו
+            </span>
+          )}
+        </div>
+      )}
+
+      {!hasEvents ? (
+        <div className="evt-empty">
+          <div className="evt-empty-stack" aria-hidden>
+            <span className="evt-empty-poster evt-empty-poster--1">
+              <Icon name="local_activity" size={24} />
+            </span>
+            <span className="evt-empty-poster evt-empty-poster--2">
+              <Icon name="nightlife" size={24} />
+            </span>
+            <span className="evt-empty-poster evt-empty-poster--3">
+              <Icon name="celebration" size={30} />
+            </span>
+          </div>
+          <h2 className="evt-empty-title">הבמה עוד ריקה</h2>
+          <p className="evt-empty-sub">האירוע הראשון של הבר מחכה שיעלה ללו״ז.</p>
+          {canManage && (
+            <Button icon="add" onClick={() => setOpen(true)}>
+              יוצרים אירוע ראשון
+            </Button>
+          )}
+        </div>
       ) : (
-        <div className="flex flex-col gap-5">
-          {upcoming.length > 0 && <Section title="קרובים" events={upcoming} />}
-          {past.length > 0 && <Section title="עברו" events={past} dim />}
+        <div className="flex flex-col gap-6">
+          {featured ? (
+            <FeaturedEvent event={featured} />
+          ) : (
+            <div className="evt-none">
+              <Icon name="event_upcoming" size={22} />
+              <span>אין אירועים קרובים כרגע</span>
+            </div>
+          )}
+
+          {rest.length > 0 && (
+            <section>
+              <h2 className="page-section-label">
+                בהמשך <span>({rest.length})</span>
+              </h2>
+              <div className="evt-rows">
+                {rest.map((e, i) => (
+                  <EventRow key={e.id} event={e} index={i} />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {past.length > 0 && (
+            <section>
+              <h2 className="page-section-label">
+                היו כבר <span>({past.length})</span>
+              </h2>
+              <div className="evt-past-strip">
+                {past.map((e) => (
+                  <PastCard key={e.id} event={e} />
+                ))}
+              </div>
+            </section>
+          )}
         </div>
       )}
 
@@ -127,63 +203,153 @@ export function Events() {
   );
 }
 
-function Section({ title, events, dim }: { title: string; events: EventRecord[]; dim?: boolean }) {
-  return (
-    <div>
-      <div className="mb-2.5 text-[13px] font-bold uppercase tracking-wide text-text-3">{title}</div>
-      <div className="flex flex-col gap-3">
-        {events.map((e, i) => (
-          <EventCard key={e.id} event={e} index={i} dim={dim} />
-        ))}
-      </div>
-    </div>
-  );
-}
+/* --------------- Featured "headliner" poster --------------- */
 
-function EventCard({ event: e, index, dim }: { event: EventRecord; index: number; dim?: boolean }) {
-  const d = new Date(e.event_date);
+function FeaturedEvent({ event: e }: { event: EventRecord }) {
+  const d = parseEventDay(e.event_date);
+  const days = daysUntilEvent(e.event_date);
+  const isToday = days === 0;
   const mediaUrls = e.media_urls ?? [];
   const cover = mediaUrls[0];
 
   return (
-    <Link to={`/events/${e.id}`} className="block">
-      <Card
-        className={`report-card dash-rise overflow-hidden p-0 ${dim ? "opacity-60" : ""}`}
-        style={{ "--rise-delay": `${Math.min(index, 8) * 40}ms` } as React.CSSProperties}
-      >
-        {cover && (
-          <div className="relative h-36 w-full overflow-hidden bg-surface-2">
-            {isVideoUrl(cover) ? (
-              <>
-                <video src={cover} className="h-full w-full object-cover" muted playsInline preload="metadata" />
-                <span className="absolute inset-0 grid place-items-center bg-black/25 text-white">
-                  <Icon name="play_circle" size={36} />
-                </span>
-              </>
-            ) : (
-              <img src={cover} alt="" className="h-full w-full object-cover" />
-            )}
-            {mediaUrls.length > 1 && (
-              <span className="absolute bottom-2 left-2 inline-flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[11px] font-bold text-white">
-                <Icon name="photo_library" size={12} />
-                {mediaUrls.length}
-              </span>
-            )}
-          </div>
+    <Link to={`/events/${e.id}`} className="evt-feature" aria-label={e.title}>
+      <div className="evt-feature-media" aria-hidden>
+        {cover ? (
+          isVideoUrl(cover) ? (
+            <video src={cover} muted playsInline preload="metadata" />
+          ) : (
+            <img src={cover} alt="" />
+          )
+        ) : (
+          <PosterFallback />
         )}
-        <div className="flex items-center gap-4 p-4">
-          <div className="avatar-chip grid h-14 w-14 flex-none place-items-center rounded-[13px]">
-            <span className="text-[20px] font-extrabold leading-none text-white">{d.getDate()}</span>
-            <span className="text-[10px] font-bold text-white/85">{d.toLocaleDateString("he-IL", { month: "short" })}</span>
-          </div>
+      </div>
+      <span className="evt-feature-scrim" aria-hidden />
+
+      <div className="evt-feature-top">
+        <span className="evt-glass-chip evt-glass-chip--live">
+          <span className="evt-live-dot" aria-hidden />
+          {isToday ? "קורה היום" : "האירוע הבא"}
+        </span>
+        {mediaUrls.length > 1 && (
+          <span className="evt-glass-chip">
+            <Icon name="photo_library" size={13} />
+            {mediaUrls.length}
+          </span>
+        )}
+        {cover && isVideoUrl(cover) && (
+          <span className="evt-glass-chip">
+            <Icon name="play_arrow" size={14} />
+          </span>
+        )}
+      </div>
+
+      <div className="evt-feature-body">
+        <div className="evt-feature-head">
+          <span className="evt-feature-date" aria-hidden>
+            <b>{d.getDate()}</b>
+            <i>{d.toLocaleDateString("he-IL", { month: "short" })}</i>
+          </span>
           <div className="min-w-0 flex-1">
-            <div className="text-[15px] font-bold">{e.title}</div>
-            {e.description && <div className="mt-0.5 truncate text-[13px] text-text-2">{e.description}</div>}
-            <div className="mt-0.5 text-[12px] text-text-3">{d.toLocaleDateString("he-IL", { weekday: "long" })}</div>
+            <h2 className="evt-feature-title">{e.title}</h2>
+            <p className="evt-feature-meta">
+              {d.toLocaleDateString("he-IL", { weekday: "long" })}
+              <span className="evt-dot" aria-hidden>•</span>
+              {daysUntilLabel(days)}
+            </p>
           </div>
-          <Icon name="chevron_left" size={22} className="report-card-icon text-text-3" />
         </div>
-      </Card>
+        <EventCountdown dateStr={e.event_date} />
+      </div>
+    </Link>
+  );
+}
+
+/** Charcoal poster background for events without media. */
+function PosterFallback() {
+  return (
+    <span className="evt-poster-fallback" aria-hidden>
+      <span className="evt-poster-aurora evt-poster-aurora--1" />
+      <span className="evt-poster-aurora evt-poster-aurora--2" />
+      <span className="evt-poster-grid" />
+      <Icon name="celebration" size={64} className="evt-poster-icon" />
+    </span>
+  );
+}
+
+/* --------------- Upcoming rows --------------- */
+
+function EventRow({ event: e, index }: { event: EventRecord; index: number }) {
+  const d = parseEventDay(e.event_date);
+  const days = daysUntilEvent(e.event_date);
+  const mediaUrls = e.media_urls ?? [];
+  const cover = mediaUrls[0];
+
+  return (
+    <Link
+      to={`/events/${e.id}`}
+      className="evt-row dash-rise"
+      style={{ "--rise-delay": `${Math.min(index, 8) * 45}ms` } as React.CSSProperties}
+    >
+      <span className="evt-row-date" aria-hidden>
+        <b>{d.getDate()}</b>
+        <i>{d.toLocaleDateString("he-IL", { month: "short" })}</i>
+      </span>
+      <span className="evt-row-copy">
+        <span className="evt-row-title">{e.title}</span>
+        <span className="evt-row-meta">
+          {d.toLocaleDateString("he-IL", { weekday: "long" })}
+          <span className="evt-dot" aria-hidden>•</span>
+          {daysUntilLabel(days)}
+        </span>
+      </span>
+      {cover ? (
+        <span className="evt-row-thumb" aria-hidden>
+          {isVideoUrl(cover) ? (
+            <>
+              <video src={cover} muted playsInline preload="metadata" />
+              <Icon name="play_circle" size={20} className="evt-row-play" />
+            </>
+          ) : (
+            <img src={cover} alt="" />
+          )}
+        </span>
+      ) : (
+        <span className="evt-row-thumb evt-row-thumb--empty" aria-hidden>
+          <Icon name="celebration" size={20} />
+        </span>
+      )}
+      <Icon name="chevron_left" size={20} className="evt-row-chev" aria-hidden />
+    </Link>
+  );
+}
+
+/* --------------- Past archive strip --------------- */
+
+function PastCard({ event: e }: { event: EventRecord }) {
+  const d = parseEventDay(e.event_date);
+  const cover = (e.media_urls ?? [])[0];
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  const dateOpts: Intl.DateTimeFormatOptions = sameYear
+    ? { day: "numeric", month: "short" }
+    : { day: "numeric", month: "short", year: "numeric" };
+
+  return (
+    <Link to={`/events/${e.id}`} className="evt-past-card">
+      <span className="evt-past-media" aria-hidden>
+        {cover ? (
+          isVideoUrl(cover) ? (
+            <video src={cover} muted playsInline preload="metadata" />
+          ) : (
+            <img src={cover} alt="" />
+          )
+        ) : (
+          <Icon name="celebration" size={22} />
+        )}
+      </span>
+      <span className="evt-past-title">{e.title}</span>
+      <span className="evt-past-date">{d.toLocaleDateString("he-IL", dateOpts)}</span>
     </Link>
   );
 }

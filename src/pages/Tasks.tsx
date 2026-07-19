@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   Badge,
   Button,
@@ -16,12 +16,8 @@ import {
 } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/lib/auth";
-import { useBusinessId, HE_DAYS, initialsOf, colorFor } from "@/lib/db";
-import {
-  RECURRENCE_EVERY_DAY,
-  formatRecurrenceWeekday,
-  recurrenceSelectValue,
-} from "@/lib/taskRecurrence";
+import { useBusinessId, HE_DAYS, initialsOf, colorFor, colorForDepartment } from "@/lib/db";
+import { RECURRENCE_EVERY_DAY, formatRecurrenceWeekday } from "@/lib/taskRecurrence";
 import { useTasks, useCreateTask, useUpdateTask, useDeleteTask, notifyTaskAssigned } from "@/api/tasks";
 import {
   useTaskTemplates,
@@ -526,14 +522,110 @@ function AutoGrowTextarea({
   );
 }
 
-function FixedTaskTemplateRow({
+const HE_DAY_LETTERS = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
+
+function RecurrenceDayPicker({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: number | null;
+  onChange: (v: number) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="ftp-daypicker" role="radiogroup" aria-label="תדירות">
+      <button
+        type="button"
+        role="radio"
+        aria-checked={value === RECURRENCE_EVERY_DAY}
+        data-active={value === RECURRENCE_EVERY_DAY}
+        disabled={disabled}
+        onClick={() => onChange(RECURRENCE_EVERY_DAY)}
+        className="ftp-day-all"
+      >
+        <Icon name="all_inclusive" size={15} />
+        כל יום
+      </button>
+      <span className="ftp-daypicker-sep" aria-hidden="true" />
+      {HE_DAYS.map((day, i) => (
+        <button
+          key={day}
+          type="button"
+          role="radio"
+          aria-checked={value === i}
+          data-active={value === i}
+          disabled={disabled}
+          onClick={() => onChange(i)}
+          title={`כל ${day}`}
+          className="ftp-day-dot"
+        >
+          {HE_DAY_LETTERS[i]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function DepartmentPicker({
+  departments,
+  value,
+  onChange,
+  disabled,
+}: {
+  departments: Department[];
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="ftp-deptpicker" role="radiogroup" aria-label="מחלקה">
+      <button
+        type="button"
+        role="radio"
+        aria-checked={value === ""}
+        data-active={value === ""}
+        disabled={disabled}
+        onClick={() => onChange("")}
+        className="ftp-dept-chip"
+      >
+        <Icon name="storefront" size={15} />
+        כל העסק
+      </button>
+      {departments.map((d) => (
+        <button
+          key={d.id}
+          type="button"
+          role="radio"
+          aria-checked={value === d.id}
+          data-active={value === d.id}
+          disabled={disabled}
+          onClick={() => onChange(d.id)}
+          style={{ "--chip-tone": colorForDepartment(d.id, d.color) } as CSSProperties}
+          className="ftp-dept-chip"
+        >
+          <span className="ftp-dept-dot" aria-hidden="true" />
+          {d.name}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function FixedTaskCard({
   template,
   departments,
+  index,
+  expanded,
+  onToggle,
   onUpdate,
   onDelete,
 }: {
   template: TaskTemplate;
   departments: Department[];
+  index: number;
+  expanded: boolean;
+  onToggle: () => void;
   onUpdate: (input: {
     id: string;
     title?: string;
@@ -544,85 +636,155 @@ function FixedTaskTemplateRow({
   }) => void;
   onDelete: (id: string) => void;
 }) {
-  function parseRecurrence(value: string): number | null {
-    if (value === "none") return null;
-    return Number(value);
-  }
+  const dept = template.department_id
+    ? departments.find((d) => d.id === template.department_id) ?? null
+    : null;
+  const tone = dept ? colorForDepartment(dept.id, dept.color) : null;
+  const daily = template.recurrence_weekday === RECURRENCE_EVERY_DAY;
+  const weekday =
+    !daily && template.recurrence_weekday != null && template.recurrence_weekday >= 0 && template.recurrence_weekday <= 6
+      ? template.recurrence_weekday
+      : null;
 
   return (
-    <div className="fixed-task-row" style={{ opacity: template.active ? 1 : 0.55 }}>
-      <div className="fixed-task-row-top">
-        <div className="fixed-task-row-title">
-          <Switch checked={template.active} onChange={(v) => onUpdate({ id: template.id, active: v })} />
-          <Input
-            className="min-w-0 flex-1 !bg-surface"
-            defaultValue={template.title}
-            onBlur={(e) => {
-              const v = e.target.value.trim();
-              if (v && v !== template.title) onUpdate({ id: template.id, title: v });
-            }}
-            disabled={!template.active}
-          />
-        </div>
+    <article
+      className="ftp-card"
+      data-off={!template.active || undefined}
+      data-expanded={expanded || undefined}
+      style={
+        {
+          ...(tone ? { "--ftp-tone": tone } : null),
+          animationDelay: `${Math.min(index, 8) * 45}ms`,
+        } as CSSProperties
+      }
+    >
+      <span className="ftp-card-edge" aria-hidden="true" />
+      <div className="ftp-card-head">
+        <button type="button" onClick={onToggle} aria-expanded={expanded} className="ftp-card-main">
+          <span className="ftp-card-day" aria-hidden="true">
+            {daily ? (
+              <Icon name="all_inclusive" size={20} />
+            ) : weekday != null ? (
+              HE_DAY_LETTERS[weekday]
+            ) : (
+              <Icon name="event_busy" size={18} />
+            )}
+          </span>
+          <span className="ftp-card-copy">
+            <span className="ftp-card-title">{template.title}</span>
+            <span className="ftp-card-meta">
+              <span className="ftp-card-meta-item">
+                <Icon name="event_repeat" size={13} />
+                {formatRecurrenceWeekday(template.recurrence_weekday)}
+              </span>
+              <span className="ftp-card-meta-item">
+                {tone ? (
+                  <span className="ftp-dept-dot" style={{ "--chip-tone": tone } as CSSProperties} aria-hidden="true" />
+                ) : (
+                  <Icon name="storefront" size={13} />
+                )}
+                {dept?.name ?? "כל העסק"}
+              </span>
+              {template.description && (
+                <span className="ftp-card-meta-item">
+                  <Icon name="notes" size={13} />
+                  הוראות
+                </span>
+              )}
+              {!template.active && <span className="ftp-off-tag">כבויה</span>}
+            </span>
+          </span>
+        </button>
+        <Switch checked={template.active} onChange={(v) => onUpdate({ id: template.id, active: v })} />
         <button
           type="button"
-          onClick={() => onDelete(template.id)}
-          className="fixed-task-row-delete"
-          aria-label="מחיקת משימה"
+          onClick={onToggle}
+          aria-label={expanded ? "סגירת עריכה" : "עריכת המשימה"}
+          className="ftp-card-more"
         >
-          <Icon name="delete" size={18} />
+          <Icon name="expand_more" size={20} />
         </button>
       </div>
 
-      <div className="fixed-task-row-meta">
-        <Select
-          className="min-w-0 flex-1 !bg-surface"
-          value={template.department_id ?? ""}
-          onChange={(e) => {
-            const v = e.target.value || null;
-            if (v !== (template.department_id ?? null)) onUpdate({ id: template.id, department_id: v });
-          }}
-          disabled={!template.active}
-        >
-          <option value="">כל העסק (ללא מחלקה)</option>
-          {departments.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.name}
-            </option>
-          ))}
-        </Select>
-        <Select
-          className="min-w-0 flex-1 !bg-surface"
-          value={recurrenceSelectValue(template.recurrence_weekday)}
-          onChange={(e) => {
-            const v = parseRecurrence(e.target.value);
-            if (v !== template.recurrence_weekday) onUpdate({ id: template.id, recurrence_weekday: v });
-          }}
-          disabled={!template.active}
-        >
-          <option value="none">לא קבועה</option>
-          <option value={String(RECURRENCE_EVERY_DAY)}>כל יום</option>
-          {HE_DAYS.map((d, i) => (
-            <option key={i} value={String(i)}>
-              כל {d}
-            </option>
-          ))}
-        </Select>
-        {!template.active ? <Badge tone="neutral">כבויה</Badge> : null}
-      </div>
+      {expanded && (
+        <div className="ftp-card-editor">
+          <label className="ftp-editor-block ftp-editor-wide">
+            <span className="ftp-editor-label">
+              <Icon name="edit" size={14} />
+              שם המשימה
+            </span>
+            <Input
+              defaultValue={template.title}
+              disabled={!template.active}
+              className="!bg-surface"
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                if (v && v !== template.title) onUpdate({ id: template.id, title: v });
+              }}
+            />
+          </label>
 
-      <AutoGrowTextarea
-        key={`${template.id}-${template.description ?? ""}`}
-        defaultValue={template.description ?? ""}
-        placeholder="תיאור (אופציונלי)"
-        disabled={!template.active}
-        className="fixed-task-row-desc !min-h-[44px] !resize-y !bg-surface !py-2.5 text-[13px]"
-        onBlur={(e) => {
-          const v = e.target.value.trim() || null;
-          if (v !== (template.description ?? null)) onUpdate({ id: template.id, description: v });
-        }}
-      />
-    </div>
+          <div className="ftp-editor-block">
+            <span className="ftp-editor-label">
+              <Icon name="event_repeat" size={14} />
+              תדירות
+            </span>
+            <RecurrenceDayPicker
+              value={template.recurrence_weekday}
+              disabled={!template.active}
+              onChange={(v) => {
+                if (v !== template.recurrence_weekday) onUpdate({ id: template.id, recurrence_weekday: v });
+              }}
+            />
+          </div>
+
+          <div className="ftp-editor-block">
+            <span className="ftp-editor-label">
+              <Icon name="storefront" size={14} />
+              מחלקה
+            </span>
+            <DepartmentPicker
+              departments={departments}
+              value={template.department_id ?? ""}
+              disabled={!template.active}
+              onChange={(v) => {
+                const next = v || null;
+                if (next !== (template.department_id ?? null)) onUpdate({ id: template.id, department_id: next });
+              }}
+            />
+          </div>
+
+          <label className="ftp-editor-block ftp-editor-wide">
+            <span className="ftp-editor-label">
+              <Icon name="notes" size={14} />
+              תיאור והוראות
+            </span>
+            <AutoGrowTextarea
+              key={`${template.id}-${template.description ?? ""}`}
+              defaultValue={template.description ?? ""}
+              placeholder="פרטים, הוראות ביצוע, דגשים…"
+              disabled={!template.active}
+              className="!min-h-[44px] !resize-y !bg-surface !py-2.5 text-[13px]"
+              onBlur={(e) => {
+                const v = e.target.value.trim() || null;
+                if (v !== (template.description ?? null)) onUpdate({ id: template.id, description: v });
+              }}
+            />
+          </label>
+
+          <div className="ftp-editor-foot">
+            <span className="ftp-editor-autosave">
+              <Icon name="cloud_done" size={15} />
+              השינויים נשמרים אוטומטית
+            </span>
+            <button type="button" onClick={() => onDelete(template.id)} className="ftp-editor-delete">
+              <Icon name="delete" size={16} />
+              מחיקת משימה
+            </button>
+          </div>
+        </div>
+      )}
+    </article>
   );
 }
 
@@ -654,22 +816,24 @@ function FixedTasksPanel({
   onDelete: (id: string) => void;
 }) {
   const [addOpen, setAddOpen] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [departmentId, setDepartmentId] = useState("");
-  const [recurrence, setRecurrence] = useState(String(RECURRENCE_EVERY_DAY));
+  const [recurrence, setRecurrence] = useState<number>(RECURRENCE_EVERY_DAY);
   const [addError, setAddError] = useState<string | null>(null);
 
-  function parseRecurrence(value: string): number | null {
-    if (value === "none") return null;
-    return Number(value);
-  }
+  const activeCount = templates.filter((t) => t.active).length;
+  const offCount = templates.length - activeCount;
+  const previewDept = departmentId
+    ? departments.find((d) => d.id === departmentId)?.name ?? "המחלקה"
+    : "כל העסק";
 
   function resetAddForm() {
     setTitle("");
     setDescription("");
     setDepartmentId("");
-    setRecurrence(String(RECURRENCE_EVERY_DAY));
+    setRecurrence(RECURRENCE_EVERY_DAY);
     setAddError(null);
   }
 
@@ -684,16 +848,12 @@ function FixedTasksPanel({
       setAddError("נא להזין שם משימה");
       return;
     }
-    if (recurrence === "none") {
-      setAddError("נא לבחור תדירות");
-      return;
-    }
     try {
       await onAdd({
         title: title.trim(),
         description: description.trim() || null,
         department_id: departmentId || null,
-        recurrence_weekday: parseRecurrence(recurrence),
+        recurrence_weekday: recurrence,
       });
       closeAddModal();
     } catch {
@@ -703,49 +863,64 @@ function FixedTasksPanel({
 
   return (
     <>
-      <Card className="p-5">
-        <div className="fixed-tasks-panel-header">
-          <div className="flex items-center gap-2 text-[16px] font-bold">
-            <Icon name="event_repeat" size={22} className="text-accent-2" />
-            משימות קבועות
+      <section className="ftp">
+        <header className="ftp-hero">
+          <span className="ftp-hero-icon">
+            <Icon name="event_repeat" size={23} />
+          </span>
+          <div className="ftp-hero-copy">
+            <h2 className="ftp-hero-title">משימות קבועות</h2>
+            <p className="ftp-hero-sub">
+              {templates.length === 0
+                ? "מופיעות אוטומטית לעובדים לפי יום ומחלקה"
+                : offCount > 0
+                  ? `${activeCount} פעילות · ${offCount} כבויות`
+                  : `${activeCount} פעילות · מופיעות אוטומטית לפי יום ומחלקה`}
+            </p>
           </div>
-          <Button icon="add" onClick={() => setAddOpen(true)}>
+          <button type="button" onClick={() => setAddOpen(true)} className="ftp-add-btn">
+            <Icon name="add" size={19} />
             הוספה
-          </Button>
-        </div>
+          </button>
+        </header>
 
         {templates.length === 0 ? (
           <EmptyState
-            embedded
             icon="event_repeat"
             title="אין משימות קבועות עדיין"
             description="הוסיפו את המשימות הקבועות של העסק — למשל ניקוי, ספירת מלאי, פתיחת קופה."
             action={
               <Button icon="add" onClick={() => setAddOpen(true)}>
-                הוספה
+                הוספת משימה ראשונה
               </Button>
             }
           />
         ) : (
-          <div className="flex flex-col gap-2.5">
-            {templates.map((t) => (
-              <FixedTaskTemplateRow
+          <div className="ftp-list">
+            {templates.map((t, i) => (
+              <FixedTaskCard
                 key={t.id}
                 template={t}
                 departments={departments}
+                index={i}
+                expanded={expandedId === t.id}
+                onToggle={() => setExpandedId((cur) => (cur === t.id ? null : t.id))}
                 onUpdate={onUpdate}
-                onDelete={onDelete}
+                onDelete={(id) => {
+                  onDelete(id);
+                  setExpandedId((cur) => (cur === id ? null : cur));
+                }}
               />
             ))}
           </div>
         )}
-      </Card>
+      </section>
 
       <Modal
         open={addOpen}
         onClose={closeAddModal}
         title="הוספת משימה קבועה"
-        subtitle="המשימה תופיע אוטומטית לפי התדירות והמחלקה שתבחרו"
+        subtitle="תופיע אוטומטית לעובדים לפי היום והמחלקה"
         icon="event_repeat"
         maxWidth={560}
         footer={
@@ -754,12 +929,12 @@ function FixedTasksPanel({
               ביטול
             </Button>
             <Button className="flex-1" icon="add" loading={saving} onClick={handleAdd}>
-              הוספה
+              הוספת משימה
             </Button>
           </>
         }
       >
-        <div className="flex flex-col gap-3.5">
+        <div className="flex flex-col gap-4">
           <Field label="שם המשימה">
             <Input
               value={title}
@@ -769,38 +944,35 @@ function FixedTasksPanel({
             />
           </Field>
 
+          <div>
+            <span className="label-text">תדירות</span>
+            <div className="mt-1.5">
+              <RecurrenceDayPicker value={recurrence} onChange={setRecurrence} />
+            </div>
+          </div>
+
+          <div>
+            <span className="label-text">מחלקה</span>
+            <div className="mt-1.5">
+              <DepartmentPicker departments={departments} value={departmentId} onChange={setDepartmentId} />
+            </div>
+          </div>
+
           <Field label="תיאור (אופציונלי)">
             <Textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="פרטים, הוראות ביצוע, קישורים וכו'"
-              rows={5}
-              className="min-h-[120px] max-h-[280px] resize-y overflow-y-auto leading-relaxed"
+              placeholder="פרטים, הוראות ביצוע, דגשים…"
+              rows={4}
+              className="max-h-[240px] min-h-[96px] resize-y overflow-y-auto leading-relaxed"
             />
           </Field>
 
-          <div className="grid gap-3.5 sm:grid-cols-2">
-            <Field label="מחלקה">
-              <Select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
-                <option value="">כל העסק (ללא מחלקה)</option>
-                {departments.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-
-            <Field label="תדירות">
-              <Select value={recurrence} onChange={(e) => setRecurrence(e.target.value)}>
-                <option value={String(RECURRENCE_EVERY_DAY)}>כל יום</option>
-                {HE_DAYS.map((d, i) => (
-                  <option key={i} value={String(i)}>
-                    כל {d}
-                  </option>
-                ))}
-              </Select>
-            </Field>
+          <div className="ftp-preview">
+            <Icon name="auto_awesome" size={18} />
+            <span>
+              המשימה תופיע <b>{formatRecurrenceWeekday(recurrence)}</b> אצל <b>{previewDept}</b>
+            </span>
           </div>
 
           {addError && <span className="text-[13px] font-semibold text-danger">{addError}</span>}
