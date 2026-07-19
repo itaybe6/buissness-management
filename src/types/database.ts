@@ -446,7 +446,8 @@ export interface TaskTemplate {
   department_id: string | null;
   title: string;
   description: string | null;
-  recurrence_weekday: number | null; // -1 = כל יום, 0-6 = יום בשבוע
+  /** [-1]=כל יום, אחרת תת-קבוצה של 0–6 (ראשון–שבת) */
+  recurrence_weekday: number[] | null;
   active: boolean;
   sort_order: number;
   created_at: string;
@@ -462,7 +463,8 @@ export interface Task {
   assigned_to: string | null;
   assigned_by: string | null;
   due_date: string | null;
-  recurrence_weekday: number | null; // -1 = כל יום, 0-6 = יום בשבוע
+  /** [-1]=כל יום, אחרת תת-קבוצה של 0–6 (ראשון–שבת) */
+  recurrence_weekday: number[] | null;
   status: TaskStatus;
   approval_status: TaskApproval | null;
   /** @deprecated single photo kept for backward compat — use media_urls. */

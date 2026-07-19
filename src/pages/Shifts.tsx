@@ -41,6 +41,8 @@ import {
 import { getHebrewDayInfo } from "@/lib/hebrewCalendar";
 import type { Availability, Profile, ShiftAssignment } from "@/types/database";
 
+const HE_DAY_LETTERS = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
+
 const AVAIL_META: Record<"available" | "cannot", { label: string; short: string; bg: string; color: string; border: string }> = {
   available: { label: "יכול", short: "יכול", bg: "var(--info-bg)", color: "var(--info)", border: "#bcd0ff" },
   cannot: { label: "לא יכול", short: "לא", bg: "var(--danger-bg)", color: "var(--danger)", border: "#f6caca" },
@@ -179,40 +181,30 @@ function ProgressRing({ pct, done }: { pct: number; done: boolean }) {
 function WeekNav({
   wkStart,
   onShift,
-  onToday,
   maxWeekStart,
 }: {
   wkStart: string;
   onShift: (d: number) => void;
-  onToday?: () => void;
   /** When set, blocks navigating past this week (ISO Sunday). */
   maxWeekStart?: string;
 }) {
   const end = addDays(wkStart, 6);
-  const isCurrentWeek = wkStart === weekStart();
   const atMax = maxWeekStart != null && wkStart >= maxWeekStart;
   return (
-    <div className="shift-week-nav-group">
-      <div className="shift-week-nav">
-        <button type="button" onClick={() => onShift(7)} className="shift-week-nav-btn" aria-label="שבוע קודם">
-          <Icon name="chevron_right" size={20} />
-        </button>
-        <span className="shift-week-nav-label">{formatDateShort(wkStart)} – {formatDateShort(end)}</span>
-        <button
-          type="button"
-          onClick={() => onShift(-7)}
-          className="shift-week-nav-btn"
-          aria-label="שבוע הבא"
-          disabled={atMax}
-        >
-          <Icon name="chevron_left" size={20} />
-        </button>
-      </div>
-      {onToday && !isCurrentWeek && (
-        <button type="button" onClick={onToday} className="shift-week-today">
-          היום
-        </button>
-      )}
+    <div className="shift-week-nav">
+      <button type="button" onClick={() => onShift(7)} className="shift-week-nav-btn" aria-label="שבוע קודם">
+        <Icon name="chevron_right" size={20} />
+      </button>
+      <span className="shift-week-nav-label">{formatDateShort(wkStart)} – {formatDateShort(end)}</span>
+      <button
+        type="button"
+        onClick={() => onShift(-7)}
+        className="shift-week-nav-btn"
+        aria-label="שבוע הבא"
+        disabled={atMax}
+      >
+        <Icon name="chevron_left" size={20} />
+      </button>
     </div>
   );
 }
@@ -255,53 +247,86 @@ function DayStrip({
   onChange,
   stripId,
   dayComplete,
+  onShiftWeek,
+  maxWeekStart,
 }: {
   wk: string;
   value: number;
   onChange: (i: number) => void;
   stripId: string;
   dayComplete?: (dayIndex: number) => boolean;
+  onShiftWeek?: (deltaDays: number) => void;
+  /** When set, blocks navigating past this week (ISO Sunday). */
+  maxWeekStart?: string;
 }) {
   const reduceMotion = useReducedMotion();
+  const atMax = maxWeekStart != null && wk >= maxWeekStart;
   return (
-    <div className="shift-day-strip">
-      {HE_DAYS.map((d, i) => {
-        const meta = dayMeta(wk, i);
-        const active = i === value;
-        const pillTitle = meta.holiday ? `${meta.hebrewDate} · ${meta.holiday}` : meta.hebrewDate;
-        return (
-          <button
-            key={i}
-            type="button"
-            className="shift-day-pill"
-            data-active={active}
-            data-holiday={!!meta.holiday}
-            data-major-holiday={meta.isMajorHoliday}
-            title={pillTitle}
-            onClick={() => onChange(i)}
-            aria-pressed={active}
-          >
-            {active && (
-              <motion.span
-                layoutId={`day-pill-${stripId}`}
-                className="shift-day-pill-bg"
-                transition={reduceMotion ? { duration: 0 } : { type: "spring", stiffness: 500, damping: 40 }}
-              />
-            )}
-            <span className="shift-day-pill-name">{d}</span>
-            <span className="shift-day-pill-date">{meta.date.slice(8, 10)}</span>
-            <span className="shift-day-pill-inds">
-              {meta.isToday && <span className="shift-day-pill-dot" />}
-              {meta.holiday && !meta.isToday && <span className="shift-day-pill-holiday-dot" aria-hidden />}
-              {dayComplete?.(i) && (
-                <span className="shift-day-pill-check">
-                  <Icon name="check" size={11} />
-                </span>
+    <div className="shift-day-strip" data-with-nav={onShiftWeek ? "true" : undefined}>
+      {onShiftWeek && (
+        <button
+          type="button"
+          className="shift-day-strip-nav"
+          onClick={() => onShiftWeek(7)}
+          aria-label="שבוע קודם"
+        >
+          <Icon name="chevron_right" size={18} />
+        </button>
+      )}
+      <div className="shift-day-strip-days">
+        {HE_DAY_LETTERS.map((d, i) => {
+          const meta = dayMeta(wk, i);
+          const active = i === value;
+          const dayLabel = HE_DAYS[i];
+          const pillTitle = meta.holiday
+            ? `${dayLabel} · ${meta.hebrewDate} · ${meta.holiday}`
+            : `${dayLabel} · ${meta.hebrewDate}`;
+          return (
+            <button
+              key={i}
+              type="button"
+              className="shift-day-pill"
+              data-active={active}
+              data-holiday={!!meta.holiday}
+              data-major-holiday={meta.isMajorHoliday}
+              title={pillTitle}
+              aria-label={pillTitle}
+              onClick={() => onChange(i)}
+              aria-pressed={active}
+            >
+              {active && (
+                <motion.span
+                  layoutId={`day-pill-${stripId}`}
+                  className="shift-day-pill-bg"
+                  transition={reduceMotion ? { duration: 0 } : { type: "spring", stiffness: 500, damping: 40 }}
+                />
               )}
-            </span>
-          </button>
-        );
-      })}
+              <span className="shift-day-pill-name">{d}</span>
+              <span className="shift-day-pill-date">{meta.date.slice(8, 10)}</span>
+              <span className="shift-day-pill-inds">
+                {meta.isToday && <span className="shift-day-pill-dot" />}
+                {meta.holiday && !meta.isToday && <span className="shift-day-pill-holiday-dot" aria-hidden />}
+                {dayComplete?.(i) && (
+                  <span className="shift-day-pill-check">
+                    <Icon name="check" size={11} />
+                  </span>
+                )}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {onShiftWeek && (
+        <button
+          type="button"
+          className="shift-day-strip-nav"
+          onClick={() => onShiftWeek(-7)}
+          aria-label="שבוע הבא"
+          disabled={atMax}
+        >
+          <Icon name="chevron_left" size={18} />
+        </button>
+      )}
     </div>
   );
 }
@@ -419,7 +444,7 @@ function EmployeeSchedule({
           </div>
           <div className="shift-toolbar">
             <ShiftLegend />
-            <WeekNav wkStart={wk} onShift={shiftWeek} onToday={() => setWk(weekStart())} />
+            <WeekNav wkStart={wk} onShift={shiftWeek} />
           </div>
         </>
       )}
@@ -434,7 +459,7 @@ function EmployeeSchedule({
           <div className="employee-shifts-assignments-list">
             {collapsed && (
               <div className="employee-shifts-assignments-nav">
-                <WeekNav wkStart={wk} onShift={shiftWeek} onToday={() => setWk(weekStart())} />
+                <WeekNav wkStart={wk} onShift={shiftWeek} />
               </div>
             )}
             {HE_DAYS.map((d, i) => {
@@ -680,35 +705,12 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
   );
 
   const progressPct = totalDays ? (filledDays / totalDays) * 100 : 0;
-  const atMaxWeek = wk >= nextWk;
 
   return (
     <div>
       {!isDesktop ? (
         <section className="payroll-hero prefs-hero prefs2-hero">
           <div className="payroll-hero-top">
-            <div className="payroll-month-nav">
-              <button
-                type="button"
-                className="payroll-month-btn"
-                aria-label="שבוע קודם"
-                onClick={() => shiftWeek(7)}
-              >
-                <Icon name="chevron_right" size={20} />
-              </button>
-              <span className="payroll-month-label">
-                {formatDateShort(wk)} – {formatDateShort(addDays(wk, 6))}
-              </span>
-              <button
-                type="button"
-                className="payroll-month-btn"
-                aria-label="שבוע הבא"
-                onClick={() => shiftWeek(-7)}
-                disabled={atMaxWeek}
-              >
-                <Icon name="chevron_left" size={20} />
-              </button>
-            </div>
             <span className="shifts-hero-badge" data-state={canEdit ? "open" : "locked"}>
               <Icon name={canEdit ? "edit_calendar" : "lock"} size={14} />
               {canEdit ? "פתוח להגשה" : "נעול"}
@@ -800,12 +802,7 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
               </div>
             </div>
           </div>
-          <WeekNav
-            wkStart={wk}
-            onShift={shiftWeek}
-            onToday={() => { setWk(nextWk); setDayIdx(0); }}
-            maxWeekStart={nextWk}
-          />
+          <WeekNav wkStart={wk} onShift={shiftWeek} maxWeekStart={nextWk} />
         </div>
       )}
 
@@ -874,7 +871,15 @@ function EmployeeConstraints({ templates }: { templates: NonNullable<ReturnType<
       {/* Phone: pick a day, mark availability per shift */}
       {!isDesktop ? (
       <div>
-        <DayStrip wk={wk} value={dayIdx} onChange={setDayIdx} stripId="constraints" dayComplete={dayComplete} />
+        <DayStrip
+          wk={wk}
+          value={dayIdx}
+          onChange={setDayIdx}
+          stripId="constraints"
+          dayComplete={dayComplete}
+          onShiftWeek={shiftWeek}
+          maxWeekStart={nextWk}
+        />
         <SelectedDayHolidayNote wk={wk} dayIdx={dayIdx} />
         <motion.div
           key={`${wk}-${dayIdx}`}
@@ -1287,6 +1292,7 @@ function SchedulerConstraintsBoard({
   wkDir,
   dayIdx,
   setDayIdx,
+  onShiftWeek,
   scheduleSections,
   templates,
   employees,
@@ -1298,6 +1304,7 @@ function SchedulerConstraintsBoard({
   wkDir: number;
   dayIdx: number;
   setDayIdx: (i: number) => void;
+  onShiftWeek: (deltaDays: number) => void;
   scheduleSections: { id: string | null; name: string; color: string }[];
   templates: NonNullable<ReturnType<typeof useActiveShiftTemplates>["data"]>;
   employees: Profile[];
@@ -1305,9 +1312,6 @@ function SchedulerConstraintsBoard({
   reduceMotion: boolean | null;
   isDesktop: boolean;
 }) {
-  const [search, setSearch] = useState("");
-  const q = search.trim().toLowerCase();
-
   const employeesBySection = useMemo(() => {
     const m = new Map<string, Profile[]>();
     for (const section of scheduleSections) {
@@ -1335,7 +1339,6 @@ function SchedulerConstraintsBoard({
           const available: Profile[] = [];
           const cannot: Profile[] = [];
           for (const e of list) {
-            if (q && !(e.full_name ?? "").toLowerCase().includes(q)) continue;
             const status = prefMap.get(`${e.id}_${t.id}_${date}`);
             if (status === "available") available.push(e);
             else if (status === "cannot") cannot.push(e);
@@ -1345,7 +1348,7 @@ function SchedulerConstraintsBoard({
       }
     }
     return m;
-  }, [scheduleSections, employeesBySection, templates, wk, prefMap, q]);
+  }, [scheduleSections, employeesBySection, templates, wk, prefMap]);
 
   const sectionWeekCounts = useMemo(() => {
     const m = new Map<string, number>();
@@ -1368,21 +1371,15 @@ function SchedulerConstraintsBoard({
 
   return (
     <>
-      <div className="shift-constraints-search-wrap">
-        <div className="shift-constraints-search">
-          <Icon name="search" size={17} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-text-3" />
-          <input
-            className="field !py-2.5 !pr-9"
-            placeholder="חיפוש עובד..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-      </div>
-
       {!isDesktop ? (
       <div className="shift-constraints-mobile">
-        <DayStrip wk={wk} value={dayIdx} onChange={setDayIdx} stripId="constraints-board" />
+        <DayStrip
+          wk={wk}
+          value={dayIdx}
+          onChange={setDayIdx}
+          stripId="constraints-board"
+          onShiftWeek={onShiftWeek}
+        />
         <SelectedDayHolidayNote wk={wk} dayIdx={dayIdx} />
         <motion.div
           key={`${wk}-${dayIdx}-constraints`}
@@ -1653,12 +1650,6 @@ function SchedulerView() {
     setDayIdx(todayIdxInWeek(next));
   }
 
-  function goToday() {
-    const w = weekStart();
-    setWk(w);
-    setDayIdx(todayIdxInWeek(w));
-  }
-
   function toggleSection(key: string) {
     setCollapsed((s) => {
       const n = new Set(s);
@@ -1674,7 +1665,7 @@ function SchedulerView() {
     <div className="w-full animate-fadeUp">
       <div className="shift-scheduler-head mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <SchedulerModeToggle value={viewMode} onChange={setViewMode} />
-        <WeekNav wkStart={wk} onShift={shiftWeek} onToday={goToday} />
+        {isDesktop && <WeekNav wkStart={wk} onShift={shiftWeek} />}
       </div>
 
       {viewMode === "constraints" ? (
@@ -1683,6 +1674,7 @@ function SchedulerView() {
           wkDir={wkDir}
           dayIdx={dayIdx}
           setDayIdx={setDayIdx}
+          onShiftWeek={shiftWeek}
           scheduleSections={scheduleSections}
           templates={templates}
           employees={employees ?? []}
@@ -1694,7 +1686,13 @@ function SchedulerView() {
         <>
       {!isDesktop ? (
       <div>
-        <DayStrip wk={wk} value={dayIdx} onChange={setDayIdx} stripId="scheduler" />
+        <DayStrip
+          wk={wk}
+          value={dayIdx}
+          onChange={setDayIdx}
+          stripId="scheduler"
+          onShiftWeek={shiftWeek}
+        />
         <SelectedDayHolidayNote wk={wk} dayIdx={dayIdx} />
         <motion.div
           key={`${wk}-${dayIdx}`}

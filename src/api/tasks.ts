@@ -1,7 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { compressImage } from "@/lib/compressImage";
 import { supabase } from "@/lib/supabase";
+import { normalizeRecurrenceWeekdays } from "@/lib/taskRecurrence";
 import type { Task, TaskApproval, TaskStatus, TaskType } from "@/types/database";
+
+function normalizeTask(row: Task): Task {
+  return {
+    ...row,
+    recurrence_weekday: normalizeRecurrenceWeekdays(row.recurrence_weekday as number[] | number | null),
+  };
+}
 
 /** Upload a single task media file (image is compressed to JPEG; video uploaded as-is). */
 export async function uploadTaskMedia(businessId: string, file: File): Promise<string> {
@@ -38,7 +46,7 @@ export function useTasks(businessId: string | null) {
         .eq("business_id", businessId)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return (data ?? []) as Task[];
+      return ((data ?? []) as Task[]).map(normalizeTask);
     },
   });
 }
@@ -55,7 +63,7 @@ export function useCreateTask() {
       assigned_to?: string | null;
       assigned_by?: string | null;
       due_date?: string | null;
-      recurrence_weekday?: number | null;
+      recurrence_weekday?: number[] | null;
       approval_status?: TaskApproval | null;
       status?: TaskStatus;
       completed_at?: string | null;

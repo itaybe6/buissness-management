@@ -2,6 +2,7 @@ import { useMemo, useState, type CSSProperties } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { Icon } from "@/components/ui";
 import { HE_DAYS, addDays, formatDateShort, weekStart, todayISO } from "@/lib/db";
+import { useIsMdUp } from "@/hooks/useMediaQuery";
 import { matchesRecurrenceWeekday } from "@/lib/taskRecurrence";
 import { isRecurringTaskForDate, recurringOccurrenceDate } from "@/lib/todayTasks";
 import type { Department, Profile, Task, TaskTemplate } from "@/types/database";
@@ -63,6 +64,8 @@ function todayIdxInWeek(wk: string) {
   return 0;
 }
 
+const HE_DAY_LETTERS = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
+
 function WeekNav({ wkStart, onShift, onToday }: { wkStart: string; onShift: (d: number) => void; onToday?: () => void }) {
   const end = addDays(wkStart, 6);
   const isCurrentWeek = wkStart === weekStart();
@@ -88,61 +91,68 @@ function WeekNav({ wkStart, onShift, onToday }: { wkStart: string; onShift: (d: 
   );
 }
 
-function TaskLegend() {
-  return (
-    <div className="shift-toolbar-meta">
-      <span className="shift-legend-chip" data-tone="recurring">
-        קבועה
-      </span>
-      <span className="shift-legend-chip" data-tone="one-time">
-        חד-פעמית
-      </span>
-      <span className="shift-legend-chip" data-tone="done">
-        הושלמה
-      </span>
-    </div>
-  );
-}
-
 function DayStrip({
   wk,
   value,
   onChange,
   stripId,
+  onShiftWeek,
 }: {
   wk: string;
   value: number;
   onChange: (i: number) => void;
   stripId: string;
+  onShiftWeek: (deltaDays: number) => void;
 }) {
   const reduceMotion = useReducedMotion();
   return (
-    <div className="shift-day-strip md:hidden">
-      {HE_DAYS.map((d, i) => {
-        const meta = dayMeta(wk, i);
-        const active = i === value;
-        return (
-          <button
-            key={i}
-            type="button"
-            className="shift-day-pill"
-            data-active={active}
-            onClick={() => onChange(i)}
-            aria-pressed={active}
-          >
-            {active && (
-              <motion.span
-                layoutId={`task-day-pill-${stripId}`}
-                className="shift-day-pill-bg"
-                transition={reduceMotion ? { duration: 0 } : { type: "spring", stiffness: 500, damping: 40 }}
-              />
-            )}
-            <span className="shift-day-pill-name">{d}</span>
-            <span className="shift-day-pill-date">{meta.date.slice(8, 10)}</span>
-            {meta.isToday && <span className="shift-day-pill-dot" />}
-          </button>
-        );
-      })}
+    <div className="shift-day-strip" data-with-nav="true">
+      <button
+        type="button"
+        className="shift-day-strip-nav"
+        onClick={() => onShiftWeek(7)}
+        aria-label="שבוע קודם"
+      >
+        <Icon name="chevron_right" size={18} />
+      </button>
+      <div className="shift-day-strip-days">
+        {HE_DAY_LETTERS.map((d, i) => {
+          const meta = dayMeta(wk, i);
+          const active = i === value;
+          const dayLabel = HE_DAYS[i];
+          return (
+            <button
+              key={i}
+              type="button"
+              className="shift-day-pill"
+              data-active={active}
+              title={`${dayLabel} · ${formatDateShort(meta.date)}`}
+              aria-label={`${dayLabel} · ${formatDateShort(meta.date)}`}
+              onClick={() => onChange(i)}
+              aria-pressed={active}
+            >
+              {active && (
+                <motion.span
+                  layoutId={`task-day-pill-${stripId}`}
+                  className="shift-day-pill-bg"
+                  transition={reduceMotion ? { duration: 0 } : { type: "spring", stiffness: 500, damping: 40 }}
+                />
+              )}
+              <span className="shift-day-pill-name">{d}</span>
+              <span className="shift-day-pill-date">{meta.date.slice(8, 10)}</span>
+              {meta.isToday && <span className="shift-day-pill-dot" />}
+            </button>
+          );
+        })}
+      </div>
+      <button
+        type="button"
+        className="shift-day-strip-nav"
+        onClick={() => onShiftWeek(-7)}
+        aria-label="שבוע הבא"
+      >
+        <Icon name="chevron_left" size={18} />
+      </button>
     </div>
   );
 }
@@ -220,10 +230,10 @@ export function TaskWeekSchedule({
   employees,
   departments,
   employeeFilter,
-  embedded = false,
   onToggle,
 }: TaskWeekScheduleProps) {
   const reduceMotion = useReducedMotion();
+  const isDesktop = useIsMdUp();
   const [wk, setWk] = useState(weekStart());
   const [wkDir, setWkDir] = useState(1);
   const [dayIdx, setDayIdx] = useState(() => todayIdxInWeek(weekStart()));
@@ -287,20 +297,14 @@ export function TaskWeekSchedule({
 
   return (
     <div>
-      {!embedded && (
-        <div className="page-section-label">
-          סידור משימות שבועי
-          {employeeFilter ? <span>המשימות שלך לפי ימים</span> : null}
+      {isDesktop && (
+        <div className="shift-toolbar">
+          <div className="shift-toolbar-meta">
+            <span className="shift-stat">{totalTasks} משימות בשבוע זה</span>
+          </div>
+          <WeekNav wkStart={wk} onShift={shiftWeek} onToday={goToday} />
         </div>
       )}
-
-      <div className="shift-toolbar">
-        <div className="shift-toolbar-meta">
-          <TaskLegend />
-          <span className="shift-stat">{totalTasks} משימות בשבוע זה</span>
-        </div>
-        <WeekNav wkStart={wk} onShift={shiftWeek} onToday={goToday} />
-      </div>
 
       {deptSections.length === 0 ? (
         <div className="rounded-card bg-surface px-5 py-6 text-center text-[13px] text-text-3 shadow-card">
@@ -309,8 +313,15 @@ export function TaskWeekSchedule({
       ) : (
         <>
           {/* Mobile: day-by-day view */}
-          <div className="md:hidden">
-            <DayStrip wk={wk} value={dayIdx} onChange={setDayIdx} stripId="tasks" />
+          {!isDesktop && (
+          <div>
+            <DayStrip
+              wk={wk}
+              value={dayIdx}
+              onChange={setDayIdx}
+              stripId="tasks"
+              onShiftWeek={shiftWeek}
+            />
             <motion.div
               key={`${wk}-${dayIdx}`}
               initial={reduceMotion ? false : { opacity: 0, y: 10 }}
@@ -368,14 +379,16 @@ export function TaskWeekSchedule({
               })}
             </motion.div>
           </div>
+          )}
 
           {/* Desktop: full week grid per department */}
+          {isDesktop && (
           <motion.div
             key={wk}
             initial={reduceMotion ? false : { opacity: 0, x: wkDir * 26 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ type: "spring", stiffness: 320, damping: 32 }}
-            className="hidden flex-col gap-5 md:flex"
+            className="flex flex-col gap-5"
           >
             {deptSections.map(({ dept, employees: deptEmps }, sectionIndex) => {
               const deptColor = dept?.color ?? "#94a3b8";
@@ -454,6 +467,7 @@ export function TaskWeekSchedule({
               );
             })}
           </motion.div>
+          )}
         </>
       )}
     </div>

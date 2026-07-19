@@ -1,7 +1,9 @@
-import { useMemo, type CSSProperties } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import { Badge, Card, EmptyState, Icon } from "@/components/ui";
 import { isSigned, signatureOf } from "@/api/agreements";
+import { colorFor, initialsOf } from "@/lib/db";
 import type { AgreementSignature, AgreementTemplate, Profile } from "@/types/database";
+import { ReadSignModal } from "./AgreementModals";
 import { TAX_YEAR } from "./types";
 
 function StatusIcon({ done, optional }: { done: boolean; optional?: boolean }) {
@@ -13,7 +15,7 @@ function StatusIcon({ done, optional }: { done: boolean; optional?: boolean }) {
   );
 }
 
-type DocStatus = { label: string; done: boolean; optional: boolean };
+type DocStatus = { label: string; done: boolean; optional: boolean; template?: AgreementTemplate };
 
 export function DocumentStatusTable({
   staff,
@@ -30,6 +32,9 @@ export function DocumentStatusTable({
   agreements: AgreementTemplate[];
   taxYear?: number;
 }) {
+  const [viewing, setViewing] = useState<{ agreement: AgreementTemplate; employeeId: string } | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+
   function form101Status(empId: string): { done: boolean; optional: boolean } {
     const template = agreements.find((a) => a.type === "form_101" && a.employee_id === empId);
     if (!template) return { done: false, optional: true };
@@ -45,11 +50,19 @@ export function DocumentStatusTable({
 
   function docsOf(empId: string): DocStatus[] {
     const form101 = form101Status(empId);
-    const workOptional = !globalWork && !agreements.some((a) => a.type === "work" && a.employee_id === empId);
+    const form101Template = agreements.find((a) => a.type === "form_101" && a.employee_id === empId);
+    const personalWork = agreements.find((a) => a.type === "work" && a.employee_id === empId);
+    const workTemplate = personalWork ?? globalWork;
+    const workOptional = !globalWork && !personalWork;
     return [
-      { label: `טופס 101 (${taxYear})`, done: form101.done, optional: form101.optional },
-      { label: "הסכם עבודה", done: workStatus(empId), optional: workOptional },
-      ...globalFixed.map((a) => ({ label: a.title, done: isSigned(signatures, a.id, empId), optional: false })),
+      { label: `טופס 101 (${taxYear})`, done: form101.done, optional: form101.optional, template: form101Template },
+      { label: "הסכם עבודה", done: workStatus(empId), optional: workOptional, template: workTemplate },
+      ...globalFixed.map((a) => ({
+        label: a.title,
+        done: isSigned(signatures, a.id, empId),
+        optional: false,
+        template: a,
+      })),
     ];
   }
 
@@ -59,39 +72,84 @@ export function DocumentStatusTable({
 
   return (
     <>
-      {/* Mobile — card per employee */}
-      <div className="doc-status-cards md:hidden">
+      {/* Mobile — compact expandable roster */}
+      <div className="doc-status-roster md:hidden">
         {staff.map((emp, i) => {
           const docs = docsOf(emp.id);
           const counted = docs.filter((d) => !(d.optional && !d.done));
           const done = counted.filter((d) => d.done).length;
           const complete = counted.length > 0 && done === counted.length;
+          const missing = counted.filter((d) => !d.done).length;
+          const open = expanded === emp.id;
           return (
-            <article
+            <div
               key={emp.id}
-              className="doc-status-card doc-card--enter"
-              style={{ "--doc-delay": `${Math.min(i, 12) * 35}ms` } as CSSProperties}
+              className="doc-status-cell"
+              data-open={open}
+              style={{ "--doc-delay": `${Math.min(i, 12) * 30}ms` } as CSSProperties}
             >
-              <div className="doc-status-card__head">
-                <span className="doc-status-card__name">{emp.full_name ?? "—"}</span>
-                <span className="doc-status-card__count" data-complete={complete}>
-                  <Icon name={complete ? "task_alt" : "hourglass_top"} size={14} />
+              <button
+                type="button"
+                className="doc-status-cell-row"
+                aria-expanded={open}
+                onClick={() => setExpanded(open ? null : emp.id)}
+              >
+                <span className="doc-status-cell-avatar person-chip" style={{ background: colorFor(emp.id) }}>
+                  {initialsOf(emp.full_name)}
+                </span>
+                <span className="doc-status-cell-info">
+                  <span className="doc-status-cell-name">{emp.full_name ?? "—"}</span>
+                  <span className="doc-status-cell-sub">
+                    {complete
+                      ? "כל המסמכים הושלמו"
+                      : missing > 0
+                        ? `${missing} מסמכים חסרים`
+                        : `${done}/${counted.length} הושלמו`}
+                  </span>
+                </span>
+                <span className="doc-status-cell-badge" data-complete={complete}>
                   {done}/{counted.length}
                 </span>
+                <Icon name="expand_more" size={20} className="doc-status-cell-chevron" />
+              </button>
+              <div className="doc-status-cell-details">
+                <div className="doc-status-cell-details-clip">
+                  <div className="doc-status-cell-docs">
+                    {docs.map((d) => {
+                      const clickable = !!d.template;
+                      const state = d.done ? "done" : d.optional ? "optional" : "missing";
+                      const icon = d.done ? "check" : d.optional ? "remove" : "close";
+                      if (!clickable) {
+                        return (
+                          <div key={d.label} className="doc-status-doc-row" data-state={state}>
+                            <span className="doc-status-doc-icon">
+                              <Icon name={icon} size={14} />
+                            </span>
+                            <span className="doc-status-doc-label">{d.label}</span>
+                          </div>
+                        );
+                      }
+                      return (
+                        <button
+                          key={d.label}
+                          type="button"
+                          className="doc-status-doc-row"
+                          data-state={state}
+                          aria-label={`צפייה ב${d.label}`}
+                          onClick={() => setViewing({ agreement: d.template!, employeeId: emp.id })}
+                        >
+                          <span className="doc-status-doc-icon">
+                            <Icon name={icon} size={14} />
+                          </span>
+                          <span className="doc-status-doc-label">{d.label}</span>
+                          <Icon name="chevron_left" size={18} className="doc-status-doc-chevron" aria-hidden />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
-              <div className="doc-status-card__chips">
-                {docs.map((d) => (
-                  <span
-                    key={d.label}
-                    className="doc-status-chip"
-                    data-state={d.done ? "done" : d.optional ? "optional" : "missing"}
-                  >
-                    <Icon name={d.done ? "check" : d.optional ? "remove" : "close"} size={13} />
-                    {d.label}
-                  </span>
-                ))}
-              </div>
-            </article>
+            </div>
           );
         })}
       </div>
@@ -137,6 +195,15 @@ export function DocumentStatusTable({
           </table>
         </div>
       </Card>
+
+      {viewing && (
+        <ReadSignModal
+          agreement={viewing.agreement}
+          employeeId={viewing.employeeId}
+          signature={signatureOf(signatures, viewing.agreement.id, viewing.employeeId)}
+          onClose={() => setViewing(null)}
+        />
+      )}
     </>
   );
 }

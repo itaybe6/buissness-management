@@ -12,6 +12,8 @@ import { EASE_OUT } from "@/components/motion/shared-motion";
 
 import { ROLE_LABELS, groupNavItems } from "@/lib/constants";
 
+import { NavItemBadge } from "@/components/layout/NavItemBadge";
+
 import type { NavItem } from "@/lib/constants";
 
 import type { UserRole } from "@/types/database";
@@ -46,6 +48,8 @@ interface MobileSideDrawerProps {
 
   onLogout: () => void;
 
+  newFaultCount?: number;
+
 }
 
 
@@ -77,6 +81,8 @@ export function MobileSideDrawer({
   onToggleTheme,
 
   onLogout,
+
+  newFaultCount = 0,
 
 }: MobileSideDrawerProps) {
 
@@ -306,6 +312,10 @@ export function MobileSideDrawer({
                         <Icon name={item.icon} size={21} />
 
                         <span className="flex-1 text-right">{item.label}</span>
+
+                        {role === "maintenance" && item.key === "faults" ? (
+                          <NavItemBadge count={newFaultCount} className="mobile-drawer-badge" />
+                        ) : null}
 
                       </NavLink>
 

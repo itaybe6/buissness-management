@@ -7,6 +7,7 @@ import { Login } from "@/pages/Login";
 import { ResetPassword } from "@/pages/ResetPassword";
 import { AppShell } from "@/components/layout/AppShell";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { SuperAdminRoute } from "@/components/SuperAdminRoute";
 import { Dashboard } from "@/pages/Dashboard";
 import { Platform } from "@/pages/superadmin/Platform";
 import { Businesses } from "@/pages/superadmin/Businesses";
@@ -62,10 +63,10 @@ export function App() {
         >
           <Route index element={<HomeRedirect />} />
           <Route path="dashboard" element={<DashboardRoute />} />
-          <Route path="platform" element={<Platform />} />
-          <Route path="businesses" element={<Businesses />} />
-          <Route path="businesses/:id" element={<BusinessDetail />} />
-          <Route path="platform-users" element={<PlatformUsers />} />
+          <Route path="platform" element={<SuperAdminRoute><Platform /></SuperAdminRoute>} />
+          <Route path="businesses" element={<SuperAdminRoute><Businesses /></SuperAdminRoute>} />
+          <Route path="businesses/:id" element={<SuperAdminRoute><BusinessDetail /></SuperAdminRoute>} />
+          <Route path="platform-users" element={<SuperAdminRoute><PlatformUsers /></SuperAdminRoute>} />
           <Route path="users" element={<Users />} />
           <Route path="shifts" element={<FeatureGate feature="shifts"><Shifts /></FeatureGate>} />
           <Route path="shift-reports" element={<FeatureGate feature="shift_reports"><ShiftReports /></FeatureGate>} />

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button, Field, Icon, Input, Select } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useBusinessId } from "@/lib/db";
+import { useAuth } from "@/lib/auth";
 import { uploadAgreementBlob, uploadAgreementFile, useSignAgreement, notifyForm101Signed } from "@/api/agreements";
 import type { AgreementSignature, AgreementTemplate, AgreementType, Profile, SignatureField } from "@/types/database";
 import { TYPE_LABELS } from "./types";
@@ -182,6 +183,8 @@ export function ReadSignModal({
   onClose: () => void;
 }) {
   const businessId = useBusinessId();
+  const { profile } = useAuth();
+  const canSign = profile?.id === employeeId;
   const sign = useSignAgreement(businessId);
   const alreadySigned = !!signature?.agreed;
   const fields = agreement.signature_fields ?? [];
@@ -194,6 +197,7 @@ export function ReadSignModal({
         employeeId={employeeId}
         signature={signature}
         alreadySigned={alreadySigned}
+        canSign={canSign}
         onClose={onClose}
       />
     );
@@ -206,6 +210,7 @@ export function ReadSignModal({
       employeeId={employeeId}
       signature={signature}
       alreadySigned={alreadySigned}
+      canSign={canSign}
       signing={sign.isPending}
       onClose={onClose}
       onSign={async (dataUrl) => {
@@ -229,12 +234,14 @@ function PdfSignModal({
   employeeId,
   signature,
   alreadySigned,
+  canSign,
   onClose,
 }: {
   agreement: AgreementTemplate;
   employeeId: string;
   signature?: AgreementSignature;
   alreadySigned: boolean;
+  canSign: boolean;
   onClose: () => void;
 }) {
   const businessId = useBusinessId();
@@ -248,8 +255,10 @@ function PdfSignModal({
   const allSigned = fields.every((f) => sigs[f.id]);
   const viewUrl = alreadySigned && signature?.signed_file_url ? signature.signed_file_url : agreement.file_url!;
   const overlaySigs = alreadySigned ? signature?.field_signatures ?? {} : sigs;
+  const signingAllowed = canSign && !alreadySigned;
 
   async function submit() {
+    if (!canSign) return;
     setSubmitting(true);
     setErr("");
     try {
@@ -279,19 +288,21 @@ function PdfSignModal({
         open
         onClose={onClose}
         title={agreement.title}
-        subtitle={alreadySigned ? "המסמך נחתם" : "לחצו על כל תיבה כדי לחתום"}
+        subtitle={
+          alreadySigned ? "המסמך נחתם" : canSign ? "לחצו על כל תיבה כדי לחתום" : "צפייה במסמך — ממתין לחתימת העובד"
+        }
         icon="draw"
         maxWidth={840}
         footer={
-          alreadySigned ? (
-            <Button className="flex-1" onClick={onClose}>סגירה</Button>
-          ) : (
+          signingAllowed ? (
             <>
               <Button variant="secondary" onClick={onClose}>ביטול</Button>
               <Button className="flex-1" disabled={!allSigned} loading={submitting} onClick={submit}>
                 שמירה וחתימה
               </Button>
             </>
+          ) : (
+            <Button className="flex-1" onClick={onClose}>סגירה</Button>
           )
         }
       >
@@ -305,30 +316,35 @@ function PdfSignModal({
             <Icon name="download" size={18} /> הורדת המסמך החתום
           </a>
         )}
-        {!alreadySigned && (
+        {signingAllowed && (
           <div className="mb-3 flex items-center gap-2 rounded-[11px] bg-accent-tint px-3 py-2.5 text-[12.5px] font-semibold text-accent-2">
             <Icon name="info" size={18} /> נותרו {fields.length - Object.keys(sigs).filter((k) => sigs[k]).length} תיבות לחתימה
+          </div>
+        )}
+        {!canSign && !alreadySigned && (
+          <div className="mb-3 flex items-center gap-2 rounded-[11px] border border-border bg-surface-2 px-3 py-2.5 text-[12.5px] font-semibold text-text-2">
+            <Icon name="lock" size={18} /> רק העובד/ת יכול/ה לחתום על המסמך שלו/ה
           </div>
         )}
         <div className="max-h-[58vh] overflow-auto rounded-[12px] border border-border bg-surface-2 p-3">
           <PdfDocViewer
             url={viewUrl}
             renderOverlay={(pageIndex) =>
-              alreadySigned && signature?.signed_file_url ? null : (
+              signingAllowed ? (
                 <FieldSignOverlay
                   pageIndex={pageIndex}
                   fields={fields}
                   signatures={overlaySigs}
-                  readonly={alreadySigned}
+                  readonly={false}
                   onTap={(fid) => setPadField(fid)}
                 />
-              )
+              ) : null
             }
           />
         </div>
         {err && <p className="mt-2 text-[12px] font-semibold text-danger">{err}</p>}
       </Modal>
-      {padField && (
+      {padField && canSign && (
         <SignaturePadModal
           onClose={() => setPadField(null)}
           onSave={(dataUrl) => {
@@ -345,6 +361,7 @@ function LegacySignModal({
   agreement,
   signature,
   alreadySigned,
+  canSign,
   signing,
   onClose,
   onSign,
@@ -353,11 +370,13 @@ function LegacySignModal({
   employeeId: string;
   signature?: AgreementSignature;
   alreadySigned: boolean;
+  canSign: boolean;
   signing: boolean;
   onClose: () => void;
   onSign: (dataUrl: string) => Promise<void>;
 }) {
   const [padOpen, setPadOpen] = useState(false);
+  const signingAllowed = canSign && !alreadySigned;
 
   return (
     <>
@@ -369,13 +388,13 @@ function LegacySignModal({
         icon="draw"
         maxWidth={560}
         footer={
-          alreadySigned ? (
-            <Button className="flex-1" onClick={onClose}>סגירה</Button>
-          ) : (
+          signingAllowed ? (
             <>
               <Button variant="secondary" onClick={onClose}>ביטול</Button>
               <Button className="flex-1" loading={signing} onClick={() => setPadOpen(true)}>אני מאשר/ת וחותם/ת</Button>
             </>
+          ) : (
+            <Button className="flex-1" onClick={onClose}>סגירה</Button>
           )
         }
       >
@@ -383,6 +402,11 @@ function LegacySignModal({
           <a href={agreement.file_url} target="_blank" rel="noreferrer" className="mb-3 flex items-center gap-2 rounded-[11px] border border-border bg-surface-2 px-3 py-2.5 text-[13px] font-semibold text-link">
             <Icon name="attach_file" size={18} /> צפייה במסמך המצורף
           </a>
+        )}
+        {!canSign && !alreadySigned && (
+          <div className="mb-3 flex items-center gap-2 rounded-[11px] border border-border bg-surface-2 px-3 py-2.5 text-[12.5px] font-semibold text-text-2">
+            <Icon name="lock" size={18} /> רק העובד/ת יכול/ה לחתום על המסמך שלו/ה
+          </div>
         )}
         {agreement.content && (
           <div className="mb-4 max-h-[230px] overflow-auto whitespace-pre-wrap rounded-[12px] bg-surface-2 p-4 text-[13.5px] leading-relaxed text-text">{agreement.content}</div>
@@ -399,7 +423,7 @@ function LegacySignModal({
           </div>
         )}
       </Modal>
-      {padOpen && (
+      {padOpen && canSign && (
         <SignaturePadModal
           onClose={() => setPadOpen(false)}
           onSave={async (dataUrl) => {

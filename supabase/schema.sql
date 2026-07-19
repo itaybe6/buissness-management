@@ -566,7 +566,13 @@ create table public.task_templates (
   department_id      uuid references public.departments(id) on delete set null, -- שיוך למחלקה; null = כללי לכל העסק
   title              text not null,
   description        text,
-  recurrence_weekday smallint check (recurrence_weekday is null or (recurrence_weekday >= -1 and recurrence_weekday <= 6)), -- -1 = כל יום
+  recurrence_weekday smallint[] check (
+    recurrence_weekday is null
+    or (
+      cardinality(recurrence_weekday) >= 1
+      and recurrence_weekday <@ array[-1, 0, 1, 2, 3, 4, 5, 6]::smallint[]
+    )
+  ), -- {-1}=כל יום, אחרת 0–6
   active             boolean not null default true,
   sort_order         integer not null default 0,
   created_at         timestamptz not null default now()
@@ -582,7 +588,7 @@ create table public.tasks (
   assigned_to   uuid references public.profiles(id),   -- למי שויכה
   assigned_by   uuid references public.profiles(id),   -- מי הוריד אותה
   due_date      date,                                  -- למשימה חד-פעמית
-  recurrence_weekday smallint,                         -- 0-6 למשימה קבועה
+  recurrence_weekday smallint[],                       -- {-1}=כל יום / 0–6 ימים נבחרים
   status        public.task_status not null default 'open',
   approval_status public.task_approval,                -- null = לא דורש אישור; pending = ממתין לאישור מנהל; approved = אושר
   photo_url     text,                                  -- (לא בשימוש) תמונת ביצוע בודדת — נשמר לתאימות לאחור
@@ -787,13 +793,20 @@ create policy "agr_templates_write" on public.agreement_templates
     public.can_access(business_id) and public.auth_role() in ('manager', 'shift_manager')
   );
 -- agreement_signatures — עובד רואה/חותם רק על שלו, מנהלים רואים הכל
-create policy "agr_signatures_tenant" on public.agreement_signatures
-  for all using (
+create policy "agr_signatures_select" on public.agreement_signatures
+  for select using (
     public.can_access(business_id)
     and (public.auth_role() in ('manager', 'office_manager', 'shift_manager') or employee_id = auth.uid())
+  );
+create policy "agr_signatures_insert" on public.agreement_signatures
+  for insert with check (
+    public.can_access(business_id) and employee_id = auth.uid()
+  );
+create policy "agr_signatures_update" on public.agreement_signatures
+  for update using (
+    public.can_access(business_id) and employee_id = auth.uid()
   ) with check (
-    public.can_access(business_id)
-    and (public.auth_role() in ('manager', 'office_manager', 'shift_manager') or employee_id = auth.uid())
+    public.can_access(business_id) and employee_id = auth.uid()
   );
 -- form_101
 create policy "form101_tenant" on public.form_101

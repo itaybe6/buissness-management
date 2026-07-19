@@ -1,6 +1,29 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { normalizeRecurrenceWeekdays } from "@/lib/taskRecurrence";
 import type { TaskTemplate } from "@/types/database";
+
+function recurrenceDbError(error: { message?: string }): Error {
+  const msg = error.message ?? "";
+  if (
+    msg.includes("recurrence_weekday") ||
+    msg.includes("malformed array") ||
+    msg.includes("smallint[]") ||
+    msg.includes('invalid input syntax for type smallint')
+  ) {
+    return new Error(
+      "לא ניתן לשמור בחירת ימים מרובה — יש לעדכן את מסד הנתונים. פנו למנהל המערכת להריץ את המיגרציה task_recurrence_multi_day.",
+    );
+  }
+  return new Error(msg || "שמירת המשימה נכשלה");
+}
+
+function normalizeTemplate(row: TaskTemplate): TaskTemplate {
+  return {
+    ...row,
+    recurrence_weekday: normalizeRecurrenceWeekdays(row.recurrence_weekday as number[] | number | null),
+  };
+}
 
 export function useTaskTemplates(businessId: string | null) {
   return useQuery({
@@ -14,7 +37,7 @@ export function useTaskTemplates(businessId: string | null) {
         .order("sort_order")
         .order("created_at");
       if (error) throw error;
-      return (data ?? []) as TaskTemplate[];
+      return ((data ?? []) as TaskTemplate[]).map(normalizeTemplate);
     },
   });
 }
@@ -32,7 +55,7 @@ export function useActiveTaskTemplates(businessId: string | null) {
         .order("sort_order")
         .order("created_at");
       if (error) throw error;
-      return (data ?? []) as TaskTemplate[];
+      return ((data ?? []) as TaskTemplate[]).map(normalizeTemplate);
     },
   });
 }
@@ -45,7 +68,7 @@ export function useCreateTaskTemplate(businessId: string | null) {
       title: string;
       description?: string | null;
       department_id?: string | null;
-      recurrence_weekday?: number | null;
+      recurrence_weekday?: number[] | null;
       sort_order?: number;
     }) => {
       const { error } = await supabase.from("task_templates").insert(input);
@@ -63,13 +86,13 @@ export function useUpdateTaskTemplate(businessId: string | null) {
       title?: string;
       description?: string | null;
       department_id?: string | null;
-      recurrence_weekday?: number | null;
+      recurrence_weekday?: number[] | null;
       active?: boolean;
       sort_order?: number;
     }) => {
       const { id, ...rest } = input;
       const { error } = await supabase.from("task_templates").update(rest).eq("id", id);
-      if (error) throw error;
+      if (error) throw recurrenceDbError(error);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["task_templates", businessId] }),
   });

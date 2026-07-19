@@ -16,7 +16,11 @@ import { UserAvatar } from "@/components/ui/UserAvatar";
 
 import { MobileSideDrawer } from "@/components/layout/MobileSideDrawer";
 
+import { NavItemBadge } from "@/components/layout/NavItemBadge";
+
 import { NAV_ITEMS, ROLE_LABELS, groupNavItems } from "@/lib/constants";
+
+import { useMaintenanceNewFaultCount } from "@/hooks/useMaintenanceNewFaultCount";
 
 import type { NavItem } from "@/lib/constants";
 
@@ -38,6 +42,8 @@ export function AppShell() {
   const navigate = useNavigate();
 
   const [menuOpen, setMenuOpen] = useState(false);
+
+  const { count: newFaultCount } = useMaintenanceNewFaultCount();
 
   const role = profile?.role ?? "employee";
 
@@ -209,6 +215,10 @@ export function AppShell() {
 
                       <span className="flex-1 text-right">{item.label}</span>
 
+                      {role === "maintenance" && item.key === "faults" ? (
+                        <NavItemBadge count={newFaultCount} />
+                      ) : null}
+
                     </NavLink>
 
                   );
@@ -363,6 +373,8 @@ export function AppShell() {
         onToggleTheme={toggle}
 
         onLogout={handleLogout}
+
+        newFaultCount={newFaultCount}
 
       />
 

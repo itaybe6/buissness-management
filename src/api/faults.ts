@@ -5,10 +5,11 @@ import { isVideoFile } from "@/lib/media";
 import { supabase } from "@/lib/supabase";
 import type { Fault, FaultStatus } from "@/types/database";
 
-export function useFaults(businessId: string | null) {
+export function useFaults(businessId: string | null, options?: { poll?: boolean }) {
   return useQuery({
     queryKey: ["faults", businessId],
     enabled: !!businessId,
+    refetchInterval: options?.poll ? 30_000 : false,
     queryFn: async (): Promise<Fault[]> => {
       const { data, error } = await supabase
         .from("faults")

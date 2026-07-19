@@ -43,12 +43,15 @@ export function EventDetail() {
   const isPast = days < 0;
   const isToday = days === 0;
   const mediaUrls = event.media_urls ?? [];
+  const weekday = d.toLocaleDateString("he-IL", { weekday: "long" });
   const dateLabel = d.toLocaleDateString("he-IL", {
     weekday: "long",
     day: "numeric",
     month: "long",
     year: "numeric",
   });
+  const statusTone = isPast ? "past" : days <= 1 ? "hot" : "soon";
+  const statusLabel = isPast ? "האירוע התקיים" : isToday ? "קורה היום" : daysUntilLabel(days);
 
   function openEdit() {
     setTitle(event!.title);
@@ -100,121 +103,176 @@ export function EventDetail() {
   }
 
   return (
-    <div className="w-full page-enter">
-      <div className="evtd-cover" data-empty={mediaUrls.length === 0}>
-        {mediaUrls.length > 0 ? (
-          <EventMediaCarousel urls={mediaUrls} tall />
-        ) : (
-          <div className="evtd-cover-fallback" aria-hidden>
-            <span className="evt-poster-aurora evt-poster-aurora--1" />
-            <span className="evt-poster-aurora evt-poster-aurora--2" />
-            <span className="evt-poster-grid" />
-            <Icon name="celebration" size={72} className="evt-poster-icon" />
-          </div>
-        )}
-        <span className="evtd-cover-scrim" aria-hidden />
-        <div className="evtd-cover-bar">
-          <button
-            type="button"
-            className="evtd-glass-btn"
-            onClick={() => navigate("/events")}
-            aria-label="חזרה לאירועים"
-          >
-            <Icon name="arrow_forward" size={20} />
-          </button>
-          {canManage && (
-            <div className="flex items-center gap-2">
-              <button type="button" className="evtd-glass-btn" onClick={openEdit} aria-label="עריכת האירוע">
-                <Icon name="edit" size={19} />
-              </button>
-              <button
-                type="button"
-                className="evtd-glass-btn evtd-glass-btn--danger"
-                onClick={() => setDeleteOpen(true)}
-                aria-label="מחיקת האירוע"
-              >
-                <Icon name="delete" size={19} />
-              </button>
+    <div className="evtd-page page-enter" data-past={isPast || undefined}>
+      <section className="evtd-hero" aria-label={event.title}>
+        <div className="evtd-cover" data-empty={mediaUrls.length === 0}>
+          {mediaUrls.length > 0 ? (
+            <EventMediaCarousel urls={mediaUrls} tall />
+          ) : (
+            <div className="evtd-cover-fallback" aria-hidden>
+              <span className="evt-poster-aurora evt-poster-aurora--1" />
+              <span className="evt-poster-aurora evt-poster-aurora--2" />
+              <span className="evt-poster-grid" />
+              <Icon name="celebration" size={72} className="evt-poster-icon" />
             </div>
           )}
-        </div>
-      </div>
-
-      <div className="evtd-sheet">
-        <div className="evtd-daterow">
-          <span className="evtd-datechip" aria-hidden>
-            <b>{d.getDate()}</b>
-            <i>{d.toLocaleDateString("he-IL", { month: "short" })}</i>
-          </span>
-          <div className="min-w-0 flex-1">
-            <span
-              className="evtd-pill"
-              data-tone={isPast ? "past" : days <= 1 ? "hot" : "soon"}
+          <span className="evtd-cover-scrim" aria-hidden />
+          <div className="evtd-cover-bar">
+            <button
+              type="button"
+              className="evtd-glass-btn"
+              onClick={() => navigate("/events")}
+              aria-label="חזרה לאירועים"
             >
-              {isPast ? "האירוע התקיים" : daysUntilLabel(days)}
-            </span>
-            <p className="evtd-datelabel">{dateLabel}</p>
+              <Icon name="arrow_forward" size={20} />
+            </button>
+            {canManage && (
+              <div className="evtd-cover-actions">
+                <button type="button" className="evtd-glass-btn" onClick={openEdit} aria-label="עריכת האירוע">
+                  <Icon name="edit" size={19} />
+                </button>
+                <button
+                  type="button"
+                  className="evtd-glass-btn evtd-glass-btn--danger"
+                  onClick={() => setDeleteOpen(true)}
+                  aria-label="מחיקת האירוע"
+                >
+                  <Icon name="delete" size={19} />
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
-        <h1 className="evtd-title">{event.title}</h1>
+        <div className="evtd-hero-card">
+          <div className="evtd-hero-card-edge" aria-hidden />
+          <div className="evtd-hero-head">
+            <span className="evtd-datechip" aria-hidden>
+              <b>{d.getDate()}</b>
+              <i>{d.toLocaleDateString("he-IL", { month: "short" })}</i>
+            </span>
+            <div className="evtd-hero-meta">
+              <span className="evtd-pill" data-tone={statusTone}>
+                {!isPast && (isToday || days <= 1) && <span className="evt-live-dot" aria-hidden />}
+                {statusLabel}
+              </span>
+              <p className="evtd-datelabel">{dateLabel}</p>
+            </div>
+          </div>
 
+          <h1 className="evtd-title">{event.title}</h1>
+
+          <div className="evtd-hero-chips">
+            <span className="evtd-chip">
+              <Icon name="calendar_month" size={14} />
+              {weekday}
+            </span>
+            {mediaUrls.length > 0 && (
+              <span className="evtd-chip">
+                <Icon name="photo_library" size={14} />
+                {mediaUrls.length === 1 ? "תמונה אחת" : `${mediaUrls.length} קבצים`}
+              </span>
+            )}
+            {isPast && (
+              <span className="evtd-chip evtd-chip--muted">
+                <Icon name="history" size={14} />
+                ארכיון
+              </span>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <div className="evtd-body">
         {days > 0 && (
-          <div className="evtd-ticket">
+          <section className="evtd-ticket" aria-label="ספירה לאחור לאירוע">
             <span className="evtd-ticket-notch evtd-ticket-notch--start" aria-hidden />
             <span className="evtd-ticket-notch evtd-ticket-notch--end" aria-hidden />
-            <span className="evtd-ticket-aurora" aria-hidden />
             <div className="evtd-ticket-head">
-              <Icon name="local_activity" size={15} />
-              הספירה לאחור
+              <span className="evtd-ticket-icon" aria-hidden>
+                <Icon name="local_activity" size={16} />
+              </span>
+              <div>
+                <p className="evtd-ticket-kicker">הספירה לאחור</p>
+                <p className="evtd-ticket-sub">עד שהאירוע עולה לבמה</p>
+              </div>
             </div>
+            <div className="evtd-ticket-perforation" aria-hidden />
             <EventCountdown dateStr={event.event_date} />
-          </div>
+          </section>
         )}
 
         {isToday && (
           <div className="evtd-today">
-            <span className="evt-live-dot" aria-hidden />
-            האירוע מתקיים היום
+            <span className="evtd-today-ring" aria-hidden>
+              <span className="evt-live-dot" />
+            </span>
+            <div>
+              <p className="evtd-today-title">הערב זה קורה</p>
+              <p className="evtd-today-sub">האירוע מתקיים היום — בהצלחה!</p>
+            </div>
           </div>
         )}
 
         {event.description && (
           <section className="evtd-desc">
-            <h2 className="evtd-label">פרטי האירוע</h2>
-            <p>{event.description}</p>
+            <div className="evtd-desc-head">
+              <span className="evtd-desc-icon" aria-hidden>
+                <Icon name="notes" size={16} />
+              </span>
+              <h2 className="evtd-label">פרטי האירוע</h2>
+            </div>
+            <p className="evtd-desc-text">{event.description}</p>
           </section>
         )}
 
         {mediaUrls.length > 1 && (
           <section className="evtd-gallery-wrap">
-            <h2 className="evtd-label">
-              גלריה <span>({mediaUrls.length})</span>
-            </h2>
+            <div className="evtd-gallery-head">
+              <h2 className="evtd-label">
+                <Icon name="photo_library" size={16} />
+                גלריה
+              </h2>
+              <span className="evtd-gallery-count">{mediaUrls.length} קבצים</span>
+            </div>
             <div className="evtd-gallery" data-rich={mediaUrls.length >= 3} data-count={mediaUrls.length}>
               {mediaUrls.map((url, i) => (
-                <a key={url} href={url} target="_blank" rel="noreferrer" className="evtd-gallery-item">
+                <a
+                  key={url}
+                  href={url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="evtd-gallery-item"
+                  data-featured={i === 0 || undefined}
+                >
                   {isVideoUrl(url) ? (
                     <>
                       <video src={url} muted playsInline preload="metadata" />
                       <span className="evtd-gallery-play" aria-hidden>
-                        <Icon name="play_circle" size={26} />
+                        <Icon name="play_circle" size={28} />
                       </span>
                     </>
                   ) : (
                     <img src={url} alt={`תמונה ${i + 1} מתוך ${mediaUrls.length}`} loading="lazy" />
                   )}
+                  <span className="evtd-gallery-index" aria-hidden>{i + 1}</span>
                 </a>
               ))}
             </div>
           </section>
         )}
 
-        <p className="evtd-foot">
+        <footer className="evtd-foot">
           <Icon name="history" size={13} />
-          נוסף ללו״ז ב־
-          {new Date(event.created_at).toLocaleDateString("he-IL", { day: "numeric", month: "long", year: "numeric" })}
-        </p>
+          <span>
+            נוסף ללו״ז ב־
+            {new Date(event.created_at).toLocaleDateString("he-IL", {
+              day: "numeric",
+              month: "long",
+              year: "numeric",
+            })}
+          </span>
+        </footer>
       </div>
 
       <Modal

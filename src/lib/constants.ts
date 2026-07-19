@@ -160,7 +160,7 @@ export function groupNavItems(items: NavItem[], options?: { flat?: boolean }): N
 export const NAV_ITEMS: NavItem[] = [
   { key: "dashboard", label: "דשבורד", icon: "space_dashboard", group: "overview", roles: ["manager", "shift_manager", "office_manager"] },
   { key: "dashboard", label: "בית", icon: "home", group: "overview", roles: ["employee"] },
-  { key: "dashboard", label: "תקלות", icon: "build", group: "overview", roles: ["maintenance"] },
+  { key: "faults", label: "תקלות", icon: "build", group: "overview", roles: ["maintenance"], feature: "faults" },
   { key: "platform", label: "סקירת פלטפורמה", icon: "space_dashboard", group: "platform", roles: ["super_admin"] },
   { key: "businesses", label: "עסקים", icon: "store", group: "platform", roles: ["super_admin"] },
   { key: "platform-users", label: "משתמשים", icon: "group", group: "platform", roles: ["super_admin"] },
@@ -174,8 +174,8 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "attendance", label: "שעון נוכחות", icon: "schedule", group: "shifts", roles: ["manager"], feature: "attendance" },
   { key: "my-shifts", label: "מעקב שכר", icon: "event_available", group: "shifts", roles: ["manager", "shift_manager", "office_manager", "employee", "maintenance"] },
 
-  { key: "tasks", label: "משימות", icon: "checklist", group: "ops", roles: ["manager", "shift_manager", "office_manager", "maintenance"], feature: "tasks" },
-  { key: "inventory", label: "סחורות", icon: "inventory_2", group: "ops", roles: ["manager", "shift_manager", "office_manager", "employee", "maintenance"], feature: "inventory" },
+  { key: "tasks", label: "משימות", icon: "checklist", group: "ops", roles: ["manager", "shift_manager", "office_manager"], feature: "tasks" },
+  { key: "inventory", label: "סחורות", icon: "inventory_2", group: "ops", roles: ["manager", "shift_manager", "office_manager", "employee"], feature: "inventory" },
   { key: "faults", label: "תקלות", icon: "build", group: "ops", roles: ["manager", "shift_manager", "employee"], feature: "faults" },
   { key: "events", label: "אירועים", icon: "celebration", group: "ops", roles: ["manager", "event_manager", "shift_manager", "office_manager", "employee"], feature: "events" },
 
@@ -185,6 +185,7 @@ export const NAV_ITEMS: NavItem[] = [
 /** Default landing route after login, per role. */
 export function getHomePath(role: UserRole): string {
   if (role === "employee") return "/dashboard";
+  if (role === "maintenance") return "/faults";
   if (role === "event_manager") return "/events";
   if (role === "super_admin") return "/platform";
   return "/dashboard";

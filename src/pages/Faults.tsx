@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth";
 import { addDays, todayISO, toISODate, useBusinessId } from "@/lib/db";
 import { isVideoFile, isVideoUrl } from "@/lib/media";
 import { useFaults, useCreateFault, useUpdateFault, useDeleteFault, uploadFaultPhotos } from "@/api/faults";
+import { useMaintenanceNewFaultCount } from "@/hooks/useMaintenanceNewFaultCount";
 import type { Fault, FaultStatus } from "@/types/database";
 
 type StatusTone = "danger" | "warning" | "success";
@@ -715,6 +716,7 @@ export function Faults() {
   const createFault = useCreateFault();
   const updateFault = useUpdateFault(businessId);
   const deleteFault = useDeleteFault(businessId);
+  const { markSeen: markFaultsSeenForMaintenance } = useMaintenanceNewFaultCount();
   const [open, setOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -736,6 +738,11 @@ export function Faults() {
   mediaRef.current = media;
 
   useEffect(() => () => revokeMediaEntries(mediaRef.current), []);
+
+  useEffect(() => {
+    if (profile?.role !== "maintenance") return;
+    markFaultsSeenForMaintenance();
+  }, [profile?.role, markFaultsSeenForMaintenance]);
 
   const reporterById = useMemo(() => {
     const map = new Map<string, string>();

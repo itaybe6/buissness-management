@@ -54,9 +54,13 @@ export function useCreateBusiness() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: { name: string; features: Record<FeatureKey, boolean> }) => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
       const { data: biz, error } = await supabase
         .from("businesses")
-        .insert({ name: input.name })
+        .insert({ name: input.name, created_by: user?.id ?? null })
         .select()
         .single();
       if (error) throw error;

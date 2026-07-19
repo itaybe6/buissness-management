@@ -121,6 +121,11 @@ export function useSignAgreement(businessId: string | null) {
       field_signatures?: Record<string, string>;
       signed_file_url?: string | null;
     }) => {
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError) throw authError;
+      if (!authData.user || authData.user.id !== input.employee_id) {
+        throw new Error("אין הרשאה לחתום על מסמך של עובד אחר");
+      }
       const { error } = await supabase.from("agreement_signatures").upsert(
         {
           ...input,

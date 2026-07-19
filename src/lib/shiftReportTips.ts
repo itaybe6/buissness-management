@@ -112,6 +112,24 @@ export function formatWorkTimeRange(start?: string, end?: string): string {
   return start || end || "—";
 }
 
+/** Parse stored time text into HH:MM for `<input type="time">`; empty if invalid. */
+export function normalizeTimeInputValue(raw: string | null | undefined): string {
+  if (!raw?.trim()) return "";
+  const match = raw.trim().match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return "";
+  const hours = Math.min(23, Math.max(0, Number(match[1])));
+  const minutes = Math.min(59, Math.max(0, Number(match[2])));
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+/** Display label for a single time value; falls back to raw text when not HH:MM. */
+export function formatTimeLabel(raw: string | null | undefined): string | null {
+  const normalized = normalizeTimeInputValue(raw);
+  if (normalized) return normalized;
+  const trimmed = raw?.trim();
+  return trimmed || null;
+}
+
 /** Earliest/latest clipped punch times on the report day plus total hours. */
 export function getAttendanceTimeRangeForShiftReport(input: {
   attendance: Attendance[];

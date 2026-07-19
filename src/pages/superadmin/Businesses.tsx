@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Badge,
@@ -11,9 +11,9 @@ import {
   Input,
   PageHeader,
   PageLoader,
-  Switch,
 } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
+import { ActiveModulesPanel } from "@/components/superadmin/ActiveModulesPanel";
 import { useBusinesses, useCreateBusiness } from "@/api/businesses";
 import { ALL_FEATURES, DEFAULT_FEATURE_STATE } from "@/lib/constants";
 import { colorFor, initialsOf } from "@/lib/db";
@@ -28,16 +28,31 @@ export function Businesses() {
   const [features, setFeatures] = useState<Record<FeatureKey, boolean>>({ ...DEFAULT_FEATURE_STATE });
   const [error, setError] = useState<string | null>(null);
 
-  const featuresOn = Object.values(features).filter(Boolean).length;
+  const enabledSet = useMemo(
+    () => new Set(Object.entries(features).filter(([, on]) => on).map(([key]) => key as FeatureKey)),
+    [features],
+  );
+  const featuresOn = enabledSet.size;
+
+  function resetForm() {
+    setName("");
+    setFeatures({ ...DEFAULT_FEATURE_STATE });
+    setError(null);
+  }
+
+  function closeModal() {
+    setOpen(false);
+    resetForm();
+  }
 
   async function submit() {
     setError(null);
     if (!name.trim()) return setError("נא להזין שם עסק");
+    if (featuresOn === 0) return setError("יש לבחור לפחות מודול אחד");
     try {
-      await create.mutateAsync({ name: name.trim(), features });
-      setOpen(false);
-      setName("");
-      setFeatures({ ...DEFAULT_FEATURE_STATE });
+      const biz = await create.mutateAsync({ name: name.trim(), features });
+      closeModal();
+      navigate(`/businesses/${biz.id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "שגיאה ביצירת העסק");
     }
@@ -113,50 +128,61 @@ export function Businesses() {
 
       <Modal
         open={open}
-        onClose={() => setOpen(false)}
+        onClose={closeModal}
         title="הוספת עסק חדש"
-        subtitle="בחרו אילו מודולים יהיו פעילים"
+        subtitle="הגדירו שם ומודולים — אחרי היצירה תועברו לעמוד ניהול העסק"
         icon="add_business"
-        maxWidth={560}
+        maxWidth={920}
+        fullScreenMobile
         footer={
           <>
-            <Button variant="secondary" onClick={() => setOpen(false)}>ביטול</Button>
-            <Button className="flex-1" loading={create.isPending} onClick={submit}>יצירת העסק</Button>
+            <Button variant="secondary" onClick={closeModal}>ביטול</Button>
+            <Button className="flex-1" loading={create.isPending} onClick={submit}>
+              יצירת העסק
+            </Button>
           </>
         }
       >
         <Field label="שם העסק" className="mb-5">
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="לדוגמה: קפה הבוקר" />
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="לדוגמה: קפה הבוקר"
+            autoFocus
+          />
+          <span className="mt-1.5 block text-[12px] text-text-3">השם יוצג למנהל העסק ולעובדים שלו</span>
         </Field>
-        <div className="mb-3 flex items-center justify-between">
+
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <span className="text-[13px] font-bold uppercase tracking-wide text-text-3">מודולים פעילים</span>
-          <Badge tone="violet">{featuresOn} מתוך {ALL_FEATURES.length}</Badge>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              className="px-3 py-2 text-[12.5px]"
+              onClick={() =>
+                setFeatures(Object.fromEntries(ALL_FEATURES.map((f) => [f.key, true])) as Record<FeatureKey, boolean>)
+              }
+            >
+              הכל פעיל
+            </Button>
+            <Button
+              variant="secondary"
+              className="px-3 py-2 text-[12.5px]"
+              onClick={() =>
+                setFeatures(Object.fromEntries(ALL_FEATURES.map((f) => [f.key, false])) as Record<FeatureKey, boolean>)
+              }
+            >
+              כבוי הכל
+            </Button>
+            <Badge tone="violet">{featuresOn} מתוך {ALL_FEATURES.length}</Badge>
+          </div>
         </div>
-        <div className="flex flex-col gap-2.5">
-          {ALL_FEATURES.map((f) => {
-            const on = features[f.key];
-            return (
-              <div
-                key={f.key}
-                onClick={() => setFeatures((s) => ({ ...s, [f.key]: !s[f.key] }))}
-                className="flex cursor-pointer items-center gap-3 rounded-[12px] border px-3.5 py-3 transition"
-                style={{
-                  borderColor: on ? "var(--accent-2)" : "var(--border)",
-                  background: on ? "var(--accent-tint)" : "var(--surface)",
-                }}
-              >
-                <span
-                  className="grid h-[34px] w-[34px] flex-none place-items-center rounded-[9px]"
-                  style={{ background: on ? "var(--accent)" : "var(--surface-2)" }}
-                >
-                  <Icon name={f.icon} size={20} className={on ? "text-white" : "text-text-3"} />
-                </span>
-                <span className="flex-1 text-[14px] font-semibold">{f.label}</span>
-                <Switch checked={on} />
-              </div>
-            );
-          })}
-        </div>
+
+        <ActiveModulesPanel
+          enabledSet={enabledSet}
+          onToggle={(key, enabled) => setFeatures((state) => ({ ...state, [key]: enabled }))}
+        />
+
         {error && (
           <div className="mt-3 flex items-center gap-2 rounded-[11px] [background:var(--danger-bg)] px-3 py-2.5 text-[13px] font-semibold text-danger">
             <Icon name="error" size={18} /> {error}

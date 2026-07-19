@@ -17,7 +17,15 @@ import {
 import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId, HE_DAYS, initialsOf, colorFor, colorForDepartment } from "@/lib/db";
-import { RECURRENCE_EVERY_DAY, formatRecurrenceWeekday } from "@/lib/taskRecurrence";
+import {
+  RECURRENCE_EVERY_DAY,
+  formatRecurrenceDayBadge,
+  formatRecurrenceWeekday,
+  isEveryDayRecurrence,
+  selectedRecurrenceDays,
+  serializeRecurrenceWeekdays,
+  toggleRecurrenceDay,
+} from "@/lib/taskRecurrence";
 import { useTasks, useCreateTask, useUpdateTask, useDeleteTask, notifyTaskAssigned } from "@/api/tasks";
 import {
   useTaskTemplates,
@@ -241,44 +249,33 @@ function ManagerTasksView({ businessId, profileId }: { businessId: string; profi
               sort_order: templates?.length ?? 0,
             });
           }}
-          onUpdate={(input) => updateTpl.mutate(input)}
+          onUpdate={async (input) => {
+            await updateTpl.mutateAsync(input);
+          }}
           onDelete={(id) => delTpl.mutate(id)}
         />
       ) : managerTab === "one_time" && canCreateTasks ? (
-        <div className="flex flex-col gap-5">
-          <QuickAssignPanel
-            users={users ?? []}
-            saving={createTask.isPending}
-            onAssign={async (input) => {
-              const approval = approvalForAssignee(input.assigned_to);
-              const id = await createTask.mutateAsync({
-                business_id: businessId,
-                assigned_by: profileId,
-                approval_status: approval,
-                ...input,
-              });
-              if (!approval && input.assigned_to) notifyTaskAssigned(id);
-            }}
-          />
-
-          {oneTimeAssigned.length > 0 && (
-            <div>
-              <div className="mb-3 text-[15px] font-bold">משימות חד-פעמיות שהוקצו</div>
-              <TaskList
-                tasks={oneTimeAssigned}
-                tab="one_time"
-                userById={userById}
-                templateById={templateById}
-                showAssignee
-                showDelete
-                onToggle={(id, done) =>
-                  updateTask.mutate({ id, status: done ? "open" : "done", completed_at: done ? null : new Date().toISOString() })
-                }
-                onDelete={(id) => delTask.mutate(id)}
-              />
-            </div>
-          )}
-        </div>
+        <OneTimeTasksPanel
+          users={users ?? []}
+          tasks={oneTimeAssigned}
+          userById={userById}
+          templateById={templateById}
+          saving={createTask.isPending}
+          onAssign={async (input) => {
+            const approval = approvalForAssignee(input.assigned_to);
+            const id = await createTask.mutateAsync({
+              business_id: businessId,
+              assigned_by: profileId,
+              approval_status: approval,
+              ...input,
+            });
+            if (!approval && input.assigned_to) notifyTaskAssigned(id);
+          }}
+          onToggle={(id, done) =>
+            updateTask.mutate({ id, status: done ? "open" : "done", completed_at: done ? null : new Date().toISOString() })
+          }
+          onDelete={(id) => delTask.mutate(id)}
+        />
       ) : (
         scheduleBlock
       )}
@@ -529,40 +526,45 @@ function RecurrenceDayPicker({
   onChange,
   disabled,
 }: {
-  value: number | null;
-  onChange: (v: number) => void;
+  value: number[] | number | null;
+  onChange: (v: number[]) => void;
   disabled?: boolean;
 }) {
+  const normalized = serializeRecurrenceWeekdays(value);
+  const everyDay = isEveryDayRecurrence(normalized);
+  const selected = new Set(everyDay ? [0, 1, 2, 3, 4, 5, 6] : selectedRecurrenceDays(normalized));
+
   return (
-    <div className="ftp-daypicker" role="radiogroup" aria-label="תדירות">
+    <div className="ftp-daypicker" role="group" aria-label="תדירות — בחירה מרובה">
       <button
         type="button"
-        role="radio"
-        aria-checked={value === RECURRENCE_EVERY_DAY}
-        data-active={value === RECURRENCE_EVERY_DAY}
+        aria-pressed={everyDay}
+        data-active={everyDay}
         disabled={disabled}
-        onClick={() => onChange(RECURRENCE_EVERY_DAY)}
+        onClick={() => onChange([RECURRENCE_EVERY_DAY])}
         className="ftp-day-all"
       >
         <Icon name="all_inclusive" size={15} />
         כל יום
       </button>
       <span className="ftp-daypicker-sep" aria-hidden="true" />
-      {HE_DAYS.map((day, i) => (
-        <button
-          key={day}
-          type="button"
-          role="radio"
-          aria-checked={value === i}
-          data-active={value === i}
-          disabled={disabled}
-          onClick={() => onChange(i)}
-          title={`כל ${day}`}
-          className="ftp-day-dot"
-        >
-          {HE_DAY_LETTERS[i]}
-        </button>
-      ))}
+      {HE_DAYS.map((day, i) => {
+        const active = everyDay || selected.has(i);
+        return (
+          <button
+            key={day}
+            type="button"
+            aria-pressed={active}
+            data-active={active}
+            disabled={disabled}
+            onClick={() => onChange(toggleRecurrenceDay(normalized, i))}
+            title={active ? `הסרת ${day}` : `הוספת ${day}`}
+            className="ftp-day-dot"
+          >
+            {HE_DAY_LETTERS[i]}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -579,36 +581,19 @@ function DepartmentPicker({
   disabled?: boolean;
 }) {
   return (
-    <div className="ftp-deptpicker" role="radiogroup" aria-label="מחלקה">
-      <button
-        type="button"
-        role="radio"
-        aria-checked={value === ""}
-        data-active={value === ""}
-        disabled={disabled}
-        onClick={() => onChange("")}
-        className="ftp-dept-chip"
-      >
-        <Icon name="storefront" size={15} />
-        כל העסק
-      </button>
+    <Select
+      aria-label="מחלקה"
+      value={value}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      <option value="">כל העסק</option>
       {departments.map((d) => (
-        <button
-          key={d.id}
-          type="button"
-          role="radio"
-          aria-checked={value === d.id}
-          data-active={value === d.id}
-          disabled={disabled}
-          onClick={() => onChange(d.id)}
-          style={{ "--chip-tone": colorForDepartment(d.id, d.color) } as CSSProperties}
-          className="ftp-dept-chip"
-        >
-          <span className="ftp-dept-dot" aria-hidden="true" />
+        <option key={d.id} value={d.id}>
           {d.name}
-        </button>
+        </option>
       ))}
-    </div>
+    </Select>
   );
 }
 
@@ -631,20 +616,51 @@ function FixedTaskCard({
     title?: string;
     description?: string | null;
     department_id?: string | null;
-    recurrence_weekday?: number | null;
+    recurrence_weekday?: number[] | null;
     active?: boolean;
-  }) => void;
+  }) => void | Promise<void>;
   onDelete: (id: string) => void;
 }) {
   const dept = template.department_id
     ? departments.find((d) => d.id === template.department_id) ?? null
     : null;
   const tone = dept ? colorForDepartment(dept.id, dept.color) : null;
-  const daily = template.recurrence_weekday === RECURRENCE_EVERY_DAY;
-  const weekday =
-    !daily && template.recurrence_weekday != null && template.recurrence_weekday >= 0 && template.recurrence_weekday <= 6
-      ? template.recurrence_weekday
-      : null;
+  const [recurrenceDraft, setRecurrenceDraft] = useState<number[]>(() =>
+    serializeRecurrenceWeekdays(template.recurrence_weekday),
+  );
+  const [recurrenceError, setRecurrenceError] = useState<string | null>(null);
+  const displayRecurrence = expanded ? recurrenceDraft : template.recurrence_weekday;
+  const daily = isEveryDayRecurrence(displayRecurrence);
+  const dayBadge = formatRecurrenceDayBadge(displayRecurrence);
+
+  useEffect(() => {
+    if (expanded) {
+      setRecurrenceDraft(serializeRecurrenceWeekdays(template.recurrence_weekday));
+      setRecurrenceError(null);
+    }
+  }, [expanded, template.id, template.recurrence_weekday]);
+
+  async function flushRecurrenceDraft(): Promise<boolean> {
+    const next = serializeRecurrenceWeekdays(recurrenceDraft);
+    const prev = serializeRecurrenceWeekdays(template.recurrence_weekday);
+    if (next.join() === prev.join()) return true;
+    try {
+      await onUpdate({ id: template.id, recurrence_weekday: next });
+      setRecurrenceError(null);
+      return true;
+    } catch (err) {
+      setRecurrenceError(err instanceof Error ? err.message : "שמירת התדירות נכשלה");
+      return false;
+    }
+  }
+
+  async function handleToggle() {
+    if (expanded) {
+      const saved = await flushRecurrenceDraft();
+      if (!saved) return;
+    }
+    onToggle();
+  }
 
   return (
     <article
@@ -660,12 +676,12 @@ function FixedTaskCard({
     >
       <span className="ftp-card-edge" aria-hidden="true" />
       <div className="ftp-card-head">
-        <button type="button" onClick={onToggle} aria-expanded={expanded} className="ftp-card-main">
-          <span className="ftp-card-day" aria-hidden="true">
+        <button type="button" onClick={() => void handleToggle()} aria-expanded={expanded} className="ftp-card-main">
+          <span className="ftp-card-day" aria-hidden="true" data-multi={dayBadge.length > 1 || undefined}>
             {daily ? (
               <Icon name="all_inclusive" size={20} />
-            ) : weekday != null ? (
-              HE_DAY_LETTERS[weekday]
+            ) : dayBadge ? (
+              dayBadge
             ) : (
               <Icon name="event_busy" size={18} />
             )}
@@ -675,7 +691,7 @@ function FixedTaskCard({
             <span className="ftp-card-meta">
               <span className="ftp-card-meta-item">
                 <Icon name="event_repeat" size={13} />
-                {formatRecurrenceWeekday(template.recurrence_weekday)}
+                {formatRecurrenceWeekday(displayRecurrence)}
               </span>
               <span className="ftp-card-meta-item">
                 {tone ? (
@@ -698,7 +714,7 @@ function FixedTaskCard({
         <Switch checked={template.active} onChange={(v) => onUpdate({ id: template.id, active: v })} />
         <button
           type="button"
-          onClick={onToggle}
+          onClick={() => void handleToggle()}
           aria-label={expanded ? "סגירת עריכה" : "עריכת המשימה"}
           className="ftp-card-more"
         >
@@ -730,12 +746,18 @@ function FixedTaskCard({
               תדירות
             </span>
             <RecurrenceDayPicker
-              value={template.recurrence_weekday}
+              value={recurrenceDraft}
               disabled={!template.active}
               onChange={(v) => {
-                if (v !== template.recurrence_weekday) onUpdate({ id: template.id, recurrence_weekday: v });
+                setRecurrenceDraft(serializeRecurrenceWeekdays(v));
+                setRecurrenceError(null);
               }}
             />
+            {recurrenceError && (
+              <span className="mt-2 block text-[12.5px] font-semibold leading-relaxed text-danger">
+                {recurrenceError}
+              </span>
+            )}
           </div>
 
           <div className="ftp-editor-block">
@@ -803,14 +825,14 @@ function FixedTasksPanel({
     title: string;
     description: string | null;
     department_id: string | null;
-    recurrence_weekday: number | null;
+    recurrence_weekday: number[] | null;
   }) => Promise<void>;
   onUpdate: (input: {
     id: string;
     title?: string;
     description?: string | null;
     department_id?: string | null;
-    recurrence_weekday?: number | null;
+    recurrence_weekday?: number[] | null;
     active?: boolean;
   }) => void;
   onDelete: (id: string) => void;
@@ -820,7 +842,7 @@ function FixedTasksPanel({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [departmentId, setDepartmentId] = useState("");
-  const [recurrence, setRecurrence] = useState<number>(RECURRENCE_EVERY_DAY);
+  const [recurrence, setRecurrence] = useState<number[]>([RECURRENCE_EVERY_DAY]);
   const [addError, setAddError] = useState<string | null>(null);
 
   const activeCount = templates.filter((t) => t.active).length;
@@ -833,7 +855,7 @@ function FixedTasksPanel({
     setTitle("");
     setDescription("");
     setDepartmentId("");
-    setRecurrence(RECURRENCE_EVERY_DAY);
+    setRecurrence([RECURRENCE_EVERY_DAY]);
     setAddError(null);
   }
 
@@ -853,7 +875,7 @@ function FixedTasksPanel({
         title: title.trim(),
         description: description.trim() || null,
         department_id: departmentId || null,
-        recurrence_weekday: recurrence,
+        recurrence_weekday: serializeRecurrenceWeekdays(recurrence),
       });
       closeAddModal();
     } catch {
@@ -951,12 +973,9 @@ function FixedTasksPanel({
             </div>
           </div>
 
-          <div>
-            <span className="label-text">מחלקה</span>
-            <div className="mt-1.5">
-              <DepartmentPicker departments={departments} value={departmentId} onChange={setDepartmentId} />
-            </div>
-          </div>
+          <Field label="מחלקה">
+            <DepartmentPicker departments={departments} value={departmentId} onChange={setDepartmentId} />
+          </Field>
 
           <Field label="תיאור (אופציונלי)">
             <Textarea
@@ -982,14 +1001,49 @@ function FixedTasksPanel({
   );
 }
 
-/* ============================== Quick Assign Panel ============================== */
+/* ============================== One-time Tasks Panel ============================== */
 
-function QuickAssignPanel({
+function AssigneePicker({
   users,
-  saving,
-  onAssign,
+  value,
+  onChange,
 }: {
   users: { id: string; full_name: string | null }[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <Select
+      aria-label="שיוך לעובד"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      searchable
+      searchPlaceholder="חיפוש עובד..."
+    >
+      <option value="">לא משויך</option>
+      {users.map((u) => (
+        <option key={u.id} value={u.id}>
+          {u.full_name || "ללא שם"}
+        </option>
+      ))}
+    </Select>
+  );
+}
+
+function OneTimeTasksPanel({
+  users,
+  tasks,
+  userById,
+  templateById,
+  saving,
+  onAssign,
+  onToggle,
+  onDelete,
+}: {
+  users: { id: string; full_name: string | null }[];
+  tasks: Task[];
+  userById: Map<string, string>;
+  templateById: Map<string, TaskTemplate>;
   saving: boolean;
   onAssign: (input: {
     title: string;
@@ -998,109 +1052,166 @@ function QuickAssignPanel({
     template_id: string | null;
     assigned_to: string | null;
     due_date: string | null;
-    recurrence_weekday: number | null;
+    recurrence_weekday: number[] | null;
   }) => Promise<void>;
+  onToggle: (id: string, done: boolean) => void;
+  onDelete: (id: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
   const [assignedTo, setAssignedTo] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [dueDate, setDueDate] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
 
-  function closePanel() {
-    setOpen(false);
-    setError(null);
-    setSuccess(false);
+  const openCount = tasks.filter((t) => t.status !== "done").length;
+  const doneCount = tasks.length - openCount;
+  const previewAssignee = assignedTo
+    ? users.find((u) => u.id === assignedTo)?.full_name || "העובד"
+    : "ללא שיוך";
+  const previewDue = dueDate
+    ? new Date(dueDate).toLocaleDateString("he-IL")
+    : "ללא תאריך יעד";
+
+  function resetAddForm() {
     setAssignedTo("");
     setTitle("");
     setDescription("");
     setDueDate("");
+    setAddError(null);
   }
 
-  async function handleAssign() {
-    setError(null);
-    setSuccess(false);
-
-    if (!title.trim()) return setError("נא להזין כותרת");
-    await onAssign({
-      title: title.trim(),
-      description: description.trim() || null,
-      type: "one_time",
-      template_id: null,
-      assigned_to: assignedTo || null,
-      due_date: dueDate || null,
-      recurrence_weekday: null,
-    });
-
-    setSuccess(true);
-    setTitle("");
-    setDescription("");
-    setDueDate("");
-    setTimeout(() => {
-      setSuccess(false);
-      closePanel();
-    }, 1500);
+  function closeAddModal() {
+    setAddOpen(false);
+    resetAddForm();
   }
 
-  if (!open) {
-    return (
-      <Button icon="add" onClick={() => setOpen(true)}>
-        הוספת משימה חד-פעמית
-      </Button>
-    );
+  async function handleAdd() {
+    setAddError(null);
+    if (!title.trim()) {
+      setAddError("נא להזין שם משימה");
+      return;
+    }
+    try {
+      await onAssign({
+        title: title.trim(),
+        description: description.trim() || null,
+        type: "one_time",
+        template_id: null,
+        assigned_to: assignedTo || null,
+        due_date: dueDate || null,
+        recurrence_weekday: null,
+      });
+      closeAddModal();
+    } catch {
+      setAddError("שמירת המשימה נכשלה. נסו שוב.");
+    }
   }
 
   return (
-    <Card className="p-5">
-      <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-[16px] font-bold">
-          <Icon name="person_add" size={22} className="text-accent-2" />
-          שיוך משימה חד-פעמית
+    <>
+      <section className="ftp">
+        <header className="ftp-hero">
+          <span className="ftp-hero-icon">
+            <Icon name="playlist_add_check" size={23} />
+          </span>
+          <div className="ftp-hero-copy">
+            <h2 className="ftp-hero-title">משימות חד-פעמיות</h2>
+            <p className="ftp-hero-sub">
+              {tasks.length === 0
+                ? "משימה חד-פעמית משויכת לעובד ומופיעה אצלו ברשימה"
+                : doneCount > 0
+                  ? `${openCount} פתוחות · ${doneCount} הושלמו`
+                  : `${openCount} פתוחות · משויכות לעובדים ספציפיים`}
+            </p>
+          </div>
+          <button type="button" onClick={() => setAddOpen(true)} className="ftp-add-btn">
+            <Icon name="add" size={19} />
+            הוספה
+          </button>
+        </header>
+
+        {tasks.length === 0 ? (
+          <EmptyState
+            icon="playlist_add_check"
+            title="אין משימות חד-פעמיות עדיין"
+            description="הוסיפו משימה חד-פעמית לעובד מסוים — למשל הכנת אירוע, סידור מיוחד או משימת אחזקה."
+            action={
+              <Button icon="add" onClick={() => setAddOpen(true)}>
+                הוספת משימה ראשונה
+              </Button>
+            }
+          />
+        ) : (
+          <TaskList
+            tasks={tasks}
+            tab="one_time"
+            userById={userById}
+            templateById={templateById}
+            showAssignee
+            showDelete
+            onToggle={onToggle}
+            onDelete={onDelete}
+          />
+        )}
+      </section>
+
+      <Modal
+        open={addOpen}
+        onClose={closeAddModal}
+        title="הוספת משימה חד-פעמית"
+        subtitle="משויכת לעובד ומתווספת לרשימת המשימות שלו"
+        icon="playlist_add_check"
+        maxWidth={560}
+        footer={
+          <>
+            <Button variant="secondary" onClick={closeAddModal}>
+              ביטול
+            </Button>
+            <Button className="flex-1" icon="add" loading={saving} onClick={handleAdd}>
+              הוספת משימה
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <Field label="שם המשימה">
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="לדוגמה: הכנת אירוע פרטי"
+              autoFocus
+            />
+          </Field>
+
+          <Field label="שיוך לעובד">
+            <AssigneePicker users={users} value={assignedTo} onChange={setAssignedTo} />
+          </Field>
+
+          <Field label="תאריך יעד (אופציונלי)">
+            <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+          </Field>
+
+          <Field label="תיאור (אופציונלי)">
+            <Textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="פרטים, הוראות ביצוע, דגשים…"
+              rows={4}
+              className="max-h-[240px] min-h-[96px] resize-y overflow-y-auto leading-relaxed"
+            />
+          </Field>
+
+          <div className="ftp-preview">
+            <Icon name="auto_awesome" size={18} />
+            <span>
+              המשימה תופיע אצל <b>{previewAssignee}</b> · <b>{previewDue}</b>
+            </span>
+          </div>
+
+          {addError && <span className="text-[13px] font-semibold text-danger">{addError}</span>}
         </div>
-        <Button variant="secondary" icon="close" onClick={closePanel}>
-          ביטול
-        </Button>
-      </div>
-      <p className="mb-4 text-[13px] text-text-2">
-        משימה חד-פעמית מוקצית לעובד מסוים ומופיעה אצלו ברשימת המשימות. משימות קבועות מוגדרות בלשונית
-        &quot;משימות קבועות&quot; ומשויכות למחלקה.
-      </p>
-
-      <div className="grid gap-3.5 lg:grid-cols-2">
-        <Field label="שיוך לעובד">
-          <Select value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)}>
-            <option value="">— לא משויך —</option>
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.full_name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-
-        <Field label="כותרת המשימה">
-          <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="לדוגמה: הכנת אירוע פרטי" />
-        </Field>
-      </div>
-
-      <div className="mt-3.5 grid gap-3.5 lg:grid-cols-2">
-        <Field label="תיאור (אופציונלי)">
-          <Textarea value={description} onChange={(e) => setDescription(e.target.value)} className="h-20" />
-        </Field>
-        <Field label="תאריך יעד">
-          <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
-        </Field>
-      </div>
-
-      <div className="mt-4 flex flex-wrap items-center gap-2.5">
-        <Button icon="person_add" loading={saving} onClick={handleAssign}>
-          שייך משימה
-        </Button>
-        {error && <span className="text-[13px] font-semibold text-danger">{error}</span>}
-        {success && <span className="text-[13px] font-semibold text-success">המשימה שויכה בהצלחה</span>}
-      </div>
-    </Card>
+      </Modal>
+    </>
   );
 }

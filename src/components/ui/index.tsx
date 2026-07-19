@@ -12,6 +12,7 @@ import { Icon } from "./Icon";
 
 export { Icon };
 export { Select } from "./Select";
+export { TimePicker } from "./TimePicker";
 export { MultiSelect, type MultiSelectOption } from "./MultiSelect";
 export { GlobalLoadingBar } from "./GlobalLoadingBar";
 

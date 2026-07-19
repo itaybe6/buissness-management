@@ -12,6 +12,7 @@ import {
   Select,
   Switch,
   Textarea,
+  TimePicker,
 } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/lib/auth";
@@ -19,8 +20,10 @@ import { useBusinessId, formatCurrency, formatDateShort, todayISO } from "@/lib/
 import {
   buildTeamMembersFromShift,
   distributeTips,
+  formatTimeLabel,
   formatWorkTimeRange,
   getAttendanceHoursForShiftReport,
+  normalizeTimeInputValue,
   getAttendanceTimeRangeForShiftReport,
   hoursBetweenTimes,
 } from "@/lib/shiftReportTips";
@@ -443,7 +446,7 @@ function fromReport(r: ShiftReport, allUsers: Profile[]): EditorState {
     delivery_sales: String(r.delivery_sales ?? ""),
     avg_per_diner: String(r.avg_per_diner ?? ""),
     total_tips: String(r.total_tips ?? ""),
-    first_release: r.first_release ?? "",
+    first_release: normalizeTimeInputValue(r.first_release),
     energy_level: r.energy_level != null ? String(r.energy_level) : "",
     unusual_events: r.unusual_events ?? "",
     team_talks: r.team_talks ?? "",
@@ -899,7 +902,7 @@ function ReportEditor({
               </div>
             )}
             <DetailGrid>
-              <DetailCell label="שחרור ראשון" value={s.first_release || null} />
+              <DetailCell label="שחרור ראשון" value={formatTimeLabel(s.first_release)} />
               <DetailCell
                 label="אנרגיות בצוות"
                 value={s.energy_level ? `${s.energy_level}/10` : null}
@@ -1140,7 +1143,9 @@ function ReportEditor({
           )}
 
           <div className="grid grid-cols-2 gap-3">
-            <Field label="מתי שוחרר עובד ראשון"><Input value={s.first_release} onChange={(e) => set("first_release", e.target.value)} placeholder="23:00" /></Field>
+            <Field label="מתי שוחרר עובד ראשון">
+              <TimePicker value={s.first_release} onChange={(v) => set("first_release", v)} />
+            </Field>
             <Field label="אנרגיות בצוות (1-10)"><Input type="number" min={1} max={10} value={s.energy_level} onChange={(e) => set("energy_level", e.target.value)} /></Field>
           </div>
           <Field label="אירועים חריגים (איחורים, הברזות, משהו אישי?)">
@@ -1521,7 +1526,7 @@ function ReportViewer({
             </div>
           )}
           <DetailGrid>
-            <DetailCell label="שחרור ראשון" value={report.first_release} />
+            <DetailCell label="שחרור ראשון" value={formatTimeLabel(report.first_release)} />
             <DetailCell label="אנרגיות בצוות" value={report.energy_level != null ? `${report.energy_level}/10` : null} />
           </DetailGrid>
           <DetailText label="אירועים חריגים" value={report.unusual_events} />

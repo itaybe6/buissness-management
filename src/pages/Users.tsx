@@ -126,7 +126,7 @@ export function Users() {
                   onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
-              <div className="flex shrink-0 items-center gap-2 md:hidden">
+              <div className="flex shrink-0 items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setRoleFilterOpen(true)}
@@ -141,31 +141,12 @@ export function Users() {
                     type="button"
                     onClick={() => setAdd(true)}
                     aria-label="הוספת משתמש"
-                    className="users-add-btn btn-press"
+                    className="users-add-btn btn-press md:hidden"
                   >
                     <Icon name="person_add" size={21} />
                   </button>
                 )}
               </div>
-            </div>
-            <div className="filter-pill-bar hidden md:flex">
-              {FILTER_ROLES.map((r) => {
-                const active = roleFilter === r;
-                const count = roleCounts.get(r) ?? 0;
-                return (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => setRoleFilter(r)}
-                    data-active={active}
-                    className="filter-pill"
-                  >
-                    {active && <span className="filter-pill-thumb" />}
-                    <span>{r === "all" ? "הכל" : ROLE_LABELS[r]}</span>
-                    {count > 0 && <span className="filter-pill-count">{count}</span>}
-                  </button>
-                );
-              })}
             </div>
           </div>
 
