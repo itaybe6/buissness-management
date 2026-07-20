@@ -814,6 +814,7 @@ function ReportEditor({
   const [previewing, setPreviewing] = useState(false);
   const [step, setStep] = useState(0);
   const [stepDir, setStepDir] = useState<1 | -1>(1);
+  const [openTeamRows, setOpenTeamRows] = useState<Set<string>>(new Set());
   const pageRef = useRef<HTMLDivElement>(null);
   const isMdUp = useIsMdUp();
   const save = useSaveShiftReport(businessId);
@@ -1008,6 +1009,15 @@ function ReportEditor({
         }
       }
       return { ...prev, team_members: next, participants };
+    });
+  }
+
+  function toggleTeamRow(key: string) {
+    setOpenTeamRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
     });
   }
 
@@ -1249,87 +1259,100 @@ function ReportEditor({
   const dayDate = new Date((s.report_date || today) + "T00:00:00");
 
   const teamList = (
-    <div className="report-team-list">
+    <div className="srt-list">
       {s.team_members.map((p, idx) => {
+        const key = p.employee_id || `new-${idx}`;
+        // Blank rows still need an employee picked, so they can't collapse.
+        const open = !p.employee_id || openTeamRows.has(key);
         const edited =
           p.attendance_hours != null &&
           Math.abs((Number(p.hours) || 0) - p.attendance_hours) > 0.01;
         return (
-          <div key={p.employee_id || `team-${idx}`} className="report-team-row" style={{ "--i": idx } as React.CSSProperties}>
-            <div className="report-team-row-top">
-              <div className="report-team-identity">
-                <span className="report-team-avatar" aria-hidden="true">
-                  {p.employee_id ? initialsOf(userName(p.employee_id)) : <Icon name="person_add" size={17} />}
-                </span>
-                <div className="report-team-name-wrap">
-                  {p.employee_id ? (
-                    <span className="report-team-name">{userName(p.employee_id)}</span>
-                  ) : (
-                    <Select
-                      searchable
-                      searchPlaceholder="חיפוש עובד..."
-                      value={p.employee_id}
-                      onChange={(e) => updateTeamMember(idx, { employee_id: e.target.value })}
-                    >
-                      <option value="">— בחר עובד —</option>
-                      {availableTeamUsers.map((u) => (
-                        <option key={u.id} value={u.id}>{u.full_name}</option>
-                      ))}
-                    </Select>
-                  )}
-                  {edited && <span className="report-team-edited">שונה מנוכחות</span>}
-                </div>
-              </div>
-              <span className="report-team-hours-pill" aria-label={`סה״כ ${p.hours || 0} שעות`}>
-                <span className="report-team-hours-pill-value">{p.hours || "0"}</span>
-                <span className="report-team-hours-pill-unit">שע׳</span>
+          <div
+            key={key}
+            className="srt-row"
+            data-open={open}
+            style={{ "--i": idx } as React.CSSProperties}
+          >
+            <div className="srt-head">
+              {p.employee_id && (
+                <button
+                  type="button"
+                  className="srt-toggle"
+                  onClick={() => toggleTeamRow(key)}
+                  aria-expanded={open}
+                  aria-label={`${userName(p.employee_id)} — עריכת שעות`}
+                />
+              )}
+              <span className="srt-av" aria-hidden="true">
+                {p.employee_id ? initialsOf(userName(p.employee_id)) : <Icon name="person_add" size={17} />}
               </span>
-              <button
-                type="button"
-                onClick={() => removeTeamMember(idx)}
-                className="report-team-remove"
-                title="הסרה מהרשימה"
-                aria-label="הסרה מהרשימה"
-              >
-                <Icon name="close" size={18} />
-              </button>
+              <span className="srt-id">
+                {p.employee_id ? (
+                  <b>{userName(p.employee_id)}</b>
+                ) : (
+                  <b className="srt-id-placeholder">עובד חדש</b>
+                )}
+                <i>
+                  {formatWorkTimeRange(p.work_start ?? undefined, p.work_end ?? undefined)}
+                  {edited && <em className="srt-edited">שונה מנוכחות</em>}
+                </i>
+              </span>
+              <span className="srt-hours">
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step={0.25}
+                  min={0}
+                  placeholder="0"
+                  value={p.hours || ""}
+                  onChange={(e) => updateTeamMember(idx, { hours: Number(e.target.value) || 0 })}
+                  aria-label={`סה״כ שעות — ${p.employee_id ? userName(p.employee_id) : "עובד חדש"}`}
+                />
+                <em>שע׳</em>
+              </span>
+              {p.employee_id && <Icon name="expand_more" size={20} className="srt-chev" />}
             </div>
 
-            <div className="report-team-controls">
-              <div className="report-team-field-block">
-                <span className="report-team-field-label">שעות עבודה</span>
-                <div className="report-team-times">
-                  <input
-                    type="time"
-                    value={p.work_start ?? ""}
-                    onChange={(e) => updateTeamMember(idx, { work_start: e.target.value })}
-                    className="field report-team-time-field"
-                  />
-                  <span className="report-team-dash" aria-hidden="true">–</span>
-                  <input
-                    type="time"
-                    value={p.work_end ?? ""}
-                    onChange={(e) => updateTeamMember(idx, { work_end: e.target.value })}
-                    className="field report-team-time-field"
-                  />
-                </div>
-              </div>
+            <div className="srt-body">
+              <div className="srt-body-inner">
+                {!p.employee_id && (
+                  <Select
+                    searchable
+                    searchPlaceholder="חיפוש עובד..."
+                    value={p.employee_id}
+                    onChange={(e) => updateTeamMember(idx, { employee_id: e.target.value })}
+                  >
+                    <option value="">— בחר עובד —</option>
+                    {availableTeamUsers.map((u) => (
+                      <option key={u.id} value={u.id}>{u.full_name}</option>
+                    ))}
+                  </Select>
+                )}
 
-              <div className="report-team-field-block report-team-hours-block">
-                <span className="report-team-field-label">סה״כ שעות</span>
-                <div className="report-team-hours-wrap">
-                  <Input
-                    type="number"
-                    inputMode="decimal"
-                    step={0.25}
-                    min={0}
-                    placeholder="0"
-                    value={p.hours || ""}
-                    onChange={(e) => updateTeamMember(idx, { hours: Number(e.target.value) || 0 })}
-                    className="report-team-hours-field"
-                  />
-                  <span className="report-team-hours-unit">שע׳</span>
+                <div className="srt-times">
+                  <label className="srt-time">
+                    <span>כניסה</span>
+                    <input
+                      type="time"
+                      value={p.work_start ?? ""}
+                      onChange={(e) => updateTeamMember(idx, { work_start: e.target.value })}
+                    />
+                  </label>
+                  <label className="srt-time">
+                    <span>יציאה</span>
+                    <input
+                      type="time"
+                      value={p.work_end ?? ""}
+                      onChange={(e) => updateTeamMember(idx, { work_end: e.target.value })}
+                    />
+                  </label>
                 </div>
+
+                <button type="button" className="srt-remove" onClick={() => removeTeamMember(idx)}>
+                  <Icon name="person_remove" size={17} />
+                  הסרה מהדוח
+                </button>
               </div>
             </div>
           </div>

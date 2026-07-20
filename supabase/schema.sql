@@ -491,6 +491,7 @@ create table public.inventory_orders (
   business_id uuid not null references public.businesses(id) on delete cascade,
   item_id     uuid not null references public.inventory_items(id) on delete cascade,
   quantity    numeric(12,2) not null,
+  received_quantity numeric(12,2),  -- כמה התקבל בפועל (≤ quantity)
   status      public.order_status not null default 'requested',
   ordered_by  uuid references public.profiles(id),
   batch_id    uuid,                 -- קיבוץ שורות מאותה הזמנה

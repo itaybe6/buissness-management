@@ -530,17 +530,38 @@ export function useReceiveOrder(businessId: string | null) {
       order_id: string;
       business_id: string;
       item_id: string;
-      quantity: number;
+      ordered_quantity: number;
+      received_quantity: number;
       current_qty: number;
       employee_id: string | null;
+      batch_id: string | null;
+      ordered_by: string | null;
     }) => {
+      const ordered = input.ordered_quantity;
+      const received = input.received_quantity;
+      if (!Number.isFinite(received) || received <= 0 || received > ordered) {
+        throw new Error("כמות שהגיעה חייבת להיות בין 1 לכמות שהוזמנה");
+      }
+
+      if (received < ordered) {
+        const { error: remainderError } = await supabase.from("inventory_orders").insert({
+          business_id: input.business_id,
+          item_id: input.item_id,
+          quantity: ordered - received,
+          status: "requested",
+          ordered_by: input.ordered_by,
+          batch_id: input.batch_id,
+        });
+        throwDbError(remainderError);
+      }
+
       const { error: orderError } = await supabase
         .from("inventory_orders")
-        .update({ status: "received" })
+        .update({ status: "received", received_quantity: received })
         .eq("id", input.order_id);
       throwDbError(orderError);
 
-      const newQty = input.current_qty + input.quantity;
+      const newQty = input.current_qty + received;
       const { error: countError } = await supabase.from("inventory_counts").insert({
         business_id: input.business_id,
         item_id: input.item_id,
@@ -549,6 +570,11 @@ export function useReceiveOrder(businessId: string | null) {
       });
       throwDbError(countError);
 
+      const note =
+        received < ordered
+          ? `הגיע · נוסף למלאי +${received} מתוך ${ordered}`
+          : `הגיע · נוסף למלאי +${received}`;
+
       await logInventory({
         business_id: input.business_id,
         item_id: input.item_id,
@@ -556,7 +582,7 @@ export function useReceiveOrder(businessId: string | null) {
         action: "order",
         previous_qty: input.current_qty,
         new_qty: newQty,
-        note: `הגיע · נוסף למלאי +${input.quantity}`,
+        note,
       });
     },
     onSuccess: () => {

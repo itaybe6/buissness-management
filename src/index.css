@@ -1208,6 +1208,15 @@ select {
   background: var(--warning);
 }
 
+.inventory-order-status--received {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.inventory-order-status--received .inventory-order-status-dot {
+  background: var(--success);
+}
+
 .inventory-order-delivery {
   display: flex;
   align-items: center;
@@ -8035,236 +8044,284 @@ select {
 }
 
 /* Shift report — team roster rows */
-.report-team-list {
+/* ============================================================
+   Shift-report team roster (.srt-*) — collapsed one-line rows,
+   tap to expand the time editor. Total hours lives in the head
+   pill only, so it is never shown twice.
+   ============================================================ */
+
+.srt-list {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.4rem;
 }
 
-.report-team-row {
-  display: flex;
-  flex-direction: column;
-  gap: 0.65rem;
-  padding: 0.8rem 0.9rem;
-  border-radius: 12px;
+.srt-row {
+  border-radius: 15px;
   border: 1px solid var(--border);
   background: var(--surface);
+  overflow: hidden;
   transition:
-    border-color 180ms var(--ease-out),
-    box-shadow 180ms var(--ease-out);
+    border-color 200ms var(--ease-out),
+    box-shadow 200ms var(--ease-out);
 }
 
-.report-team-row:focus-within {
-  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
-  box-shadow: 0 0 0 3px var(--focus-ring);
+.srt-row[data-open="true"] {
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--border));
+  box-shadow: 0 4px 16px -8px color-mix(in srgb, var(--primary-bg) 32%, transparent);
 }
 
-.report-team-row-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.65rem;
-  min-width: 0;
-}
-
-.report-team-identity {
+/* --- Collapsed head --- */
+.srt-head {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  min-width: 0;
-  flex: 1;
+  padding: 0.55rem 0.65rem;
 }
 
-.report-team-avatar {
+/* Invisible full-bleed tap target; real controls sit above it. */
+.srt-toggle {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.srt-av,
+.srt-id,
+.srt-chev {
+  position: relative;
+  pointer-events: none;
+}
+
+.srt-av {
   display: grid;
   place-items: center;
-  width: 2.15rem;
-  height: 2.15rem;
+  width: 36px;
+  height: 36px;
   flex: none;
-  border-radius: 10px;
-  background: var(--surface-2);
+  border-radius: 12px;
   border: 1px solid var(--border);
-  color: var(--accent-2);
+  background: var(--surface-2);
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--text-2);
 }
 
-.report-team-name-wrap {
-  min-width: 0;
+.srt-row[data-open="true"] .srt-av {
+  border-color: var(--primary-bg);
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+}
+
+.srt-id {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
   flex: 1;
+  min-width: 0;
 }
 
-.report-team-name {
-  display: block;
+.srt-id b {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 800;
   color: var(--text);
 }
 
-.report-team-edited {
-  display: block;
-  margin-top: 0.1rem;
-  font-size: 11px;
-  font-weight: 700;
-  color: #b45309;
+.srt-id-placeholder {
+  color: var(--text-3) !important;
 }
 
-.report-team-hours-pill {
+.srt-id i {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-style: normal;
+  font-size: 11.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+.srt-edited {
+  font-style: normal;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: var(--warning-bg);
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--warning);
+}
+
+/* --- Hours pill (the only place hours are shown/edited) --- */
+.srt-hours {
+  position: relative;
+  z-index: 1;
   display: inline-flex;
   align-items: baseline;
   gap: 0.15rem;
   flex: none;
-  padding: 0.28rem 0.55rem;
-  border-radius: 999px;
-  background: var(--surface-2);
+  padding: 0.3rem 0.45rem 0.3rem 0.55rem;
+  border-radius: 11px;
   border: 1px solid var(--border);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+  background: var(--surface-2);
+  transition:
+    border-color 160ms var(--ease-out),
+    box-shadow 160ms var(--ease-out);
 }
 
-.report-team-hours-pill-value {
+.srt-hours:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.srt-hours input {
+  width: 2.6rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  outline: none;
+  text-align: center;
   font-size: 14px;
   font-weight: 800;
-  color: var(--accent-2);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
 }
 
-.report-team-hours-pill-unit {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--text-3);
+.srt-hours input::-webkit-outer-spin-button,
+.srt-hours input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
-.report-team-remove {
-  display: grid;
-  place-items: center;
-  width: 2.15rem;
-  height: 2.15rem;
-  flex: none;
-  border: none;
-  border-radius: 9px;
-  background: transparent;
-  color: var(--text-3);
-  cursor: pointer;
-  transition:
-    background 160ms var(--ease-out),
-    color 160ms var(--ease-out),
-    transform 140ms var(--ease-out);
+.srt-hours input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
 
-.report-team-remove:hover {
-  color: var(--danger);
-  background: var(--danger-bg);
-}
-
-.report-team-remove:active {
-  transform: scale(0.94);
-}
-
-.report-team-controls {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding-top: 0.15rem;
-  border-top: 1px solid var(--border-2);
-}
-
-.report-team-field-block {
-  display: flex;
-  flex-direction: column;
-  gap: 0.28rem;
-  min-width: 0;
-}
-
-.report-team-field-label {
+.srt-hours em {
+  font-style: normal;
   font-size: 10.5px;
   font-weight: 800;
-  letter-spacing: 0.03em;
   color: var(--text-3);
 }
 
-.report-team-times {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-.report-team-time-field {
-  width: 5.4rem;
-  padding: 0.48rem 0.35rem !important;
-  font-size: 13px !important;
-  font-weight: 700 !important;
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-  direction: ltr;
-  background: var(--surface-2) !important;
-}
-
-.report-team-dash {
-  font-size: 12px;
-  font-weight: 800;
-  color: var(--text-3);
-  padding-inline: 0.05rem;
-}
-
-.report-team-hours-wrap {
-  display: flex;
-  align-items: flex-end;
-  gap: 0.3rem;
+.srt-chev {
   flex: none;
-}
-
-.report-team-hours-field {
-  width: 4.1rem;
-  padding: 0.48rem 0.35rem !important;
-  font-size: 13px !important;
-  font-weight: 800 !important;
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-  background: var(--surface-2) !important;
-}
-
-.report-team-hours-unit {
-  padding-bottom: 0.48rem;
-  font-size: 12px;
-  font-weight: 700;
   color: var(--text-3);
-  white-space: nowrap;
+  transition: transform 300ms var(--ease-spring);
 }
 
-.report-team-row .field {
+.srt-row[data-open="true"] .srt-chev {
+  transform: rotate(180deg);
+}
+
+/* --- Expanding editor --- */
+.srt-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 320ms var(--ease-spring);
+}
+
+.srt-row[data-open="true"] .srt-body {
+  grid-template-rows: 1fr;
+}
+
+.srt-body-inner {
+  overflow: hidden;
   min-height: 0;
 }
 
-@media (max-width: 480px) {
-  .report-team-row-top {
-    gap: 0.45rem;
-  }
+.srt-body-inner > * {
+  margin-inline: 0.65rem;
+}
 
-  .report-team-controls {
-    flex-direction: row;
-    align-items: flex-end;
-    flex-wrap: nowrap;
-    gap: 0.5rem;
-  }
+.srt-body-inner > *:first-child {
+  margin-top: 0.15rem;
+}
 
-  .report-team-hours-block {
-    flex: none;
-  }
+.srt-body-inner > *:last-child {
+  margin-bottom: 0.7rem;
+}
 
-  .report-team-times {
-    justify-content: flex-start;
-  }
+.srt-times {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
 
-  .report-team-time-field {
-    width: 4.85rem;
-    min-width: 0;
-    padding-inline: 0.25rem !important;
-  }
+.srt-time {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
 
-  .report-team-hours-field {
-    width: 3.6rem;
+.srt-time span {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: var(--text-3);
+  padding-inline: 0.15rem;
+}
+
+.srt-time input {
+  width: 100%;
+  min-width: 0;
+  height: 42px;
+  padding-inline: 0.6rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  outline: none;
+  font-size: 16px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  transition:
+    border-color 160ms var(--ease-out),
+    box-shadow 160ms var(--ease-out);
+}
+
+.srt-time input:focus {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.srt-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  width: calc(100% - 1.3rem);
+  height: 38px;
+  margin-top: 0.55rem;
+  border: 0;
+  border-radius: 11px;
+  background: var(--danger-bg);
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--danger);
+  cursor: pointer;
+  transition: transform 160ms var(--ease-spring);
+}
+
+.srt-remove:active {
+  transform: scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .srt-body,
+  .srt-chev {
+    transition: none;
   }
 }
 
@@ -22356,12 +22413,6 @@ button.pd-stat[aria-expanded="true"] {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-/* Initials in the auto-loaded team rows */
-.report-team-avatar {
-  font-size: 12.5px;
-  font-weight: 800;
-  letter-spacing: 0.01em;
-}
 
 @media (prefers-reduced-motion: reduce) {
   .srw-stage,

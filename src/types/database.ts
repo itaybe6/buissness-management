@@ -387,6 +387,8 @@ export interface InventoryOrder {
   business_id: string;
   item_id: string;
   quantity: number;
+  /** Units actually received when marked as arrived; null until received. */
+  received_quantity: number | null;
   status: OrderStatus;
   ordered_by: string | null;
   batch_id: string | null;

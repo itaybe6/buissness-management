@@ -6,6 +6,7 @@ import { Modal } from "@/components/ui/Modal";
 import { WastePanel } from "@/components/waste/WastePanel";
 import { DualUnitQtyInput } from "@/components/inventory/DualUnitQtyInput";
 import { InventoryQtyUpdatePanel } from "@/components/inventory/InventoryQtyUpdatePanel";
+import { formatOrderReceivedLabel, OrderReceiveControls } from "@/components/inventory/OrderReceiveControls";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId, HE_DAYS } from "@/lib/db";
 import {
@@ -31,6 +32,7 @@ import {
   type ItemLog,
   isTrackedLowStock,
 } from "@/api/inventory";
+import { useIsMdUp } from "@/hooks/useMediaQuery";
 import { useWaste } from "@/api/waste";
 import type { InventoryAction, InventoryWaste } from "@/types/database";
 
@@ -47,10 +49,9 @@ type OrderBatch = {
   lines: OrderLine[];
 };
 
-function groupOpenOrders(orders: InventoryOrderWithUser[], items: ItemWithQty[]): OrderBatch[] {
+function groupOrderBatches(orders: InventoryOrderWithUser[], items: ItemWithQty[]): OrderBatch[] {
   const map = new Map<string, OrderBatch>();
   for (const o of orders) {
-    if (o.status === "received") continue;
     const key = o.batch_id ?? o.id;
     const line: OrderLine = { ...o, item: items.find((i) => i.id === o.item_id) };
     if (!map.has(key)) {
@@ -66,6 +67,21 @@ function groupOpenOrders(orders: InventoryOrderWithUser[], items: ItemWithQty[])
     map.get(key)!.lines.push(line);
   }
   return [...map.values()].sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
+function batchHasPendingLines(batch: OrderBatch): boolean {
+  return batch.lines.some((l) => l.status !== "received");
+}
+
+function batchIsFullyReceived(batch: OrderBatch): boolean {
+  return batch.lines.length > 0 && batch.lines.every((l) => l.status === "received");
+}
+
+function batchReceivedUnits(batch: OrderBatch): number {
+  return batch.lines.reduce(
+    (sum, l) => sum + Number(l.status === "received" ? (l.received_quantity ?? l.quantity) : 0),
+    0,
+  );
 }
 
 function batchOrderedByLabel(batch: OrderBatch): string {
@@ -490,7 +506,7 @@ function ItemDetailModal({
   onEdit: () => void;
   onHistory: () => void;
   onOrder: () => void;
-  onMarkArrived: (order: InventoryOrderWithUser) => void;
+  onMarkArrived: (order: InventoryOrderWithUser, receivedQty: number) => void;
   onMarkNotArrived: (order: InventoryOrderWithUser) => void;
 }) {
   const [editingQty, setEditingQty] = useState(false);
@@ -663,7 +679,7 @@ function ItemDetailModal({
               </button>
             </div>
             <p className="mb-3 text-[12px] leading-relaxed text-text-3">
-              סמנו אם ההזמנה הגיעה (תתווסף למלאי) או לא הגיעה (תוסר מההזמנות).
+              סמנו כמה הגיע בפועל — יתווסף למלאי. אם הגיע פחות מהוזמן, השאר יישאר בהזמנה.
             </p>
             <ul className="flex flex-col gap-2.5">
               {pendingOrders.map((order) => (
@@ -689,24 +705,15 @@ function ItemDetailModal({
                     </div>
                     <Icon name="local_shipping" size={18} className="text-text-3" />
                   </div>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="secondary"
-                      disabled={orderArrivalBusy}
-                      onClick={() => onMarkNotArrived(order)}
-                      className="flex-1 !py-2.5 active:scale-[0.97]"
-                    >
-                      לא הגיע
-                    </Button>
-                    <Button
-                      icon="check_circle"
-                      disabled={orderArrivalBusy}
-                      onClick={() => onMarkArrived(order)}
-                      className="flex-1 !bg-ink !py-2.5 active:scale-[0.97]"
-                    >
-                      הגיע
-                    </Button>
-                  </div>
+                  <OrderReceiveControls
+                    orderedQty={Number(order.quantity)}
+                    unit={item.unit}
+                    unitsPerPackage={item.units_per_package}
+                    busy={orderArrivalBusy}
+                    compact
+                    onConfirmArrived={(receivedQty) => onMarkArrived(order, receivedQty)}
+                    onNotArrived={() => onMarkNotArrived(order)}
+                  />
                 </li>
               ))}
             </ul>
@@ -1152,11 +1159,15 @@ function OrderPreviewStack({ lines }: { lines: OrderLine[] }) {
 function OrderDetailLine({
   line,
   index,
+  busy,
   onReceive,
+  onNotArrived,
 }: {
   line: OrderLine;
   index: number;
-  onReceive: () => void;
+  busy?: boolean;
+  onReceive: (receivedQty: number) => void;
+  onNotArrived: () => void;
 }) {
   const item = line.item;
   const pending = line.status !== "received";
@@ -1165,6 +1176,12 @@ function OrderDetailLine({
       ? mainUnitToPieces(Number(line.quantity), item.units_per_package)
       : null;
   const deliveryDay = item?.supplier_delivery_day;
+  const receivedLabel = formatOrderReceivedLabel(line);
+  const [receiveOpen, setReceiveOpen] = useState(false);
+
+  useEffect(() => {
+    if (!pending) setReceiveOpen(false);
+  }, [pending]);
 
   return (
     <div className="inventory-order-detail-line inventory-item-enter" style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}>
@@ -1177,26 +1194,62 @@ function OrderDetailLine({
           </span>
         )}
       </div>
-      <div className="inventory-order-detail-info">
+      <div className="inventory-order-detail-info min-w-0 flex-1">
         <div className="inventory-order-detail-name">{item?.name ?? "פריט"}</div>
         <div className="inventory-order-detail-sub">
           <b>
-            {line.quantity}
+            {pending ? line.quantity : receivedLabel ?? line.quantity}
             {item?.unit ? ` ${item.unit}` : ""}
           </b>
+          {!pending && line.received_quantity != null && line.received_quantity < line.quantity && (
+            <span> · הוזמן {line.quantity}</span>
+          )}
           {pieces != null && <span>({pieces} יח׳)</span>}
           {deliveryDay != null && deliveryDay >= 0 && deliveryDay <= 6 && (
             <span>· אספקה {HE_DAYS_SHORT[deliveryDay]}</span>
           )}
         </div>
+        {pending && receiveOpen && (
+          <div className="mt-3 rounded-[14px] border border-border bg-surface p-3">
+            <OrderReceiveControls
+              orderedQty={Number(line.quantity)}
+              unit={item?.unit ?? null}
+              unitsPerPackage={item?.units_per_package ?? null}
+              busy={busy}
+              compact
+              onConfirmArrived={(qty) => {
+                onReceive(qty);
+                setReceiveOpen(false);
+              }}
+              onNotArrived={() => {
+                onNotArrived();
+                setReceiveOpen(false);
+              }}
+            />
+          </div>
+        )}
       </div>
       {pending ? (
-        <button type="button" className="inventory-order-receive-btn" onClick={onReceive}>
-          <Icon name="check_circle" size={16} />
-          התקבל
-        </button>
+        receiveOpen ? (
+          <button
+            type="button"
+            className="inventory-order-receive-btn shrink-0 opacity-70"
+            onClick={() => setReceiveOpen(false)}
+          >
+            <Icon name="close" size={16} />
+          </button>
+        ) : (
+          <button type="button" className="inventory-order-receive-btn shrink-0" onClick={() => setReceiveOpen(true)}>
+            <Icon name="check_circle" size={16} />
+            התקבל
+          </button>
+        )
       ) : (
-        <Badge tone="success">במלאי</Badge>
+        <Badge tone="success">
+          {line.received_quantity != null && line.received_quantity < line.quantity
+            ? `התקבל ${receivedLabel}`
+            : "במלאי"}
+        </Badge>
       )}
     </div>
   );
@@ -1206,6 +1259,7 @@ function OrderBatchRow({
   batch,
   index,
   canManageOrders,
+  received,
   onDetails,
   onEdit,
   onDelete,
@@ -1213,11 +1267,17 @@ function OrderBatchRow({
   batch: OrderBatch;
   index: number;
   canManageOrders: boolean;
+  received?: boolean;
   onDetails: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const totalQty = batch.lines.reduce((sum, l) => sum + Number(l.quantity), 0);
+  const pendingQty = batch.lines
+    .filter((l) => l.status !== "received")
+    .reduce((sum, l) => sum + Number(l.quantity), 0);
+  const totalQty = received
+    ? batchReceivedUnits(batch)
+    : batch.lines.reduce((sum, l) => sum + Number(l.quantity), 0);
   const date = formatOrderDate(batch.created_at);
   const deliveryShort = orderDeliveryDaysShortLabel(batch.lines);
 
@@ -1234,13 +1294,17 @@ function OrderBatchRow({
         <div className="inventory-order-heading">
           <div className="inventory-order-title-row">
             <h3 className="inventory-order-title">{orderPreviewLabel(batch.lines)}</h3>
-            <span className="inventory-order-status">
+            <span
+              className={`inventory-order-status${received ? " inventory-order-status--received" : ""}`}
+            >
               <span className="inventory-order-status-dot" aria-hidden />
-              בהזמנה
+              {received ? "התקבל" : "בהזמנה"}
             </span>
           </div>
           <p className="inventory-order-sub">
-            <b>{batch.lines.length}</b> פריטים · <b>{totalQty}</b> יח׳ · הוזמן {date.time} · {batchOrderedByLabel(batch)}
+            <b>{batch.lines.length}</b> פריטים · <b>{totalQty}</b> יח׳
+            {received ? " התקבלו" : pendingQty < totalQty ? ` · ${pendingQty} ממתין` : ""} · הוזמן{" "}
+            {date.time} · {batchOrderedByLabel(batch)}
           </p>
         </div>
       </button>
@@ -1264,7 +1328,7 @@ function OrderBatchRow({
         >
           <Icon name="visibility" size={17} />
         </button>
-        {canManageOrders && (
+        {canManageOrders && !received && (
           <>
             <button
               type="button"
@@ -1291,16 +1355,67 @@ function OrderBatchRow({
   );
 }
 
+function OrderBatchListSection({
+  title,
+  icon,
+  batches,
+  canManageOrders,
+  received,
+  onDetails,
+  onEdit,
+  onDelete,
+}: {
+  title: string;
+  icon: string;
+  batches: OrderBatch[];
+  canManageOrders: boolean;
+  received?: boolean;
+  onDetails: (batch: OrderBatch) => void;
+  onEdit: (batch: OrderBatch) => void;
+  onDelete: (batch: OrderBatch) => void;
+}) {
+  if (batches.length === 0) return null;
+  return (
+    <div className="inventory-orders-list">
+      <div className="inventory-orders-list-head">
+        <div className="inventory-orders-list-title">
+          <Icon name={icon} size={18} />
+          {title}
+        </div>
+        <span className="inventory-orders-panel-count">{batches.length}</span>
+      </div>
+      <div className="inventory-orders-cards">
+        {batches.map((batch, idx) => (
+          <OrderBatchRow
+            key={batch.id}
+            batch={batch}
+            index={idx}
+            canManageOrders={canManageOrders}
+            received={received}
+            onDetails={() => onDetails(batch)}
+            onEdit={() => onEdit(batch)}
+            onDelete={() => onDelete(batch)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function OrderDetailsModal({
   batch,
   open,
+  receiveBusy,
   onClose,
   onReceive,
+  onNotArrived,
 }: {
   batch: OrderBatch | null;
   open: boolean;
+  receiveBusy?: boolean;
   onClose: () => void;
-  onReceive: (line: OrderLine) => void;
+  onReceive: (line: OrderLine, receivedQty: number) => void;
+  onNotArrived: (line: OrderLine) => void;
 }) {
   if (!batch) return null;
 
@@ -1342,7 +1457,14 @@ function OrderDetailsModal({
       )}
       <div className="flex flex-col">
         {batch.lines.map((line, idx) => (
-          <OrderDetailLine key={line.id} line={line} index={idx} onReceive={() => onReceive(line)} />
+          <OrderDetailLine
+            key={line.id}
+            line={line}
+            index={idx}
+            busy={receiveBusy}
+            onReceive={(receivedQty) => onReceive(line, receivedQty)}
+            onNotArrived={() => onNotArrived(line)}
+          />
         ))}
       </div>
     </Modal>
@@ -1550,6 +1672,7 @@ export function Inventory() {
   const receiveOrder = useReceiveOrder(businessId);
   const markOrderNotArrived = useMarkOrderNotArrived(businessId);
   const navigate = useNavigate();
+  const isMdUp = useIsMdUp();
   const [searchParams, setSearchParams] = useSearchParams();
   const [wasteReportOpen, setWasteReportOpen] = useState(false);
 
@@ -1628,12 +1751,25 @@ export function Inventory() {
     if (!detailItemLive) return [];
     return orderList.filter((o) => o.item_id === detailItemLive.id && o.status !== "received");
   }, [orderList, detailItemLive]);
-  const openBatches = groupOpenOrders(orderList, list);
+  const allOrderBatches = useMemo(() => groupOrderBatches(orderList, list), [orderList, list]);
+  const openBatches = useMemo(() => allOrderBatches.filter(batchHasPendingLines), [allOrderBatches]);
+  const receivedBatches = useMemo(() => allOrderBatches.filter(batchIsFullyReceived), [allOrderBatches]);
   const filteredOrderBatches = useMemo(
     () => filterOrderBatches(openBatches, orderSearchQuery, orderFilter),
     [openBatches, orderSearchQuery, orderFilter],
   );
-  const detailBatch = detailBatchId ? openBatches.find((b) => b.id === detailBatchId) ?? null : null;
+  const filteredReceivedBatches = useMemo(
+    () => filterOrderBatches(receivedBatches, orderSearchQuery, orderFilter),
+    [receivedBatches, orderSearchQuery, orderFilter],
+  );
+  const detailBatch = detailBatchId
+    ? allOrderBatches.find((b) => b.id === detailBatchId) ?? null
+    : null;
+  const showReceivedOrdersOnTab = !isMdUp;
+  const visibleOrderResultCount =
+    filteredOrderBatches.length + (showReceivedOrdersOnTab ? filteredReceivedBatches.length : 0);
+  const visibleOrderTotalCount =
+    openBatches.length + (showReceivedOrdersOnTab ? receivedBatches.length : 0);
   const pending = orderList.filter((o) => o.status !== "received").length;
   const wasteCount = wasteRecords?.length ?? 0;
   const filteredWasteRecords = useMemo(
@@ -1743,18 +1879,23 @@ export function Inventory() {
     }
   }
 
-  async function handleReceive(line: OrderLine | InventoryOrderWithUser) {
+  async function handleReceive(line: OrderLine | InventoryOrderWithUser, receivedQty?: number) {
     if (!canManageOrders && !canUpdateOrderArrival) return;
     const item = list.find((i) => i.id === line.item_id);
     if (!item) return;
+    const ordered = Number(line.quantity);
+    const received = receivedQty ?? ordered;
     try {
       await receiveOrder.mutateAsync({
         order_id: line.id,
         business_id: businessId!,
         item_id: line.item_id,
-        quantity: Number(line.quantity),
+        ordered_quantity: ordered,
+        received_quantity: received,
         current_qty: item.current_qty,
         employee_id: profile?.id ?? null,
+        batch_id: line.batch_id,
+        ordered_by: line.ordered_by,
       });
     } catch (e) {
       window.alert(inventorySaveError(e));
@@ -1921,17 +2062,17 @@ export function Inventory() {
             onFilterChange={setOrderFilter}
             filters={ORDER_FILTERS}
             placeholder="חיפוש הזמנה..."
-            resultCount={filteredOrderBatches.length}
-            totalCount={openBatches.length}
+            resultCount={visibleOrderResultCount}
+            totalCount={visibleOrderTotalCount}
             resultUnit="הזמנות"
             onAdd={() => openNewOrder()}
             showAdd
             addIcon="add_shopping_cart"
             addAriaLabel="הזמנה חדשה"
           />
-          {openBatches.length === 0 ? (
+          {visibleOrderTotalCount === 0 ? (
             <OrdersEmptyState onCreate={() => openNewOrder()} />
-          ) : filteredOrderBatches.length === 0 ? (
+          ) : visibleOrderResultCount === 0 ? (
             <EmptyState
               icon="search_off"
               title="לא נמצאו הזמנות"
@@ -1943,27 +2084,28 @@ export function Inventory() {
               }
             />
           ) : (
-            <div className="inventory-orders-list">
-              <div className="inventory-orders-list-head">
-                <div className="inventory-orders-list-title">
-                  <Icon name="local_shipping" size={18} />
-                  הזמנות פתוחות
-                </div>
-                <span className="inventory-orders-panel-count">{filteredOrderBatches.length}</span>
-              </div>
-              <div className="inventory-orders-cards">
-                {filteredOrderBatches.map((batch, idx) => (
-                  <OrderBatchRow
-                    key={batch.id}
-                    batch={batch}
-                    index={idx}
-                    canManageOrders={canManageOrders}
-                    onDetails={() => setDetailBatchId(batch.id)}
-                    onEdit={() => openEditOrder(batch)}
-                    onDelete={() => handleDeleteOrder(batch)}
-                  />
-                ))}
-              </div>
+            <div className="flex flex-col gap-5 md:gap-0">
+              <OrderBatchListSection
+                title="הזמנות פתוחות"
+                icon="local_shipping"
+                batches={filteredOrderBatches}
+                canManageOrders={canManageOrders}
+                onDetails={(batch) => setDetailBatchId(batch.id)}
+                onEdit={openEditOrder}
+                onDelete={handleDeleteOrder}
+              />
+              {showReceivedOrdersOnTab && (
+                <OrderBatchListSection
+                  title="הזמנות שהתקבלו"
+                  icon="check_circle"
+                  batches={filteredReceivedBatches}
+                  canManageOrders={canManageOrders}
+                  received
+                  onDetails={(batch) => setDetailBatchId(batch.id)}
+                  onEdit={openEditOrder}
+                  onDelete={handleDeleteOrder}
+                />
+              )}
             </div>
           )}
         </>
@@ -2213,8 +2355,10 @@ export function Inventory() {
       <OrderDetailsModal
         batch={detailBatch}
         open={!!detailBatch}
+        receiveBusy={receiveOrder.isPending || markOrderNotArrived.isPending}
         onClose={() => setDetailBatchId(null)}
-        onReceive={handleReceive}
+        onReceive={(line, receivedQty) => handleReceive(line, receivedQty)}
+        onNotArrived={(line) => handleMarkNotArrived(line)}
       />
 
       <LoadingOverlay show={qtySaving} label="מעדכן מלאי..." />
