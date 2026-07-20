@@ -5,6 +5,7 @@ import {
   EmptyState,
   ErrorState,
   Icon,
+  InlineLoader,
   Input,
   PageLoader,
   Select,
@@ -1520,7 +1521,7 @@ function ReportEditor({
             </p>
 
             {participantsLoading ? (
-              <div className="srw-empty">טוען עובדים מהיום…</div>
+              <InlineLoader compact label="טוען עובדים מהיום..." />
             ) : s.team_members.length === 0 ? (
               <div className="srw-empty">לא נמצאה נוכחות לתאריך זה — ניתן להוסיף עובדים ידנית.</div>
             ) : (

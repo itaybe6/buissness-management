@@ -100,6 +100,38 @@ function formatFaultExact(iso: string) {
   return `${date} · ${time}`;
 }
 
+function faultProfileName(
+  profileId: string | null | undefined,
+  embedded: { full_name: string | null } | null | undefined,
+  byId: Map<string, string>,
+  self?: { id: string; full_name: string | null } | null,
+): string | undefined {
+  const fromJoin = embedded?.full_name?.trim();
+  if (fromJoin) return fromJoin;
+  if (!profileId) return undefined;
+  if (self?.id === profileId && self.full_name?.trim()) return self.full_name.trim();
+  const fromMap = byId.get(profileId)?.trim();
+  if (fromMap && fromMap !== "משתמש") return fromMap;
+  return undefined;
+}
+
+function FaultStatusAudit({ at, byName }: { at: string | null; byName?: string }) {
+  if (!at || !byName) return null;
+  return (
+    <p className="fault-row__status-audit">
+      <Icon name="history" size={14} />
+      <span>
+        <strong>{byName}</strong>
+        <span className="fault-row__meta-sep" aria-hidden>
+          {" "}
+          ·{" "}
+        </span>
+        <time dateTime={at}>{formatFaultExact(at)}</time>
+      </span>
+    </p>
+  );
+}
+
 function faultDayLabel(day: string) {
   const today = todayISO();
   if (day === today) return "היום";
@@ -132,17 +164,146 @@ function canModifyFault(profileId?: string | null) {
   return !!profileId;
 }
 
+function FaultAddMediaButton({
+  uploading,
+  onFiles,
+}: {
+  uploading?: boolean;
+  onFiles: (files: File[]) => void | Promise<void>;
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const galleryRef = useRef<HTMLInputElement>(null);
+
+  function choose(source: "camera" | "gallery") {
+    setPickerOpen(false);
+    setError(null);
+    window.setTimeout(() => {
+      if (source === "camera") cameraRef.current?.click();
+      else galleryRef.current?.click();
+    }, 180);
+  }
+
+  async function handleInput(files: FileList | null) {
+    const list = files ? Array.from(files) : [];
+    if (!list.length) return;
+    setError(null);
+    try {
+      await onFiles(list);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "העלאת התמונה נכשלה");
+      setPickerOpen(true);
+    }
+  }
+
+  return (
+    <>
+      <input
+        ref={cameraRef}
+        type="file"
+        accept="image/*,video/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => {
+          void handleInput(e.target.files);
+          e.target.value = "";
+        }}
+      />
+      <input
+        ref={galleryRef}
+        type="file"
+        accept="image/*,video/*"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          void handleInput(e.target.files);
+          e.target.value = "";
+        }}
+      />
+
+      <button
+        type="button"
+        className="fault-actions__btn fault-actions__btn--media"
+        data-uploading={uploading || undefined}
+        disabled={uploading}
+        onClick={(e) => {
+          e.stopPropagation();
+          setError(null);
+          setPickerOpen(true);
+        }}
+        aria-label="הוספת תמונה או סרטון"
+        title="הוספת תמונה"
+      >
+        <Icon name={uploading ? "hourglass_empty" : "add"} size={18} className={uploading ? "animate-pulse" : ""} />
+      </button>
+
+      <Modal
+        open={pickerOpen}
+        onClose={() => {
+          setPickerOpen(false);
+          setError(null);
+        }}
+        icon="add_a_photo"
+        title="הוספת תמונה לתקלה"
+        subtitle="תיעוד לפני או אחרי טיפול"
+      >
+        <div className="flex flex-col gap-2.5">
+          <button type="button" onClick={() => choose("camera")} className="press task-upload-choice" disabled={uploading}>
+            <span className="task-upload-choice-icon">
+              <Icon name="photo_camera" size={22} />
+            </span>
+            <span className="min-w-0 flex-1 text-start">
+              <span className="block text-[14px] font-extrabold text-text">צילום במצלמה</span>
+              <span className="mt-0.5 block text-[12px] text-text-2">פתח את המצלמה וצלם עכשיו</span>
+            </span>
+            <Icon name="chevron_left" size={20} className="text-text-3" />
+          </button>
+          <button type="button" onClick={() => choose("gallery")} className="press task-upload-choice" disabled={uploading}>
+            <span className="task-upload-choice-icon">
+              <Icon name="photo_library" size={22} />
+            </span>
+            <span className="min-w-0 flex-1 text-start">
+              <span className="block text-[14px] font-extrabold text-text">בחירה מהגלריה</span>
+              <span className="mt-0.5 block text-[12px] text-text-2">תמונה או סרטון מהמכשיר</span>
+            </span>
+            <Icon name="chevron_left" size={20} className="text-text-3" />
+          </button>
+          {error && (
+            <div className="flex items-start gap-2 rounded-[11px] [background:var(--danger-bg)] px-3 py-2.5 text-[13px] font-semibold text-danger">
+              <Icon name="error" size={18} /> {error}
+            </div>
+          )}
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setPickerOpen(false);
+              setError(null);
+            }}
+            className="mt-1 w-full"
+          >
+            ביטול
+          </Button>
+        </div>
+      </Modal>
+    </>
+  );
+}
+
 function FaultActions({
   onEdit,
   onDelete,
+  addMedia,
 }: {
   onEdit: () => void;
   onDelete: () => void;
+  addMedia?: React.ReactNode;
 }) {
   return (
-    <div className="fault-actions">
+    <div className="fault-actions" onClick={(e) => e.stopPropagation()}>
+      {addMedia}
       <button type="button" className="fault-actions__btn" onClick={onEdit} aria-label="עריכת תקלה">
-        <Icon name="edit" size={17} />
+        <Icon name="edit" size={16} />
       </button>
       <button
         type="button"
@@ -150,7 +311,7 @@ function FaultActions({
         onClick={onDelete}
         aria-label="מחיקת תקלה"
       >
-        <Icon name="delete" size={17} />
+        <Icon name="delete" size={16} />
       </button>
     </div>
   );
@@ -299,6 +460,9 @@ function FaultRowMobile({
   canModify,
   onEdit,
   onDelete,
+  onAddPhotos,
+  photosUploading,
+  statusUpdaterName,
 }: {
   fault: Fault;
   reporterName?: string;
@@ -310,6 +474,9 @@ function FaultRowMobile({
   canModify?: boolean;
   onEdit?: () => void;
   onDelete?: () => void;
+  onAddPhotos?: (files: File[]) => void | Promise<void>;
+  photosUploading?: boolean;
+  statusUpdaterName?: string;
 }) {
   const meta = STATUS_META[fault.status];
   const mediaUrls = fault.photo_urls ?? [];
@@ -380,12 +547,6 @@ function FaultRowMobile({
         </button>
       </div>
 
-      {canModify && onEdit && onDelete && (
-        <div className="fault-row__tools">
-          <FaultActions onEdit={onEdit} onDelete={onDelete} />
-        </div>
-      )}
-
       <div className="fault-row__panel">
         <div className="fault-row__panel-inner">
           {mediaUrls.length > 0 && <FaultMediaCarousel urls={mediaUrls} tall />}
@@ -406,8 +567,22 @@ function FaultRowMobile({
             <div className="fault-row__seg">
               <span className="fault-row__seg-label">עדכון סטטוס</span>
               <FaultStatusSegmented value={fault.status} solid disabled={statusPending} onChange={onStatusChange} />
+              <FaultStatusAudit at={fault.status_updated_at} byName={statusUpdaterName} />
             </div>
           </div>
+          {canModify && onEdit && onDelete && (
+            <div className="fault-row__panel-tools">
+              <FaultActions
+                onEdit={onEdit}
+                onDelete={onDelete}
+                addMedia={
+                  onAddPhotos ? (
+                    <FaultAddMediaButton uploading={photosUploading} onFiles={onAddPhotos} />
+                  ) : undefined
+                }
+              />
+            </div>
+          )}
         </div>
       </div>
     </article>
@@ -733,6 +908,7 @@ export function Faults() {
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [uploadingFaultId, setUploadingFaultId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const mediaRef = useRef(media);
   mediaRef.current = media;
@@ -747,8 +923,19 @@ export function Faults() {
   const reporterById = useMemo(() => {
     const map = new Map<string, string>();
     (profiles ?? []).forEach((p) => map.set(p.id, p.full_name ?? "משתמש"));
+    if (profile?.id && profile.full_name?.trim()) {
+      map.set(profile.id, profile.full_name.trim());
+    }
     return map;
-  }, [profiles]);
+  }, [profiles, profile?.id, profile?.full_name]);
+
+  function faultReporterName(f: Fault) {
+    return faultProfileName(f.reported_by, f.reporter, reporterById, profile);
+  }
+
+  function faultStatusUpdaterName(f: Fault) {
+    return faultProfileName(f.status_updated_by, f.status_updater, reporterById, profile);
+  }
 
   const canReport = profile?.role !== "maintenance";
 
@@ -765,7 +952,7 @@ export function Faults() {
   const visible = dateFiltered.filter((f) => {
     if (filter && f.status !== filter) return false;
     if (!searchQ) return true;
-    const reporter = f.reported_by ? reporterById.get(f.reported_by) ?? "" : "";
+    const reporter = faultReporterName(f) ?? "";
     return f.description.toLowerCase().includes(searchQ) || reporter.toLowerCase().includes(searchQ);
   });
   const hasActiveFilters = filter !== null || datePreset !== "all";
@@ -901,7 +1088,23 @@ export function Faults() {
   }
 
   function onStatusChange(id: string, status: FaultStatus, current: FaultStatus) {
-    if (status !== current) updateFault.mutate({ id, status });
+    if (status !== current) {
+      updateFault.mutate({ id, status, statusUpdatedBy: profile?.id ?? null });
+    }
+  }
+
+  async function appendFaultPhotos(fault: Fault, files: File[]) {
+    if (!businessId || files.length === 0) return;
+    setUploadingFaultId(fault.id);
+    try {
+      const uploaded = await uploadFaultPhotos(businessId, files);
+      await updateFault.mutateAsync({
+        id: fault.id,
+        photo_urls: [...(fault.photo_urls ?? []), ...uploaded],
+      });
+    } finally {
+      setUploadingFaultId(null);
+    }
   }
 
   const reportModal = (
@@ -1058,7 +1261,7 @@ export function Faults() {
                   <FaultRowMobile
                     key={f.id}
                     fault={f}
-                    reporterName={f.reported_by ? reporterById.get(f.reported_by) : undefined}
+                    reporterName={faultReporterName(f)}
                     index={indexById.get(f.id) ?? 0}
                     expanded={expandedId === f.id}
                     onToggle={() => setExpandedId((prev) => (prev === f.id ? null : f.id))}
@@ -1067,6 +1270,9 @@ export function Faults() {
                     canModify={modifiable}
                     onEdit={modifiable ? () => openEdit(f) : undefined}
                     onDelete={modifiable ? () => openDelete(f) : undefined}
+                    onAddPhotos={modifiable ? (files) => appendFaultPhotos(f, files) : undefined}
+                    photosUploading={uploadingFaultId === f.id}
+                    statusUpdaterName={faultStatusUpdaterName(f)}
                   />
                 );
               })}
@@ -1079,7 +1285,7 @@ export function Faults() {
         {visible.map((f) => {
           const meta = STATUS_META[f.status];
           const mediaUrls = f.photo_urls ?? [];
-          const reporterName = f.reported_by ? reporterById.get(f.reported_by) : undefined;
+          const reporterName = faultReporterName(f);
           const modifiable = canModifyFault(profile?.id);
           return (
             <Card key={f.id} className="flex flex-col overflow-hidden p-0">
@@ -1093,17 +1299,29 @@ export function Faults() {
                     {reporterName && (
                       <div className="mt-1 inline-flex items-center gap-1 text-[12px] font-semibold text-text-3">
                         <Icon name="person" size={14} />
-                        דווח על ידי {reporterName}
+                        {reporterName}
                       </div>
                     )}
                   </div>
-                  {modifiable && <FaultActions onEdit={() => openEdit(f)} onDelete={() => openDelete(f)} />}
+                  {modifiable && (
+                    <FaultActions
+                      onEdit={() => openEdit(f)}
+                      onDelete={() => openDelete(f)}
+                      addMedia={
+                        <FaultAddMediaButton
+                          uploading={uploadingFaultId === f.id}
+                          onFiles={(files) => appendFaultPhotos(f, files)}
+                        />
+                      }
+                    />
+                  )}
                 </div>
                 <FaultStatusSegmented
                   value={f.status}
                   disabled={updateFault.isPending}
                   onChange={(status) => onStatusChange(f.id, status, f.status)}
                 />
+                <FaultStatusAudit at={f.status_updated_at} byName={faultStatusUpdaterName(f)} />
               </div>
             </Card>
           );

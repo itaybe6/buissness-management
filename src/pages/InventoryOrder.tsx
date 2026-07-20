@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { Button, EmptyState, ErrorState, Icon, Input } from "@/components/ui";
+import { Button, EmptyState, ErrorState, Icon, Input, PageLoader } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId, HE_DAYS } from "@/lib/db";
@@ -568,30 +568,7 @@ export function InventoryOrder() {
   if (profile && !canManageOrders) return <Navigate to="/inventory" replace />;
 
   if (isLoading || (isEditing && !batchMissing && !editInitRef.current)) {
-    return (
-      <div className="w-full">
-        <div className="mb-5 flex items-center gap-3">
-          <div className="h-10 w-10 rounded-[12px] bg-surface-2" />
-          <div>
-            <div className="h-6 w-36 rounded-md bg-surface-2" />
-            <div className="mt-2 h-3.5 w-52 rounded-md bg-surface-2" />
-          </div>
-        </div>
-        <div className="mb-4 h-11 rounded-[12px] bg-surface-2" />
-        <div className="ordc-grid">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="overflow-hidden rounded-[14px] bg-surface shadow-sm">
-              <div className="aspect-[5/3] animate-pulse bg-surface-2" />
-              <div className="flex flex-col gap-2 p-3">
-                <div className="h-3.5 w-3/4 rounded bg-surface-2" />
-                <div className="h-3 w-1/2 rounded bg-surface-2" />
-                <div className="h-8 w-full rounded-[10px] bg-surface-2" />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
+    return <PageLoader label="טוען הזמנה..." />;
   }
 
   if (isError) return <ErrorState onRetry={refetch} />;

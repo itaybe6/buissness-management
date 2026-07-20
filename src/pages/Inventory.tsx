@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Badge, Button, EmptyState, Field, Icon, Input, ErrorState, LoadingOverlay, Select, Spinner } from "@/components/ui";
+import { Badge, Button, EmptyState, Field, Icon, Input, ErrorState, InlineLoader, LoadingOverlay, PageLoader, SectionLoader, Select } from "@/components/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { Modal } from "@/components/ui/Modal";
 import { WastePanel } from "@/components/waste/WastePanel";
@@ -485,6 +485,7 @@ function ItemDetailModal({
   canUpdateOrderArrival,
   pendingOrders,
   orderArrivalBusy,
+  qtyUpdateBusy,
   onClose,
   onSetQty,
   onEdit,
@@ -501,6 +502,7 @@ function ItemDetailModal({
   canUpdateOrderArrival: boolean;
   pendingOrders: InventoryOrderWithUser[];
   orderArrivalBusy: boolean;
+  qtyUpdateBusy?: boolean;
   onClose: () => void;
   onSetQty: (qty: number) => void;
   onEdit: () => void;
@@ -742,7 +744,8 @@ function ItemDetailModal({
           )}
         </div>
 
-        <div className="pd-qty-card">
+        <div className="pd-qty-card relative">
+          <SectionLoader show={!!qtyUpdateBusy} label="מעדכן מלאי..." />
           <div className="mb-3.5 flex items-center justify-between gap-2">
             <span className="pd-section-title">
               <Icon name="edit_square" size={14} />
@@ -774,6 +777,7 @@ function ItemDetailModal({
                       icon="check"
                       onClick={handleSaveQty}
                       disabled={!draftDirty}
+                      loading={!!qtyUpdateBusy}
                       className="flex-1 !bg-ink active:scale-[0.97]"
                     >
                       שמור
@@ -813,14 +817,7 @@ function ItemDetailModal({
           </div>
 
           {recentLogsLoading ? (
-            <div className="pd-mini-log">
-              <div className="pd-mini-row">
-                <div className="skeleton-shimmer pd-mini-skeleton w-full" />
-              </div>
-              <div className="pd-mini-row">
-                <div className="skeleton-shimmer pd-mini-skeleton w-2/3" />
-              </div>
-            </div>
+            <InlineLoader compact label="טוען היסטוריה..." />
           ) : recentLogs && recentLogs.length > 0 ? (
             <div className="pd-mini-log">
               {recentLogs.slice(0, 3).map((log) => {
@@ -1488,21 +1485,6 @@ function OrdersEmptyState({ onCreate }: { onCreate: () => void }) {
   );
 }
 
-function SkeletonCard() {
-  return (
-    <div className="overflow-hidden rounded-card border-0 bg-surface shadow-card">
-      <div className="relative aspect-[5/4] overflow-hidden bg-surface-2">
-        <div className="absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-black/[0.04] to-transparent" />
-      </div>
-      <div className="flex flex-col gap-3 p-4">
-        <div className="h-4 w-2/3 rounded-md bg-surface-2" />
-        <div className="h-1 w-full rounded-full bg-surface-2" />
-        <div className="h-8 w-full rounded-lg bg-surface-2" />
-      </div>
-    </div>
-  );
-}
-
 const LOG_META: Record<InventoryAction, { label: string; icon: string; color: string }> = {
   created: { label: "נוצר פריט", icon: "add_circle", color: "var(--success)" },
   count: { label: "עדכון כמות", icon: "inventory_2", color: "var(--info)" },
@@ -1574,9 +1556,7 @@ function HistoryModal({
   return (
     <Modal open={!!item} onClose={onClose} title="היסטוריית עדכונים" subtitle={item?.name} icon="history" maxWidth={520}>
       {isLoading ? (
-        <div className="grid place-items-center py-12">
-          <Spinner size={28} />
-        </div>
+        <InlineLoader label="טוען היסטוריה..." />
       ) : isError ? (
         <p className="py-10 text-center text-[13px] text-text-3">שגיאה בטעינת ההיסטוריה</p>
       ) : !logs || logs.length === 0 ? (
@@ -1777,22 +1757,7 @@ export function Inventory() {
     [wasteRecords, list, wasteSearchQuery, wasteFilter],
   );
 
-  if (isLoading) {
-    return (
-      <div className="w-full">
-        <header className="mb-6">
-          <div className="h-8 w-40 rounded-md bg-surface-2" />
-          <div className="mt-2 h-4 w-28 rounded-md bg-surface-2" />
-        </header>
-        <div className="mb-6 h-[76px] rounded-card border-0 bg-surface shadow-card" />
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <SkeletonCard key={i} />
-          ))}
-        </div>
-      </div>
-    );
-  }
+  if (isLoading) return <PageLoader label="טוען מלאי..." />;
   if (isError) return <ErrorState onRetry={refetch} />;
 
   function openCreate() {
@@ -2329,6 +2294,7 @@ export function Inventory() {
         canUpdateOrderArrival={canUpdateOrderArrival}
         pendingOrders={detailPendingOrders}
         orderArrivalBusy={receiveOrder.isPending || markOrderNotArrived.isPending}
+        qtyUpdateBusy={qtySaving}
         onClose={closeItemDetail}
         onSetQty={(quantity) => detailItemLive && handleSetQty(detailItemLive, quantity)}
         onEdit={() => {
@@ -2361,7 +2327,7 @@ export function Inventory() {
         onNotArrived={(line) => handleMarkNotArrived(line)}
       />
 
-      <LoadingOverlay show={qtySaving} label="מעדכן מלאי..." />
+      <LoadingOverlay show={qtySaving && !detailItemLive} label="מעדכן מלאי..." />
     </div>
   );
 }

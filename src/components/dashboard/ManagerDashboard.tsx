@@ -10,7 +10,7 @@ import { useFaults } from "@/api/faults";
 import { useInventory, isTrackedLowStock } from "@/api/inventory";
 import { useWaste } from "@/api/waste";
 import { useAttendanceToday } from "@/api/attendance";
-import { Icon } from "@/components/ui";
+import { Icon, PageLoader } from "@/components/ui";
 import type { FeatureKey } from "@/types/database";
 import { AreaChart, BarChart, CountUp, DonutChart, RadialGauge } from "./charts";
 import { EmployeeCostPanel } from "./EmployeeCostPanel";
@@ -153,15 +153,34 @@ export function ManagerDashboard() {
   const thisMonth = monthKey(now);
   const lastMonth = monthKey(new Date(now.getFullYear(), now.getMonth() - 1, 1));
 
-  const { data: business } = useBusiness(businessId);
-  const { data: reports = [] } = useShiftReports(businessId, thisMonth);
-  const { data: prevReports = [] } = useShiftReports(businessId, lastMonth);
-  const { data: profiles = [] } = useProfiles(businessId);
-  const { data: tasks = [] } = useTasks(businessId);
-  const { data: faults = [] } = useFaults(businessId);
-  const { data: inventory = [] } = useInventory(businessId);
-  const { data: waste = [] } = useWaste(businessId);
-  const { data: attendance = [] } = useAttendanceToday(businessId);
+  const { data: business, isLoading: businessLoading } = useBusiness(businessId);
+  const { data: reports = [], isLoading: reportsLoading } = useShiftReports(businessId, thisMonth);
+  const { data: prevReports = [], isLoading: prevReportsLoading } = useShiftReports(businessId, lastMonth);
+  const { data: profiles = [], isLoading: profilesLoading } = useProfiles(businessId);
+  const { data: tasks = [], isLoading: tasksLoading } = useTasks(businessId);
+  const { data: faults = [], isLoading: faultsLoading } = useFaults(businessId);
+  const { data: inventory = [], isLoading: inventoryLoading } = useInventory(businessId);
+  const { data: waste = [], isLoading: wasteLoading } = useWaste(businessId);
+  const { data: attendance = [], isLoading: attendanceLoading } = useAttendanceToday(businessId);
+
+  const pageLoading =
+    businessLoading ||
+    reportsLoading ||
+    prevReportsLoading ||
+    profilesLoading ||
+    tasksLoading ||
+    faultsLoading ||
+    inventoryLoading ||
+    wasteLoading ||
+    attendanceLoading;
+
+  if (pageLoading) {
+    return (
+      <div className="w-full">
+        <PageLoader label="טוען דשבורד מנהל..." />
+      </div>
+    );
+  }
 
   /* ---------- revenue ---------- */
   const revenue = reports.reduce((s, r) => s + (Number(r.total_sales) || 0), 0);

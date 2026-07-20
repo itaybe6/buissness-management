@@ -63,12 +63,12 @@ function useLiveClock() {
 export function Attendance() {
   const businessId = useBusinessId();
   const { profile, hasFeature } = useAuth();
-  const { data: biz, isLoading, isError, refetch } = useBusiness(businessId);
-  const { data: records } = useAttendanceToday(businessId);
-  const { data: users } = useProfiles(businessId);
-  const { data: departments } = useDepartments(businessId);
-  const { data: tasks } = useTasks(businessId);
-  const { data: templates } = useTaskTemplates(businessId);
+  const { data: biz, isLoading: bizLoading, isError, refetch } = useBusiness(businessId);
+  const { data: records, isLoading: recordsLoading } = useAttendanceToday(businessId);
+  const { data: users, isLoading: usersLoading } = useProfiles(businessId);
+  const { data: departments, isLoading: departmentsLoading } = useDepartments(businessId);
+  const { data: tasks, isLoading: tasksLoading } = useTasks(businessId);
+  const { data: templates, isLoading: templatesLoading } = useTaskTemplates(businessId);
   const { data: shiftTemplates } = useActiveShiftTemplates(businessId);
   const today = todayISO();
   const wk = weekStart();
@@ -155,7 +155,15 @@ export function Attendance() {
     return <Navigate to="/dashboard" replace />;
   }
 
-  if (isLoading) return <PageLoader />;
+  const pageLoading =
+    bizLoading ||
+    recordsLoading ||
+    usersLoading ||
+    departmentsLoading ||
+    tasksLoading ||
+    templatesLoading;
+
+  if (pageLoading) return <PageLoader label="טוען נוכחות..." />;
   if (isError || !biz) return <ErrorState onRetry={refetch} />;
 
   const onShift = Boolean(myOpen);

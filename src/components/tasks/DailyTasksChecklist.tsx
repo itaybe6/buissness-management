@@ -42,8 +42,8 @@ export function useDailyTaskActions(
   deptId: string | null,
   role?: UserRole | null,
 ) {
-  const { data: tasks = [] } = useTasks(businessId);
-  const { data: templates = [] } = useTaskTemplates(businessId);
+  const { data: tasks = [], isLoading: tasksLoading } = useTasks(businessId);
+  const { data: templates = [], isLoading: templatesLoading } = useTaskTemplates(businessId);
   const update = useUpdateTask(businessId);
   const createTask = useCreateTask();
   const [overrides, setOverrides] = useState<
@@ -164,7 +164,7 @@ export function useDailyTaskActions(
     update.mutate({ id, ...patch });
   }
 
-  return { todayTasks, setStatus, setMedia };
+  return { todayTasks, setStatus, setMedia, isLoading: tasksLoading || templatesLoading };
 }
 
 function tasksHeroSummary(open: number, inProgress: number, total: number) {

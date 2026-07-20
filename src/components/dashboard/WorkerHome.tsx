@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Button, Icon } from "@/components/ui";
+import { Button, Icon, PageLoader } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { AttendancePunchStation } from "@/components/attendance/AttendancePunchStation";
 import { DailyTasksChecklist, useDailyTaskActions } from "@/components/tasks/DailyTasksChecklist";
@@ -10,6 +10,7 @@ import { ROLE_LABELS } from "@/lib/constants";
 import { useShiftPunch } from "@/hooks/useShiftPunch";
 import { useIsMdUp } from "@/hooks/useMediaQuery";
 import { useAttendanceToday } from "@/api/attendance";
+import { useBusiness } from "@/api/businesses";
 import { ManagerAttendanceFeed } from "@/components/dashboard/ManagerAttendanceFeed";
 import { TodayEventsBanner } from "@/components/events/TodayEventsBanner";
 
@@ -138,7 +139,7 @@ export function WorkerHome({
   const { profile, hasFeature } = useAuth();
   const now = useLiveClock();
 
-  const { todayTasks, setStatus, setMedia } = useDailyTaskActions(
+  const { todayTasks, setStatus, setMedia, isLoading: tasksLoading } = useDailyTaskActions(
     businessId ?? "",
     profile?.id ?? "",
     profile?.department_id ?? null,
@@ -165,11 +166,19 @@ export function WorkerHome({
     [todayTasks],
   );
 
-  const { data: attendanceRecords = [] } = useAttendanceToday(showBothPanels ? businessId : null);
+  const { data: attendanceRecords = [], isLoading: attendanceLoading } = useAttendanceToday(
+    showBothPanels ? businessId : null,
+  );
+  const { isLoading: bizLoading } = useBusiness(showAttendance ? businessId : null);
   const onShiftCount = useMemo(
     () => attendanceRecords.filter((r) => !r.clock_out).length,
     [attendanceRecords],
   );
+
+  const pageLoading =
+    (showTasks && tasksLoading) || (showBothPanels && attendanceLoading) || (showAttendance && bizLoading);
+
+  if (pageLoading) return <PageLoader label="טוען דשבורד..." />;
 
   return (
     <PageEnter className="worker-home w-full">

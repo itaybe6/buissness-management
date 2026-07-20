@@ -536,6 +536,8 @@ create table public.faults (
   description text not null,
   status      public.fault_status not null default 'needs_handling',
   assigned_to uuid references public.profiles(id),   -- איש אחזקה
+  status_updated_by uuid references public.profiles(id) on delete set null,
+  status_updated_at timestamptz,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );

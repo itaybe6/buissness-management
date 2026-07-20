@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import * as pdfjsLib from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { PDFDocument } from "pdf-lib";
-import { Button, Icon } from "@/components/ui";
+import { Button, Icon, InlineLoader } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import type { SignatureField } from "@/types/database";
 
@@ -91,10 +91,8 @@ export function PdfFirstPagePreview({
   return (
     <div className={`relative grid place-items-center bg-surface-2 ${className}`}>
       {status === "loading" && (
-        <div className="absolute inset-0 grid place-items-center text-[12.5px] text-text-3">
-          <span className="flex items-center gap-2">
-            <Icon name="hourglass_empty" size={16} /> טוען תצוגה מקדימה…
-          </span>
+        <div className="absolute inset-0 grid place-items-center bg-surface-2/90">
+          <InlineLoader compact label="טוען תצוגה מקדימה..." />
         </div>
       )}
       <canvas
@@ -157,11 +155,7 @@ export function PdfDocViewer({
           <Icon name="error" size={18} /> שגיאה בטעינת ה-PDF
         </div>
       )}
-      {!doc && !error && (
-        <div className="flex items-center gap-2 py-8 text-[13px] text-text-3">
-          <Icon name="hourglass_empty" size={18} /> טוען מסמך…
-        </div>
-      )}
+      {!doc && !error && <InlineLoader label="טוען מסמך..." />}
       {doc &&
         width > 0 &&
         Array.from({ length: numPages }).map((_, i) => (

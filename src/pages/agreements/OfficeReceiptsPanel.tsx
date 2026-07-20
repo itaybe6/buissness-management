@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Badge, Button, Card, EmptyState, Field, Icon, Input, Spinner, Textarea } from "@/components/ui";
+import { Badge, Button, Card, EmptyState, Field, Icon, Input, InlineLoader, Textarea } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import {
   uploadReceiptFile,
@@ -86,9 +86,7 @@ export function OfficeReceiptsPanel({
 
       <section className="min-w-0">
         {isLoading ? (
-          <div className="grid place-items-center py-20 text-text-3">
-            <Spinner size={28} />
-          </div>
+          <InlineLoader label="טוען מסמכים..." />
         ) : (receipts ?? []).length === 0 ? (
           <EmptyState
             icon="receipt_long"

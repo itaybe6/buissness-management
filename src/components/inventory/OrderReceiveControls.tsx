@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Button, Input } from "@/components/ui";
+import { Button, Input, SectionLoader } from "@/components/ui";
 import { DualUnitQtyInput } from "@/components/inventory/DualUnitQtyInput";
 import { supportsPieceInput } from "@/api/inventory";
 
@@ -38,7 +38,8 @@ export function OrderReceiveControls({
   }
 
   return (
-    <div className={compact ? "flex flex-col gap-2" : "flex flex-col gap-2.5"}>
+    <div className={`relative ${compact ? "flex flex-col gap-2" : "flex flex-col gap-2.5"}`}>
+      <SectionLoader show={!!busy} label="מעדכן הזמנה..." />
       <div>
         <label className="mb-1.5 block text-[11px] font-semibold text-text-3">כמה הגיע בפועל?</label>
         {pieceUnit ? (

@@ -270,6 +270,41 @@ export function PageLoader({ label = "טוען..." }: { label?: string }) {
   );
 }
 
+/** Branded loader for modals, panels, and embedded sections (not full viewport). */
+export function InlineLoader({
+  label = "טוען...",
+  compact = false,
+  className = "",
+}: {
+  label?: string;
+  compact?: boolean;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`inline-loader ${compact ? "inline-loader--compact" : ""} ${className}`.trim()}
+      role="status"
+      aria-live="polite"
+    >
+      <div className="loader-hero loader-float section-loader-card">
+        <LoaderCore label={label} />
+      </div>
+    </div>
+  );
+}
+
+/** Loader scoped to a `position: relative` parent (card / form section). */
+export function SectionLoader({ show, label = "מעדכן..." }: { show: boolean; label?: string }) {
+  if (!show) return null;
+  return (
+    <div className="section-loader" role="status" aria-live="polite">
+      <div className="section-loader-card loader-float">
+        <LoaderCore label={label} />
+      </div>
+    </div>
+  );
+}
+
 /* ----------------------------- LoadingOverlay ----------------------------- */
 /**
  * Full-screen floating loader for blocking waits (saving, syncing).

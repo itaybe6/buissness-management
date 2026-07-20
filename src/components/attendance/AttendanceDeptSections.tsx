@@ -55,18 +55,24 @@ function AttendanceEmployeeRow({
     }
   }
 
-  const badge = (
+  const badge = group.onShift ? (
     <div className="attendance-row-badge" data-open={group.onShift}>
-      {group.onShift ? (
+      {rowInteractive ? (
         <>
           <span className="attendance-row-live" aria-hidden />
-          {rowInteractive ? "הוצאה" : "במשמרת"}
+          הוצאה
         </>
-      ) : rowInteractive ? (
-        "עריכה"
       ) : (
-        "יצא/ה"
+        "במשמרת"
       )}
+    </div>
+  ) : rowInteractive ? (
+    <span className="attendance-row-edit-chip" aria-hidden>
+      <Icon name="edit" size={16} />
+    </span>
+  ) : (
+    <div className="attendance-row-badge" data-open={false}>
+      יצא/ה
     </div>
   );
 

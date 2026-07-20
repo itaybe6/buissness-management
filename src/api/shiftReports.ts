@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { compressImage } from "@/lib/compressImage";
 import { supabase } from "@/lib/supabase";
+import { clockOutOpenShiftsForShiftReport } from "@/lib/shiftReportClockOut";
 import { computeBonusPayouts } from "@/lib/shiftReportBonuses";
 import { computeTipsHourly, distributeTips } from "@/lib/shiftReportTips";
 import type { ShiftReport, ShiftReportExtra } from "@/types/database";
@@ -183,12 +184,17 @@ export function useSaveShiftReport(businessId: string | null) {
         if (error) throw error;
       }
 
+      await clockOutOpenShiftsForShiftReport(input.business_id, input.report_date);
+
       return reportId!;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["shift_reports", businessId] });
       qc.invalidateQueries({ queryKey: ["tips", businessId] });
       qc.invalidateQueries({ queryKey: ["shift_bonuses", businessId] });
+      qc.invalidateQueries({ queryKey: ["attendance", businessId] });
+      qc.invalidateQueries({ queryKey: ["attendance_month"] });
+      qc.invalidateQueries({ queryKey: ["attendance_around"] });
     },
   });
 }

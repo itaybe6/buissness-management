@@ -13,7 +13,13 @@ export function useFaults(businessId: string | null, options?: { poll?: boolean 
     queryFn: async (): Promise<Fault[]> => {
       const { data, error } = await supabase
         .from("faults")
-        .select("*")
+        .select(
+          `
+          *,
+          reporter:reported_by(full_name),
+          status_updater:status_updated_by(full_name)
+        `,
+        )
         .eq("business_id", businessId)
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -106,12 +112,25 @@ export function useUpdateFault(businessId: string | null) {
     mutationFn: async (input: {
       id: string;
       status?: FaultStatus;
+      statusUpdatedBy?: string | null;
       assigned_to?: string | null;
       description?: string;
       photo_urls?: string[];
     }) => {
-      const { id, ...rest } = input;
-      const { error } = await supabase.from("faults").update(rest).eq("id", id);
+      const { id, statusUpdatedBy, ...rest } = input;
+      const patch: {
+        status?: FaultStatus;
+        assigned_to?: string | null;
+        description?: string;
+        photo_urls?: string[];
+        status_updated_by?: string | null;
+        status_updated_at?: string;
+      } = { ...rest };
+      if (rest.status !== undefined) {
+        patch.status_updated_by = statusUpdatedBy ?? null;
+        patch.status_updated_at = new Date().toISOString();
+      }
+      const { error } = await supabase.from("faults").update(patch).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["faults", businessId] }),
