@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Navigate, useNavigate, useParams } from "react-router-dom";
+import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Button, Field, Icon, Input, PageLoader, ErrorState, Textarea } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { EventCountdown } from "@/components/events/EventCountdown";
@@ -12,9 +12,52 @@ import { useBusinessId } from "@/lib/db";
 import { isVideoUrl } from "@/lib/media";
 import { useEvent, useUpdateEvent, useDeleteEvent, uploadEventMediaFiles } from "@/api/events";
 
+/** One media tile in the gallery rail — degrades to a placeholder if the URL is dead. */
+function GalleryTile({ url, index, total }: { url: string; index: number; total: number }) {
+  const [failed, setFailed] = useState(false);
+
+  if (failed) {
+    return (
+      <div className="evtd-gallery-item" data-failed>
+        <span className="evtd-gallery-broken">
+          <Icon name="image_not_supported" size={26} />
+          <span>הקובץ אינו זמין</span>
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <a href={url} target="_blank" rel="noreferrer" className="evtd-gallery-item">
+      {isVideoUrl(url) ? (
+        <>
+          <video src={url} muted playsInline preload="metadata" onError={() => setFailed(true)} />
+          <span className="evtd-gallery-play" aria-hidden>
+            <Icon name="play_arrow" size={26} />
+          </span>
+        </>
+      ) : (
+        <img
+          src={url}
+          alt={`תמונה ${index + 1} מתוך ${total}`}
+          loading="lazy"
+          onError={() => setFailed(true)}
+        />
+      )}
+      <span className="evtd-gallery-index" aria-hidden>
+        {index + 1}
+      </span>
+    </a>
+  );
+}
+
+/** Where the user came from, stashed on the link that opened this page. */
+type EventFromState = { from?: string; fromLabel?: string };
+
 export function EventDetail() {
   const { eventId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const businessId = useBusinessId();
   const { profile } = useAuth();
   const { data: event, isLoading, isError, refetch } = useEvent(businessId, eventId);
@@ -32,6 +75,21 @@ export function EventDetail() {
   const [error, setError] = useState<string | null>(null);
 
   const canManage = !!(profile?.role && EVENT_MANAGE_ROLES.includes(profile.role));
+
+  const fromState = (location.state ?? null) as EventFromState | null;
+  const backLabel = `חזרה ל${fromState?.fromLabel ?? "אירועים"}`;
+
+  /**
+   * Back goes wherever the user came from. Real history is preferred so the
+   * previous screen keeps its scroll position and filters; on a cold entry
+   * (deep link, bookmark, shared URL) there is nothing to pop, so fall back
+   * to the origin recorded on the link, then to the events list.
+   */
+  function goBack() {
+    const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0;
+    if (idx > 0) navigate(-1);
+    else navigate(fromState?.from ?? "/events");
+  }
 
   if (!eventId) return <Navigate to="/events" replace />;
   if (isLoading) return <PageLoader />;
@@ -104,10 +162,10 @@ export function EventDetail() {
 
   return (
     <div className="evtd-page page-enter" data-past={isPast || undefined}>
-      <section className="evtd-hero" aria-label={event.title}>
-        <div className="evtd-cover" data-empty={mediaUrls.length === 0}>
+      <section className="evtd-hero" aria-label={event.title} data-empty={mediaUrls.length === 0 || undefined}>
+        <div className="evtd-cover">
           {mediaUrls.length > 0 ? (
-            <EventMediaCarousel urls={mediaUrls} tall />
+            <EventMediaCarousel urls={mediaUrls} />
           ) : (
             <div className="evtd-cover-fallback" aria-hidden>
               <span className="evt-poster-aurora evt-poster-aurora--1" />
@@ -116,88 +174,53 @@ export function EventDetail() {
               <Icon name="celebration" size={72} className="evt-poster-icon" />
             </div>
           )}
-          <span className="evtd-cover-scrim" aria-hidden />
-          <div className="evtd-cover-bar">
-            <button
-              type="button"
-              className="evtd-glass-btn"
-              onClick={() => navigate("/events")}
-              aria-label="חזרה לאירועים"
-            >
-              <Icon name="arrow_forward" size={20} />
-            </button>
-            {canManage && (
-              <div className="evtd-cover-actions">
-                <button type="button" className="evtd-glass-btn" onClick={openEdit} aria-label="עריכת האירוע">
-                  <Icon name="edit" size={19} />
-                </button>
-                <button
-                  type="button"
-                  className="evtd-glass-btn evtd-glass-btn--danger"
-                  onClick={() => setDeleteOpen(true)}
-                  aria-label="מחיקת האירוע"
-                >
-                  <Icon name="delete" size={19} />
-                </button>
-              </div>
-            )}
-          </div>
+        </div>
+        <span className="evtd-cover-scrim" aria-hidden />
+
+        <div className="evtd-topbar">
+          <button type="button" className="evtd-glass-btn" onClick={goBack} aria-label={backLabel}>
+            <Icon name="arrow_forward" size={20} />
+          </button>
+          {canManage && (
+            <div className="evtd-topbar-actions">
+              <button type="button" className="evtd-glass-btn" onClick={openEdit} aria-label="עריכת האירוע">
+                <Icon name="edit" size={18} />
+              </button>
+              <button
+                type="button"
+                className="evtd-glass-btn evtd-glass-btn--danger"
+                onClick={() => setDeleteOpen(true)}
+                aria-label="מחיקת האירוע"
+              >
+                <Icon name="delete" size={18} />
+              </button>
+            </div>
+          )}
         </div>
 
-        <div className="evtd-hero-card">
-          <div className="evtd-hero-card-edge" aria-hidden />
-          <div className="evtd-hero-head">
-            <span className="evtd-datechip" aria-hidden>
-              <b>{d.getDate()}</b>
-              <i>{d.toLocaleDateString("he-IL", { month: "short" })}</i>
-            </span>
-            <div className="evtd-hero-meta">
-              <span className="evtd-pill" data-tone={statusTone}>
-                {!isPast && (isToday || days <= 1) && <span className="evt-live-dot" aria-hidden />}
-                {statusLabel}
-              </span>
-              <p className="evtd-datelabel">{dateLabel}</p>
-            </div>
-          </div>
-
+        <div className="evtd-hero-text">
+          <span className="evtd-status" data-tone={statusTone}>
+            {!isPast && days <= 1 && <span className="evt-live-dot" aria-hidden />}
+            {statusLabel}
+          </span>
           <h1 className="evtd-title">{event.title}</h1>
-
-          <div className="evtd-hero-chips">
-            <span className="evtd-chip">
-              <Icon name="calendar_month" size={14} />
-              {weekday}
-            </span>
-            {mediaUrls.length > 0 && (
-              <span className="evtd-chip">
-                <Icon name="photo_library" size={14} />
-                {mediaUrls.length === 1 ? "תמונה אחת" : `${mediaUrls.length} קבצים`}
-              </span>
-            )}
-            {isPast && (
-              <span className="evtd-chip evtd-chip--muted">
-                <Icon name="history" size={14} />
-                ארכיון
-              </span>
-            )}
-          </div>
+          <p className="evtd-when">
+            <Icon name="calendar_month" size={15} />
+            {dateLabel}
+          </p>
         </div>
       </section>
 
       <div className="evtd-body">
         {days > 0 && (
-          <section className="evtd-ticket" aria-label="ספירה לאחור לאירוע">
-            <span className="evtd-ticket-notch evtd-ticket-notch--start" aria-hidden />
-            <span className="evtd-ticket-notch evtd-ticket-notch--end" aria-hidden />
-            <div className="evtd-ticket-head">
-              <span className="evtd-ticket-icon" aria-hidden>
-                <Icon name="local_activity" size={16} />
+          <section className="evtd-countdown" aria-label="ספירה לאחור לאירוע">
+            <div className="evtd-countdown-head">
+              <span className="evtd-countdown-icon" aria-hidden>
+                <Icon name="hourglass_top" size={14} />
               </span>
-              <div>
-                <p className="evtd-ticket-kicker">הספירה לאחור</p>
-                <p className="evtd-ticket-sub">עד שהאירוע עולה לבמה</p>
-              </div>
+              <p className="evtd-countdown-kicker">הספירה לאחור</p>
+              <span className="evtd-countdown-day">{weekday}</span>
             </div>
-            <div className="evtd-ticket-perforation" aria-hidden />
             <EventCountdown dateStr={event.event_date} />
           </section>
         )}
@@ -215,48 +238,27 @@ export function EventDetail() {
         )}
 
         {event.description && (
-          <section className="evtd-desc">
-            <div className="evtd-desc-head">
-              <span className="evtd-desc-icon" aria-hidden>
-                <Icon name="notes" size={16} />
-              </span>
-              <h2 className="evtd-label">פרטי האירוע</h2>
-            </div>
+          <section className="evtd-section">
+            <h2 className="evtd-label">
+              <Icon name="notes" size={15} />
+              פרטי האירוע
+            </h2>
             <p className="evtd-desc-text">{event.description}</p>
           </section>
         )}
 
         {mediaUrls.length > 1 && (
-          <section className="evtd-gallery-wrap">
+          <section className="evtd-section evtd-section--flush">
             <div className="evtd-gallery-head">
               <h2 className="evtd-label">
-                <Icon name="photo_library" size={16} />
+                <Icon name="photo_library" size={15} />
                 גלריה
               </h2>
               <span className="evtd-gallery-count">{mediaUrls.length} קבצים</span>
             </div>
-            <div className="evtd-gallery" data-rich={mediaUrls.length >= 3} data-count={mediaUrls.length}>
+            <div className="evtd-gallery">
               {mediaUrls.map((url, i) => (
-                <a
-                  key={url}
-                  href={url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="evtd-gallery-item"
-                  data-featured={i === 0 || undefined}
-                >
-                  {isVideoUrl(url) ? (
-                    <>
-                      <video src={url} muted playsInline preload="metadata" />
-                      <span className="evtd-gallery-play" aria-hidden>
-                        <Icon name="play_circle" size={28} />
-                      </span>
-                    </>
-                  ) : (
-                    <img src={url} alt={`תמונה ${i + 1} מתוך ${mediaUrls.length}`} loading="lazy" />
-                  )}
-                  <span className="evtd-gallery-index" aria-hidden>{i + 1}</span>
-                </a>
+                <GalleryTile key={url} url={url} index={i} total={mediaUrls.length} />
               ))}
             </div>
           </section>

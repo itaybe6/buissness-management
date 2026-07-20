@@ -1,13 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
-  Badge,
   Button,
   EmptyState,
   ErrorState,
-  Field,
   Icon,
   Input,
-  MultiSelect,
   PageLoader,
   Select,
   Switch,
@@ -16,6 +14,7 @@ import {
 } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/lib/auth";
+import { useIsMdUp } from "@/hooks/useMediaQuery";
 import { useBusinessId, formatCurrency, formatDateShort, todayISO } from "@/lib/db";
 import {
   buildTeamMembersFromShift,
@@ -29,10 +28,12 @@ import {
 } from "@/lib/shiftReportTips";
 import { useInventory } from "@/api/inventory";
 import { buildBonusParticipantsFromTeam } from "@/lib/shiftReportBonuses";
+import { buildShiftPayRows, type ShiftPayRow } from "@/lib/shiftReportPay";
 import { useProfiles } from "@/api/users";
 import { useAttendanceAroundDate } from "@/api/attendance";
 import {
   useShiftReports,
+  useShiftReport,
   useSaveShiftReport,
   useDeleteShiftReport,
   uploadInvoices,
@@ -76,13 +77,12 @@ function daysInMonth(month: string): number {
 export function ShiftReports() {
   const businessId = useBusinessId();
   const { profile } = useAuth();
+  const navigate = useNavigate();
   const [month, setMonth] = useState(monthNow());
   const { data: reports, isLoading, isError, refetch } = useShiftReports(businessId, month);
   const { data: users } = useProfiles(businessId);
   const del = useDeleteShiftReport(businessId);
 
-  // null = list view; object = editor (new when no id)
-  const [editing, setEditing] = useState<ShiftReport | "new" | null>(null);
   const [viewing, setViewing] = useState<ShiftReport | null>(null);
 
   const canManage = !!profile && ["manager", "shift_manager"].includes(profile.role);
@@ -91,10 +91,7 @@ export function ShiftReports() {
     () => (id: string) => users?.find((u) => u.id === id)?.full_name ?? "—",
     [users],
   );
-  const shiftManagers = useMemo(
-    () => (users ?? []).filter((u) => u.active && u.role === "shift_manager"),
-    [users],
-  );
+  const profileById = useMemo(() => new Map((users ?? []).map((u) => [u.id, u])), [users]);
 
   const list = reports ?? [];
   const stats = useMemo(() => {
@@ -152,7 +149,11 @@ export function ShiftReports() {
               <Icon name="chevron_left" size={20} />
             </button>
           </div>
-          {canManage && <Button icon="add" onClick={() => setEditing("new")}>דוח חדש</Button>}
+          {canManage && (
+            <Button icon="add" onClick={() => navigate("/shift-reports/new")}>
+              דוח חדש
+            </Button>
+          )}
         </div>
 
         <div className="sr-kpis">
@@ -220,7 +221,13 @@ export function ShiftReports() {
           icon="receipt_long"
           title="אין דוחות לחודש זה"
           description="מלאו דוח סיכום משמרת בסוף המשמרת — כולל סגירת קופה, טיפים וחשבוניות."
-          action={canManage ? <Button icon="add" onClick={() => setEditing("new")}>דוח חדש</Button> : undefined}
+          action={
+            canManage ? (
+              <Button icon="add" onClick={() => navigate("/shift-reports/new")}>
+                דוח חדש
+              </Button>
+            ) : undefined
+          }
         />
       ) : (
         <div className="sr-grid">
@@ -305,7 +312,9 @@ export function ShiftReports() {
                       <>
                         <button
                           type="button"
-                          onClick={() => setEditing(r)}
+                          onClick={() =>
+                            navigate(`/shift-reports/${r.id}/edit`, { state: { report: r } })
+                          }
                           className="sr-icon-btn"
                           title="עריכה"
                           aria-label="עריכה"
@@ -337,28 +346,76 @@ export function ShiftReports() {
         <ReportViewer
           report={viewing}
           userName={userName}
+          profileById={profileById}
           canManage={canManage}
           onClose={() => setViewing(null)}
           onEdit={() => {
+            const r = viewing;
             setViewing(null);
-            setEditing(viewing);
+            if (r) navigate(`/shift-reports/${r.id}/edit`, { state: { report: r } });
           }}
         />
       )}
-
-      {editing && (
-        <ReportEditor
-          report={editing === "new" ? null : editing}
-          businessId={businessId!}
-          createdBy={profile?.id ?? null}
-          users={(users ?? []).filter((u) => u.active && (u.wage_type ?? "hourly") === "tips")}
-          allUsers={(users ?? []).filter((u) => u.active)}
-          shiftManagers={shiftManagers}
-          userName={userName}
-          onClose={() => setEditing(null)}
-        />
-      )}
     </div>
+  );
+}
+
+export function ShiftReportEditorPage() {
+  const { reportId } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const businessId = useBusinessId();
+  const { profile } = useAuth();
+  const isNew = location.pathname.endsWith("/new");
+
+  const stateReport = (location.state as { report?: ShiftReport } | null)?.report;
+  const { data: fetchedReport, isLoading, isError, refetch } = useShiftReport(
+    businessId,
+    !isNew && !stateReport ? (reportId ?? null) : null,
+  );
+  const { data: users } = useProfiles(businessId);
+
+  const canManage = !!profile && ["manager", "shift_manager"].includes(profile.role);
+  const report = isNew ? null : (stateReport ?? fetchedReport ?? null);
+
+  const userName = useMemo(
+    () => (id: string) => users?.find((u) => u.id === id)?.full_name ?? "—",
+    [users],
+  );
+  const shiftManagers = useMemo(
+    () => (users ?? []).filter((u) => u.active && u.role === "shift_manager"),
+    [users],
+  );
+
+  function goBack() {
+    if (location.key !== "default") navigate(-1);
+    else navigate("/shift-reports", { replace: true });
+  }
+
+  if (!canManage) return <Navigate to="/shift-reports" replace />;
+  if (!businessId) return <PageLoader />;
+
+  if (!isNew && !stateReport && isLoading) return <PageLoader />;
+  if (!isNew && !report && !isLoading) {
+    return (
+      <ErrorState
+        message={isError ? undefined : "הדוח לא נמצא."}
+        onRetry={isError ? refetch : goBack}
+      />
+    );
+  }
+
+  return (
+    <ReportEditor
+      report={report}
+      businessId={businessId}
+      createdBy={profile?.id ?? null}
+      users={(users ?? []).filter((u) => u.active && (u.wage_type ?? "hourly") === "tips")}
+      allUsers={(users ?? []).filter((u) => u.active)}
+      shiftManagers={shiftManagers}
+      userName={userName}
+      onClose={goBack}
+    />
   );
 }
 
@@ -468,6 +525,269 @@ function fromReport(r: ShiftReport, allUsers: Profile[]): EditorState {
   };
 }
 
+function addDaysISO(iso: string, days: number): string {
+  const d = new Date((iso || todayISO()) + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "—";
+  return (parts[0][0] + (parts[1]?.[0] ?? "")).toUpperCase();
+}
+
+/** Big tappable money input — ₪ sign + oversized tabular figure. */
+function MoneyField({
+  label,
+  value,
+  onChange,
+  hero,
+  tone,
+  hint,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  hero?: boolean;
+  tone?: "accent";
+  hint?: string;
+}) {
+  return (
+    <label className="srw-money" data-hero={hero ? "true" : undefined} data-tone={tone}>
+      <span className="srw-money-label">{label}</span>
+      <span className="srw-money-row">
+        <span className="srw-money-sign" aria-hidden="true">₪</span>
+        <input
+          type="number"
+          inputMode="decimal"
+          placeholder="0"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="srw-money-input"
+        />
+      </span>
+      {hint && <span className="srw-money-hint">{hint}</span>}
+    </label>
+  );
+}
+
+/** 1–10 segmented energy rating — tap the same value again to clear it. */
+function EnergyPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const current = Number(value) || 0;
+  return (
+    <div className="srw-energy">
+      <div className="srw-energy-bar" role="group" aria-label="אנרגיות בצוות">
+        {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+          <button
+            key={n}
+            type="button"
+            data-on={n <= current}
+            onClick={() => onChange(current === n ? "" : String(n))}
+            aria-label={`${n} מתוך 10`}
+            aria-pressed={n === current}
+            style={{ "--i": n } as React.CSSProperties}
+          >
+            <i />
+          </button>
+        ))}
+      </div>
+      <span className="srw-energy-read">{current > 0 ? `${current}/10` : "לא דורג"}</span>
+    </div>
+  );
+}
+
+/** Tappable people chips — replaces a dropdown for short rosters. */
+function PeoplePicker({
+  people,
+  selected,
+  onToggle,
+  empty,
+}: {
+  people: Profile[];
+  selected: string[];
+  onToggle: (id: string) => void;
+  empty: string;
+}) {
+  if (people.length === 0) return <div className="srw-empty">{empty}</div>;
+  return (
+    <div className="srw-people">
+      {people.map((p) => {
+        const on = selected.includes(p.id);
+        return (
+          <button
+            key={p.id}
+            type="button"
+            className="srw-person"
+            data-on={on}
+            aria-pressed={on}
+            onClick={() => onToggle(p.id)}
+          >
+            <span className="srw-person-av" aria-hidden="true">{initialsOf(p.full_name ?? "")}</span>
+            <span className="srw-person-name">{p.full_name}</span>
+            <Icon name={on ? "check_circle" : "radio_button_unchecked"} size={17} />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+interface WizardStep {
+  key: string;
+  icon: string;
+  title: string;
+  hint: string;
+  body: ReactNode;
+}
+
+/** Mobile-only step flow: glass header + segment track, animated stage, sticky actions. */
+function ReportWizardShell({
+  kicker,
+  steps,
+  step,
+  dir,
+  onStep,
+  onClose,
+  onFinish,
+  error,
+}: {
+  kicker: string;
+  steps: WizardStep[];
+  step: number;
+  dir: 1 | -1;
+  onStep: (next: number) => void;
+  onClose: () => void;
+  onFinish: () => void;
+  error: string | null;
+}) {
+  const active = steps[step];
+  const isLast = step === steps.length - 1;
+
+  return (
+    <div className="srw-page">
+      {/* Compact utility bar — back + progress only. The step title lives in the
+          hero below, so nothing is printed twice. */}
+      <header className="srw-head">
+        <button type="button" className="srw-head-back" onClick={onClose} aria-label="יציאה">
+          <Icon name="arrow_forward" size={20} />
+        </button>
+        <div className="srw-track" role="tablist" aria-label="שלבי הדוח">
+          {steps.map((d, i) => (
+            <button
+              key={d.key}
+              type="button"
+              role="tab"
+              className="srw-track-seg"
+              data-state={i < step ? "done" : i === step ? "active" : "todo"}
+              onClick={() => onStep(i)}
+              aria-label={d.title}
+              aria-selected={i === step}
+            >
+              <i />
+            </button>
+          ))}
+        </div>
+      </header>
+
+      {error && (
+        <div className="srw-error">
+          <Icon name="error" size={18} />
+          {error}
+        </div>
+      )}
+
+      <div className="srw-stage" key={active.key} data-dir={dir}>
+        <div className="srw-hero">
+          <span className="srw-hero-icon" aria-hidden="true">
+            <Icon name={active.icon} size={24} />
+          </span>
+          <div className="srw-hero-text">
+            <span className="srw-hero-kicker">
+              {kicker} · שלב {step + 1} מתוך {steps.length}
+            </span>
+            <h1 className="srw-hero-title">{active.title}</h1>
+            <p className="srw-hero-hint">{active.hint}</p>
+          </div>
+        </div>
+        {active.body}
+      </div>
+
+      <footer className="srw-foot">
+        <button
+          type="button"
+          className="srw-back"
+          onClick={() => (step === 0 ? onClose() : onStep(step - 1))}
+        >
+          {step === 0 ? (
+            "ביטול"
+          ) : (
+            <>
+              <Icon name="chevron_right" size={19} />
+              חזור
+            </>
+          )}
+        </button>
+        <button
+          type="button"
+          className="srw-next"
+          data-final={isLast ? "true" : undefined}
+          onClick={() => (isLast ? onFinish() : onStep(step + 1))}
+        >
+          {isLast ? (
+            <>
+              <Icon name="preview" size={19} />
+              תצוגה מקדימה
+            </>
+          ) : (
+            <>
+              {steps[step + 1].title}
+              <Icon name="chevron_left" size={19} />
+            </>
+          )}
+        </button>
+      </footer>
+    </div>
+  );
+}
+
+function ReportEditorShell({
+  title,
+  subtitle,
+  icon,
+  onBack,
+  footer,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  icon?: string;
+  onBack: () => void;
+  footer: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className="sr-editor-page page-enter w-full">
+      <header className="sr-editor-head">
+        <button type="button" className="icon-btn shrink-0" onClick={onBack} aria-label="חזור">
+          <Icon name="arrow_forward" size={20} />
+        </button>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-[19px] font-extrabold leading-tight tracking-tight md:text-[22px]">{title}</h1>
+          {subtitle && <p className="mt-0.5 text-[12.5px] text-text-3 md:text-[13px]">{subtitle}</p>}
+        </div>
+        {icon && (
+          <span className="avatar-chip hidden h-10 w-10 shrink-0 rounded-[11px] sm:grid">
+            <Icon name={icon} size={23} className="text-white" />
+          </span>
+        )}
+      </header>
+      <div className="sr-editor-body">{children}</div>
+      <footer className="sr-editor-foot">{footer}</footer>
+    </div>
+  );
+}
+
 function ReportEditor({
   report,
   businessId,
@@ -492,6 +812,10 @@ function ReportEditor({
   const [error, setError] = useState<string | null>(null);
   const [inventorySearch, setInventorySearch] = useState("");
   const [previewing, setPreviewing] = useState(false);
+  const [step, setStep] = useState(0);
+  const [stepDir, setStepDir] = useState<1 | -1>(1);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const isMdUp = useIsMdUp();
   const save = useSaveShiftReport(businessId);
 
   const { data: attendance, isLoading: attendanceLoading } = useAttendanceAroundDate(businessId, s.report_date);
@@ -792,7 +1116,7 @@ function ReportEditor({
     return (
       <Modal
         open
-        onClose={onClose}
+        onClose={() => setPreviewing(false)}
         title="תצוגה מקדימה לפני הגשה"
         subtitle={s.report_date ? formatDateShort(s.report_date) : "בדקו את הפרטים לפני הגשת הדוח"}
         icon="preview"
@@ -839,68 +1163,17 @@ function ReportEditor({
 
           <Section icon="groups" title="פירוט צוות המשמרת">
             <div className="text-[12.5px] text-text-2">
-              כל העובדים במשמרת — כולל מי שעובד על טיפים ומי שלא. לשכר טיפים מוצג השכר השעתי והחלק מהקופה.
+              כל מי שעבד במשמרת. לעובדי טיפים החלק מהקופה מחושב לפי השעות שלהם, ולשאר לפי השכר השעתי בפרופיל.
             </div>
-            {teamRows.length === 0 ? (
-              <div className="rounded-[11px] border border-dashed border-border px-3.5 py-4 text-center text-[13px] text-text-2">
-                לא נוספו עובדים לדוח.
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {teamRows.map((p) => {
-                  const tip = tipByEmployee.get(p.employee_id);
-                  const profile = profileById.get(p.employee_id);
-                  const onTips =
-                    !!tip ||
-                    tipEmployeeIds.has(p.employee_id) ||
-                    (profile?.wage_type ?? "hourly") === "tips";
-                  const hoursLabel =
-                    (Number(p.hours) || 0) > 0 ? formatShiftHours(Number(p.hours)) : "—";
-                  return (
-                    <div
-                      key={p.employee_id}
-                      className="rounded-[11px] border border-border bg-surface-2 px-3.5 py-3"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="truncate text-[14.5px] font-extrabold">
-                            {userName(p.employee_id)}
-                          </div>
-                          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                            <Badge tone={onTips ? "violet" : "neutral"}>
-                              {onTips ? "על טיפים" : "שעתי (ללא טיפים)"}
-                            </Badge>
-                            <span className="text-[12px] tabular-nums text-text-3">
-                              {formatWorkTimeRange(p.work_start, p.work_end)} · {hoursLabel} שע׳
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      {onTips ? (
-                        <div className="mt-3 grid grid-cols-2 gap-2">
-                          <div className="rounded-[10px] border border-border bg-surface px-3 py-2">
-                            <div className="text-[11px] text-text-3">שכר שעתי מטיפים</div>
-                            <div className="mt-0.5 text-[15px] font-extrabold tabular-nums text-accent-2">
-                              {formatCurrency(tip?.hourly_from_tips ?? tipsHourly)}
-                            </div>
-                          </div>
-                          <div className="rounded-[10px] border border-border bg-surface px-3 py-2">
-                            <div className="text-[11px] text-text-3">חלק בטיפים</div>
-                            <div className="mt-0.5 text-[15px] font-extrabold tabular-nums">
-                              {formatCurrency(tip?.amount ?? 0)}
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="mt-2.5 text-[12.5px] text-text-2">
-                          לא משתתף בחלוקת הטיפים של המשמרת.
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            <ShiftTeamPay
+              rows={buildShiftPayRows({
+                team: teamRows,
+                tipByEmployee,
+                profileById,
+                userName,
+                tipsHourly,
+              })}
+            />
             <DetailGrid>
               <DetailCell label="שחרור ראשון" value={formatTimeLabel(s.first_release)} />
               <DetailCell
@@ -971,262 +1244,392 @@ function ReportEditor({
     );
   }
 
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title={report ? "עריכת דוח משמרת" : "דוח סיכום משמרת"}
-      subtitle="סגירת קופה, צוות, מכירות, לוגיסטיקה וחשבוניות"
-      icon="receipt_long"
-      maxWidth={720}
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose}>ביטול</Button>
-          <Button className="flex-1" icon="preview" onClick={() => { setError(null); setPreviewing(true); }}>
-            תצוגה מקדימה
-          </Button>
-        </>
-      }
-    >
-      <div className="flex flex-col gap-6">
-        {/* פרטי משמרת */}
-        <Section icon="event" title="פרטי היום">
-          <div className="flex flex-col gap-3">
-            <Field label="תאריך"><Input type="date" value={s.report_date} onChange={(e) => set("report_date", e.target.value)} /></Field>
-            <Field label='אחמ"ש (אחראי משמרת)'>
-              {shiftManagers.length === 0 ? (
-                <div className="rounded-[11px] border border-dashed border-border px-3.5 py-4 text-center text-[13px] text-text-2">
-                  אין אחמ״שים רשומים בעסק.
+  const today = todayISO();
+  const yesterday = addDaysISO(today, -1);
+  const dayDate = new Date((s.report_date || today) + "T00:00:00");
+
+  const teamList = (
+    <div className="report-team-list">
+      {s.team_members.map((p, idx) => {
+        const edited =
+          p.attendance_hours != null &&
+          Math.abs((Number(p.hours) || 0) - p.attendance_hours) > 0.01;
+        return (
+          <div key={p.employee_id || `team-${idx}`} className="report-team-row" style={{ "--i": idx } as React.CSSProperties}>
+            <div className="report-team-row-top">
+              <div className="report-team-identity">
+                <span className="report-team-avatar" aria-hidden="true">
+                  {p.employee_id ? initialsOf(userName(p.employee_id)) : <Icon name="person_add" size={17} />}
+                </span>
+                <div className="report-team-name-wrap">
+                  {p.employee_id ? (
+                    <span className="report-team-name">{userName(p.employee_id)}</span>
+                  ) : (
+                    <Select
+                      searchable
+                      searchPlaceholder="חיפוש עובד..."
+                      value={p.employee_id}
+                      onChange={(e) => updateTeamMember(idx, { employee_id: e.target.value })}
+                    >
+                      <option value="">— בחר עובד —</option>
+                      {availableTeamUsers.map((u) => (
+                        <option key={u.id} value={u.id}>{u.full_name}</option>
+                      ))}
+                    </Select>
+                  )}
+                  {edited && <span className="report-team-edited">שונה מנוכחות</span>}
                 </div>
-              ) : (
-                <MultiSelect
-                  values={s.manager_ids}
-                  onChange={(ids) => set("manager_ids", ids)}
-                  options={shiftManagers.map((m) => ({ value: m.id, label: m.full_name ?? "" }))}
-                  placeholder="— בחר אחמ״ש —"
-                />
-              )}
-              <div className="mt-1 text-[12px] text-text-2">ניתן לסמן יותר מאחד אם היו כמה אחמ״שים במשמרת.</div>
-            </Field>
-          </div>
-        </Section>
-
-        {/* כספים / סגירת קופה */}
-        <Section icon="payments" title="סגירת קופה">
-          <div className="grid grid-cols-2 gap-3">
-            <Field label='סה"כ מכירות (₪)'><Input type="number" inputMode="decimal" value={s.total_sales} onChange={(e) => set("total_sales", e.target.value)} /></Field>
-            <Field label="משלוחים / וולט (₪)"><Input type="number" inputMode="decimal" value={s.delivery_sales} onChange={(e) => set("delivery_sales", e.target.value)} /></Field>
-            <Field label="ממוצע לסועד (₪)"><Input type="number" inputMode="decimal" value={s.avg_per_diner} onChange={(e) => set("avg_per_diner", e.target.value)} /></Field>
-          </div>
-        </Section>
-
-        {/* הצוות */}
-        <Section icon="groups" title="הצוות">
-          <div className="text-[12.5px] text-text-2">
-            העובדים נטענים אוטומטית מנוכחות היום. ניתן לערוך שעות עבודה (מ-עד) או להוסיף עובדים ידנית.
-          </div>
-
-          {participantsLoading ? (
-            <div className="rounded-[11px] border border-border bg-surface-2 px-3.5 py-4 text-center text-[13px] text-text-2">
-              טוען עובדים מהיום...
-            </div>
-          ) : s.team_members.length === 0 ? (
-            <div className="rounded-[11px] border border-dashed border-border px-3.5 py-4 text-center text-[13px] text-text-2">
-              לא נמצאה נוכחות לתאריך זה — ניתן להוסיף עובדים ידנית.
-            </div>
-          ) : null}
-
-          {s.team_members.length > 0 && (
-            <div className="report-team-list">
-              {s.team_members.map((p, idx) => {
-                const edited =
-                  p.attendance_hours != null &&
-                  Math.abs((Number(p.hours) || 0) - p.attendance_hours) > 0.01;
-                return (
-                  <div key={p.employee_id || `team-${idx}`} className="report-team-row">
-                    <div className="report-team-row-top">
-                      <div className="report-team-identity">
-                        <span className="report-team-avatar" aria-hidden="true">
-                          <Icon name="schedule" size={17} />
-                        </span>
-                        <div className="report-team-name-wrap">
-                          {p.employee_id ? (
-                            <span className="report-team-name">{userName(p.employee_id)}</span>
-                          ) : (
-                            <Select
-                              searchable
-                              searchPlaceholder="חיפוש עובד..."
-                              value={p.employee_id}
-                              onChange={(e) => updateTeamMember(idx, { employee_id: e.target.value })}
-                            >
-                              <option value="">— בחר עובד —</option>
-                              {availableTeamUsers.map((u) => (
-                                <option key={u.id} value={u.id}>{u.full_name}</option>
-                              ))}
-                            </Select>
-                          )}
-                          {edited && <span className="report-team-edited">שונה מנוכחות</span>}
-                        </div>
-                      </div>
-                      <span className="report-team-hours-pill" aria-label={`סה״כ ${p.hours || 0} שעות`}>
-                        <span className="report-team-hours-pill-value">{p.hours || "0"}</span>
-                        <span className="report-team-hours-pill-unit">שע׳</span>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => removeTeamMember(idx)}
-                        className="report-team-remove"
-                        title="הסרה מהרשימה"
-                        aria-label="הסרה מהרשימה"
-                      >
-                        <Icon name="close" size={18} />
-                      </button>
-                    </div>
-
-                    <div className="report-team-controls">
-                      <div className="report-team-field-block">
-                        <span className="report-team-field-label">שעות עבודה</span>
-                        <div className="report-team-times">
-                          <input
-                            type="time"
-                            value={p.work_start ?? ""}
-                            onChange={(e) => updateTeamMember(idx, { work_start: e.target.value })}
-                            className="field report-team-time-field"
-                          />
-                          <span className="report-team-dash" aria-hidden="true">–</span>
-                          <input
-                            type="time"
-                            value={p.work_end ?? ""}
-                            onChange={(e) => updateTeamMember(idx, { work_end: e.target.value })}
-                            className="field report-team-time-field"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="report-team-field-block report-team-hours-block">
-                        <span className="report-team-field-label">סה״כ שעות</span>
-                        <div className="report-team-hours-wrap">
-                          <Input
-                            type="number"
-                            inputMode="decimal"
-                            step={0.25}
-                            min={0}
-                            placeholder="0"
-                            value={p.hours || ""}
-                            onChange={(e) => updateTeamMember(idx, { hours: Number(e.target.value) || 0 })}
-                            className="report-team-hours-field"
-                          />
-                          <span className="report-team-hours-unit">שע׳</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {availableTeamUsers.length > 0 && (
-            <Button
-              variant="secondary"
-              icon="person_add"
-              onClick={() =>
-                set("team_members", [
-                  ...s.team_members,
-                  { employee_id: "", hours: 0, work_start: "", work_end: "" },
-                ])
-              }
-              className="self-start"
-            >
-              הוספת עובד
-            </Button>
-          )}
-
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="מתי שוחרר עובד ראשון">
-              <TimePicker value={s.first_release} onChange={(v) => set("first_release", v)} />
-            </Field>
-            <Field label="אנרגיות בצוות (1-10)"><Input type="number" min={1} max={10} value={s.energy_level} onChange={(e) => set("energy_level", e.target.value)} /></Field>
-          </div>
-          <Field label="אירועים חריגים (איחורים, הברזות, משהו אישי?)">
-            <Textarea rows={3} value={s.unusual_events} onChange={(e) => set("unusual_events", e.target.value)} />
-          </Field>
-          <Field label="שיחות שנעשו במשמרת (פידבק, חידוד נהלים, מילה טובה)">
-            <Textarea rows={4} value={s.team_talks} onChange={(e) => set("team_talks", e.target.value)} />
-          </Field>
-          <Field label="הקול של הצוות (בקשות / מה היה חסר)">
-            <Textarea rows={2} value={s.team_voice} onChange={(e) => set("team_voice", e.target.value)} />
-          </Field>
-        </Section>
-
-        {/* טיפים */}
-        <Section icon="savings" title="טיפים">
-          <div className="grid grid-cols-2 gap-3">
-            <Field label='סה"כ טיפים (₪)'><Input type="number" inputMode="decimal" value={s.total_tips} onChange={(e) => set("total_tips", e.target.value)} /></Field>
-            <Field label="שכר שעתי מטיפים">
-              <div className="field flex items-center bg-surface-2 font-bold">{formatCurrency(tipsHourly)}</div>
-            </Field>
-          </div>
-          <div className="text-[12.5px] text-text-2">
-            הטיפים יחולקו אוטומטית לפי שעות העובדים על טיפים. פירוט מלא לפי עובד יוצג בתצוגה המקדימה לפני ההגשה.
-          </div>
-        </Section>
-
-        {/* מכירות */}
-        <Section icon="local_bar" title="מכירות">
-          <div className="flex flex-col gap-2">
-            {s.sales_items.map((item, idx) => (
-              <div key={idx} className="grid grid-cols-[1fr_110px_36px] items-center gap-2">
-                <Input
-                  placeholder="פריט (לדוגמה: קוקטיילים)"
-                  value={item.label}
-                  onChange={(e) => {
-                    const next = [...s.sales_items];
-                    next[idx] = { ...next[idx], label: e.target.value };
-                    set("sales_items", next);
-                  }}
-                />
-                <Input
-                  type="number"
-                  inputMode="numeric"
-                  placeholder="כמות"
-                  value={item.count || ""}
-                  onChange={(e) => {
-                    const next = [...s.sales_items];
-                    next[idx] = { ...next[idx], count: Number(e.target.value) || 0 };
-                    set("sales_items", next);
-                  }}
-                />
-                <button
-                  onClick={() => set("sales_items", s.sales_items.filter((_, i) => i !== idx))}
-                  className="grid h-9 w-9 place-items-center rounded-lg text-text-3 hover:[background:var(--danger-bg)] hover:text-danger"
-                >
-                  <Icon name="close" size={18} />
-                </button>
               </div>
-            ))}
-            <Button
-              variant="secondary"
-              icon="add"
-              onClick={() => set("sales_items", [...s.sales_items, { label: "", count: 0 }])}
-              className="self-start"
-            >
-              הוספת פריט מכירה
-            </Button>
-          </div>
-          <Field label="מי מכר הכי הרבה"><Input value={s.top_seller} onChange={(e) => set("top_seller", e.target.value)} /></Field>
-        </Section>
+              <span className="report-team-hours-pill" aria-label={`סה״כ ${p.hours || 0} שעות`}>
+                <span className="report-team-hours-pill-value">{p.hours || "0"}</span>
+                <span className="report-team-hours-pill-unit">שע׳</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => removeTeamMember(idx)}
+                className="report-team-remove"
+                title="הסרה מהרשימה"
+                aria-label="הסרה מהרשימה"
+              >
+                <Icon name="close" size={18} />
+              </button>
+            </div>
 
-        {/* לוגיסטיקה */}
-        <Section icon="inventory_2" title="לוגיסטיקה ותחזוקה">
-          <label className="flex cursor-pointer items-center justify-between rounded-[11px] border border-border px-3.5 py-3">
-            <span className="text-[14px] font-semibold">משימות יומיות בוצעו</span>
+            <div className="report-team-controls">
+              <div className="report-team-field-block">
+                <span className="report-team-field-label">שעות עבודה</span>
+                <div className="report-team-times">
+                  <input
+                    type="time"
+                    value={p.work_start ?? ""}
+                    onChange={(e) => updateTeamMember(idx, { work_start: e.target.value })}
+                    className="field report-team-time-field"
+                  />
+                  <span className="report-team-dash" aria-hidden="true">–</span>
+                  <input
+                    type="time"
+                    value={p.work_end ?? ""}
+                    onChange={(e) => updateTeamMember(idx, { work_end: e.target.value })}
+                    className="field report-team-time-field"
+                  />
+                </div>
+              </div>
+
+              <div className="report-team-field-block report-team-hours-block">
+                <span className="report-team-field-label">סה״כ שעות</span>
+                <div className="report-team-hours-wrap">
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    step={0.25}
+                    min={0}
+                    placeholder="0"
+                    value={p.hours || ""}
+                    onChange={(e) => updateTeamMember(idx, { hours: Number(e.target.value) || 0 })}
+                    className="report-team-hours-field"
+                  />
+                  <span className="report-team-hours-unit">שע׳</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  const steps: WizardStep[] = [
+    {
+      key: "day",
+      icon: "event",
+      title: "פרטי היום",
+      hint: "על איזה תאריך הדוח, ומי היה אחראי המשמרת",
+      body: (
+        <div className="srw-stack">
+          <div className="srw-card">
+            <span className="srw-card-label">תאריך הדוח</span>
+            <label className="srw-date">
+              <span className="srw-date-num">{dayDate.getDate()}</span>
+              <span className="srw-date-meta">
+                <b>יום {WEEKDAY_NAMES[dayDate.getDay()]}</b>
+                <i>{MONTH_NAMES[dayDate.getMonth()]} {dayDate.getFullYear()}</i>
+              </span>
+              <Icon name="edit_calendar" size={19} className="srw-date-edit" />
+              <input
+                type="date"
+                value={s.report_date}
+                onChange={(e) => e.target.value && set("report_date", e.target.value)}
+                className="srw-date-input"
+                aria-label="תאריך הדוח"
+              />
+            </label>
+            <div className="srw-quick">
+              <button type="button" data-active={s.report_date === today} onClick={() => set("report_date", today)}>
+                היום
+              </button>
+              <button type="button" data-active={s.report_date === yesterday} onClick={() => set("report_date", yesterday)}>
+                אתמול
+              </button>
+            </div>
+          </div>
+
+          <div className="srw-card">
+            <div className="srw-card-head">
+              <span className="srw-card-label">אחמ״ש (אחראי משמרת)</span>
+              {s.manager_ids.length > 0 && <span className="srw-count-pill">{s.manager_ids.length}</span>}
+            </div>
+            <p className="srw-note">ניתן לסמן יותר מאחד אם היו כמה אחמ״שים במשמרת.</p>
+            <PeoplePicker
+              people={shiftManagers}
+              selected={s.manager_ids}
+              empty="אין אחמ״שים רשומים בעסק."
+              onToggle={(id) =>
+                set(
+                  "manager_ids",
+                  s.manager_ids.includes(id)
+                    ? s.manager_ids.filter((m) => m !== id)
+                    : [...s.manager_ids, id],
+                )
+              }
+            />
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: "cash",
+      icon: "payments",
+      title: "סגירת קופה",
+      hint: "מה נכנס בקופה היום, ומה נמכר",
+      body: (
+        <div className="srw-stack">
+          <MoneyField
+            hero
+            label='סה"כ מכירות'
+            value={s.total_sales}
+            onChange={(v) => set("total_sales", v)}
+          />
+          <div className="srw-duo">
+            <MoneyField label="משלוחים / וולט" value={s.delivery_sales} onChange={(v) => set("delivery_sales", v)} />
+            <MoneyField label="ממוצע לסועד" value={s.avg_per_diner} onChange={(v) => set("avg_per_diner", v)} />
+          </div>
+
+          <div className="srw-card">
+            <div className="srw-card-head">
+              <span className="srw-card-label">פירוט מכירות</span>
+              {s.sales_items.length > 0 && <span className="srw-count-pill">{s.sales_items.length}</span>}
+            </div>
+            {s.sales_items.length === 0 ? (
+              <div className="srw-empty">אפשר לפרט כמה קוקטיילים, בקבוקים או מנות נמכרו.</div>
+            ) : (
+              <div className="srw-items">
+                {s.sales_items.map((item, idx) => (
+                  <div key={idx} className="srw-item" style={{ "--i": idx } as React.CSSProperties}>
+                    <input
+                      className="srw-item-name"
+                      placeholder="פריט (לדוגמה: קוקטיילים)"
+                      value={item.label}
+                      onChange={(e) => {
+                        const next = [...s.sales_items];
+                        next[idx] = { ...next[idx], label: e.target.value };
+                        set("sales_items", next);
+                      }}
+                    />
+                    <input
+                      className="srw-item-qty"
+                      type="number"
+                      inputMode="numeric"
+                      placeholder="0"
+                      value={item.count || ""}
+                      onChange={(e) => {
+                        const next = [...s.sales_items];
+                        next[idx] = { ...next[idx], count: Number(e.target.value) || 0 };
+                        set("sales_items", next);
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="srw-item-x"
+                      onClick={() => set("sales_items", s.sales_items.filter((_, i) => i !== idx))}
+                      aria-label="הסרת פריט"
+                    >
+                      <Icon name="close" size={17} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button
+              type="button"
+              className="srw-add"
+              onClick={() => set("sales_items", [...s.sales_items, { label: "", count: 0 }])}
+            >
+              <Icon name="add" size={18} />
+              הוספת פריט מכירה
+            </button>
+          </div>
+
+          <div className="srw-card">
+            <span className="srw-card-label">מי מכר הכי הרבה</span>
+            <Input
+              value={s.top_seller}
+              onChange={(e) => set("top_seller", e.target.value)}
+              placeholder="שם העובד"
+            />
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: "team",
+      icon: "groups",
+      title: "הצוות",
+      hint: "שעות העבודה, האנרגיה בשטח ומה נאמר במשמרת",
+      body: (
+        <div className="srw-stack">
+          <div className="srw-card">
+            <div className="srw-card-head">
+              <span className="srw-card-label">צוות המשמרת</span>
+              {s.team_members.length > 0 && <span className="srw-count-pill">{s.team_members.length}</span>}
+            </div>
+            <p className="srw-note">
+              העובדים נטענים אוטומטית מנוכחות היום. ניתן לערוך שעות עבודה (מ-עד) או להוסיף עובדים ידנית.
+            </p>
+
+            {participantsLoading ? (
+              <div className="srw-empty">טוען עובדים מהיום…</div>
+            ) : s.team_members.length === 0 ? (
+              <div className="srw-empty">לא נמצאה נוכחות לתאריך זה — ניתן להוסיף עובדים ידנית.</div>
+            ) : (
+              teamList
+            )}
+
+            {availableTeamUsers.length > 0 && (
+              <button
+                type="button"
+                className="srw-add"
+                onClick={() =>
+                  set("team_members", [
+                    ...s.team_members,
+                    { employee_id: "", hours: 0, work_start: "", work_end: "" },
+                  ])
+                }
+              >
+                <Icon name="person_add" size={18} />
+                הוספת עובד
+              </button>
+            )}
+          </div>
+
+          <div className="srw-card">
+            <span className="srw-card-label">מתי שוחרר עובד ראשון</span>
+            <TimePicker value={s.first_release} onChange={(v) => set("first_release", v)} />
+          </div>
+
+          <div className="srw-card">
+            <span className="srw-card-label">אנרגיות בצוות</span>
+            <EnergyPicker value={s.energy_level} onChange={(v) => set("energy_level", v)} />
+          </div>
+
+          <div className="srw-card">
+            <span className="srw-card-label">אירועים חריגים</span>
+            <p className="srw-note">איחורים, הברזות, משהו אישי?</p>
+            <Textarea rows={3} value={s.unusual_events} onChange={(e) => set("unusual_events", e.target.value)} />
+          </div>
+
+          <div className="srw-card">
+            <span className="srw-card-label">שיחות שנעשו במשמרת</span>
+            <p className="srw-note">פידבק, חידוד נהלים, מילה טובה</p>
+            <Textarea rows={4} value={s.team_talks} onChange={(e) => set("team_talks", e.target.value)} />
+          </div>
+
+          <div className="srw-card">
+            <span className="srw-card-label">הקול של הצוות</span>
+            <p className="srw-note">בקשות / מה היה חסר</p>
+            <Textarea rows={2} value={s.team_voice} onChange={(e) => set("team_voice", e.target.value)} />
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: "tips",
+      icon: "savings",
+      title: "טיפים",
+      hint: "הסכום נכנס — החלוקה מתעדכנת לבד לפי שעות",
+      body: (
+        <div className="srw-stack">
+          <MoneyField
+            hero
+            tone="accent"
+            label='סה"כ טיפים'
+            value={s.total_tips}
+            onChange={(v) => set("total_tips", v)}
+          />
+          <div className="srw-duo">
+            <div className="srw-readout">
+              <span className="srw-readout-label">שכר שעתי מטיפים</span>
+              <span className="srw-readout-value">{formatCurrency(tipsHourly)}</span>
+            </div>
+            <div className="srw-readout">
+              <span className="srw-readout-label">שעות על טיפים</span>
+              <span className="srw-readout-value">{totalHours > 0 ? formatShiftHours(totalHours) : "0"}</span>
+            </div>
+          </div>
+
+          <div className="srw-card">
+            <div className="srw-card-head">
+              <span className="srw-card-label">חלוקה לפי שעות</span>
+              {tipDistribution.length > 0 && <span className="srw-count-pill">{tipDistribution.length}</span>}
+            </div>
+            {tipDistribution.length === 0 ? (
+              <div className="srw-empty">אין עובדים על טיפים עם שעות במשמרת הזו.</div>
+            ) : (
+              <div className="srw-split">
+                {tipDistribution.map((row, idx) => {
+                  const share = totalTips > 0 ? Math.max(4, (row.amount / totalTips) * 100) : 0;
+                  return (
+                    <div key={row.employee_id} className="srw-split-row" style={{ "--i": idx } as React.CSSProperties}>
+                      <span className="srw-split-avatar" aria-hidden="true">
+                        {initialsOf(userName(row.employee_id))}
+                      </span>
+                      <span className="srw-split-text">
+                        <b>{userName(row.employee_id)}</b>
+                        <i>{formatShiftHours(row.hours)} שע׳</i>
+                      </span>
+                      <span className="srw-split-amount">{formatCurrency(row.amount)}</span>
+                      <span className="srw-split-bar" aria-hidden="true">
+                        <i style={{ width: `${share}%` }} />
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: "close",
+      icon: "task_alt",
+      title: "סגירה",
+      hint: "משימות, מלאי, תקלות וחשבוניות",
+      body: (
+        <div className="srw-stack">
+          <label className="srw-toggle">
+            <span className="srw-toggle-text">
+              <b>משימות יומיות בוצעו</b>
+              <i>כל הצ׳ק־ליסט של סוף המשמרת נסגר</i>
+            </span>
             <Switch checked={s.daily_tasks_done} onChange={(v) => set("daily_tasks_done", v)} />
           </label>
 
-          <div className="flex flex-col gap-2">
-            <label className="flex cursor-pointer items-center justify-between rounded-[11px] border border-border px-3.5 py-3">
-              <span className="text-[14px] font-semibold">מלאי שנגמר וחייב הזמנה דחופה</span>
+          <div className="srw-group">
+            <label className="srw-toggle">
+              <span className="srw-toggle-text">
+                <b>מלאי שנגמר</b>
+                <i>מוצרים שחייבים הזמנה דחופה</i>
+              </span>
               <Switch
                 checked={s.urgent_inventory_enabled}
                 onChange={(v) => {
@@ -1238,60 +1641,51 @@ function ReportEditor({
                 }}
               />
             </label>
-            {s.urgent_inventory_enabled && (
-              inventoryItems.length === 0 ? (
-                <div className="rounded-[11px] border border-dashed border-border px-3.5 py-4 text-center text-[13px] text-text-2">
-                  אין מוצרים במלאי. הוסיפו מוצרים במודול המלאי.
-                </div>
+            {s.urgent_inventory_enabled &&
+              (inventoryItems.length === 0 ? (
+                <div className="srw-empty">אין מוצרים במלאי. הוסיפו מוצרים במודול המלאי.</div>
               ) : (
-                <div className="flex flex-col gap-2.5 rounded-[11px] border border-border p-3">
+                <div className="srw-panel">
                   {s.out_of_stock_items.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="srw-tags">
                       {s.out_of_stock_items.map((item) => {
                         const inv = inventoryItems.find((i) => i.id === item.item_id);
                         return (
                           <button
                             key={item.item_id}
                             type="button"
+                            className="srw-tag"
                             onClick={() => toggleOutOfStockItem(item.item_id)}
-                            className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2.5 py-1 text-[12.5px] font-semibold text-text"
                           >
                             <span>{item.name}</span>
-                            {inv && (
-                              <span className="text-[11px] font-medium text-text-3">
-                                {inv.current_qty} {inv.unit}
-                              </span>
-                            )}
-                            <Icon name="close" size={14} className="text-text-3" />
+                            {inv && <em>{inv.current_qty} {inv.unit}</em>}
+                            <Icon name="close" size={14} />
                           </button>
                         );
                       })}
                     </div>
                   )}
 
-                  <div className="flex items-center gap-2 rounded-[10px] border border-border bg-surface-2 px-3 py-2">
-                    <Icon name="search" size={18} className="flex-none text-text-3" />
+                  <div className="srw-search">
+                    <Icon name="search" size={18} />
                     <input
                       type="search"
                       value={inventorySearch}
                       onChange={(e) => setInventorySearch(e.target.value)}
                       placeholder="חיפוש מוצר להוספה..."
-                      className="w-full border-none bg-transparent text-[14px] font-semibold text-text outline-none placeholder:font-medium placeholder:text-text-3"
                     />
                   </div>
 
                   {!inventorySearch.trim() ? (
-                    <div className="text-center text-[12.5px] text-text-2">
+                    <p className="srw-note srw-note--center">
                       {s.out_of_stock_items.length > 0
                         ? "ניתן לחפש ולהוסיף עוד מוצרים"
                         : "הקלידו שם מוצר כדי להוסיף לרשימה"}
-                    </div>
+                    </p>
                   ) : inventorySearchResults.length === 0 ? (
-                    <div className="text-center text-[12.5px] font-semibold text-text-3">
-                      לא נמצאו מוצרים
-                    </div>
+                    <p className="srw-note srw-note--center">לא נמצאו מוצרים</p>
                   ) : (
-                    <div className="flex max-h-44 flex-col gap-1 overflow-y-auto">
+                    <div className="srw-results">
                       {inventorySearchResults.map((item) => (
                         <button
                           key={item.id}
@@ -1300,24 +1694,23 @@ function ReportEditor({
                             toggleOutOfStockItem(item.id);
                             setInventorySearch("");
                           }}
-                          className="flex items-center justify-between gap-3 rounded-[10px] px-3 py-2.5 text-right transition-colors hover:bg-surface-2"
                         >
-                          <span className="truncate text-[14px] font-semibold">{item.name}</span>
-                          <span className="flex-none text-[11.5px] font-semibold text-text-3">
-                            {item.current_qty} {item.unit}
-                          </span>
+                          <span>{item.name}</span>
+                          <em>{item.current_qty} {item.unit}</em>
                         </button>
                       ))}
                     </div>
                   )}
                 </div>
-              )
-            )}
+              ))}
           </div>
 
-          <div className="flex flex-col gap-2">
-            <label className="flex cursor-pointer items-center justify-between rounded-[11px] border border-border px-3.5 py-3">
-              <span className="text-[14px] font-semibold">תקלות ותחזוקה</span>
+          <div className="srw-group">
+            <label className="srw-toggle">
+              <span className="srw-toggle-text">
+                <b>תקלות ותחזוקה</b>
+                <i>משהו נשבר או צריך תיקון?</i>
+              </span>
               <Switch
                 checked={s.faults_enabled}
                 onChange={(v) => {
@@ -1327,50 +1720,115 @@ function ReportEditor({
               />
             </label>
             {s.faults_enabled && (
-              <Field label="פרטי תקלה / תחזוקה (משהו נשבר / צריך תיקון?)">
-                <Textarea rows={2} value={s.faults_maintenance} onChange={(e) => set("faults_maintenance", e.target.value)} />
-              </Field>
+              <div className="srw-panel">
+                <Textarea
+                  rows={3}
+                  placeholder="מה קרה, מה צריך לתקן…"
+                  value={s.faults_maintenance}
+                  onChange={(e) => set("faults_maintenance", e.target.value)}
+                />
+              </div>
             )}
           </div>
-        </Section>
 
-        {/* חשבוניות */}
-        <Section icon="receipt" title="חשבוניות">
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-            {s.invoice_urls.map((url, idx) => (
-              <div key={idx} className="group relative overflow-hidden rounded-[11px] border border-border">
-                <a href={url} target="_blank" rel="noreferrer" className="block">
-                  {/\.(png|jpe?g|webp|gif)(\?|$)/i.test(url) ? (
-                    <img src={url} alt="חשבונית" className="h-28 w-full object-cover" />
-                  ) : (
-                    <div className="flex h-28 w-full flex-col items-center justify-center gap-1 bg-surface-2 text-text-2">
-                      <Icon name="description" size={26} />
-                      <span className="text-[11px]">קובץ</span>
-                    </div>
-                  )}
-                </a>
-                <button
-                  onClick={() => set("invoice_urls", s.invoice_urls.filter((_, i) => i !== idx))}
-                  className="absolute left-1.5 top-1.5 grid h-7 w-7 place-items-center rounded-lg bg-black/55 text-white hover:bg-black/75"
-                >
-                  <Icon name="close" size={16} />
-                </button>
-              </div>
-            ))}
-            <label className="flex h-28 cursor-pointer flex-col items-center justify-center gap-1 rounded-[11px] border border-dashed border-border text-text-3 hover:bg-surface-2">
-              {uploading ? <Icon name="hourglass_top" size={24} /> : <Icon name="add_a_photo" size={24} />}
-              <span className="text-[11.5px] font-semibold">{uploading ? "מעלה..." : "העלאת חשבונית"}</span>
-              <input
-                type="file"
-                accept="image/*,application/pdf"
-                multiple
-                className="hidden"
-                disabled={uploading}
-                onChange={(e) => handleFiles(e.target.files)}
-              />
-            </label>
+          <div className="srw-card">
+            <div className="srw-card-head">
+              <span className="srw-card-label">חשבוניות</span>
+              {s.invoice_urls.length > 0 && <span className="srw-count-pill">{s.invoice_urls.length}</span>}
+            </div>
+            <div className="srw-files">
+              {s.invoice_urls.map((url, idx) => (
+                <div key={idx} className="srw-file" style={{ "--i": idx } as React.CSSProperties}>
+                  <a href={url} target="_blank" rel="noreferrer">
+                    {/\.(png|jpe?g|webp|gif)(\?|$)/i.test(url) ? (
+                      <img src={url} alt="חשבונית" />
+                    ) : (
+                      <span className="srw-file-doc">
+                        <Icon name="description" size={24} />
+                        קובץ
+                      </span>
+                    )}
+                  </a>
+                  <button
+                    type="button"
+                    className="srw-file-x"
+                    onClick={() => set("invoice_urls", s.invoice_urls.filter((_, i) => i !== idx))}
+                    aria-label="הסרת חשבונית"
+                  >
+                    <Icon name="close" size={15} />
+                  </button>
+                </div>
+              ))}
+              <label className="srw-file-add" data-busy={uploading ? "true" : undefined}>
+                <Icon name={uploading ? "hourglass_top" : "add_a_photo"} size={23} />
+                <span>{uploading ? "מעלה…" : "העלאת חשבונית"}</span>
+                <input
+                  type="file"
+                  accept="image/*,application/pdf"
+                  multiple
+                  disabled={uploading}
+                  onChange={(e) => handleFiles(e.target.files)}
+                />
+              </label>
+            </div>
           </div>
-        </Section>
+        </div>
+      ),
+    },
+  ];
+
+  function goStep(next: number) {
+    if (next < 0 || next >= steps.length || next === step) return;
+    setStepDir(next > step ? 1 : -1);
+    setStep(next);
+    pageRef.current?.closest("main")?.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function openPreview() {
+    setError(null);
+    setPreviewing(true);
+  }
+
+  if (!isMdUp) {
+    return (
+      <div ref={pageRef}>
+        <ReportWizardShell
+          kicker={report ? "עריכת דוח משמרת" : "דוח סיכום משמרת"}
+          steps={steps}
+          step={Math.min(step, steps.length - 1)}
+          dir={stepDir}
+          onStep={goStep}
+          onClose={onClose}
+          onFinish={openPreview}
+          error={error}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <ReportEditorShell
+      title={report ? "עריכת דוח משמרת" : "דוח סיכום משמרת"}
+      subtitle="סגירת קופה, צוות, מכירות, לוגיסטיקה וחשבוניות"
+      icon="receipt_long"
+      onBack={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            ביטול
+          </Button>
+          <Button className="flex-1" icon="preview" onClick={openPreview}>
+            תצוגה מקדימה
+          </Button>
+        </>
+      }
+    >
+      <div className="srw-desktop flex flex-col gap-6">
+        {steps.map((d) => (
+          <Section key={d.key} icon={d.icon} title={d.title}>
+            {d.body}
+          </Section>
+        ))}
 
         {error && (
           <div className="flex items-start gap-2 rounded-[11px] [background:var(--danger-bg)] px-3 py-2.5 text-[13px] font-semibold text-danger">
@@ -1378,7 +1836,7 @@ function ReportEditor({
           </div>
         )}
       </div>
-    </Modal>
+    </ReportEditorShell>
   );
 }
 
@@ -1423,15 +1881,117 @@ function DetailText({ label, value }: { label: string; value: string | null | un
   );
 }
 
+function ShiftTeamPay({ rows }: { rows: ShiftPayRow[] }) {
+  const [filter, setFilter] = useState<"all" | "tips" | "hourly">("all");
+
+  const tipRows = rows.filter((r) => r.onTips);
+  const hourlyRows = rows.filter((r) => !r.onTips);
+  const shown = filter === "tips" ? tipRows : filter === "hourly" ? hourlyRows : rows;
+
+  const sumHours = shown.reduce((sum, r) => sum + r.hours, 0);
+  const sumAmount = shown.reduce((sum, r) => sum + r.amount, 0);
+
+  if (rows.length === 0) {
+    return <div className="srw-empty">לא נוספו עובדים לדוח.</div>;
+  }
+
+  const tabs = [
+    { key: "all" as const, label: "הכל", count: rows.length },
+    { key: "tips" as const, label: "על טיפים", count: tipRows.length },
+    { key: "hourly" as const, label: "שעתי", count: hourlyRows.length },
+  ];
+
+  return (
+    <div className="srp">
+      <div className="srp-tabs" role="tablist" aria-label="סינון לפי סוג שכר">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            aria-selected={filter === t.key}
+            data-active={filter === t.key}
+            disabled={t.count === 0}
+            onClick={() => setFilter(t.key)}
+          >
+            {t.label}
+            <em>{t.count}</em>
+          </button>
+        ))}
+      </div>
+
+      <div className="srp-sum">
+        <div>
+          <span>עובדים</span>
+          <b>{shown.length}</b>
+        </div>
+        <div>
+          <span>שעות</span>
+          <b>{sumHours > 0 ? formatShiftHours(sumHours) : "0"}</b>
+        </div>
+        <div>
+          <span>{filter === "tips" ? "סה״כ לחלוקה" : "עלות שכר"}</span>
+          <b>{formatCurrency(sumAmount)}</b>
+        </div>
+      </div>
+
+      <div className="srp-list">
+        {shown.map((r, idx) => (
+          <div
+            key={r.employee_id}
+            className="srp-row"
+            data-tone={r.onTips ? "tips" : "hourly"}
+            style={{ "--i": idx } as React.CSSProperties}
+          >
+            <span className="srp-avatar" aria-hidden="true">{initialsOf(r.name)}</span>
+            <div className="srp-main">
+              <div className="srp-name-row">
+                <b className="srp-name">{r.name}</b>
+                <span className="srp-badge">{r.onTips ? "טיפים" : "שעתי"}</span>
+              </div>
+              <div className="srp-meta">
+                <span>{formatWorkTimeRange(r.work_start ?? undefined, r.work_end ?? undefined)}</span>
+                <i aria-hidden="true">·</i>
+                <span>{r.hours > 0 ? formatShiftHours(r.hours) : "0"} שע׳</span>
+                {!r.rateMissing && (
+                  <>
+                    <i aria-hidden="true">·</i>
+                    <span>{formatCurrency(r.hourly)} לשעה</span>
+                  </>
+                )}
+              </div>
+              {r.topup > 0 && (
+                <div className="srp-note">
+                  <Icon name="shield" size={13} />
+                  {formatCurrency(r.fromTips)} מטיפים + {formatCurrency(r.topup)} השלמה למינימום
+                </div>
+              )}
+              {r.rateMissing && (
+                <div className="srp-note srp-note--warn">
+                  <Icon name="info" size={13} />
+                  לא הוגדר שכר שעתי בפרופיל
+                </div>
+              )}
+            </div>
+            <span className="srp-amount">{r.rateMissing ? "—" : formatCurrency(r.amount)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ReportViewer({
   report,
   userName,
+  profileById,
   canManage,
   onClose,
   onEdit,
 }: {
   report: ShiftReport;
   userName: (id: string) => string;
+  profileById: Map<string, Profile>;
   canManage: boolean;
   onClose: () => void;
   onEdit: () => void;
@@ -1443,6 +2003,16 @@ function ReportViewer({
   const totalTips = Number(report.total_tips) || 0;
   const totalHours = participants.reduce((sum, p) => sum + (Number(p.hours) || 0), 0);
   const tipsHourly = totalHours > 0 ? totalTips / totalHours : Number(report.tips_hourly) || 0;
+
+  // Reports saved before team_members existed only carry the tip participants.
+  const teamForPay = teamMembers.length > 0 ? teamMembers : participants;
+  const payRows = buildShiftPayRows({
+    team: teamForPay,
+    tipByEmployee: new Map(distributeTips(totalTips, participants).map((r) => [r.employee_id, r])),
+    profileById,
+    userName,
+    tipsHourly,
+  });
 
   return (
     <Modal
@@ -1480,51 +2050,13 @@ function ReportViewer({
             <DetailCell label='סה"כ טיפים' value={formatCurrency(totalTips)} />
             <DetailCell label="שכר שעתי מטיפים" value={formatCurrency(tipsHourly)} />
           </DetailGrid>
-          {participants.length > 0 && (
-            <div className="overflow-hidden rounded-[11px] border border-border">
-              <div className="grid grid-cols-[1fr_72px_auto] items-center gap-2 border-b border-border bg-surface-2 px-3 py-2 text-[11.5px] font-bold text-text-3">
-                <span>עובד</span>
-                <span>שעות</span>
-                <span>חלק בטיפים</span>
-              </div>
-              <div className="flex flex-col divide-y divide-border-2">
-                {participants.map((p) => (
-                  <div key={p.employee_id} className="grid grid-cols-[1fr_72px_auto] items-center gap-2 px-3 py-2.5">
-                    <span className="truncate text-[14px] font-semibold">{userName(p.employee_id)}</span>
-                    <span className="text-[13px] tabular-nums text-text-2">{Number(p.hours) || 0}</span>
-                    <span className="text-[12.5px] font-bold text-accent-2">
-                      {formatCurrency(tipsHourly * (Number(p.hours) || 0))}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </Section>
 
-        <Section icon="groups" title="הצוות">
-          {teamMembers.length > 0 && (
-            <div className="overflow-hidden rounded-[11px] border border-border">
-              <div className="grid grid-cols-[1fr_110px_72px] items-center gap-2 border-b border-border bg-surface-2 px-3 py-2 text-[11.5px] font-bold text-text-3">
-                <span>עובד</span>
-                <span>שעות עבודה</span>
-                <span>סה״כ שעות</span>
-              </div>
-              <div className="flex flex-col divide-y divide-border-2">
-                {teamMembers.map((p) => (
-                  <div key={p.employee_id} className="grid grid-cols-[1fr_110px_72px] items-center gap-2 px-3 py-2.5">
-                    <span className="truncate text-[14px] font-semibold">{userName(p.employee_id)}</span>
-                    <span className="text-[13px] tabular-nums text-text-2">
-                      {formatWorkTimeRange(p.work_start, p.work_end)}
-                    </span>
-                    <span className="text-[13px] tabular-nums text-text-2">
-                      {(Number(p.hours) || 0) > 0 ? formatShiftHours(Number(p.hours)) : "—"}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+        <Section icon="groups" title="צוות המשמרת">
+          <div className="text-[12.5px] text-text-2">
+            כל מי שעבד במשמרת. לעובדי טיפים החלק מהקופה מחושב לפי השעות שלהם, ולשאר לפי השכר השעתי בפרופיל.
+          </div>
+          <ShiftTeamPay rows={payRows} />
           <DetailGrid>
             <DetailCell label="שחרור ראשון" value={formatTimeLabel(report.first_release)} />
             <DetailCell label="אנרגיות בצוות" value={report.energy_level != null ? `${report.energy_level}/10` : null} />

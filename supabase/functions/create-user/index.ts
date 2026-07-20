@@ -46,8 +46,12 @@ Deno.serve(async (req) => {
 
     if (!callerProfile) return json({ error: "no profile" }, 403);
 
+    const DEFAULT_HOURLY_RATE = 35.4;
+
     const body = await req.json();
-    const { email, password, full_name, role, department_id, phone, hourly_rate, wage_type, pension_active } = body;
+    const { email, password, full_name, role, department_id, phone, wage_type, pension_active } = body;
+    const hourly_rate =
+      body.hourly_rate != null && body.hourly_rate !== "" ? Number(body.hourly_rate) : DEFAULT_HOURLY_RATE;
     let business_id = body.business_id as string | null;
 
     if (!email || !password || !role) return json({ error: "missing fields" }, 400);

@@ -129,9 +129,9 @@ export function AppShell() {
             </div>
             <div className="min-w-0">
               <div className="truncate text-[16px] font-extrabold tracking-tight text-white">
-                {isSuperAdmin ? "אביחי" : business?.name ?? "—"}
+                {isSuperAdmin ? "AMI" : business?.name ?? "—"}
               </div>
-              <div className="text-[11.5px] text-white/45">ניהול עסקים</div>
+              <div className="text-[11.5px] text-white/45">Business Management</div>
             </div>
           </div>
           <button
@@ -356,7 +356,7 @@ export function AppShell() {
 
         currentKey={currentKey}
 
-        businessName={isSuperAdmin ? "אביחי" : business?.name}
+        businessName={isSuperAdmin ? "AMI" : business?.name}
 
         userName={profile?.full_name}
 

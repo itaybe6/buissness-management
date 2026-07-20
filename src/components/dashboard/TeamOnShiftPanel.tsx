@@ -27,6 +27,28 @@ export function TeamOnShiftPanel() {
   const now = useLiveClock();
   const [view, setView] = useState<TeamView>("on_shift");
   const [clockOutTarget, setClockOutTarget] = useState<ForceClockOutTarget | null>(null);
+  const [clockOutEditMode, setClockOutEditMode] = useState(false);
+
+  function openClockOutModal(
+    session: { id: string; clockIn: string; clockOut?: string | null },
+    person: { full_name?: string | null } | undefined,
+    deptColor: string,
+    startInEditMode: boolean,
+  ) {
+    setClockOutEditMode(startInEditMode);
+    setClockOutTarget({
+      attendanceId: session.id,
+      employeeName: person?.full_name ?? "עובד/ת",
+      clockIn: session.clockIn,
+      clockOut: session.clockOut,
+      avatarColor: deptColor,
+    });
+  }
+
+  function closeClockOutModal() {
+    setClockOutTarget(null);
+    setClockOutEditMode(false);
+  }
 
   const profilesById = useMemo(
     () => new Map((profiles ?? []).map((p) => [p.id, p])),
@@ -152,7 +174,7 @@ export function TeamOnShiftPanel() {
                           </div>
                         </div>
                         {isActive ? (
-                          <span className="team-on-shift__live" aria-label="במשמרת">
+                          <span className="team-on-shift__live" aria-hidden>
                             <span className="team-on-shift__live-dot" aria-hidden />
                             הוצאה
                           </span>
@@ -166,23 +188,31 @@ export function TeamOnShiftPanel() {
 
                     if (rowInteractive) {
                       return (
-                        <button
+                        <div
                           key={group.employeeId}
-                          type="button"
-                          className="team-on-shift__row team-on-shift__row--action"
-                          onClick={() =>
-                            setClockOutTarget({
-                              attendanceId: activeSession.id,
-                              employeeName: person?.full_name ?? "עובד/ת",
-                              clockIn: activeSession.clockIn,
-                              clockOut: activeSession.clockOut,
-                              avatarColor: deptColor,
-                            })
-                          }
-                          aria-label={`הוצא את ${person?.full_name ?? "העובד"} ממשמרת`}
+                          className="team-on-shift__row team-on-shift__row--action team-on-shift__row--split"
                         >
-                          {rowContent}
-                        </button>
+                          <button
+                            type="button"
+                            className="team-on-shift__row-hit"
+                            onClick={() =>
+                              openClockOutModal(activeSession, person, deptColor, false)
+                            }
+                            aria-label={`הוצא את ${person?.full_name ?? "העובד"} ממשמרת`}
+                          >
+                            {rowContent}
+                          </button>
+                          <button
+                            type="button"
+                            className="team-on-shift__row-edit"
+                            aria-label={`ערוך נוכחות של ${person?.full_name ?? "העובד"}`}
+                            onClick={() =>
+                              openClockOutModal(activeSession, person, deptColor, true)
+                            }
+                          >
+                            <Icon name="edit" size={17} />
+                          </button>
+                        </div>
                       );
                     }
 
@@ -207,7 +237,8 @@ export function TeamOnShiftPanel() {
         open={!!clockOutTarget}
         target={clockOutTarget}
         businessId={businessId}
-        onClose={() => setClockOutTarget(null)}
+        initialEditing={clockOutEditMode}
+        onClose={closeClockOutModal}
       />
     </section>
   );

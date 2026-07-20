@@ -29,6 +29,24 @@ export function useShiftReports(businessId: string | null, monthISO: string) {
   });
 }
 
+/** Single shift report by id (for editor deep links). */
+export function useShiftReport(businessId: string | null, reportId: string | null) {
+  return useQuery({
+    queryKey: ["shift_report", businessId, reportId],
+    enabled: !!businessId && !!reportId,
+    queryFn: async (): Promise<ShiftReport> => {
+      const { data, error } = await supabase
+        .from("shift_reports")
+        .select("*")
+        .eq("business_id", businessId!)
+        .eq("id", reportId!)
+        .single();
+      if (error) throw error;
+      return data as ShiftReport;
+    },
+  });
+}
+
 /** Upload an invoice file (image is compressed to jpg, other types kept as-is). */
 export async function uploadInvoice(businessId: string, file: File): Promise<string> {
   const isImage = file.type.startsWith("image/");

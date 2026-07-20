@@ -262,7 +262,7 @@ function LoaderCore({ label }: { label: string }) {
 
 export function PageLoader({ label = "טוען..." }: { label?: string }) {
   return (
-    <div className="grid min-h-[50dvh] place-items-center px-4 md:min-h-[60vh]" role="status" aria-live="polite">
+    <div className="page-loader" role="status" aria-live="polite">
       <div className="loader-hero loader-float">
         <LoaderCore label={label} />
       </div>

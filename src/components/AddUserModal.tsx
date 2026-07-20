@@ -3,7 +3,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Button, Field, Icon, Input, Select } from "@/components/ui";
 import { useCreateUser } from "@/api/users";
 import { useDepartments } from "@/api/departments";
-import { ROLE_LABELS, WAGE_TYPE_LABELS } from "@/lib/constants";
+import { DEFAULT_HOURLY_RATE, ROLE_LABELS, WAGE_TYPE_LABELS } from "@/lib/constants";
 import type { Business, UserRole, WageType } from "@/types/database";
 
 interface Props {
@@ -27,7 +27,7 @@ export function AddUserModal({ open, onClose, businessId, businesses, roles }: P
   const [bizId, setBizId] = useState<string>(businessId ?? businesses?.[0]?.id ?? "");
   const [departmentId, setDepartmentId] = useState<string>("");
   const [wageType, setWageType] = useState<WageType>("hourly");
-  const [hourlyRate, setHourlyRate] = useState("");
+  const [hourlyRate, setHourlyRate] = useState(String(DEFAULT_HOURLY_RATE));
   const [pensionActive, setPensionActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,7 +46,7 @@ export function AddUserModal({ open, onClose, businessId, businesses, roles }: P
         business_id: effectiveBiz || null,
         department_id: role === "employee" ? departmentId || null : null,
         phone: phone || undefined,
-        hourly_rate: hourlyRate ? Number(hourlyRate) : 0,
+        hourly_rate: hourlyRate.trim() ? Number(hourlyRate) : DEFAULT_HOURLY_RATE,
         wage_type: wageType,
         pension_active: pensionActive,
       });
@@ -58,7 +58,7 @@ export function AddUserModal({ open, onClose, businessId, businesses, roles }: P
   }
 
   function reset() {
-    setFullName(""); setEmail(""); setPhone(""); setPassword(""); setHourlyRate(""); setDepartmentId(""); setWageType("hourly"); setPensionActive(false);
+    setFullName(""); setEmail(""); setPhone(""); setPassword(""); setHourlyRate(String(DEFAULT_HOURLY_RATE)); setDepartmentId(""); setWageType("hourly"); setPensionActive(false);
   }
 
   return (
@@ -129,7 +129,7 @@ export function AddUserModal({ open, onClose, businessId, businesses, roles }: P
             </Select>
           </Field>
           <Field label={wageType === "tips" ? "מינימום לשעה (₪)" : "שכר שעתי (₪)"}>
-            <Input type="number" value={hourlyRate} onChange={(e) => setHourlyRate(e.target.value)} placeholder="0" />
+            <Input type="number" value={hourlyRate} onChange={(e) => setHourlyRate(e.target.value)} step={0.1} placeholder={String(DEFAULT_HOURLY_RATE)} />
           </Field>
         </div>
         {wageType === "tips" && (

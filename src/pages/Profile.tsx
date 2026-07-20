@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase";
 import { formatCurrency } from "@/lib/db";
 import { ROLE_LABELS, WAGE_TYPE_LABELS } from "@/lib/constants";
 import { uploadProfileAvatar, useUpdateProfile } from "@/api/users";
+import { AvatarCropModal } from "@/components/profile/AvatarCropModal";
 import { useDepartments } from "@/api/departments";
 import type { Profile as ProfileType } from "@/types/database";
 
@@ -233,13 +234,14 @@ const ProfileAvatarUpload = forwardRef(function ProfileAvatarUpload(
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
+  const [cropFile, setCropFile] = useState<File | null>(null);
+  const [cropOpen, setCropOpen] = useState(false);
 
   useImperativeHandle(ref, () => ({
     openFilePicker: () => fileRef.current?.click(),
   }));
 
-  async function handleFileChange(file: File | undefined) {
-    if (!file) return;
+  async function uploadCroppedFile(file: File) {
     setError(null);
     setPreview(URL.createObjectURL(file));
     setUploading(true);
@@ -247,12 +249,21 @@ const ProfileAvatarUpload = forwardRef(function ProfileAvatarUpload(
       const avatar_url = await uploadProfileAvatar(profile.id, file);
       await updateProfile.mutateAsync({ id: profile.id, avatar_url });
       await onSaved();
+      setCropOpen(false);
+      setCropFile(null);
     } catch (err) {
       setPreview(null);
       setError(err instanceof Error ? err.message : "שגיאה בהעלאת התמונה");
     } finally {
       setUploading(false);
     }
+  }
+
+  function handleFilePicked(file: File | undefined) {
+    if (!file) return;
+    setError(null);
+    setCropFile(file);
+    setCropOpen(true);
   }
 
   const displayUrl = preview ?? profile.avatar_url;
@@ -281,10 +292,20 @@ const ProfileAvatarUpload = forwardRef(function ProfileAvatarUpload(
         accept="image/*"
         className="hidden"
         onChange={(e) => {
-          const file = e.target.files?.[0];
-          void handleFileChange(file);
+          handleFilePicked(e.target.files?.[0]);
           e.target.value = "";
         }}
+      />
+      <AvatarCropModal
+        open={cropOpen}
+        file={cropFile}
+        saving={uploading}
+        onClose={() => {
+          if (uploading) return;
+          setCropOpen(false);
+          setCropFile(null);
+        }}
+        onConfirm={uploadCroppedFile}
       />
       {error && <p className="profile-avatar-error">{error}</p>}
     </div>

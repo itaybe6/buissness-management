@@ -133,11 +133,12 @@ export function useClockOut(businessId: string | null) {
 export function useUpdateAttendanceSession(businessId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { id: string; clock_in: string; clock_out: string }) => {
-      const { error } = await supabase
-        .from("attendance")
-        .update({ clock_in: input.clock_in, clock_out: input.clock_out })
-        .eq("id", input.id);
+    mutationFn: async (input: { id: string; clock_in: string; clock_out?: string | null }) => {
+      const patch: { clock_in: string; clock_out?: string | null } = { clock_in: input.clock_in };
+      if (input.clock_out !== undefined) {
+        patch.clock_out = input.clock_out;
+      }
+      const { error } = await supabase.from("attendance").update(patch).eq("id", input.id);
       if (error) throw error;
     },
     onSuccess: () => {

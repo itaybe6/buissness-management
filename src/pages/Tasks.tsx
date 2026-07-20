@@ -197,20 +197,6 @@ function ManagerTasksView({ businessId, profileId }: { businessId: string; profi
         />
       )}
 
-      {!canCreateTasks && (
-        <Card className="mb-5 p-5">
-          <div className="flex items-start gap-3">
-            <Icon name="info" size={22} className="mt-0.5 text-text-3" />
-            <div>
-              <div className="text-[15px] font-bold text-text">צפייה בלבד</div>
-              <p className="mt-1 text-[13px] leading-relaxed text-text-2">
-                רק מנהל העסק יכול ליצור משימות חדשות ולהגדיר משימות קבועות.
-              </p>
-            </div>
-          </div>
-        </Card>
-      )}
-
       {canCreateTasks && (
         <div className="tasks-mgr-tabs mb-5">
           {(

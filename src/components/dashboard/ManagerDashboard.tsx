@@ -15,6 +15,7 @@ import type { FeatureKey } from "@/types/database";
 import { AreaChart, BarChart, CountUp, DonutChart, RadialGauge } from "./charts";
 import { EmployeeCostPanel } from "./EmployeeCostPanel";
 import { ManagerAttendanceFeed } from "./ManagerAttendanceFeed";
+import { TodayEventsBanner } from "@/components/events/TodayEventsBanner";
 
 /* ----------------------------- helpers ----------------------------- */
 function monthKey(d: Date): string {
@@ -398,6 +399,9 @@ export function ManagerDashboard() {
           )}
         </div>
       </header>
+
+      {/* ---------------- Events happening today ---------------- */}
+      <TodayEventsBanner />
 
       {/* ---------------- Employee labor costs ---------------- */}
       {on("payroll") && <EmployeeCostPanel businessId={businessId} monthRevenue={revenue} />}

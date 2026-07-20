@@ -62,6 +62,7 @@ export function ShiftBreakdownSummary({
   totals,
   rate,
   stepper,
+  showMobileHero = true,
 }: {
   isTips: boolean;
   wageLabel: string;
@@ -69,10 +70,13 @@ export function ShiftBreakdownSummary({
   totals: ShiftRowTotals;
   rate: number;
   stepper?: MonthStepperState;
+  /** Pages with their own mobile hero (EmployeePayrollDetail) opt out of this one. */
+  showMobileHero?: boolean;
 }) {
   return (
     <>
       {/* ── Mobile — wallet hero ── */}
+      {showMobileHero && (
       <section className="payroll-hero md:hidden">
         <div className="payroll-hero-top">
           {stepper ? (
@@ -144,6 +148,7 @@ export function ShiftBreakdownSummary({
           </div>
         )}
       </section>
+      )}
 
       {/* ── Desktop — light summary card ── */}
       <section className="relative hidden overflow-hidden rounded-[22px] border border-border/70 bg-surface shadow-[0_18px_44px_-18px_rgba(15,23,20,0.16)] md:block">
@@ -459,6 +464,7 @@ export function ShiftBreakdownList({
                 <span className="pay-cell-sum">{formatCurrency(r.earned)}</span>
                 {r.hours > 0 && <span className="pay-cell-hint">{formatCurrency(r.hourly)}/ש׳</span>}
               </span>
+              {onRowClick && <Icon name="chevron_left" size={17} className="pay-cell-chevron" />}
             </>
           );
 

@@ -187,7 +187,7 @@ create table public.profiles (
   email       text,
   phone       text,
   role        public.user_role not null default 'employee',
-  hourly_rate numeric(10,2) default 0,  -- שכר שעתי (לעובד טיפים זהו מינימום/רצפה)
+  hourly_rate numeric(10,2) default 35.4,  -- שכר שעתי (לעובד טיפים זהו מינימום/רצפה)
   wage_type   text not null default 'hourly' check (wage_type in ('hourly', 'tips')), -- שעתי / טיפים
   bonus_pct   numeric(5,2) not null default 0,
   pension_active boolean not null default false, -- פנסיה פעילה / לא פעילה
@@ -209,7 +209,7 @@ begin
     coalesce((new.raw_user_meta_data->>'role')::public.user_role, 'employee'),
     (new.raw_user_meta_data->>'department_id')::uuid,
     new.raw_user_meta_data->>'phone',
-    coalesce((new.raw_user_meta_data->>'hourly_rate')::numeric, 0),
+    coalesce((new.raw_user_meta_data->>'hourly_rate')::numeric, 35.4),
     coalesce(new.raw_user_meta_data->>'wage_type', 'hourly'),
     coalesce((new.raw_user_meta_data->>'pension_active')::boolean, false)
   );

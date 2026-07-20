@@ -11,6 +11,7 @@ import { useShiftPunch } from "@/hooks/useShiftPunch";
 import { useIsMdUp } from "@/hooks/useMediaQuery";
 import { useAttendanceToday } from "@/api/attendance";
 import { ManagerAttendanceFeed } from "@/components/dashboard/ManagerAttendanceFeed";
+import { TodayEventsBanner } from "@/components/events/TodayEventsBanner";
 
 type WorkerPanel = "tasks" | "team";
 
@@ -210,6 +211,8 @@ export function WorkerHome({
 
         <WorkerClockStation time={timeStr} />
       </section>
+
+      <TodayEventsBanner />
 
       {(showTasks || showAttendance) && (
         <div className="worker-home__workspace">

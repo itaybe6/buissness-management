@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@/components/ui";
 import { AttendanceTodayFeedSection } from "@/components/attendance/AttendanceTodayFeedSection";
-import { ForceClockOutModal, type ForceClockOutTarget } from "@/components/attendance/ForceClockOutModal";
+import { ForceClockOutModal, type ForceClockOutTarget, type OpenForceClockOutOptions } from "@/components/attendance/ForceClockOutModal";
 import { useAttendanceToday } from "@/api/attendance";
 import { useDepartments } from "@/api/departments";
 import { useProfiles } from "@/api/users";
@@ -46,6 +46,17 @@ export function ManagerAttendanceFeed({
   const now = useLiveClock();
   const [filter, setFilter] = useState<AttendanceShiftFilter>("on_shift");
   const [clockOutTarget, setClockOutTarget] = useState<ForceClockOutTarget | null>(null);
+  const [clockOutEditMode, setClockOutEditMode] = useState(false);
+
+  function handleRequestClockOut(target: ForceClockOutTarget, options?: OpenForceClockOutOptions) {
+    setClockOutEditMode(options?.startInEditMode ?? false);
+    setClockOutTarget(target);
+  }
+
+  function closeClockOutModal() {
+    setClockOutTarget(null);
+    setClockOutEditMode(false);
+  }
 
   const { data: records = [] } = useAttendanceToday(businessId);
   const { data: users = [] } = useProfiles(businessId);
@@ -141,7 +152,7 @@ export function ManagerAttendanceFeed({
           showFilterBar={isMdUp && !compact}
           onFilterChange={setFilter}
           canForceClockOut={canForceClockOut}
-          onRequestClockOut={setClockOutTarget}
+          onRequestClockOut={handleRequestClockOut}
         />
       </div>
 
@@ -149,7 +160,8 @@ export function ManagerAttendanceFeed({
         open={!!clockOutTarget}
         target={clockOutTarget}
         businessId={businessId}
-        onClose={() => setClockOutTarget(null)}
+        initialEditing={clockOutEditMode}
+        onClose={closeClockOutModal}
       />
     </section>
   );

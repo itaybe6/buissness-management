@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Icon } from "@/components/ui";
 import { AttendanceFeedEmpty } from "@/components/attendance/attendance-motion";
 import { AttendanceDeptSections } from "@/components/attendance/AttendanceDeptSections";
-import type { ForceClockOutTarget } from "@/components/attendance/ForceClockOutModal";
+import type { ForceClockOutTarget, OpenForceClockOutOptions } from "@/components/attendance/ForceClockOutModal";
 import {
   filterAttendanceDepartmentSections,
   filterEmployeeAttendanceGroups,
@@ -21,7 +21,7 @@ interface AttendanceTodayFeedSectionProps {
   showFilterBar?: boolean;
   onFilterChange?: (filter: AttendanceShiftFilter) => void;
   canForceClockOut?: boolean;
-  onRequestClockOut?: (target: ForceClockOutTarget) => void;
+  onRequestClockOut?: (target: ForceClockOutTarget, options?: OpenForceClockOutOptions) => void;
 }
 
 function emptyMessage(filter: AttendanceShiftFilter): string {

@@ -1,15 +1,16 @@
 import { type KeyboardEvent } from "react";
+import { Icon } from "@/components/ui";
 import { formatPunchTime } from "@/lib/attendanceFeed";
 import { initialsOf, colorFor } from "@/lib/db";
 import type { AttendanceDepartmentSection } from "@/lib/attendanceFeed";
-import type { ForceClockOutTarget } from "@/components/attendance/ForceClockOutModal";
+import type { ForceClockOutTarget, OpenForceClockOutOptions } from "@/components/attendance/ForceClockOutModal";
 
 interface AttendanceDeptSectionsProps {
   sections: AttendanceDepartmentSection[];
   userById: Map<string, { name: string | null; role: string; departmentId?: string | null }>;
   variant?: "mobile" | "desktop";
   canForceClockOut?: boolean;
-  onRequestClockOut?: (target: ForceClockOutTarget) => void;
+  onRequestClockOut?: (target: ForceClockOutTarget, options?: OpenForceClockOutOptions) => void;
 }
 
 function AttendanceEmployeeRow({
@@ -24,34 +25,52 @@ function AttendanceEmployeeRow({
   employeeName: string;
   rowClass: string;
   canForceClockOut: boolean;
-  onRequestClockOut?: (target: ForceClockOutTarget) => void;
+  onRequestClockOut?: (target: ForceClockOutTarget, options?: OpenForceClockOutOptions) => void;
   index?: number;
 }) {
   const rowInteractive = Boolean(canForceClockOut && onRequestClockOut);
   const rowStyle = { ["--row-i" as string]: index } as React.CSSProperties;
 
-  function openManage() {
+  function openManage(startInEditMode = false) {
     if (!onRequestClockOut) return;
     const activeSession =
       group.sessions.find((s) => !s.clockOut) ?? group.sessions[group.sessions.length - 1];
     if (!activeSession) return;
-    onRequestClockOut({
-      attendanceId: activeSession.id,
-      employeeName,
-      clockIn: activeSession.clockIn,
-      clockOut: activeSession.clockOut,
-      avatarColor: colorFor(group.employeeId),
-    });
+    onRequestClockOut(
+      {
+        attendanceId: activeSession.id,
+        employeeName,
+        clockIn: activeSession.clockIn,
+        clockOut: activeSession.clockOut,
+        avatarColor: colorFor(group.employeeId),
+      },
+      { startInEditMode: startInEditMode || !group.onShift },
+    );
   }
 
   function onKeyDown(e: KeyboardEvent) {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      openManage();
+      openManage(false);
     }
   }
 
-  const content = (
+  const badge = (
+    <div className="attendance-row-badge" data-open={group.onShift}>
+      {group.onShift ? (
+        <>
+          <span className="attendance-row-live" aria-hidden />
+          {rowInteractive ? "הוצאה" : "במשמרת"}
+        </>
+      ) : rowInteractive ? (
+        "עריכה"
+      ) : (
+        "יצא/ה"
+      )}
+    </div>
+  );
+
+  const mainContent = (
     <>
       <span className="attendance-row-avatar" style={{ background: colorFor(group.employeeId) }}>
         {initialsOf(employeeName)}
@@ -68,20 +87,36 @@ function AttendanceEmployeeRow({
           ))}
         </div>
       </div>
-      <div className="attendance-row-badge" data-open={group.onShift}>
-        {group.onShift ? (
-          <>
-            <span className="attendance-row-live" aria-hidden />
-            {rowInteractive ? "הוצאה" : "במשמרת"}
-          </>
-        ) : rowInteractive ? (
-          "עריכה"
-        ) : (
-          "יצא/ה"
-        )}
-      </div>
+      {badge}
     </>
   );
+
+  if (rowInteractive && group.onShift) {
+    return (
+      <div
+        className={`${rowClass} attendance-row--action attendance-row--split`}
+        data-open={group.onShift}
+        style={rowStyle}
+      >
+        <button
+          type="button"
+          className="attendance-row-hit"
+          onClick={() => openManage(false)}
+          aria-label={`הוצא את ${employeeName} ממשמרת`}
+        >
+          {mainContent}
+        </button>
+        <button
+          type="button"
+          className="attendance-row-edit"
+          aria-label={`ערוך נוכחות של ${employeeName}`}
+          onClick={() => openManage(true)}
+        >
+          <Icon name="edit" size={17} />
+        </button>
+      </div>
+    );
+  }
 
   if (rowInteractive) {
     return (
@@ -90,20 +125,18 @@ function AttendanceEmployeeRow({
         className={`${rowClass} attendance-row--action`}
         data-open={group.onShift}
         style={rowStyle}
-        onClick={openManage}
+        onClick={() => openManage(false)}
         onKeyDown={onKeyDown}
-        aria-label={
-          group.onShift ? `הוצא את ${employeeName} ממשמרת` : `ערוך נוכחות של ${employeeName}`
-        }
+        aria-label={`ערוך נוכחות של ${employeeName}`}
       >
-        {content}
+        {mainContent}
       </button>
     );
   }
 
   return (
     <article className={rowClass} data-open={group.onShift} style={rowStyle}>
-      {content}
+      {mainContent}
     </article>
   );
 }

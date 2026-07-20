@@ -212,8 +212,6 @@ export function MobileSideDrawer({
 
                   </div>
 
-                  <div className="text-[11.5px] text-[#8b919c]">ניהול עסקים</div>
-
                 </div>
 
               </div>

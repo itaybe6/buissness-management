@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import { getHomePath } from "@/lib/constants";
 import { GlobalLoadingBar, PageLoader } from "@/components/ui";
@@ -16,7 +16,7 @@ import { PlatformUsers } from "@/pages/superadmin/PlatformUsers";
 import { Users } from "@/pages/Users";
 import { Settings } from "@/pages/Settings";
 import { Shifts } from "@/pages/Shifts";
-import { ShiftReports } from "@/pages/ShiftReports";
+import { ShiftReports, ShiftReportEditorPage } from "@/pages/ShiftReports";
 import { Faults } from "@/pages/Faults";
 import { Tasks } from "@/pages/Tasks";
 import { Attendance } from "@/pages/Attendance";
@@ -69,7 +69,18 @@ export function App() {
           <Route path="platform-users" element={<SuperAdminRoute><PlatformUsers /></SuperAdminRoute>} />
           <Route path="users" element={<Users />} />
           <Route path="shifts" element={<FeatureGate feature="shifts"><Shifts /></FeatureGate>} />
-          <Route path="shift-reports" element={<FeatureGate feature="shift_reports"><ShiftReports /></FeatureGate>} />
+          <Route
+            path="shift-reports"
+            element={
+              <FeatureGate feature="shift_reports">
+                <Outlet />
+              </FeatureGate>
+            }
+          >
+            <Route index element={<ShiftReports />} />
+            <Route path="new" element={<ShiftReportEditorPage />} />
+            <Route path=":reportId/edit" element={<ShiftReportEditorPage />} />
+          </Route>
           <Route path="tasks" element={<FeatureGate feature="tasks"><Tasks /></FeatureGate>} />
           <Route path="attendance" element={<FeatureGate feature="attendance"><Attendance /></FeatureGate>} />
           <Route path="my-shifts" element={<MyShifts />} />

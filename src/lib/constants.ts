@@ -28,15 +28,14 @@ export const WAGE_TYPE_LABELS: Record<WageType, string> = {
   tips: "טיפים",
 };
 
+/** Default hourly wage (₪) for new employees when none is specified. */
+export const DEFAULT_HOURLY_RATE = 35.4;
+
 /** Roles that may create and manage business users. */
 export const USER_MANAGE_ROLES: UserRole[] = ["manager", "office_manager"];
 
 /** Roles that may receive a register-percentage bonus (profiles.bonus_pct). */
-export const BONUS_ELIGIBLE_ROLES: UserRole[] = [
-  "employee",
-  "shift_manager",
-  "maintenance",
-];
+export const BONUS_ELIGIBLE_ROLES: UserRole[] = ["manager", "shift_manager"];
 
 export const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
   super_admin: "ניהול כל הפלטפורמה",

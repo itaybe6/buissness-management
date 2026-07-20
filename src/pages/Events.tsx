@@ -73,21 +73,15 @@ export function Events() {
 
   return (
     <div className="w-full page-enter">
-      <header className="evt-header">
-        <div className="min-w-0">
-          <p className="evt-kicker">
-            <Icon name="nightlife" size={15} />
-            הלו״ז של הבר
-          </p>
-          <h1 className="evt-title">אירועים</h1>
-        </div>
-        {canManage && (
+      {canManage && (
+        <header className="evt-header">
+          <div className="min-w-0 flex-1" aria-hidden />
           <button type="button" className="evt-add" onClick={() => setOpen(true)}>
             <Icon name="add" size={22} />
             <span className="evt-add-label">אירוע חדש</span>
           </button>
-        )}
-      </header>
+        </header>
+      )}
 
       {hasEvents && (
         <div className="evt-stats">

@@ -3,7 +3,7 @@ import { useCountdown } from "./eventTime";
 /**
  * Live countdown to the event day (ticks every second).
  * Pure structure — sizing/colors come from the parent context
- * (.evt-feature / .evtd-ticket) in the events CSS layer.
+ * (.evt-feature / .evtd-countdown) in the events CSS layer.
  */
 export function EventCountdown({ dateStr }: { dateStr: string }) {
   const cd = useCountdown(dateStr);

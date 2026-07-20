@@ -1,4 +1,4 @@
-# אביחי — מערכת ניהול עסקים (Multi-Tenant SaaS)
+# AMI — מערכת ניהול עסקים (Multi-Tenant SaaS)
 
 פלטפורמה אחת בעברית מלאה (RTL) לניהול מסעדות, ברים ועסקי שירות. כל עסק רואה ועובד רק על הנתונים שלו (Multi-Tenant עם Supabase RLS), והתפריט נבנה דינמית לפי התפקיד ולפי המודולים שהופעלו לעסק.
 
@@ -56,7 +56,7 @@ supabase secrets set SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
 supabase functions deploy send-form101-email
 supabase secrets set RESEND_API_KEY=re_xxxxxxxx
 # אופציונלי — כתובת שולח (ברירת מחדל: onboarding@resend.dev לבדיקות)
-supabase secrets set FORM101_EMAIL_FROM="אביחי <onboarding@resend.dev>"
+supabase secrets set FORM101_EMAIL_FROM="AMI <onboarding@resend.dev>"
 ```
 
 כשעובד **חותם** על טופס 101 (PDF שהועלה אליו), נשלח מייל אוטומטי למנהלת המשרד (`office_manager`) עם קישור לטופס החתום. אם אין מנהלת משרד עם אימייל — נשלח למנהל העסק.

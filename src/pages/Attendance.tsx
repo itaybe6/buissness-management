@@ -30,7 +30,7 @@ import { useAttendanceToday, useClockIn, useClockOut } from "@/api/attendance";
 import { useActiveShiftTemplates, useShiftAssignments } from "@/api/shifts";
 import { AttendanceMobileView } from "@/components/attendance/AttendanceMobileView";
 import { AttendanceTodayFeedSection } from "@/components/attendance/AttendanceTodayFeedSection";
-import { ForceClockOutModal, type ForceClockOutTarget } from "@/components/attendance/ForceClockOutModal";
+import { ForceClockOutModal, type ForceClockOutTarget, type OpenForceClockOutOptions } from "@/components/attendance/ForceClockOutModal";
 
 function distanceM(lat1: number, lng1: number, lat2: number, lng2: number) {
   const R = 6371000;
@@ -80,7 +80,18 @@ export function Attendance() {
   const [exitWarn, setExitWarn] = useState(false);
   const [feedFilter, setFeedFilter] = useState<AttendanceShiftFilter>("all");
   const [clockOutTarget, setClockOutTarget] = useState<ForceClockOutTarget | null>(null);
+  const [clockOutEditMode, setClockOutEditMode] = useState(false);
   const now = useLiveClock();
+
+  function handleRequestClockOut(target: ForceClockOutTarget, options?: OpenForceClockOutOptions) {
+    setClockOutEditMode(options?.startInEditMode ?? false);
+    setClockOutTarget(target);
+  }
+
+  function closeClockOutModal() {
+    setClockOutTarget(null);
+    setClockOutEditMode(false);
+  }
 
   const canForceClockOut = canForceEmployeeClockOut(profile?.role);
 
@@ -253,7 +264,7 @@ export function Attendance() {
           userById={userById}
           onPunch={handleClock}
           canForceClockOut={canForceClockOut}
-          onRequestClockOut={setClockOutTarget}
+          onRequestClockOut={handleRequestClockOut}
         />
       </div>
 
@@ -342,7 +353,7 @@ export function Attendance() {
               showFilterBar
               onFilterChange={setFeedFilter}
               canForceClockOut={canForceClockOut}
-              onRequestClockOut={setClockOutTarget}
+              onRequestClockOut={handleRequestClockOut}
             />
           </AttendancePanel>
         </div>
@@ -393,7 +404,8 @@ export function Attendance() {
         open={!!clockOutTarget}
         target={clockOutTarget}
         businessId={businessId}
-        onClose={() => setClockOutTarget(null)}
+        initialEditing={clockOutEditMode}
+        onClose={closeClockOutModal}
       />
     </div>
   );

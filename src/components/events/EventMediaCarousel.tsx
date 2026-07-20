@@ -2,23 +2,61 @@ import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/ui";
 import { isVideoUrl } from "@/lib/media";
 
-function MediaItem({ url, alt }: { url: string; alt?: string }) {
-  if (isVideoUrl(url)) {
+/**
+ * Hero carousel for the event detail poster.
+ * Touch-first: swipe to move, dots to jump. Arrows appear only from md up,
+ * where there is no swipe affordance. Styling lives in the .evtd-car-* layer.
+ */
+function Slide({ url, active, index, total }: { url: string; active: boolean; index: number; total: number }) {
+  const [failed, setFailed] = useState(false);
+
+  if (failed) {
     return (
-      <a href={url} target="_blank" rel="noreferrer" className="relative block h-full w-full bg-black">
-        <video src={url} className="h-full w-full object-cover" muted playsInline preload="metadata" />
-        <span className="absolute inset-0 grid place-items-center bg-black/35 text-white">
-          <Icon name="play_circle" size={44} />
-        </span>
-      </a>
+      <span className="evtd-car-fallback" aria-hidden>
+        <Icon name="image_not_supported" size={34} />
+      </span>
     );
   }
-  return <img src={url} alt={alt ?? "מדיה"} className="h-full w-full object-cover" />;
+
+  if (isVideoUrl(url)) {
+    return (
+      <>
+        <video
+          src={url}
+          className="evtd-car-media"
+          muted
+          playsInline
+          preload="metadata"
+          onError={() => setFailed(true)}
+        />
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          className="evtd-car-play"
+          aria-label="הפעלת הסרטון"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Icon name="play_arrow" size={30} />
+        </a>
+      </>
+    );
+  }
+
+  return (
+    <img
+      src={url}
+      alt={total > 1 ? `תמונה ${index + 1} מתוך ${total}` : "תמונת האירוע"}
+      className="evtd-car-media"
+      loading={active ? "eager" : "lazy"}
+      onError={() => setFailed(true)}
+    />
+  );
 }
 
-export function EventMediaCarousel({ urls, tall }: { urls: string[]; tall?: boolean }) {
+export function EventMediaCarousel({ urls }: { urls: string[] }) {
   const [index, setIndex] = useState(0);
-  const touchStart = useRef<number | null>(null);
+  const start = useRef<{ x: number; y: number } | null>(null);
   const count = urls.length;
 
   useEffect(() => {
@@ -30,61 +68,52 @@ export function EventMediaCarousel({ urls, tall }: { urls: string[]; tall?: bool
   }
 
   function onTouchStart(e: React.TouchEvent) {
-    touchStart.current = e.touches[0].clientX;
+    start.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
   }
 
   function onTouchEnd(e: React.TouchEvent) {
-    if (touchStart.current === null) return;
-    const delta = e.changedTouches[0].clientX - touchStart.current;
-    if (Math.abs(delta) > 40) go(delta < 0 ? 1 : -1);
-    touchStart.current = null;
+    if (!start.current) return;
+    const dx = e.changedTouches[0].clientX - start.current.x;
+    const dy = e.changedTouches[0].clientY - start.current.y;
+    // Ignore mostly-vertical gestures so page scrolling still feels natural.
+    if (Math.abs(dx) > 44 && Math.abs(dx) > Math.abs(dy)) go(dx < 0 ? 1 : -1);
+    start.current = null;
   }
 
   if (count === 0) return null;
 
   return (
     <div
-      className={`fault-media group relative w-full overflow-hidden bg-surface-2 ${tall ? "fault-media--tall" : "h-36"}`}
+      className="evtd-car"
       onTouchStart={count > 1 ? onTouchStart : undefined}
       onTouchEnd={count > 1 ? onTouchEnd : undefined}
     >
-      <div key={index} className="absolute inset-0 animate-fadeIn">
-        <MediaItem url={urls[index]} />
-      </div>
+      {urls.map((url, i) => (
+        <div key={url} className="evtd-car-slide" data-active={i === index || undefined} aria-hidden={i !== index}>
+          <Slide url={url} active={i === index} index={i} total={count} />
+        </div>
+      ))}
 
       {count > 1 && (
         <>
-          <span className="fault-media-scrim" aria-hidden />
-          <span className="fault-media-count">
-            {index + 1}/{count}
-          </span>
-
-          <button
-            type="button"
-            onClick={() => go(-1)}
-            className="fault-media-nav fault-media-nav--prev"
-            aria-label="תמונה קודמת"
-          >
-            <Icon name="chevron_right" size={22} />
+          <button type="button" onClick={() => go(-1)} className="evtd-car-nav evtd-car-nav--prev" aria-label="תמונה קודמת">
+            <Icon name="chevron_right" size={20} />
           </button>
-          <button
-            type="button"
-            onClick={() => go(1)}
-            className="fault-media-nav fault-media-nav--next"
-            aria-label="תמונה הבאה"
-          >
-            <Icon name="chevron_left" size={22} />
+          <button type="button" onClick={() => go(1)} className="evtd-car-nav evtd-car-nav--next" aria-label="תמונה הבאה">
+            <Icon name="chevron_left" size={20} />
           </button>
 
-          <div className="fault-media-dots">
+          <div className="evtd-car-dots" role="tablist" aria-label="מדיה של האירוע">
             {urls.map((url, i) => (
               <button
                 key={url}
                 type="button"
+                role="tab"
                 onClick={() => setIndex(i)}
                 aria-label={`תמונה ${i + 1}`}
-                aria-current={i === index}
-                className={`fault-media-dot ${i === index ? "fault-media-dot--active" : ""}`}
+                aria-selected={i === index}
+                className="evtd-car-dot"
+                data-active={i === index || undefined}
               />
             ))}
           </div>
