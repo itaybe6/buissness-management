@@ -67,6 +67,7 @@ create type public.availability as enum ('prefer', 'available', 'cannot');
 
 -- סטטוס תקלה
 create type public.fault_status as enum ('needs_handling', 'in_progress', 'handled');
+create type public.fault_pay_approval as enum ('pending', 'approved');
 
 -- סוג הסכם
 create type public.agreement_type as enum ('work', 'sexual_harassment', 'other', 'form_101');
@@ -237,8 +238,14 @@ create table public.agreement_templates (
   is_editable boolean not null default true,
   created_by  uuid references public.profiles(id),
   created_at  timestamptz not null default now(),
-  updated_at  timestamptz not null default now()
+  updated_at  timestamptz not null default now(),
+  constraint agreement_templates_form101_global_only
+    check (type <> 'form_101'::public.agreement_type or employee_id is null)
 );
+
+create unique index agreement_templates_one_form101_per_business
+  on public.agreement_templates (business_id)
+  where type = 'form_101' and employee_id is null;
 
 create table public.agreement_signatures (
   id            uuid primary key default gen_random_uuid(),
@@ -538,6 +545,12 @@ create table public.faults (
   assigned_to uuid references public.profiles(id),   -- איש אחזקה
   status_updated_by uuid references public.profiles(id) on delete set null,
   status_updated_at timestamptz,
+  work_price numeric(10,2),
+  pay_employee_id uuid references public.profiles(id) on delete set null,
+  pay_approval_status public.fault_pay_approval,
+  pay_submitted_at timestamptz,
+  pay_approved_by uuid references public.profiles(id) on delete set null,
+  pay_approved_at timestamptz,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );

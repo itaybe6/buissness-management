@@ -28,6 +28,8 @@ export interface PayrollRow {
   topup: number;
   /** Kupah-percentage bonus total. */
   bonus: number;
+  /** Approved maintenance work on faults (per-job pay). */
+  faultPay: number;
   /** Grand total paid to the employee. */
   total: number;
 }
@@ -68,9 +70,11 @@ export function computeEmployeePayroll(input: {
   tips: PayrollTip[];
   bonusSum: number;
   attendanceHours: number;
+  faultPaySum?: number;
 }): PayrollRow {
   const rate = Number(input.rate) || 0;
   const bonus = Number(input.bonusSum) || 0;
+  const faultPay = Number(input.faultPaySum) || 0;
 
   if (input.wageType === "tips") {
     const hours = input.tips.reduce((s, t) => s + (Number(t.hours) || 0), 0);
@@ -88,7 +92,8 @@ export function computeEmployeePayroll(input: {
       tips: tipSum,
       topup,
       bonus,
-      total: guaranteed + bonus,
+      faultPay,
+      total: guaranteed + bonus + faultPay,
     };
   }
 
@@ -102,6 +107,7 @@ export function computeEmployeePayroll(input: {
     tips: 0,
     topup: 0,
     bonus,
-    total: base + bonus,
+    faultPay,
+    total: base + bonus + faultPay,
   };
 }

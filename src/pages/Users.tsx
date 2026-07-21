@@ -264,12 +264,13 @@ export function Users() {
                     <span className="self-center text-text-2">{deptName(u.department_id)}</span>
                     <span className="self-center text-text-2">{wageSummary(u)}</span>
                     <span
-                      className="break-all text-[12.5px] leading-snug text-text-2"
-                      style={{ direction: "ltr", textAlign: "left", unicodeBidi: "plaintext" }}
+                      className="min-w-0 self-center truncate text-[12.5px] text-text-2"
+                      style={{ direction: "ltr", textAlign: "right" }}
+                      title={u.email ?? undefined}
                     >
                       {u.email ?? "—"}
                     </span>
-                    <span className="self-center whitespace-nowrap text-text-2" style={{ direction: "ltr", textAlign: "left" }}>{u.phone ?? "—"}</span>
+                    <span className="self-center whitespace-nowrap text-text-2" style={{ direction: "ltr", textAlign: "right" }}>{u.phone ?? "—"}</span>
                     <span className="self-center">{u.active ? <Badge tone="success">פעיל</Badge> : <Badge tone="neutral">מושבת</Badge>}</span>
                     <span className="flex items-center justify-end gap-0.5 self-center">
                       <button

@@ -1,18 +1,40 @@
 import { useMemo, useState, type CSSProperties } from "react";
 import { Badge, Card, EmptyState, Icon } from "@/components/ui";
-import { isSigned, signatureOf } from "@/api/agreements";
+import { form101Template, globalForm101Template, isSigned, signatureOf } from "@/api/agreements";
 import { colorFor, initialsOf } from "@/lib/db";
 import type { AgreementSignature, AgreementTemplate, Profile } from "@/types/database";
 import { ReadSignModal } from "./AgreementModals";
-import { TAX_YEAR } from "./types";
+import { FORM_101_BLANK_URL, TAX_YEAR } from "./types";
 
-function StatusIcon({ done, optional }: { done: boolean; optional?: boolean }) {
+function StatusIcon({
+  done,
+  optional,
+  onViewSigned,
+}: {
+  done: boolean;
+  optional?: boolean;
+  /** When set and the document is signed, the checkmark opens the signed document. */
+  onViewSigned?: () => void;
+}) {
   if (optional && !done) return <span className="text-[12px] text-text-3">—</span>;
-  return (
+  const badge = (
     <span className={`inline-grid h-7 w-7 place-items-center rounded-full ${done ? "bg-success/15 text-success" : "bg-danger/15 text-danger"}`}>
       <Icon name={done ? "check" : "close"} size={18} />
     </span>
   );
+  if (done && onViewSigned) {
+    return (
+      <button
+        type="button"
+        className="inline-flex rounded-full transition-opacity hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        aria-label="צפייה במסמך החתום"
+        onClick={onViewSigned}
+      >
+        {badge}
+      </button>
+    );
+  }
+  return badge;
 }
 
 type DocStatus = { label: string; done: boolean; optional: boolean; template?: AgreementTemplate };
@@ -36,7 +58,7 @@ export function DocumentStatusTable({
   const [expanded, setExpanded] = useState<string | null>(null);
 
   function form101Status(empId: string): { done: boolean; optional: boolean } {
-    const template = agreements.find((a) => a.type === "form_101" && a.employee_id === empId);
+    const template = form101Template(agreements);
     if (!template) return { done: false, optional: true };
     return { done: isSigned(signatures, template.id, empId), optional: false };
   }
@@ -50,12 +72,12 @@ export function DocumentStatusTable({
 
   function docsOf(empId: string): DocStatus[] {
     const form101 = form101Status(empId);
-    const form101Template = agreements.find((a) => a.type === "form_101" && a.employee_id === empId);
+    const form101Tpl = form101Template(agreements);
     const personalWork = agreements.find((a) => a.type === "work" && a.employee_id === empId);
     const workTemplate = personalWork ?? globalWork;
     const workOptional = !globalWork && !personalWork;
     return [
-      { label: `טופס 101 (${taxYear})`, done: form101.done, optional: form101.optional, template: form101Template },
+      { label: `טופס 101 (${taxYear})`, done: form101.done, optional: form101.optional, template: form101Tpl },
       { label: "הסכם עבודה", done: workStatus(empId), optional: workOptional, template: workTemplate },
       ...globalFixed.map((a) => ({
         label: a.title,
@@ -170,22 +192,36 @@ export function DocumentStatusTable({
             </thead>
             <tbody>
               {staff.map((emp) => {
-                const form101 = form101Status(emp.id);
+                const docs = docsOf(emp.id);
+                const form101Doc = docs[0];
+                const workDoc = docs[1];
+                const fixedDocs = docs.slice(2);
+                const openSigned = (template: AgreementTemplate | undefined) =>
+                  template ? () => setViewing({ agreement: template, employeeId: emp.id }) : undefined;
                 return (
                   <tr key={emp.id} className="border-b border-border last:border-0">
                     <td className="px-4 py-3 font-semibold">{emp.full_name ?? "—"}</td>
                     <td className="px-4 py-3 text-center">
-                      <StatusIcon done={form101.done} optional={form101.optional} />
+                      <StatusIcon
+                        done={form101Doc.done}
+                        optional={form101Doc.optional}
+                        onViewSigned={form101Doc.done ? openSigned(form101Doc.template) : undefined}
+                      />
                     </td>
                     <td className="px-4 py-3 text-center">
                       <StatusIcon
-                        done={workStatus(emp.id)}
-                        optional={!globalWork && !agreements.some((a) => a.type === "work" && a.employee_id === emp.id)}
+                        done={workDoc.done}
+                        optional={workDoc.optional}
+                        onViewSigned={workDoc.done ? openSigned(workDoc.template) : undefined}
                       />
                     </td>
-                    {globalFixed.map((a) => (
-                      <td key={a.id} className="px-4 py-3 text-center">
-                        <StatusIcon done={isSigned(signatures, a.id, emp.id)} />
+                    {fixedDocs.map((d) => (
+                      <td key={d.label} className="px-4 py-3 text-center">
+                        <StatusIcon
+                          done={d.done}
+                          optional={d.optional}
+                          onViewSigned={d.done ? openSigned(d.template) : undefined}
+                        />
                       </td>
                     ))}
                   </tr>
@@ -219,32 +255,27 @@ export function Form101OverviewTable({
   signatures: AgreementSignature[];
   taxYear?: number;
 }) {
-  const formMap = useMemo(() => {
-    const map = new Map<string, AgreementTemplate>();
-    for (const a of agreements) {
-      if (a.type === "form_101" && a.employee_id) map.set(a.employee_id, a);
-    }
-    return map;
-  }, [agreements]);
+  const globalTemplate = useMemo(() => globalForm101Template(agreements), [agreements]);
 
-  const note = `שנת מס ${taxYear} · העלו טופס 101 ייחודי לכל עובד תחת «הסכמים»`;
+  const note = `שנת מס ${taxYear} · העובדים מורידים את הטופס, ממלאים וחותמים ידנית, ומעלים סריקה`;
 
   function rowOf(empId: string) {
-    const template = formMap.get(empId);
+    const template = globalTemplate;
     const sig = template ? signatureOf(signatures, template.id, empId) : undefined;
     const done = !!sig?.agreed;
+    const blankUrl = template?.file_url ?? FORM_101_BLANK_URL;
     const link = done && sig?.signed_file_url
-      ? { href: sig.signed_file_url, icon: "visibility", label: "צפייה ב-PDF" }
-      : template?.file_url && !done
-        ? { href: template.file_url, icon: "description", label: "טיוטה" }
+      ? { href: sig.signed_file_url, icon: "visibility" as const, label: "צפייה ב-PDF" }
+      : template
+        ? { href: blankUrl, icon: "download" as const, label: "הורדת טופס ריק" }
         : null;
     return { template, done, link };
   }
 
   function statusBadge(template: AgreementTemplate | undefined, done: boolean) {
-    if (!template) return <Badge tone="neutral">לא הועלה</Badge>;
-    if (done) return <Badge tone="success">נחתם</Badge>;
-    return <Badge tone="warning">ממתין לחתימה</Badge>;
+    if (!template) return <Badge tone="neutral">לא הוגדר</Badge>;
+    if (done) return <Badge tone="success">הועלה</Badge>;
+    return <Badge tone="warning">ממתין להעלאה</Badge>;
   }
 
   return (

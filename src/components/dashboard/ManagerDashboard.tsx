@@ -174,6 +174,29 @@ export function ManagerDashboard() {
     wasteLoading ||
     attendanceLoading;
 
+  const upTo = now.getDate();
+  const dailyRevenue = useMemo(() => {
+    const arr = Array.from({ length: upTo }, () => 0);
+    reports.forEach((r) => {
+      const d = new Date(r.report_date + "T00:00:00").getDate();
+      if (d >= 1 && d <= upTo) arr[d - 1] += Number(r.total_sales) || 0;
+    });
+    return arr;
+  }, [reports, upTo]);
+  const weekdayBars = useMemo(() => {
+    const sum = Array(7).fill(0);
+    const cnt = Array(7).fill(0);
+    reports.forEach((r) => {
+      const day = new Date(r.report_date + "T00:00:00").getDay();
+      sum[day] += Number(r.total_sales) || 0;
+      cnt[day] += 1;
+    });
+    const avg = sum.map((s, i) => (cnt[i] ? s / cnt[i] : 0));
+    const max = Math.max(...avg);
+    return avg.map((v, i) => ({ label: WD_LETTERS[i], value: v, highlight: v > 0 && v === max }));
+  }, [reports]);
+  const profilesById = useMemo(() => new Map(profiles.map((p) => [p.id, p])), [profiles]);
+
   if (pageLoading) {
     return (
       <div className="w-full">
@@ -191,38 +214,11 @@ export function ManagerDashboard() {
   const deliveryShare = revenue > 0 ? deliverySales / revenue : 0;
   const avgPerShift = reports.length > 0 ? revenue / reports.length : 0;
 
-  // daily series (month-to-date)
-  const sameMonthAsNow = true;
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const upTo = sameMonthAsNow ? now.getDate() : daysInMonth;
-  const dailyRevenue = useMemo(() => {
-    const arr = Array.from({ length: upTo }, () => 0);
-    reports.forEach((r) => {
-      const d = new Date(r.report_date + "T00:00:00").getDate();
-      if (d >= 1 && d <= upTo) arr[d - 1] += Number(r.total_sales) || 0;
-    });
-    return arr;
-  }, [reports, upTo]);
-  // sales by weekday (average)
-  const weekdayBars = useMemo(() => {
-    const sum = Array(7).fill(0);
-    const cnt = Array(7).fill(0);
-    reports.forEach((r) => {
-      const day = new Date(r.report_date + "T00:00:00").getDay();
-      sum[day] += Number(r.total_sales) || 0;
-      cnt[day] += 1;
-    });
-    const avg = sum.map((s, i) => (cnt[i] ? s / cnt[i] : 0));
-    const max = Math.max(...avg);
-    return avg.map((v, i) => ({ label: WD_LETTERS[i], value: v, highlight: v > 0 && v === max }));
-  }, [reports]);
-
   // team energy
   const energyVals = reports.map((r) => r.energy_level).filter((e): e is number => e != null && e > 0);
   const avgEnergy = energyVals.length ? energyVals.reduce((s, e) => s + e, 0) / energyVals.length : 0;
 
   /* ---------- people ---------- */
-  const profilesById = useMemo(() => new Map(profiles.map((p) => [p.id, p])), [profiles]);
   const activeEmployees = profiles.filter((p) => p.active && p.role !== "super_admin").length;
   const onShift = attendance.filter((a) => a.clock_in && !a.clock_out);
   const onShiftPeople = onShift.map((a) => profilesById.get(a.employee_id)).filter(Boolean);

@@ -13,6 +13,8 @@ export type Availability = "prefer" | "available" | "cannot";
 /** How an employee's pay is computed. hourly = hours×rate; tips = tip pool, floored at their hourly_rate. */
 export type WageType = "hourly" | "tips";
 export type FaultStatus = "needs_handling" | "in_progress" | "handled";
+/** Manager approval for maintenance work price on a fault. null = not submitted yet. */
+export type FaultPayApproval = "pending" | "approved";
 export type AgreementType = "work" | "sexual_harassment" | "other" | "form_101";
 export type TaskType = "one_time" | "recurring";
 export type TaskStatus = "open" | "in_progress" | "done";
@@ -429,6 +431,12 @@ export interface Fault {
   assigned_to: string | null;
   status_updated_by: string | null;
   status_updated_at: string | null;
+  work_price: number | null;
+  pay_employee_id: string | null;
+  pay_approval_status: FaultPayApproval | null;
+  pay_submitted_at: string | null;
+  pay_approved_by: string | null;
+  pay_approved_at: string | null;
   created_at: string;
   updated_at: string;
   /** Populated when faults are loaded with profile joins. */

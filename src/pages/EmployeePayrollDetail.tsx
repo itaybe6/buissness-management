@@ -15,7 +15,8 @@ import { WAGE_TYPE_LABELS } from "@/lib/constants";
 import { useBusinessId, formatCurrency } from "@/lib/db";
 import { buildEmployeeShiftRows, fmtHours, monthNow, sumShiftRowTotals } from "@/lib/payrollShiftRows";
 import { useEmployeeAttendanceMonth } from "@/api/attendance";
-import { useEmployeeTips, useEmployeeBonuses } from "@/api/payroll";
+import { useEmployeeTips, useEmployeeBonuses, useEmployeeFaultPays } from "@/api/payroll";
+import { buildFaultPayRows } from "@/lib/faultPayrollRows";
 import { useShiftTemplates } from "@/api/shifts";
 import { useProfiles } from "@/api/users";
 
@@ -43,33 +44,39 @@ export function EmployeePayrollDetail() {
   const attendanceQ = useEmployeeAttendanceMonth(businessId, !isTips ? employeeId : null, month);
   const tipsQ = useEmployeeTips(businessId, isTips ? employeeId : null, month);
   const bonusesQ = useEmployeeBonuses(businessId, employeeId, month);
+  const faultPaysQ = useEmployeeFaultPays(businessId, employeeId, month);
   const { data: templates } = useShiftTemplates(businessId);
 
   const activeQ = isTips ? tipsQ : attendanceQ;
-  const isLoading = usersLoading || activeQ.isLoading || bonusesQ.isLoading;
-  const isError = usersError || activeQ.isError || bonusesQ.isError;
+  const isLoading = usersLoading || activeQ.isLoading || bonusesQ.isLoading || faultPaysQ.isLoading;
+  const isError = usersError || activeQ.isError || bonusesQ.isError || faultPaysQ.isError;
   const refetch = () => {
     refetchUsers();
     activeQ.refetch();
     bonusesQ.refetch();
+    faultPaysQ.refetch();
   };
 
-  const rows = useMemo(
-    () =>
-      employee
-        ? buildEmployeeShiftRows({
-            isTips,
-            rate,
-            attendance: attendanceQ.data ?? [],
-            tips: tipsQ.data ?? [],
-            bonuses: bonusesQ.data ?? [],
-            templates: templates ?? [],
-          })
-        : [],
-    [employee, isTips, rate, attendanceQ.data, tipsQ.data, bonusesQ.data, templates],
-  );
+  const rows = useMemo(() => {
+    if (!employee) return [];
+    const shiftRows = buildEmployeeShiftRows({
+      isTips,
+      rate,
+      attendance: attendanceQ.data ?? [],
+      tips: tipsQ.data ?? [],
+      bonuses: bonusesQ.data ?? [],
+      templates: templates ?? [],
+    });
+    const faultRows = buildFaultPayRows(faultPaysQ.data ?? []);
+    return [...shiftRows, ...faultRows].sort((a, b) => b.date.getTime() - a.date.getTime());
+  }, [employee, isTips, rate, attendanceQ.data, tipsQ.data, bonusesQ.data, faultPaysQ.data, templates]);
 
   const totals = useMemo(() => sumShiftRowTotals(rows), [rows]);
+
+  const faultPayTotal = useMemo(
+    () => (faultPaysQ.data ?? []).reduce((s, f) => s + (Number(f.work_price) || 0), 0),
+    [faultPaysQ.data],
+  );
 
   /** Where the money came from — drives the composition bar in the hero. */
   const segments = useMemo(() => {
@@ -80,11 +87,12 @@ export function EmployeePayrollDetail() {
           { key: "bonus", label: "תוספת קופה", value: totals.bonus },
         ]
       : [
-          { key: "base", label: "שכר שעתי", value: totals.earned - totals.bonus },
+          { key: "base", label: "שכר שעתי", value: totals.earned - totals.bonus - faultPayTotal },
+          { key: "fault", label: "עבודות תחזוקה", value: faultPayTotal },
           { key: "bonus", label: "תוספת קופה", value: totals.bonus },
         ];
     return list.filter((s) => s.value > 0.5);
-  }, [isTips, totals]);
+  }, [isTips, totals, faultPayTotal]);
 
   const segTotal = segments.reduce((s, x) => s + x.value, 0);
 
@@ -103,8 +111,16 @@ export function EmployeePayrollDetail() {
   ].filter(Boolean) as string[];
 
   const wageSummary = [WAGE_TYPE_LABELS[wageType], ...wageFacts].join(" · ");
-  const heroSub = wageFacts.length > 0 ? wageFacts.join(" · ") : "לא הוגדר תעריף";
-  const missingRate = !isTips && rate <= 0 && !!isPayrollManager;
+  const heroSub =
+    employee.role === "maintenance" && faultPayTotal > 0
+      ? "שכר לפי תקלות מאושרות"
+      : wageFacts.length > 0
+        ? wageFacts.join(" · ")
+        : employee.role === "maintenance"
+          ? "שכר לפי תקלות — לאחר אישור מנהל"
+          : "לא הוגדר תעריף";
+  const missingRate =
+    !isTips && rate <= 0 && employee.role !== "maintenance" && !!isPayrollManager;
 
   return (
     <div className="epd-page page-enter">

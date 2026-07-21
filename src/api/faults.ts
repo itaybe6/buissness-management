@@ -3,7 +3,7 @@ import { compressImage } from "@/lib/compressImage";
 import { compressVideo } from "@/lib/compressVideo";
 import { isVideoFile } from "@/lib/media";
 import { supabase } from "@/lib/supabase";
-import type { Fault, FaultStatus } from "@/types/database";
+import type { Fault, FaultStatus, FaultPayApproval } from "@/types/database";
 
 export function useFaults(businessId: string | null, options?: { poll?: boolean }) {
   return useQuery({
@@ -116,6 +116,12 @@ export function useUpdateFault(businessId: string | null) {
       assigned_to?: string | null;
       description?: string;
       photo_urls?: string[];
+      work_price?: number | null;
+      pay_employee_id?: string | null;
+      pay_approval_status?: FaultPayApproval | null;
+      pay_submitted_at?: string | null;
+      pay_approved_by?: string | null;
+      pay_approved_at?: string | null;
     }) => {
       const { id, statusUpdatedBy, ...rest } = input;
       const patch: {
@@ -125,6 +131,12 @@ export function useUpdateFault(businessId: string | null) {
         photo_urls?: string[];
         status_updated_by?: string | null;
         status_updated_at?: string;
+        work_price?: number | null;
+        pay_employee_id?: string | null;
+        pay_approval_status?: FaultPayApproval | null;
+        pay_submitted_at?: string | null;
+        pay_approved_by?: string | null;
+        pay_approved_at?: string | null;
       } = { ...rest };
       if (rest.status !== undefined) {
         patch.status_updated_by = statusUpdatedBy ?? null;
@@ -133,7 +145,10 @@ export function useUpdateFault(businessId: string | null) {
       const { error } = await supabase.from("faults").update(patch).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["faults", businessId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["faults", businessId] });
+      qc.invalidateQueries({ queryKey: ["fault_pays"] });
+    },
   });
 }
 

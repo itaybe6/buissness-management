@@ -5,7 +5,7 @@ import { useBusinessId } from "@/lib/db";
 import { useAuth } from "@/lib/auth";
 import { uploadAgreementBlob, uploadAgreementFile, useSignAgreement, notifyForm101Signed } from "@/api/agreements";
 import type { AgreementSignature, AgreementTemplate, AgreementType, Profile, SignatureField } from "@/types/database";
-import { TYPE_LABELS } from "./types";
+import { TYPE_LABELS, FORM_101_BLANK_URL } from "./types";
 import { buildSignedPdf, FieldEditorOverlay, FieldSignOverlay, PdfDocViewer, SignaturePadModal } from "./pdf";
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
@@ -44,6 +44,7 @@ export function AgreementEditorModal({
   const businessId = useBusinessId();
   const isGlobalType = variant === "harassment";
   const isForm101 = variant === "form101";
+  const isGlobalDoc = isGlobalType || isForm101;
   const [title, setTitle] = useState(template?.title ?? VARIANT_DEFAULTS[variant].title);
   const [type, setType] = useState<AgreementType>(template?.type ?? VARIANT_DEFAULTS[variant].type);
   const [employeeId, setEmployeeId] = useState(template?.employee_id ?? "");
@@ -71,17 +72,20 @@ export function AgreementEditorModal({
     }
   }
 
-  // הסכם מניעת הטרדה הוא מסמך גלובלי אחד לכל העובדים — אין בחירת עובד.
-  const canSave = !!title.trim() && (isGlobalType || !!employeeId);
+  // הסכם מניעת הטרדה / טופס 101 — מסמך גלובלי אחד לכל העובדים.
+  const canSave = !!title.trim() && (isGlobalDoc || !!employeeId);
   const newTitle = isGlobalType ? "הסכם מניעת הטרדה מינית" : isForm101 ? "העלאת טופס 101" : "הסכם חדש";
   const editTitle = isGlobalType ? "עריכת הסכם הטרדה" : isForm101 ? "עריכת טופס 101" : "עריכת הסכם";
+  const editorSubtitle = isForm101
+    ? "טופס ריק להורדה — העובדים ממלאים, חותמים וסורקים בעצמם"
+    : "העלאת PDF וסימון מקומות החתימה";
 
   return (
     <Modal
       open
       onClose={onClose}
       title={template ? editTitle : newTitle}
-      subtitle="העלאת PDF וסימון מקומות החתימה"
+      subtitle={editorSubtitle}
       icon="draw"
       maxWidth={840}
       footer={
@@ -98,8 +102,8 @@ export function AgreementEditorModal({
                 type,
                 content: "",
                 file_url: fileUrl || null,
-                signature_fields: fields,
-                employee_id: isGlobalType ? null : employeeId || null,
+                signature_fields: isForm101 ? [] : fields,
+                employee_id: isGlobalDoc ? null : employeeId || null,
               })
             }
           >
@@ -114,6 +118,13 @@ export function AgreementEditorModal({
             <Field label="כותרת"><Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="מניעת הטרדה מינית" /></Field>
             <div className="flex items-center gap-2 rounded-[11px] bg-surface-2 px-3 py-2.5 text-[12.5px] font-semibold text-text-2">
               <Icon name="groups" size={18} /> מסמך גלובלי — אותו הסכם לכל העובדים, וכל עובד חותם עליו בנפרד.
+            </div>
+          </>
+        ) : isForm101 ? (
+          <>
+            <Field label="כותרת"><Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="טופס 101" /></Field>
+            <div className="flex items-center gap-2 rounded-[11px] bg-surface-2 px-3 py-2.5 text-[12.5px] font-semibold text-text-2">
+              <Icon name="groups" size={18} /> טופס ריק אחד לכל העובדים — כל עובד מוריד, ממלא ידנית, חותם ומעלה סריקה.
             </div>
           </>
         ) : (
@@ -138,11 +149,16 @@ export function AgreementEditorModal({
             </Select>
           </Field>
         )}
-        <Field label={isForm101 ? "טופס 101 (PDF)" : "מסמך ההסכם (PDF)"}>
+        <Field label={isForm101 ? "טופס 101 ריק (PDF)" : "מסמך ההסכם (PDF)"}>
           <Input type="file" accept="application/pdf" onChange={handleFile} disabled={uploading} />
         </Field>
+        {isForm101 && !fileUrl && (
+          <p className="text-[12px] text-text-3">
+            אם לא תועלה גרסה מותאמת, העובדים יורידו את טופס 101 ברירת המחדל של המערכת.
+          </p>
+        )}
 
-        {fileUrl && (
+        {fileUrl && !isForm101 && (
           <div>
             <div className="mb-2 flex items-center gap-2 rounded-[11px] bg-accent-tint px-3 py-2.5 text-[12.5px] font-semibold text-accent-2">
               <Icon name="touch_app" size={18} />
@@ -171,6 +187,112 @@ export function AgreementEditorModal({
   );
 }
 
+function Form101UploadModal({
+  agreement,
+  employeeId,
+  signature,
+  canSign,
+  onClose,
+}: {
+  agreement: AgreementTemplate;
+  employeeId: string;
+  signature?: AgreementSignature;
+  canSign: boolean;
+  onClose: () => void;
+}) {
+  const businessId = useBusinessId();
+  const sign = useSignAgreement(businessId);
+  const alreadySigned = !!signature?.agreed;
+  const blankUrl = agreement.file_url ?? FORM_101_BLANK_URL;
+  const viewUrl = alreadySigned && signature?.signed_file_url ? signature.signed_file_url : null;
+  const [uploading, setUploading] = useState(false);
+  const [err, setErr] = useState("");
+
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !businessId || !canSign || alreadySigned) return;
+    if (file.type !== "application/pdf") {
+      setErr("יש להעלות קובץ PDF בלבד.");
+      return;
+    }
+    setUploading(true);
+    setErr("");
+    try {
+      const signedUrl = await uploadAgreementFile(businessId, file);
+      await sign.mutateAsync({
+        business_id: businessId,
+        agreement_id: agreement.id,
+        employee_id: employeeId,
+        signature_data: "",
+        signed_file_url: signedUrl,
+      });
+      await notifyForm101Signed(agreement.id, employeeId);
+      onClose();
+    } catch {
+      setErr("שגיאה בהעלאת הקובץ. נסו שוב.");
+      setUploading(false);
+    }
+  }
+
+  const uploadAllowed = canSign && !alreadySigned;
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={agreement.title || "טופס 101"}
+      subtitle={
+        alreadySigned
+          ? "הטופס הועלה"
+          : uploadAllowed
+            ? "הורידו את הטופס, מלאו וחתמו ידנית, סרקו והעלו PDF"
+            : "ממתין להעלאת העובד/ת"
+      }
+      icon="description"
+      maxWidth={840}
+      footer={<Button className="flex-1" onClick={onClose}>סגירה</Button>}
+    >
+      {!alreadySigned && (
+        <a
+          href={blankUrl}
+          target="_blank"
+          rel="noreferrer"
+          download
+          className="mb-3 flex items-center gap-2 rounded-[11px] border border-border bg-surface-2 px-3 py-2.5 text-[13px] font-semibold text-link"
+        >
+          <Icon name="download" size={18} /> הורדת טופס 101 (ריק)
+        </a>
+      )}
+      {alreadySigned && signature?.signed_file_url && (
+        <a
+          href={signature.signed_file_url}
+          target="_blank"
+          rel="noreferrer"
+          className="mb-3 flex items-center gap-2 rounded-[11px] border border-border bg-surface-2 px-3 py-2.5 text-[13px] font-semibold text-link"
+        >
+          <Icon name="download" size={18} /> הורדת העותק שהועלה
+        </a>
+      )}
+      {uploadAllowed && (
+        <Field label="העלאת טופס 101 חתום (PDF)">
+          <Input type="file" accept="application/pdf" onChange={handleFile} disabled={uploading} />
+        </Field>
+      )}
+      {!canSign && !alreadySigned && (
+        <div className="mb-3 flex items-center gap-2 rounded-[11px] border border-border bg-surface-2 px-3 py-2.5 text-[12.5px] font-semibold text-text-2">
+          <Icon name="schedule" size={18} /> העובד/ת עדיין לא העלה/תה את הטופס החתום.
+        </div>
+      )}
+      {viewUrl && (
+        <div className="max-h-[58vh] overflow-auto rounded-[12px] border border-border bg-surface-2 p-3">
+          <PdfDocViewer url={viewUrl} />
+        </div>
+      )}
+      {err && <p className="mt-2 text-[12px] font-semibold text-danger">{err}</p>}
+    </Modal>
+  );
+}
+
 export function ReadSignModal({
   agreement,
   employeeId,
@@ -188,7 +310,19 @@ export function ReadSignModal({
   const sign = useSignAgreement(businessId);
   const alreadySigned = !!signature?.agreed;
   const fields = agreement.signature_fields ?? [];
-  const isPdfFlow = !!agreement.file_url && fields.length > 0;
+  const isPdfFlow = agreement.type !== "form_101" && !!agreement.file_url && fields.length > 0;
+
+  if (agreement.type === "form_101") {
+    return (
+      <Form101UploadModal
+        agreement={agreement}
+        employeeId={employeeId}
+        signature={signature}
+        canSign={canSign}
+        onClose={onClose}
+      />
+    );
+  }
 
   if (isPdfFlow) {
     return (
@@ -220,9 +354,6 @@ export function ReadSignModal({
           employee_id: employeeId,
           signature_data: dataUrl,
         });
-        if (agreement.type === "form_101") {
-          await notifyForm101Signed(agreement.id, employeeId);
-        }
         onClose();
       }}
     />
@@ -272,9 +403,6 @@ function PdfSignModal({
         field_signatures: sigs,
         signed_file_url: signedUrl,
       });
-      if (agreement.type === "form_101") {
-        await notifyForm101Signed(agreement.id, employeeId);
-      }
       onClose();
     } catch {
       setErr("שגיאה בשמירת המסמך החתום. נסו שוב.");

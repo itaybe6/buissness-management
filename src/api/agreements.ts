@@ -13,7 +13,8 @@ export function useAgreements(businessId: string | null) {
         .eq("business_id", businessId)
         .order("created_at", { ascending: true });
       if (error) throw error;
-      return (data ?? []) as AgreementTemplate[];
+      const rows = (data ?? []) as AgreementTemplate[];
+      return rows.filter((t) => !(t.type === "form_101" && t.employee_id));
     },
   });
 }
@@ -67,6 +68,9 @@ export function useCreateAgreement() {
       employee_id?: string | null;
       created_by?: string | null;
     }) => {
+      if (input.type === "form_101" && input.employee_id) {
+        throw new Error("טופס 101 חייב להיות מסמך גלובלי אחד לכל העסק");
+      }
       const { error } = await supabase.from("agreement_templates").insert(input);
       if (error) throw error;
     },
@@ -87,6 +91,9 @@ export function useUpdateAgreement(businessId: string | null) {
       employee_id?: string | null;
     }) => {
       const { id, ...rest } = input;
+      if (rest.type === "form_101" && rest.employee_id) {
+        throw new Error("טופס 101 חייב להיות מסמך גלובלי אחד לכל העסק");
+      }
       const { error } = await supabase.from("agreement_templates").update(rest).eq("id", id);
       if (error) throw error;
     },
@@ -140,12 +147,21 @@ export function useSignAgreement(businessId: string | null) {
   });
 }
 
+/** Global blank Form 101 template (same PDF for all employees). */
+export function globalForm101Template(templates: AgreementTemplate[]): AgreementTemplate | undefined {
+  return templates.find((t) => t.type === "form_101" && !t.employee_id);
+}
+
 /** Agreements applicable to a specific employee (global + personal). */
 export function agreementsForEmployee(
   templates: AgreementTemplate[],
   employeeId: string
 ): AgreementTemplate[] {
-  return templates.filter((t) => !t.employee_id || t.employee_id === employeeId);
+  const global101 = globalForm101Template(templates);
+  return templates.filter((t) => {
+    if (global101 && t.type === "form_101" && t.employee_id) return false;
+    return !t.employee_id || t.employee_id === employeeId;
+  });
 }
 
 /** Fixed (global) templates — same for all employees. */
@@ -178,12 +194,9 @@ export function signatureOf(
   );
 }
 
-/** Form 101 templates assigned to a specific employee. */
-export function form101ForEmployee(
-  templates: AgreementTemplate[],
-  employeeId: string
-): AgreementTemplate | undefined {
-  return templates.find((t) => t.type === "form_101" && t.employee_id === employeeId);
+/** Form 101 is always a single global template per business. */
+export function form101Template(templates: AgreementTemplate[]): AgreementTemplate | undefined {
+  return globalForm101Template(templates);
 }
 
 /**

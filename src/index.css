@@ -10167,6 +10167,16 @@ select {
 }
 
 /* --- Sidebar navigation --- */
+/* RTL body puts scrollbars on the left; LTR scrollport keeps the thumb on the right edge. */
+.side-nav-scroll {
+  direction: ltr;
+  scrollbar-gutter: stable;
+}
+
+.side-nav-scroll > * {
+  direction: rtl;
+}
+
 .side-nav-group + .side-nav-group {
   margin-top: 0.35rem;
   padding-top: 0.45rem;
@@ -10884,16 +10894,29 @@ select {
    Manager dashboard — employee labor cost panel
    ============================================================ */
 .labor-cost-panel {
-  --labor-hourly: var(--accent-2);
-  --labor-topup: #6d8f7a;
-  --labor-topup-bg: #e8f0eb;
-  --labor-bonus: #5a8fd4;
-  --labor-bonus-bg: #e6eef8;
+  /* Categorical trio — validated for CVD + lightness (dataviz skill).
+     שעתי / השלמה / בונוס = indigo / emerald / amber. */
+  --labor-hourly: #6366f1;
+  --labor-hourly-bg: #eceefe;
+  --labor-topup: #10b981;
+  --labor-topup-bg: #e2f6ee;
+  --labor-bonus: #f59e0b;
+  --labor-bonus-bg: #fdf0d9;
   border-radius: var(--radius);
   background: var(--surface);
   box-shadow: var(--shadow-card);
   border: 1px solid var(--border);
   overflow: hidden;
+}
+
+/* Dark mode uses its own validated steps (deeper emerald/amber). */
+[data-theme="dark"] .labor-cost-panel {
+  --labor-hourly: #6366f1;
+  --labor-hourly-bg: rgba(99, 102, 241, 0.2);
+  --labor-topup: #059669;
+  --labor-topup-bg: rgba(5, 150, 105, 0.22);
+  --labor-bonus: #d97706;
+  --labor-bonus-bg: rgba(217, 119, 6, 0.22);
 }
 
 .labor-cost-top {
@@ -11046,7 +11069,6 @@ select {
   height: 2rem;
   flex: none;
   border-radius: 9px;
-  color: var(--text);
 }
 
 .labor-breakdown-pct {
@@ -11155,13 +11177,51 @@ select {
   background: var(--labor-bonus);
 }
 
+.labor-chart {
+  position: relative;
+}
+
+/* Recessive reference grid, drawn behind the bars. */
+.labor-chart-grid {
+  position: absolute;
+  inset-inline: 2px;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.labor-chart-gridline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: color-mix(in srgb, var(--border) 55%, transparent);
+}
+
+.labor-chart-gridline--base {
+  background: var(--border);
+}
+
+.labor-chart-ymax {
+  position: absolute;
+  top: -9px;
+  inset-inline-start: 0;
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  font-size: 9.5px;
+  font-weight: 800;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
 .labor-chart-bars {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
   gap: 0.25rem;
   height: 100%;
-  padding-top: 0.25rem;
 }
 
 .labor-chart-col {
@@ -11170,30 +11230,57 @@ select {
   min-width: 0;
   flex-direction: column;
   align-items: stretch;
-  gap: 0.35rem;
+  gap: 6px;
+  cursor: default;
+  transition: opacity 160ms var(--ease-out);
+}
+
+/* Focus the hovered day; recede the rest. */
+.labor-chart-bars[data-hovering] .labor-chart-col:not([data-hover]) {
+  opacity: 0.4;
 }
 
 .labor-chart-value {
-  height: 1rem;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
   text-align: center;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 800;
-  color: var(--text-3);
+  color: var(--text-2);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.labor-chart-col[data-today] .labor-chart-value {
+  color: var(--labor-hourly);
 }
 
 .labor-chart-stack {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  border-radius: 8px 8px 4px 4px;
+  align-items: center;
+}
+
+/* The bar: rounded data-end at the top, square at the baseline.
+   Transparent 2px flex gaps let the surface separate the segments. */
+.labor-chart-bar {
+  width: 100%;
+  max-width: 26px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 2px;
+  border-radius: 6px 6px 0 0;
   overflow: hidden;
-  background: color-mix(in srgb, var(--border) 35%, transparent);
+  transition: height 720ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: height;
 }
 
 .labor-chart-seg {
   width: 100%;
-  transition: height 680ms cubic-bezier(0.22, 1, 0.36, 1);
+  flex: none;
 }
 
 .labor-chart-seg--hourly {
@@ -11208,19 +11295,29 @@ select {
   background: var(--labor-bonus);
 }
 
+/* Empty day — a quiet baseline nub instead of a hollow box. */
+.labor-chart-nub {
+  width: 100%;
+  max-width: 26px;
+  height: 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--border) 85%, transparent);
+}
+
+.labor-chart-nub[data-today] {
+  background: var(--labor-hourly);
+  opacity: 0.6;
+}
+
 .labor-chart-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   text-align: center;
-  font-size: 10px;
+  font-size: 10.5px;
   font-weight: 700;
   color: var(--text-3);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.labor-chart-col[data-today] .labor-chart-stack {
-  outline: 2px solid var(--labor-hourly);
-  outline-offset: 1px;
 }
 
 .labor-chart-col[data-today] .labor-chart-label {
@@ -11228,25 +11325,80 @@ select {
   font-weight: 900;
 }
 
-.labor-chart-col[data-empty] .labor-chart-stack {
-  opacity: 0.45;
+.labor-chart[data-compact] .labor-chart-col {
+  min-width: 1.9rem;
 }
 
-.labor-chart[data-compact] .labor-chart-col {
-  min-width: 2rem;
+.labor-chart[data-compact] .labor-chart-bar,
+.labor-chart[data-compact] .labor-chart-nub {
+  max-width: 30px;
 }
 
 .labor-chart[data-compact] .labor-chart-label {
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 800;
 }
 
-.labor-chart[data-compact] .labor-chart-value {
-  font-size: 9.5px;
+/* Per-day breakdown tooltip. */
+.labor-tip {
+  position: absolute;
+  top: 0;
+  z-index: 5;
+  transform: translateX(-50%);
+  pointer-events: none;
+  padding: 0.5rem 0.6rem;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  text-align: start;
 }
 
-.labor-chart[data-compact] .labor-chart-bars {
+.labor-tip-head {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-3);
+}
+
+.labor-tip-total {
+  margin-top: 1px;
+  font-size: 15px;
+  font-weight: 900;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.labor-tip-rows {
+  margin-top: 0.45rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.labor-tip-row {
+  display: flex;
+  align-items: center;
   gap: 0.4rem;
+}
+
+.labor-tip-row-label {
+  flex: 1;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-2);
+}
+
+.labor-tip-row-value {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.labor-tip-empty {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-3);
 }
 
 .labor-cost-footer {
@@ -11297,7 +11449,8 @@ select {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .labor-chart-seg {
+  .labor-chart-seg,
+  .labor-chart-bar {
     transition: none;
   }
 }
@@ -12806,6 +12959,61 @@ select {
   flex: none;
   margin-top: 0.1rem;
   opacity: 0.85;
+}
+
+.fault-pay-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 12px;
+  border: 1px solid var(--border-2);
+  background: var(--surface-2);
+}
+
+.fault-pay-block--approved {
+  border-color: color-mix(in srgb, var(--success) 35%, var(--border-2));
+  background: var(--success-bg);
+}
+
+.fault-pay-block__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--text-2);
+}
+
+.fault-pay-block__amount {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.fault-pay-block__meta {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.fault-pay-block__form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.fault-pay-block__form input {
+  max-width: 8rem;
+}
+
+.fault-pay-block__hint {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-3);
 }
 
 .waste-row__qty {

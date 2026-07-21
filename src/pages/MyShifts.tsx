@@ -12,9 +12,10 @@ import { useAuth } from "@/lib/auth";
 import { WAGE_TYPE_LABELS } from "@/lib/constants";
 import { useBusinessId } from "@/lib/db";
 import { useEmployeeAttendanceMonth } from "@/api/attendance";
-import { useEmployeeTips, useEmployeeBonuses } from "@/api/payroll";
+import { useEmployeeTips, useEmployeeBonuses, useEmployeeFaultPays } from "@/api/payroll";
 import { useShiftTemplates } from "@/api/shifts";
 import { buildEmployeeShiftRows, monthNow, sumShiftRowTotals } from "@/lib/payrollShiftRows";
+import { buildFaultPayRows } from "@/lib/faultPayrollRows";
 
 export function MyShifts() {
   const businessId = useBusinessId();
@@ -31,28 +32,30 @@ export function MyShifts() {
   const attendanceQ = useEmployeeAttendanceMonth(businessId, !isTips ? profile?.id : null, month);
   const tipsQ = useEmployeeTips(businessId, isTips ? profile?.id : null, month);
   const bonusesQ = useEmployeeBonuses(businessId, profile?.id, month);
+  const faultPaysQ = useEmployeeFaultPays(businessId, profile?.id, month);
   const { data: templates } = useShiftTemplates(businessId);
 
   const activeQ = isTips ? tipsQ : attendanceQ;
-  const isLoading = activeQ.isLoading || bonusesQ.isLoading;
-  const isError = activeQ.isError || bonusesQ.isError;
+  const isLoading = activeQ.isLoading || bonusesQ.isLoading || faultPaysQ.isLoading;
+  const isError = activeQ.isError || bonusesQ.isError || faultPaysQ.isError;
   const refetch = () => {
     activeQ.refetch();
     bonusesQ.refetch();
+    faultPaysQ.refetch();
   };
 
-  const rows = useMemo(
-    () =>
-      buildEmployeeShiftRows({
-        isTips,
-        rate,
-        attendance: attendanceQ.data ?? [],
-        tips: tipsQ.data ?? [],
-        bonuses: bonusesQ.data ?? [],
-        templates: templates ?? [],
-      }),
-    [isTips, rate, attendanceQ.data, tipsQ.data, bonusesQ.data, templates],
-  );
+  const rows = useMemo(() => {
+    const shiftRows = buildEmployeeShiftRows({
+      isTips,
+      rate,
+      attendance: attendanceQ.data ?? [],
+      tips: tipsQ.data ?? [],
+      bonuses: bonusesQ.data ?? [],
+      templates: templates ?? [],
+    });
+    const faultRows = buildFaultPayRows(faultPaysQ.data ?? []);
+    return [...shiftRows, ...faultRows].sort((a, b) => b.date.getTime() - a.date.getTime());
+  }, [isTips, rate, attendanceQ.data, tipsQ.data, bonusesQ.data, faultPaysQ.data, templates]);
 
   const totals = useMemo(() => sumShiftRowTotals(rows), [rows]);
 

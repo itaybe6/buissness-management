@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
-import type { ShiftBonus, Tip } from "@/types/database";
+import type { ShiftBonus, Tip, Fault } from "@/types/database";
 
 /** Tips within a month (yyyy-mm). */
 export function useTips(businessId: string | null, monthISO: string) {
@@ -98,6 +98,58 @@ export function useEmployeeBonuses(
         .order("shift_date", { ascending: false });
       if (error) throw error;
       return (data ?? []) as ShiftBonus[];
+    },
+  });
+}
+
+/** Approved fault work payments within a month (by pay_approved_at). */
+export function useApprovedFaultPays(businessId: string | null, monthISO: string) {
+  return useQuery({
+    queryKey: ["fault_pays", businessId, monthISO],
+    enabled: !!businessId,
+    queryFn: async (): Promise<Fault[]> => {
+      const start = `${monthISO}-01T00:00:00.000Z`;
+      const d = new Date(start);
+      d.setMonth(d.getMonth() + 1);
+      const end = d.toISOString();
+      const { data, error } = await supabase
+        .from("faults")
+        .select("*")
+        .eq("business_id", businessId)
+        .eq("pay_approval_status", "approved")
+        .gte("pay_approved_at", start)
+        .lt("pay_approved_at", end);
+      if (error) throw error;
+      return (data ?? []) as Fault[];
+    },
+  });
+}
+
+/** One employee's approved fault payments in a month. */
+export function useEmployeeFaultPays(
+  businessId: string | null,
+  employeeId: string | null | undefined,
+  monthISO: string,
+) {
+  return useQuery({
+    queryKey: ["fault_pays", businessId, employeeId, monthISO],
+    enabled: !!businessId && !!employeeId,
+    queryFn: async (): Promise<Fault[]> => {
+      const start = `${monthISO}-01T00:00:00.000Z`;
+      const d = new Date(start);
+      d.setMonth(d.getMonth() + 1);
+      const end = d.toISOString();
+      const { data, error } = await supabase
+        .from("faults")
+        .select("*")
+        .eq("business_id", businessId)
+        .eq("pay_employee_id", employeeId)
+        .eq("pay_approval_status", "approved")
+        .gte("pay_approved_at", start)
+        .lt("pay_approved_at", end)
+        .order("pay_approved_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as Fault[];
     },
   });
 }

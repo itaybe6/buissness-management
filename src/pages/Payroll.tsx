@@ -6,8 +6,9 @@ import { WAGE_TYPE_LABELS } from "@/lib/constants";
 import { useBusinessId, formatCurrency, initialsOf, colorFor } from "@/lib/db";
 import { useProfiles } from "@/api/users";
 import { useAttendanceMonth } from "@/api/attendance";
-import { useTips, useShiftBonuses } from "@/api/payroll";
+import { useTips, useShiftBonuses, useApprovedFaultPays } from "@/api/payroll";
 import { computeEmployeePayroll, sumAttendanceHours } from "@/lib/payrollCompute";
+import { sumFaultPayAmount } from "@/lib/faultPayrollRows";
 import { countEmployeeShifts, exportPayrollExcel, type PayrollExportRow } from "@/lib/payrollExport";
 import type { WageType } from "@/types/database";
 
@@ -67,6 +68,7 @@ export function Payroll() {
   const { data: attendance } = useAttendanceMonth(businessId, month);
   const { data: tips } = useTips(businessId, month);
   const { data: bonuses } = useShiftBonuses(businessId, month);
+  const { data: faultPays } = useApprovedFaultPays(businessId, month);
 
   const isPayrollManager = profile && ["manager", "office_manager"].includes(profile.role);
 
@@ -78,6 +80,7 @@ export function Payroll() {
       const myTips = (tips ?? []).filter((t) => t.employee_id === u.id);
       const myBonuses = (bonuses ?? []).filter((b) => b.employee_id === u.id);
       const bonusSum = myBonuses.reduce((s, b) => s + Number(b.amount), 0);
+      const faultPaySum = sumFaultPayAmount(faultPays ?? [], u.id);
 
       // עובד טיפים: השכר מקופת הטיפים עם רצפת מינימום לכל משמרת בנפרד.
       // עובד שעתי: שעות נוכחות × תעריף, ללא טיפים.
@@ -86,6 +89,7 @@ export function Payroll() {
         rate,
         tips: myTips,
         bonusSum,
+        faultPaySum,
         attendanceHours: sumAttendanceHours(attendance ?? [], u.id),
       });
       const shifts = countEmployeeShifts(wageType, u.id, attendance ?? [], myTips);
@@ -97,7 +101,7 @@ export function Payroll() {
         ...pay,
       };
     });
-  }, [users, attendance, tips, bonuses, isPayrollManager, profile?.id]);
+  }, [users, attendance, tips, bonuses, faultPays, isPayrollManager, profile?.id]);
 
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -115,9 +119,10 @@ export function Payroll() {
       tips: acc.tips + r.tips,
       topup: acc.topup + r.topup,
       bonus: acc.bonus + r.bonus,
+      faultPay: acc.faultPay + r.faultPay,
       total: acc.total + r.total,
     }),
-    { hours: 0, base: 0, tips: 0, topup: 0, bonus: 0, total: 0 },
+    { hours: 0, base: 0, tips: 0, topup: 0, bonus: 0, faultPay: 0, total: 0 },
   );
 
   return (

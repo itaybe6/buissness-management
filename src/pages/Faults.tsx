@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type RefObject } from "react";
-import { Button, Card, EmptyState, Icon, Input, PageLoader, ErrorState, Field, Textarea } from "@/components/ui";
+import { Button, Card, EmptyState, Icon, Input, PageLoader, ErrorState, Field, Textarea, Badge } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useProfiles } from "@/api/users";
 import { useAuth } from "@/lib/auth";
-import { addDays, todayISO, toISODate, useBusinessId } from "@/lib/db";
+import { addDays, todayISO, toISODate, useBusinessId, formatCurrency } from "@/lib/db";
 import { isVideoFile, isVideoUrl } from "@/lib/media";
 import { useFaults, useCreateFault, useUpdateFault, useDeleteFault, uploadFaultPhotos } from "@/api/faults";
 import { useMaintenanceNewFaultCount } from "@/hooks/useMaintenanceNewFaultCount";
@@ -119,16 +119,152 @@ function FaultStatusAudit({ at, byName }: { at: string | null; byName?: string }
   if (!at || !byName) return null;
   return (
     <p className="fault-row__status-audit">
-      <Icon name="history" size={14} />
-      <span>
-        <strong>{byName}</strong>
-        <span className="fault-row__meta-sep" aria-hidden>
-          {" "}
-          ·{" "}
-        </span>
-        <time dateTime={at}>{formatFaultExact(at)}</time>
-      </span>
+      עודכן ע״י {byName} · {formatFaultExact(at)}
     </p>
+  );
+}
+
+function parseWorkPriceInput(raw: string): number | null {
+  const n = Number(raw.replace(",", ".").trim());
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(n * 100) / 100;
+}
+
+function FaultWorkPaySection({
+  fault,
+  isMaintenance,
+  canApprove,
+  busy,
+  onSubmitPrice,
+  onApprove,
+}: {
+  fault: Fault;
+  isMaintenance: boolean;
+  canApprove: boolean;
+  busy?: boolean;
+  onSubmitPrice: (price: number) => void;
+  onApprove: () => void;
+}) {
+  const [priceInput, setPriceInput] = useState(
+    fault.work_price != null ? String(fault.work_price) : "",
+  );
+  const approved = fault.pay_approval_status === "approved";
+  const pending = fault.pay_approval_status === "pending";
+
+  useEffect(() => {
+    setPriceInput(fault.work_price != null ? String(fault.work_price) : "");
+  }, [fault.id, fault.work_price]);
+
+  if (fault.status !== "handled") return null;
+
+  if (approved && fault.work_price != null) {
+    return (
+      <div className="fault-pay-block fault-pay-block--approved">
+        <span className="fault-pay-block__label">
+          <Icon name="payments" size={16} />
+          שכר מאושר
+        </span>
+        <span className="fault-pay-block__amount">{formatCurrency(Number(fault.work_price))}</span>
+        {fault.pay_approved_at && (
+          <span className="fault-pay-block__meta">אושר · {formatFaultExact(fault.pay_approved_at)}</span>
+        )}
+      </div>
+    );
+  }
+
+  const canEditPrice = isMaintenance && !approved;
+  const showApprove = canApprove && pending && fault.work_price != null;
+
+  return (
+    <div className="fault-pay-block">
+      <span className="fault-pay-block__label">
+        <Icon name="payments" size={16} />
+        מחיר העבודה
+      </span>
+      {pending && (
+        <Badge tone="warning">
+          <Icon name="hourglass_top" size={14} />
+          ממתין לאישור מנהל
+        </Badge>
+      )}
+      {canEditPrice ? (
+        <div className="fault-pay-block__form">
+          <Input
+            type="number"
+            inputMode="decimal"
+            min={0}
+            step={0.01}
+            placeholder="₪"
+            value={priceInput}
+            onChange={(e) => setPriceInput(e.target.value)}
+            disabled={busy}
+          />
+          <Button
+            loading={busy}
+            disabled={parseWorkPriceInput(priceInput) == null}
+            onClick={() => {
+              const p = parseWorkPriceInput(priceInput);
+              if (p != null) onSubmitPrice(p);
+            }}
+          >
+            {pending ? "עדכון מחיר" : "שליחה לאישור"}
+          </Button>
+        </div>
+      ) : pending && fault.work_price != null ? (
+        <span className="fault-pay-block__amount">{formatCurrency(Number(fault.work_price))}</span>
+      ) : !isMaintenance && !canApprove ? null : (
+        <p className="fault-pay-block__hint">איש התחזוקה יזין מחיר לאחר סיום התקלה.</p>
+      )}
+      {showApprove && (
+        <Button icon="check" loading={busy} onClick={onApprove}>
+          אישור לשכר
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function FaultPayApprovalQueue({
+  faults,
+  userById,
+  busy,
+  onApprove,
+}: {
+  faults: Fault[];
+  userById: Map<string, string>;
+  busy?: boolean;
+  onApprove: (id: string) => void;
+}) {
+  if (faults.length === 0) return null;
+  return (
+    <Card className="mb-5 overflow-hidden">
+      <div className="flex items-center gap-2 border-b border-border-2 bg-[var(--warning-bg)] px-4 py-3 text-[15px] font-bold text-warning">
+        <Icon name="verified_user" size={20} />
+        תשלומי תחזוקה הממתינים לאישורך
+        <Badge tone="warning">{faults.length}</Badge>
+      </div>
+      {faults.map((f) => (
+        <div key={f.id} className="flex flex-wrap items-center gap-3 border-b border-border-2 px-4 py-3.5 last:border-0">
+          <div className="min-w-0 flex-1">
+            <div className="text-[14.5px] font-semibold">{f.description}</div>
+            <div className="mt-0.5 text-[12px] text-text-3">
+              {f.pay_employee_id && (
+                <span>איש תחזוקה: {userById.get(f.pay_employee_id) ?? "—"}</span>
+              )}
+              {f.work_price != null && (
+                <>
+                  <span> · </span>
+                  <span className="font-bold text-text">{formatCurrency(Number(f.work_price))}</span>
+                </>
+              )}
+            </div>
+          </div>
+          <Button icon="check" loading={busy} onClick={() => onApprove(f.id)}>
+            אישור לשכר
+          </Button>
+        </div>
+      ))}
+    </Card>
   );
 }
 
@@ -463,6 +599,11 @@ function FaultRowMobile({
   onAddPhotos,
   photosUploading,
   statusUpdaterName,
+  isMaintenance,
+  canApprovePay,
+  payBusy,
+  onSubmitWorkPrice,
+  onApprovePay,
 }: {
   fault: Fault;
   reporterName?: string;
@@ -477,6 +618,11 @@ function FaultRowMobile({
   onAddPhotos?: (files: File[]) => void | Promise<void>;
   photosUploading?: boolean;
   statusUpdaterName?: string;
+  isMaintenance?: boolean;
+  canApprovePay?: boolean;
+  payBusy?: boolean;
+  onSubmitWorkPrice?: (price: number) => void;
+  onApprovePay?: () => void;
 }) {
   const meta = STATUS_META[fault.status];
   const mediaUrls = fault.photo_urls ?? [];
@@ -569,6 +715,16 @@ function FaultRowMobile({
               <FaultStatusSegmented value={fault.status} solid disabled={statusPending} onChange={onStatusChange} />
               <FaultStatusAudit at={fault.status_updated_at} byName={statusUpdaterName} />
             </div>
+            {onSubmitWorkPrice && onApprovePay && (
+              <FaultWorkPaySection
+                fault={fault}
+                isMaintenance={!!isMaintenance}
+                canApprove={!!canApprovePay}
+                busy={payBusy}
+                onSubmitPrice={onSubmitWorkPrice}
+                onApprove={onApprovePay}
+              />
+            )}
           </div>
           {canModify && onEdit && onDelete && (
             <div className="fault-row__panel-tools">
@@ -938,6 +1094,29 @@ export function Faults() {
   }
 
   const canReport = profile?.role !== "maintenance";
+  const isMaintenance = profile?.role === "maintenance";
+  const canApprovePay = profile?.role === "manager";
+  const pendingPayApprovals = canApprovePay
+    ? (faults ?? []).filter((f) => f.status === "handled" && f.pay_approval_status === "pending")
+    : [];
+
+  const payHandlers = {
+    onSubmitWorkPrice: (faultId: string, price: number) =>
+      updateFault.mutateAsync({
+        id: faultId,
+        work_price: price,
+        pay_employee_id: profile?.id ?? null,
+        pay_approval_status: "pending",
+        pay_submitted_at: new Date().toISOString(),
+      }),
+    onApprovePay: (faultId: string) =>
+      updateFault.mutateAsync({
+        id: faultId,
+        pay_approval_status: "approved",
+        pay_approved_by: profile?.id ?? null,
+        pay_approved_at: new Date().toISOString(),
+      }),
+  };
 
   if (isLoading) return <PageLoader />;
   if (isError) return <ErrorState onRetry={refetch} />;
@@ -1089,7 +1268,14 @@ export function Faults() {
 
   function onStatusChange(id: string, status: FaultStatus, current: FaultStatus) {
     if (status !== current) {
-      updateFault.mutate({ id, status, statusUpdatedBy: profile?.id ?? null });
+      updateFault.mutate(
+        { id, status, statusUpdatedBy: profile?.id ?? null },
+        {
+          onSuccess: () => {
+            if (isMaintenance && status === "handled") setExpandedId(id);
+          },
+        },
+      );
     }
   }
 
@@ -1273,6 +1459,11 @@ export function Faults() {
                     onAddPhotos={modifiable ? (files) => appendFaultPhotos(f, files) : undefined}
                     photosUploading={uploadingFaultId === f.id}
                     statusUpdaterName={faultStatusUpdaterName(f)}
+                    isMaintenance={isMaintenance}
+                    canApprovePay={canApprovePay}
+                    payBusy={updateFault.isPending}
+                    onSubmitWorkPrice={(price) => payHandlers.onSubmitWorkPrice(f.id, price)}
+                    onApprovePay={() => payHandlers.onApprovePay(f.id)}
                   />
                 );
               })}
@@ -1322,6 +1513,14 @@ export function Faults() {
                   onChange={(status) => onStatusChange(f.id, status, f.status)}
                 />
                 <FaultStatusAudit at={f.status_updated_at} byName={faultStatusUpdaterName(f)} />
+                <FaultWorkPaySection
+                  fault={f}
+                  isMaintenance={isMaintenance}
+                  canApprove={canApprovePay}
+                  busy={updateFault.isPending}
+                  onSubmitPrice={(price) => payHandlers.onSubmitWorkPrice(f.id, price)}
+                  onApprove={() => payHandlers.onApprovePay(f.id)}
+                />
               </div>
             </Card>
           );
@@ -1332,6 +1531,14 @@ export function Faults() {
 
   return (
     <div className="w-full animate-fadeUp">
+      {canApprovePay && (
+        <FaultPayApprovalQueue
+          faults={pendingPayApprovals}
+          userById={reporterById}
+          busy={updateFault.isPending}
+          onApprove={(id) => payHandlers.onApprovePay(id)}
+        />
+      )}
       <div className="faults-mobile md:pb-0">
         {toolbar}
         {faultList}

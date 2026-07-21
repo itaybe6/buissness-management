@@ -279,7 +279,7 @@ export function MobileSideDrawer({
 
 
 
-            <nav className="flex flex-1 flex-col gap-1 overflow-auto px-3 py-2" aria-label="ניווט ראשי">
+            <nav className="side-nav-scroll flex flex-1 flex-col gap-1 overflow-auto px-3 py-2" aria-label="ניווט ראשי">
 
               {navGroups.map((group) => (
 

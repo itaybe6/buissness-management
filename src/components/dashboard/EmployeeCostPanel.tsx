@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useReducedMotion } from "motion/react";
 import { useQueries } from "@tanstack/react-query";
 import { useAttendanceMonth } from "@/api/attendance";
 import { useTips, useShiftBonuses } from "@/api/payroll";
@@ -81,10 +82,33 @@ function TrendBadge({ pct }: { pct: number | null }) {
 }
 
 /* ---- Stacked bar chart ---- */
+const SEG_GAP = 2; // px surface gap between stacked segments
+
+function tipHeading(slice: LaborCostSlice): string {
+  if (slice.date) {
+    return new Date(slice.date + "T12:00:00").toLocaleDateString("he-IL", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+    });
+  }
+  return slice.label;
+}
+
+function TipRow({ cls, label, value }: { cls: string; label: string; value: number }) {
+  return (
+    <div className="labor-tip-row">
+      <span className={`labor-legend-dot labor-legend-dot--${cls}`} />
+      <span className="labor-tip-row-label">{label}</span>
+      <span className="labor-tip-row-value">{formatCurrency(value)}</span>
+    </div>
+  );
+}
+
 function StackedBarChart({
   data,
   todayISO,
-  height = 200,
+  height = 210,
   formatValue = compactCurrency,
   compact = false,
 }: {
@@ -94,62 +118,133 @@ function StackedBarChart({
   formatValue?: (n: number) => string;
   compact?: boolean;
 }) {
+  const reduce = useReducedMotion();
   const [mounted, setMounted] = useState(false);
+  const [hover, setHover] = useState<{ i: number; cx: number } | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const t = requestAnimationFrame(() => setMounted(true));
     return () => cancelAnimationFrame(t);
   }, []);
 
   const max = Math.max(1, ...data.map((d) => d.total));
-  const plotH = height - 52;
+  const valueH = 18;
+  const labelH = 20;
+  const gap = 6;
+  const plotH = Math.max(48, height - valueH - labelH - gap * 2);
+
+  const trackHover = (i: number, el: HTMLElement) => {
+    const root = rootRef.current;
+    if (!root) return;
+    const r = el.getBoundingClientRect();
+    const rr = root.getBoundingClientRect();
+    setHover({ i, cx: r.left - rr.left + r.width / 2 });
+  };
+
+  const hi = hover != null ? data[hover.i] : null;
+  const rootW = rootRef.current?.getBoundingClientRect().width ?? 0;
+  const tipW = 176;
+  const tipLeft = hover
+    ? Math.min(Math.max(hover.cx, tipW / 2 + 4), Math.max(tipW / 2 + 4, (rootW || hover.cx * 2) - tipW / 2 - 4))
+    : 0;
 
   return (
-    <div className="labor-chart" style={{ height }} dir="rtl" data-compact={compact || undefined}>
-      <div className="labor-chart-bars">
+    <div
+      ref={rootRef}
+      className="labor-chart"
+      style={{ height }}
+      dir="rtl"
+      data-compact={compact || undefined}
+      onPointerLeave={() => setHover(null)}
+    >
+      <div className="labor-chart-grid" style={{ top: valueH + gap, height: plotH }} aria-hidden>
+        <span className="labor-chart-gridline" style={{ bottom: plotH - 1 }} />
+        <span className="labor-chart-gridline" style={{ bottom: Math.round(plotH / 2) }} />
+        <span className="labor-chart-gridline labor-chart-gridline--base" style={{ bottom: 0 }} />
+        <span className="labor-chart-ymax">{formatValue(max)}</span>
+      </div>
+
+      <div className="labor-chart-bars" data-hovering={hover != null || undefined}>
         {data.map((d, i) => {
-          const totalH = (d.total / max) * plotH;
-          const hourlyH = d.total > 0 ? (d.hourly / d.total) * totalH : 0;
-          const topupH = d.total > 0 ? (d.topup / d.total) * totalH : 0;
-          const bonusH = d.total > 0 ? (d.bonus / d.total) * totalH : 0;
           const isToday = d.highlight || (todayISO && d.date === todayISO);
+          const segs = (
+            [
+              ["bonus", d.bonus],
+              ["topup", d.topup],
+              ["hourly", d.hourly],
+            ] as const
+          ).filter(([, v]) => v > 0);
+          const totalH = d.total > 0 ? Math.max(6, (d.total / max) * plotH) : 0;
+          const avail = Math.max(0, totalH - SEG_GAP * Math.max(0, segs.length - 1));
 
           return (
-            <div key={i} className="labor-chart-col group" data-today={isToday || undefined} data-empty={d.total <= 0 || undefined}>
-              <div className="labor-chart-value">{d.total > 0 ? formatValue(d.total) : ""}</div>
-              <div className="labor-chart-stack" style={{ height: plotH }}>
-                <div
-                  className="labor-chart-seg labor-chart-seg--bonus"
-                  style={{ height: mounted ? bonusH : 0 }}
-                  title={d.bonus > 0 ? `בונוס: ${formatCurrency(d.bonus)}` : undefined}
-                />
-                <div
-                  className="labor-chart-seg labor-chart-seg--topup"
-                  style={{ height: mounted ? topupH : 0 }}
-                  title={d.topup > 0 ? `השלמות: ${formatCurrency(d.topup)}` : undefined}
-                />
-                <div
-                  className="labor-chart-seg labor-chart-seg--hourly"
-                  style={{ height: mounted ? hourlyH : 0 }}
-                  title={d.hourly > 0 ? `שכר שעתי: ${formatCurrency(d.hourly)}` : undefined}
-                />
+            <div
+              key={i}
+              className="labor-chart-col"
+              data-today={isToday || undefined}
+              data-empty={d.total <= 0 || undefined}
+              data-hover={hover?.i === i || undefined}
+              onPointerEnter={(e) => trackHover(i, e.currentTarget)}
+              onPointerMove={(e) => trackHover(i, e.currentTarget)}
+            >
+              <div className="labor-chart-value" style={{ height: valueH }}>
+                {d.total > 0 ? formatValue(d.total) : ""}
               </div>
-              <div className="labor-chart-label">{d.label}</div>
+              <div className="labor-chart-stack" style={{ height: plotH }}>
+                {d.total > 0 ? (
+                  <div className="labor-chart-bar" style={{ height: mounted || reduce ? totalH : 0 }}>
+                    {segs.map(([key, v]) => (
+                      <div
+                        key={key}
+                        className={`labor-chart-seg labor-chart-seg--${key}`}
+                        style={{ height: (v / d.total) * avail }}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="labor-chart-nub" data-today={isToday || undefined} />
+                )}
+              </div>
+              <div className="labor-chart-label" style={{ height: labelH }}>
+                {d.label}
+              </div>
             </div>
           );
         })}
       </div>
+
+      {hi && (
+        <div className="labor-tip" style={{ left: tipLeft, width: tipW }}>
+          <div className="labor-tip-head">{tipHeading(hi)}</div>
+          <div className="labor-tip-total">{formatCurrency(hi.total)}</div>
+          <div className="labor-tip-rows">
+            {hi.total > 0 ? (
+              <>
+                {hi.hourly > 0 && <TipRow cls="hourly" label="שעתי" value={hi.hourly} />}
+                {hi.topup > 0 && <TipRow cls="topup" label="השלמה" value={hi.topup} />}
+                {hi.bonus > 0 && <TipRow cls="bonus" label="בונוס" value={hi.bonus} />}
+              </>
+            ) : (
+              <div className="labor-tip-empty">אין עלות שכר ביום זה</div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 function BreakdownPill({
   color,
+  tint,
   icon,
   label,
   value,
   pct,
 }: {
   color: string;
+  tint: string;
   icon: string;
   label: string;
   value: number;
@@ -158,7 +253,7 @@ function BreakdownPill({
   if (value <= 0 && pct <= 0) return null;
   return (
     <div className="labor-breakdown-pill">
-      <span className="labor-breakdown-pill-icon" style={{ background: color }}>
+      <span className="labor-breakdown-pill-icon" style={{ background: tint, color }}>
         <Icon name={icon} size={15} />
       </span>
       <div className="min-w-0 flex-1">
@@ -396,21 +491,24 @@ export function EmployeeCostPanel({
           {(hasBreakdownMix || displayBreakdown.topup > 0.5 || displayBreakdown.bonus > 0.5) && (
             <div className="labor-breakdown-grid">
               <BreakdownPill
-                color="var(--violet-bg)"
+                color="var(--labor-hourly)"
+                tint="var(--labor-hourly-bg)"
                 icon="schedule"
                 label="משכורות שעתיות"
                 value={displayBreakdown.hourly}
                 pct={(displayBreakdown.hourly / breakdownDenom) * 100}
               />
               <BreakdownPill
-                color="var(--labor-topup-bg)"
+                color="var(--labor-topup)"
+                tint="var(--labor-topup-bg)"
                 icon="trending_up"
                 label="השלמות (טיפים)"
                 value={displayBreakdown.topup}
                 pct={(displayBreakdown.topup / breakdownDenom) * 100}
               />
               <BreakdownPill
-                color="var(--labor-bonus-bg)"
+                color="var(--labor-bonus)"
+                tint="var(--labor-bonus-bg)"
                 icon="savings"
                 label="בונוס מקופה"
                 value={displayBreakdown.bonus}

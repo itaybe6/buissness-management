@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Button, Icon } from "@/components/ui";
 import {
   agreementsForEmployee,
   globalAgreements,
+  globalForm101Template,
   signatureOf,
   useCreateAgreement,
   useDeleteAgreement,
@@ -29,12 +30,12 @@ import {
 } from "./DocumentsUI";
 import { DocumentStatusTable, Form101OverviewTable } from "./StatusTables";
 import { OfficeReceiptsPanel } from "./OfficeReceiptsPanel";
-import { TAX_YEAR, type DocsMgmtCategory, type ManagerTab } from "./types";
+import { TAX_YEAR, FORM_101_BLANK_URL, type DocsMgmtCategory, type ManagerTab } from "./types";
 
 const ADD_LABELS: Record<DocsMgmtCategory, string> = {
   all: "הוסף",
   sexual_harassment: "העלאת הסכם",
-  form_101: "העלאת 101",
+  form_101: "טופס ריק 101",
   personal: "הסכם חדש",
 };
 
@@ -87,7 +88,7 @@ export function TemplatesPanel({
     } else {
       parts.push("לכל העובדים");
     }
-    if ((a.signature_fields?.length ?? 0) > 0) {
+    if (a.type !== "form_101" && (a.signature_fields?.length ?? 0) > 0) {
       parts.push(`${a.signature_fields.length} חתימות`);
     }
     return parts.join(" · ");
@@ -113,6 +114,11 @@ export function TemplatesPanel({
 
   function openAdd() {
     if (!canEdit) return;
+    if (category === "form_101") {
+      const existing = globalForm101Template(agreements);
+      setModal({ template: existing ?? null, variant: "form101" });
+      return;
+    }
     if (category === "all") {
       setModal({ template: null, variant: "personal" });
       return;
@@ -138,7 +144,11 @@ export function TemplatesPanel({
         onCategoryChange={setCategory}
         counts={counts}
         onAdd={canEdit ? openAdd : undefined}
-        addLabel={ADD_LABELS[category]}
+        addLabel={
+          category === "form_101" && globalForm101Template(agreements)
+            ? "עריכת טופס 101"
+            : ADD_LABELS[category]
+        }
       />
 
       <div className="docs-mgmt-list">
@@ -277,6 +287,28 @@ export function ManagerDocumentsView({
   }, [staff, staffSearch]);
   const globalFixed = useMemo(() => globalAgreements(agreements).filter((a) => a.type === "sexual_harassment"), [agreements]);
   const globalWork = useMemo(() => globalAgreements(agreements).find((a) => a.type === "work"), [agreements]);
+  const createAgreement = useCreateAgreement();
+  const globalForm101 = useMemo(() => globalForm101Template(agreements), [agreements]);
+  const seededForm101 = useRef(false);
+
+  useEffect(() => {
+    if (!canEdit || globalForm101 || seededForm101.current) return;
+    seededForm101.current = true;
+    void createAgreement
+      .mutateAsync({
+        business_id: businessId,
+        type: "form_101",
+        title: `טופס 101 (${TAX_YEAR})`,
+        content: "",
+        file_url: FORM_101_BLANK_URL,
+        signature_fields: [],
+        employee_id: null,
+        created_by: profileId,
+      })
+      .catch(() => {
+        seededForm101.current = false;
+      });
+  }, [businessId, canEdit, globalForm101, profileId, createAgreement]);
 
   const tabs: { key: ManagerTab; label: string; icon: string }[] = [
     ...(canReceipts ? [{ key: "receipts" as const, label: "חשבוניות וקבלות", icon: "receipt_long" }] : []),

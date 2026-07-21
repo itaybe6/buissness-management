@@ -23,6 +23,9 @@ export const TYPE_ACCENTS: Record<AgreementType, string> = {
 
 export const TAX_YEAR = new Date().getFullYear();
 
+/** Blank Form 101 PDF bundled for download when no business-specific template is uploaded. */
+export const FORM_101_BLANK_URL = "/tofes-101.pdf";
+
 export type ManagerTab = "status" | "form101" | "templates" | "receipts";
 
 export type DocsMgmtCategory = "all" | "sexual_harassment" | "form_101" | "personal";

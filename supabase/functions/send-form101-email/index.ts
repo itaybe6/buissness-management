@@ -57,7 +57,9 @@ Deno.serve(async (req) => {
 
     if (!agreement) return json({ error: "agreement not found" }, 404);
     if (agreement.type !== "form_101") return json({ error: "not_form_101" }, 400);
-    if (agreement.employee_id !== employee_id) return json({ error: "forbidden" }, 403);
+    if (agreement.employee_id && agreement.employee_id !== employee_id) {
+      return json({ error: "forbidden" }, 403);
+    }
 
     const { data: sig } = await admin
       .from("agreement_signatures")
