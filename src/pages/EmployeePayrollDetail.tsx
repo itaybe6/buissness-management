@@ -369,9 +369,9 @@ export function EmployeePayrollDetail() {
           </section>
         )}
 
-        {isPayrollManager && (
+        {isPayrollManager && editingAdjustments && (
           <PayrollAdjustmentsDialog
-            open={editingAdjustments}
+            open
             onClose={() => setEditingAdjustments(false)}
             businessId={businessId}
             employeeId={employee.id}

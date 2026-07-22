@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button, Field, Icon, Input } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/lib/auth";
@@ -11,25 +11,16 @@ export interface PayrollAdjustmentValues {
   differences: number;
 }
 
-export const EMPTY_ADJUSTMENTS: PayrollAdjustmentValues = {
-  monthlyBonus: 0,
-  advance: 0,
-  differences: 0,
-};
-
 type FieldKey = keyof PayrollAdjustmentValues;
 
-export const ADJUSTMENT_FIELDS: { key: FieldKey; label: string; hint: string; icon: string }[] = [
-  { key: "monthlyBonus", label: "בונוס חודשי", hint: "מתווסף לסה״כ לתשלום", icon: "card_giftcard" },
-  { key: "advance", label: "מפרעה", hint: "מנוכה מהסה״כ לתשלום", icon: "account_balance" },
-  { key: "differences", label: "הפרשים", hint: "תיקון לפני תשלום — זיכוי או חיוב", icon: "swap_vert" },
+const ADJUSTMENT_FIELDS: { key: FieldKey; label: string; icon: string }[] = [
+  { key: "monthlyBonus", label: "בונוס חודשי", icon: "card_giftcard" },
+  { key: "advance", label: "מפרעה", icon: "account_balance" },
+  { key: "differences", label: "הפרשים", icon: "swap_vert" },
 ];
 
-export function hasAnyAdjustment(v: PayrollAdjustmentValues): boolean {
-  return v.monthlyBonus !== 0 || v.advance !== 0 || v.differences !== 0;
-}
-
-export function adjustedTotal(grossPay: number, v: PayrollAdjustmentValues): number {
+/** Mirrors `withPayrollAdjustments` so the dialog preview matches the table. */
+function adjustedTotal(grossPay: number, v: PayrollAdjustmentValues): number {
   return grossPay + v.monthlyBonus + v.differences - Math.max(0, v.advance);
 }
 
@@ -124,25 +115,15 @@ export function PayrollAdjustmentsDialog({
   const { profile } = useAuth();
   const upsert = useUpsertPayrollMonthAdjustment(businessId);
 
-  const [drafts, setDrafts] = useState<Record<FieldKey, string>>({
-    monthlyBonus: "",
-    advance: "",
-    differences: "",
-  });
-  const [diffNegative, setDiffNegative] = useState(false);
+  // Seeded once on mount — both callers mount this only while it is open, so a
+  // background refetch can never wipe out what the manager is typing.
+  const [drafts, setDrafts] = useState<Record<FieldKey, string>>(() => ({
+    monthlyBonus: draftOf(values.monthlyBonus),
+    advance: draftOf(values.advance),
+    differences: draftOf(values.differences),
+  }));
+  const [diffNegative, setDiffNegative] = useState(values.differences < 0);
   const [error, setError] = useState<string | null>(null);
-
-  // Reset to the stored values every time the dialog is opened.
-  useEffect(() => {
-    if (!open) return;
-    setDrafts({
-      monthlyBonus: draftOf(values.monthlyBonus),
-      advance: draftOf(values.advance),
-      differences: draftOf(values.differences),
-    });
-    setDiffNegative(values.differences < 0);
-    setError(null);
-  }, [open, values.monthlyBonus, values.advance, values.differences]);
 
   const next: PayrollAdjustmentValues = {
     monthlyBonus: parseMagnitude(drafts.monthlyBonus),
