@@ -31,7 +31,7 @@ export function ResetPassword() {
       <div className="w-full max-w-[400px] rounded-[18px] border border-border bg-surface p-8 shadow-lg">
         <div className="mb-5 flex items-center gap-3">
           <div className="avatar-chip h-11 w-11 rounded-[12px]">
-            <Icon name="lock_reset" size={24} className="text-white" />
+            <Icon name="lock_reset" size={24} />
           </div>
           <div>
             <div className="text-[19px] font-extrabold">איפוס סיסמה</div>

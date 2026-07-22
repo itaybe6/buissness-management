@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
-import type { ShiftBonus, Tip, Fault } from "@/types/database";
+import type { ShiftBonus, Tip, Fault, PayrollMonthAdjustment } from "@/types/database";
 
 /** Tips within a month (yyyy-mm). */
 export function useTips(businessId: string | null, monthISO: string) {
@@ -171,4 +171,65 @@ export function useAddTip(businessId: string | null) {
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["tips", businessId] }),
   });
+}
+
+function monthPeriodDate(monthISO: string): string {
+  return `${monthISO}-01`;
+}
+
+/** All manual payroll adjustments for a month (yyyy-mm). */
+export function usePayrollMonthAdjustments(businessId: string | null, monthISO: string) {
+  return useQuery({
+    queryKey: ["payroll_month_adjustments", businessId, monthISO],
+    enabled: !!businessId,
+    queryFn: async (): Promise<PayrollMonthAdjustment[]> => {
+      const { data, error } = await supabase
+        .from("payroll_month_adjustments")
+        .select("*")
+        .eq("business_id", businessId)
+        .eq("period_month", monthPeriodDate(monthISO));
+      if (error) throw error;
+      return (data ?? []) as PayrollMonthAdjustment[];
+    },
+  });
+}
+
+export function useUpsertPayrollMonthAdjustment(businessId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      employee_id: string;
+      period_month: string;
+      monthly_bonus: number;
+      advance: number;
+      differences: number;
+      updated_by?: string | null;
+    }) => {
+      if (!businessId) throw new Error("missing business");
+      const { error } = await supabase.from("payroll_month_adjustments").upsert(
+        {
+          business_id: businessId,
+          employee_id: input.employee_id,
+          period_month: monthPeriodDate(input.period_month),
+          monthly_bonus: input.monthly_bonus,
+          advance: input.advance,
+          differences: input.differences,
+          updated_by: input.updated_by ?? null,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "business_id,employee_id,period_month" },
+      );
+      if (error) throw error;
+    },
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ["payroll_month_adjustments", businessId, vars.period_month] });
+    },
+  });
+}
+
+export function payrollAdjustmentForEmployee(
+  rows: PayrollMonthAdjustment[] | undefined,
+  employeeId: string,
+): PayrollMonthAdjustment | undefined {
+  return (rows ?? []).find((r) => r.employee_id === employeeId);
 }

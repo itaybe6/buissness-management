@@ -4,9 +4,25 @@ import { Modal } from "@/components/ui/Modal";
 import { useBusinessId } from "@/lib/db";
 import { useAuth } from "@/lib/auth";
 import { uploadAgreementBlob, uploadAgreementFile, useSignAgreement, notifyForm101Signed } from "@/api/agreements";
-import type { AgreementSignature, AgreementTemplate, AgreementType, Profile, SignatureField } from "@/types/database";
+import type {
+  AgreementSignature,
+  AgreementTemplate,
+  AgreementType,
+  FormFieldKind,
+  Profile,
+  SignatureField,
+} from "@/types/database";
 import { TYPE_LABELS, FORM_101_BLANK_URL } from "./types";
-import { buildSignedPdf, FieldEditorOverlay, FieldSignOverlay, PdfDocViewer, SignaturePadModal } from "./pdf";
+import {
+  buildSignedPdf,
+  FieldEditorOverlay,
+  FieldSignOverlay,
+  isFieldFilled,
+  kindOf,
+  PdfDocViewer,
+  SignaturePadModal,
+} from "./pdf";
+import { detectFormFields } from "./detectFields";
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
 
@@ -50,8 +66,38 @@ export function AgreementEditorModal({
   const [employeeId, setEmployeeId] = useState(template?.employee_id ?? "");
   const [fileUrl, setFileUrl] = useState(template?.file_url ?? "");
   const [fields, setFields] = useState<SignatureField[]>(template?.signature_fields ?? []);
+  const [tool, setTool] = useState<FormFieldKind>(isForm101 ? "text" : "signature");
   const [uploading, setUploading] = useState(false);
+  const [detecting, setDetecting] = useState(false);
+  const [detectNote, setDetectNote] = useState("");
   const [err, setErr] = useState("");
+
+  // Form 101 falls back to the blank form bundled with the app, so boxes can be
+  // placed even before the manager uploads a business-specific version.
+  const editorUrl = isForm101 ? fileUrl || FORM_101_BLANK_URL : fileUrl;
+  const textFields = fields.filter((f) => kindOf(f) === "text");
+  const signFields = fields.filter((f) => kindOf(f) === "signature");
+
+  async function autoDetect() {
+    if (!editorUrl || detecting) return;
+    if (fields.length > 0 && !confirm("הזיהוי האוטומטי יחליף את כל התיבות הקיימות. להמשיך?")) return;
+    setDetecting(true);
+    setErr("");
+    setDetectNote("");
+    try {
+      const found = await detectFormFields(editorUrl);
+      setFields(found);
+      setDetectNote(
+        found.length > 0
+          ? `זוהו ${found.length} תיבות. עברו עליהן — אפשר לגרור, למחוק ולהוסיף מה שחסר.`
+          : "לא זוהו תיבות במסמך הזה. סמנו אותן ידנית בגרירה."
+      );
+    } catch {
+      setErr("הזיהוי האוטומטי נכשל. אפשר לסמן את התיבות ידנית.");
+    } finally {
+      setDetecting(false);
+    }
+  }
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -77,7 +123,7 @@ export function AgreementEditorModal({
   const newTitle = isGlobalType ? "הסכם מניעת הטרדה מינית" : isForm101 ? "העלאת טופס 101" : "הסכם חדש";
   const editTitle = isGlobalType ? "עריכת הסכם הטרדה" : isForm101 ? "עריכת טופס 101" : "עריכת הסכם";
   const editorSubtitle = isForm101
-    ? "טופס ריק להורדה — העובדים ממלאים, חותמים וסורקים בעצמם"
+    ? "סימון תיבות מילוי על הטופס — העובדים מקלידים ישירות עליו"
     : "העלאת PDF וסימון מקומות החתימה";
 
   return (
@@ -101,8 +147,8 @@ export function AgreementEditorModal({
                 title: title.trim(),
                 type,
                 content: "",
-                file_url: fileUrl || null,
-                signature_fields: isForm101 ? [] : fields,
+                file_url: (isForm101 ? fileUrl || FORM_101_BLANK_URL : fileUrl) || null,
+                signature_fields: fields,
                 employee_id: isGlobalDoc ? null : employeeId || null,
               })
             }
@@ -124,7 +170,7 @@ export function AgreementEditorModal({
           <>
             <Field label="כותרת"><Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="טופס 101" /></Field>
             <div className="flex items-center gap-2 rounded-[11px] bg-surface-2 px-3 py-2.5 text-[12.5px] font-semibold text-text-2">
-              <Icon name="groups" size={18} /> טופס ריק אחד לכל העובדים — כל עובד מוריד, ממלא ידנית, חותם ומעלה סריקה.
+              <Icon name="groups" size={18} /> טופס אחד לכל העובדים — כל עובד ממלא אותו במקלדת ישירות במערכת וחותם דיגיטלית.
             </div>
           </>
         ) : (
@@ -154,23 +200,61 @@ export function AgreementEditorModal({
         </Field>
         {isForm101 && !fileUrl && (
           <p className="text-[12px] text-text-3">
-            אם לא תועלה גרסה מותאמת, העובדים יורידו את טופס 101 ברירת המחדל של המערכת.
+            אם לא תועלה גרסה מותאמת, תיבות המילוי ייסומנו על טופס 101 ברירת המחדל של המערכת.
           </p>
         )}
 
-        {fileUrl && !isForm101 && (
+        {editorUrl && (
           <div>
-            <div className="mb-2 flex items-center gap-2 rounded-[11px] bg-accent-tint px-3 py-2.5 text-[12.5px] font-semibold text-accent-2">
-              <Icon name="touch_app" size={18} />
-              גררו על המסמך כדי לסמן ריבוע חתימה. תיבה קיימת ניתן לגרור כדי לשנות מיקום, או למחוק ב-×.
-              {fields.length > 0 && <span className="mr-auto">· {fields.length} תיבות חתימה</span>}
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <span className="label-text">סוג התיבה שתסמנו:</span>
+              {(
+                [
+                  { key: "text", label: "תיבת טקסט", icon: "keyboard" },
+                  { key: "signature", label: "תיבת חתימה", icon: "draw" },
+                ] as const
+              ).map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setTool(t.key)}
+                  aria-pressed={tool === t.key}
+                  className={`inline-flex items-center gap-1.5 rounded-[10px] border px-2.5 py-1.5 text-[12.5px] font-bold transition-colors ${
+                    tool === t.key
+                      ? "border-accent-2 bg-accent-tint text-accent-2"
+                      : "border-border bg-surface-2 text-text-2"
+                  }`}
+                >
+                  <Icon name={t.icon} size={16} /> {t.label}
+                </button>
+              ))}
+              <span className="mr-auto text-[12px] font-semibold text-text-3">
+                {textFields.length} טקסט · {signFields.length} חתימה
+              </span>
             </div>
+            <div className="mb-2 flex flex-wrap items-center gap-2 rounded-[11px] bg-accent-tint px-3 py-2.5 text-[12.5px] font-semibold text-accent-2">
+              <Icon name="auto_fix_high" size={18} />
+              <span className="flex-1">
+                אפשר לזהות את תיבות הטופס אוטומטית, ואז לתקן ידנית — גררו לסימון תיבה חדשה, גררו תיבה קיימת כדי
+                להזיז, או מחקו ב-×.
+              </span>
+              <Button variant="secondary" loading={detecting} onClick={autoDetect}>
+                זיהוי אוטומטי
+              </Button>
+            </div>
+            {detectNote && (
+              <div className="mb-2 flex items-center gap-2 rounded-[11px] bg-success/10 px-3 py-2.5 text-[12.5px] font-semibold text-success">
+                <Icon name="check_circle" size={18} /> {detectNote}
+              </div>
+            )}
             <div className="max-h-[52vh] overflow-auto rounded-[12px] border border-border bg-surface-2 p-3">
               <PdfDocViewer
-                url={fileUrl}
+                url={editorUrl}
+                zoomable
                 renderOverlay={(pageIndex) => (
                   <FieldEditorOverlay
                     pageIndex={pageIndex}
+                    tool={tool}
                     fields={fields.filter((f) => f.page === pageIndex)}
                     onAdd={(f) => setFields((p) => [...p, { ...f, id: uid() }])}
                     onRemove={(id) => setFields((p) => p.filter((x) => x.id !== id))}
@@ -179,6 +263,32 @@ export function AgreementEditorModal({
                 )}
               />
             </div>
+            {textFields.length > 0 && (
+              <details className="mt-2 rounded-[12px] border border-border bg-surface-2 px-3 py-2">
+                <summary className="cursor-pointer text-[12.5px] font-bold text-text-2">
+                  שמות תיבות הטקסט ({textFields.length}) — אופציונלי
+                </summary>
+                <p className="mt-1 text-[11.5px] text-text-3">
+                  השם מוצג לעובד/ת כרמז בתוך התיבה הריקה, ואינו מודפס על הטופס.
+                </p>
+                <div className="mt-2 flex flex-col gap-1.5">
+                  {textFields.map((f, i) => (
+                    <div key={f.id} className="flex items-center gap-2">
+                      <span className="w-14 shrink-0 text-[11.5px] font-semibold text-text-3">
+                        #{i + 1} · ע׳{f.page + 1}
+                      </span>
+                      <Input
+                        value={f.label ?? ""}
+                        placeholder="למשל: שם משפחה"
+                        onChange={(e) =>
+                          setFields((p) => p.map((x) => (x.id === f.id ? { ...x, label: e.target.value } : x)))
+                        }
+                      />
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
           </div>
         )}
         {err && <p className="text-[12px] font-semibold text-danger">{err}</p>}
@@ -310,9 +420,12 @@ export function ReadSignModal({
   const sign = useSignAgreement(businessId);
   const alreadySigned = !!signature?.agreed;
   const fields = agreement.signature_fields ?? [];
-  const isPdfFlow = agreement.type !== "form_101" && !!agreement.file_url && fields.length > 0;
+  const isForm101 = agreement.type === "form_101";
+  // Form 101 with marked boxes is filled in place; without them it falls back
+  // to the legacy download-fill-scan-upload flow.
+  const isPdfFlow = !!agreement.file_url && fields.length > 0;
 
-  if (agreement.type === "form_101") {
+  if (isForm101 && !isPdfFlow) {
     return (
       <Form101UploadModal
         agreement={agreement}
@@ -378,14 +491,18 @@ function PdfSignModal({
   const businessId = useBusinessId();
   const sign = useSignAgreement(businessId);
   const fields = agreement.signature_fields ?? [];
-  const [sigs, setSigs] = useState<Record<string, string>>(signature?.field_signatures ?? {});
+  const [values, setValues] = useState<Record<string, string>>(signature?.field_signatures ?? {});
   const [padField, setPadField] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState("");
 
-  const allSigned = fields.every((f) => sigs[f.id]);
+  const signBoxes = fields.filter((f) => kindOf(f) === "signature");
+  const textBoxes = fields.filter((f) => kindOf(f) === "text");
+  const missingSignatures = signBoxes.filter((f) => !values[f.id]).length;
+  const filledText = textBoxes.filter((f) => values[f.id]?.trim()).length;
+  const ready = fields.every((f) => isFieldFilled(f, values));
   const viewUrl = alreadySigned && signature?.signed_file_url ? signature.signed_file_url : agreement.file_url!;
-  const overlaySigs = alreadySigned ? signature?.field_signatures ?? {} : sigs;
+  const overlayValues = alreadySigned ? signature?.field_signatures ?? {} : values;
   const signingAllowed = canSign && !alreadySigned;
 
   async function submit() {
@@ -393,16 +510,17 @@ function PdfSignModal({
     setSubmitting(true);
     setErr("");
     try {
-      const blob = await buildSignedPdf(agreement.file_url!, fields, sigs);
+      const blob = await buildSignedPdf(agreement.file_url!, fields, values);
       const signedUrl = await uploadAgreementBlob(businessId!, blob);
       await sign.mutateAsync({
         business_id: businessId!,
         agreement_id: agreement.id,
         employee_id: employeeId,
-        signature_data: sigs[fields[0].id] ?? "",
-        field_signatures: sigs,
+        signature_data: signBoxes.length > 0 ? values[signBoxes[0].id] ?? "" : "",
+        field_signatures: values,
         signed_file_url: signedUrl,
       });
+      if (agreement.type === "form_101") await notifyForm101Signed(agreement.id, employeeId);
       onClose();
     } catch {
       setErr("שגיאה בשמירת המסמך החתום. נסו שוב.");
@@ -417,7 +535,13 @@ function PdfSignModal({
         onClose={onClose}
         title={agreement.title}
         subtitle={
-          alreadySigned ? "המסמך נחתם" : canSign ? "לחצו על כל תיבה כדי לחתום" : "צפייה במסמך — ממתין לחתימת העובד"
+          alreadySigned
+            ? "המסמך נחתם"
+            : !canSign
+              ? "צפייה במסמך — ממתין לחתימת העובד"
+              : textBoxes.length > 0
+                ? "הקלידו ישירות על הטופס ולחצו על תיבות החתימה"
+                : "לחצו על כל תיבה כדי לחתום"
         }
         icon="draw"
         maxWidth={840}
@@ -425,7 +549,7 @@ function PdfSignModal({
           signingAllowed ? (
             <>
               <Button variant="secondary" onClick={onClose}>ביטול</Button>
-              <Button className="flex-1" disabled={!allSigned} loading={submitting} onClick={submit}>
+              <Button className="flex-1" disabled={!ready} loading={submitting} onClick={submit}>
                 שמירה וחתימה
               </Button>
             </>
@@ -445,8 +569,17 @@ function PdfSignModal({
           </a>
         )}
         {signingAllowed && (
-          <div className="mb-3 flex items-center gap-2 rounded-[11px] bg-accent-tint px-3 py-2.5 text-[12.5px] font-semibold text-accent-2">
-            <Icon name="info" size={18} /> נותרו {fields.length - Object.keys(sigs).filter((k) => sigs[k]).length} תיבות לחתימה
+          <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-[11px] bg-accent-tint px-3 py-2.5 text-[12.5px] font-semibold text-accent-2">
+            <span className="flex items-center gap-1.5">
+              <Icon name="info" size={18} />
+              {missingSignatures > 0 ? `נותרו ${missingSignatures} תיבות לחתימה` : "כל החתימות הושלמו"}
+            </span>
+            {textBoxes.length > 0 && (
+              <span className="flex items-center gap-1.5">
+                <Icon name="keyboard" size={18} />
+                מולאו {filledText} מתוך {textBoxes.length} שדות טקסט
+              </span>
+            )}
           </div>
         )}
         {!canSign && !alreadySigned && (
@@ -457,14 +590,17 @@ function PdfSignModal({
         <div className="max-h-[58vh] overflow-auto rounded-[12px] border border-border bg-surface-2 p-3">
           <PdfDocViewer
             url={viewUrl}
-            renderOverlay={(pageIndex) =>
+            zoomable={signingAllowed}
+            renderOverlay={(pageIndex, dims) =>
               signingAllowed ? (
                 <FieldSignOverlay
                   pageIndex={pageIndex}
                   fields={fields}
-                  signatures={overlaySigs}
+                  signatures={overlayValues}
+                  dims={dims}
                   readonly={false}
                   onTap={(fid) => setPadField(fid)}
+                  onText={(fid, v) => setValues((p) => ({ ...p, [fid]: v }))}
                 />
               ) : null
             }
@@ -476,7 +612,7 @@ function PdfSignModal({
         <SignaturePadModal
           onClose={() => setPadField(null)}
           onSave={(dataUrl) => {
-            setSigs((p) => ({ ...p, [padField]: dataUrl }));
+            setValues((p) => ({ ...p, [padField]: dataUrl }));
             setPadField(null);
           }}
         />

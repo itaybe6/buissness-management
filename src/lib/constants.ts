@@ -1,3 +1,4 @@
+import { FEATURE_MODULES, featureStateForPlan } from "@/lib/features";
 import type { FeatureKey, UserRole, WageType } from "@/types/database";
 
 /** Fixed geofence radius for attendance clock-in (meters). */
@@ -59,6 +60,13 @@ export const DOCUMENTS_EDIT_ROLES: UserRole[] = ["manager", "shift_manager"];
 /** Roles that can upload and manage office receipts/invoices. */
 export const OFFICE_RECEIPTS_ROLES: UserRole[] = ["manager", "office_manager"];
 
+/** Roles that can see and edit inventory item unit prices. */
+export const INVENTORY_PRICE_ROLES: UserRole[] = ["manager", "office_manager"];
+
+export function canSeeInventoryPrices(role: UserRole | string | null | undefined): boolean {
+  return !!role && INVENTORY_PRICE_ROLES.includes(role as UserRole);
+}
+
 /** Roles that can build/edit the work schedule and view all departments' schedules. */
 export const SCHEDULER_ROLES: UserRole[] = ["manager", "shift_manager"];
 
@@ -75,18 +83,13 @@ export const TASK_CREATE_ROLES: UserRole[] = ["manager"];
 /** Without a department assignment, these roles still see all daily checklist templates. */
 export const DAILY_CHECKLIST_ALL_DEPT_ROLES: UserRole[] = ["manager", "shift_manager", "office_manager"];
 
-export const ALL_FEATURES: { key: FeatureKey; label: string; icon: string; desc: string }[] = [
-  { key: "agreements", label: "הסכמים וחתימה דיגיטלית", icon: "draw", desc: "העלאת הסכמים לחתימה דיגיטלית של העובדים" },
-  { key: "shifts", label: "הגשת משמרות וסידור", icon: "calendar_month", desc: "אילוצים שבועיים ובניית סידור עבודה" },
-  { key: "shift_reports", label: "דוח סגירת משמרת", icon: "receipt_long", desc: "סיכום משמרת, חשבוניות, סגירת קופה וטיפים" },
-  { key: "payroll", label: "חישוב שכר וטיפים", icon: "payments", desc: "שכר שעתי, טיפים וחישוב אוטומטי" },
-  { key: "attendance", label: "שעון נוכחות", icon: "schedule", desc: "החתמת כניסה/יציאה מבוססת מיקום" },
-  { key: "inventory", label: "סחורות וניהול מלאי", icon: "inventory_2", desc: "ניהול מלאי והזמנת סחורה לפי צורך" },
-  { key: "waste", label: "בלאי", icon: "delete_sweep", desc: "דיווח על בלאי מוצרים והפחתה אוטומטית מהמלאי" },
-  { key: "faults", label: "דיווח תקלות", icon: "build", desc: "דיווח תקלות עם צילום ומעקב סטטוס" },
-  { key: "events", label: "אירועים", icon: "celebration", desc: "ניהול אירועים פרטיים והזמנות קבוצתיות" },
-  { key: "tasks", label: "משימות", icon: "checklist", desc: "משימות חד-פעמיות וקבועות בהיררכיה" },
-];
+/**
+ * Flat module list for legacy call sites. The catalog itself — domains,
+ * dependencies and subscription plans — lives in `@/lib/features`.
+ */
+export const ALL_FEATURES: { key: FeatureKey; label: string; icon: string; desc: string }[] = FEATURE_MODULES.map(
+  ({ key, label, icon, desc }) => ({ key, label, icon, desc }),
+);
 
 /** Sidebar section ids — order is defined by NAV_GROUP_ORDER. */
 export type NavGroupId = "overview" | "platform" | "team" | "shifts" | "ops" | "settings";
@@ -175,6 +178,7 @@ export const NAV_ITEMS: NavItem[] = [
 
   { key: "tasks", label: "משימות", icon: "checklist", group: "ops", roles: ["manager", "shift_manager", "office_manager"], feature: "tasks" },
   { key: "inventory", label: "סחורות", icon: "inventory_2", group: "ops", roles: ["manager", "shift_manager", "office_manager", "employee"], feature: "inventory" },
+  { key: "suppliers", label: "ספקים", icon: "local_shipping", group: "ops", roles: ["manager", "office_manager"], feature: "inventory" },
   { key: "faults", label: "תקלות", icon: "build", group: "ops", roles: ["manager", "shift_manager", "employee"], feature: "faults" },
   { key: "events", label: "אירועים", icon: "celebration", group: "ops", roles: ["manager", "event_manager", "shift_manager", "office_manager", "employee"], feature: "events" },
 
@@ -190,16 +194,5 @@ export function getHomePath(role: UserRole): string {
   return "/dashboard";
 }
 
-/** Default feature set when creating a new business. */
-export const DEFAULT_FEATURE_STATE: Record<FeatureKey, boolean> = {
-  agreements: true,
-  shifts: true,
-  shift_reports: true,
-  payroll: true,
-  attendance: true,
-  inventory: true,
-  waste: true,
-  faults: true,
-  events: false,
-  tasks: true,
-};
+/** Default feature set when creating a new business — the "growth" plan. */
+export const DEFAULT_FEATURE_STATE: Record<FeatureKey, boolean> = featureStateForPlan("growth");

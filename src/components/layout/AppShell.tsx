@@ -125,7 +125,7 @@ export function AppShell() {
         <div className="flex items-center justify-between gap-3 px-[18px] pb-4 pt-5">
           <div className="flex min-w-0 items-center gap-3">
             <div className="avatar-chip h-[38px] w-[38px] rounded-[11px]">
-              <Icon name="hub" size={22} className="text-white" />
+              <Icon name="hub" size={22} />
             </div>
             <div className="min-w-0">
               <div className="truncate text-[16px] font-extrabold tracking-tight text-white">
@@ -163,7 +163,7 @@ export function AppShell() {
               />
             ) : (
               <span className="grid h-[30px] w-[30px] flex-none place-items-center rounded-[8px] avatar-chip">
-                <Icon name={isSuperAdmin ? "apps" : "storefront"} size={18} className="text-white" />
+                <Icon name={isSuperAdmin ? "apps" : "storefront"} size={18} />
               </span>
             )}
             <div className="min-w-0 flex-1">

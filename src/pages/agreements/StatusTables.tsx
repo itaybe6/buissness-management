@@ -257,7 +257,12 @@ export function Form101OverviewTable({
 }) {
   const globalTemplate = useMemo(() => globalForm101Template(agreements), [agreements]);
 
-  const note = `שנת מס ${taxYear} · העובדים מורידים את הטופס, ממלאים וחותמים ידנית, ומעלים סריקה`;
+  // With marked boxes the employees type straight onto the form; without them
+  // the template still works the old way — download, fill by hand, upload a scan.
+  const fillable = (globalTemplate?.signature_fields?.length ?? 0) > 0;
+  const note = fillable
+    ? `שנת מס ${taxYear} · העובדים ממלאים את הטופס במקלדת ישירות במערכת וחותמים דיגיטלית`
+    : `שנת מס ${taxYear} · העובדים מורידים את הטופס, ממלאים וחותמים ידנית, ומעלים סריקה`;
 
   function rowOf(empId: string) {
     const template = globalTemplate;
@@ -267,15 +272,17 @@ export function Form101OverviewTable({
     const link = done && sig?.signed_file_url
       ? { href: sig.signed_file_url, icon: "visibility" as const, label: "צפייה ב-PDF" }
       : template
-        ? { href: blankUrl, icon: "download" as const, label: "הורדת טופס ריק" }
+        ? fillable
+          ? { href: blankUrl, icon: "visibility" as const, label: "צפייה בטופס" }
+          : { href: blankUrl, icon: "download" as const, label: "הורדת טופס ריק" }
         : null;
     return { template, done, link };
   }
 
   function statusBadge(template: AgreementTemplate | undefined, done: boolean) {
     if (!template) return <Badge tone="neutral">לא הוגדר</Badge>;
-    if (done) return <Badge tone="success">הועלה</Badge>;
-    return <Badge tone="warning">ממתין להעלאה</Badge>;
+    if (done) return <Badge tone="success">{fillable ? "מולא ונחתם" : "הועלה"}</Badge>;
+    return <Badge tone="warning">{fillable ? "ממתין למילוי" : "ממתין להעלאה"}</Badge>;
   }
 
   return (

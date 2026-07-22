@@ -75,7 +75,7 @@ export function Modal({
               <div className="flex items-center gap-3">
                 {icon && (
                   <span className="avatar-chip h-10 w-10 rounded-[11px]">
-                    <Icon name={icon} size={23} className="text-white" />
+                    <Icon name={icon} size={23} />
                   </span>
                 )}
                 <div>

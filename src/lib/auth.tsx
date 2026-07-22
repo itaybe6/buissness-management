@@ -84,25 +84,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<AuthContextValue>(() => {
+    // The super admin has no business_id — the module switches don't apply to them.
+    // Everyone inside a business, managers included, is limited to what the super
+    // admin enabled in business_features.
     const isSuperAdmin = profile?.role === "super_admin";
-    const isBusinessManager = profile?.role === "manager" && !!profile.business_id;
     return {
       session,
       profile,
       features,
       loading,
-      hasFeature: (key: FeatureKey) => {
-        if (isSuperAdmin || isBusinessManager) return true;
-        if (features.has(key)) return true;
-        if (
-          key === "attendance" &&
-          profile &&
-          ["employee", "shift_manager"].includes(profile.role)
-        ) {
-          return true;
-        }
-        return false;
-      },
+      hasFeature: (key: FeatureKey) => isSuperAdmin || features.has(key),
       signIn: async (email, password) => {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         return { error: error ? translateAuthError(error.message) : null };

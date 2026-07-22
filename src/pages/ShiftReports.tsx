@@ -779,7 +779,7 @@ function ReportEditorShell({
         </div>
         {icon && (
           <span className="avatar-chip hidden h-10 w-10 shrink-0 rounded-[11px] sm:grid">
-            <Icon name={icon} size={23} className="text-white" />
+            <Icon name={icon} size={23} />
           </span>
         )}
       </header>

@@ -88,9 +88,8 @@ export function TemplatesPanel({
     } else {
       parts.push("לכל העובדים");
     }
-    if (a.type !== "form_101" && (a.signature_fields?.length ?? 0) > 0) {
-      parts.push(`${a.signature_fields.length} חתימות`);
-    }
+    const boxes = a.signature_fields?.length ?? 0;
+    if (boxes > 0) parts.push(`${boxes} תיבות מילוי`);
     return parts.join(" · ");
   }
 
@@ -288,8 +287,11 @@ export function ManagerDocumentsView({
   const globalFixed = useMemo(() => globalAgreements(agreements).filter((a) => a.type === "sexual_harassment"), [agreements]);
   const globalWork = useMemo(() => globalAgreements(agreements).find((a) => a.type === "work"), [agreements]);
   const createAgreement = useCreateAgreement();
+  const updateAgreement = useUpdateAgreement(businessId);
   const globalForm101 = useMemo(() => globalForm101Template(agreements), [agreements]);
   const seededForm101 = useRef(false);
+  const [editForm101, setEditForm101] = useState(false);
+  const form101Boxes = globalForm101?.signature_fields?.length ?? 0;
 
   useEffect(() => {
     if (!canEdit || globalForm101 || seededForm101.current) return;
@@ -338,10 +340,45 @@ export function ManagerDocumentsView({
           {tab === "status" && (
             <DocumentStatusTable staff={visibleStaff} signatures={signatures ?? []} globalFixed={globalFixed} globalWork={globalWork} agreements={agreements} taxYear={TAX_YEAR} />
           )}
-          {tab === "form101" && <Form101OverviewTable staff={visibleStaff} agreements={agreements} signatures={signatures ?? []} taxYear={TAX_YEAR} />}
+          {tab === "form101" && (
+            <>
+              {canEdit && globalForm101 && (
+                <div className="form101-setup">
+                  <Icon name={form101Boxes > 0 ? "check_circle" : "edit_document"} size={20} />
+                  <div className="form101-setup__text">
+                    <span className="form101-setup__title">
+                      {form101Boxes > 0 ? "מילוי במקלדת פעיל" : "מילוי במקלדת — עוד לא הוגדר"}
+                    </span>
+                    <span className="form101-setup__sub">
+                      {form101Boxes > 0
+                        ? `${form101Boxes} תיבות מסומנות על הטופס. העובדים מקלידים ישירות עליו וחותמים דיגיטלית.`
+                        : "סמנו על הטופס איפה כל פרט נכתב, וכל העובדים ימלאו אותו במקלדת במקום להדפיס ולסרוק."}
+                    </span>
+                  </div>
+                  <Button variant="secondary" onClick={() => setEditForm101(true)}>
+                    {form101Boxes > 0 ? "עריכת התיבות" : "סימון תיבות מילוי"}
+                  </Button>
+                </div>
+              )}
+              <Form101OverviewTable staff={visibleStaff} agreements={agreements} signatures={signatures ?? []} taxYear={TAX_YEAR} />
+            </>
+          )}
         </>
       )}
       {tab === "templates" && <TemplatesPanel businessId={businessId} agreements={agreements} employees={staff} canEdit={canEdit} profileId={profileId} />}
+      {editForm101 && globalForm101 && (
+        <AgreementEditorModal
+          template={globalForm101}
+          employees={staff}
+          variant="form101"
+          saving={updateAgreement.isPending}
+          onClose={() => setEditForm101(false)}
+          onSave={async (input) => {
+            await updateAgreement.mutateAsync({ id: globalForm101.id, ...input });
+            setEditForm101(false);
+          }}
+        />
+      )}
     </>
   );
 }

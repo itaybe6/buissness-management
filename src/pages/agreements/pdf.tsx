@@ -4,9 +4,16 @@ import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { PDFDocument } from "pdf-lib";
 import { Button, Icon, InlineLoader } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
-import type { SignatureField } from "@/types/database";
+import type { FormFieldKind, SignatureField } from "@/types/database";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
+
+/** Boxes with no explicit kind predate typed fields — they were all signatures. */
+export const kindOf = (f: SignatureField): FormFieldKind => f.kind ?? "signature";
+
+/** Only signature boxes block submission; typed boxes are often conditional (spouse, children...). */
+export const isFieldFilled = (f: SignatureField, values: Record<string, string>) =>
+  kindOf(f) === "text" ? true : !!values[f.id];
 
 /** Rendered (CSS pixel) size of a single PDF page. */
 export interface PageDims {
@@ -115,16 +122,20 @@ export function PdfDocViewer({
   url,
   renderOverlay,
   maxWidth = 720,
+  zoomable,
 }: {
   url: string;
   renderOverlay?: (pageIndex: number, dims: PageDims) => ReactNode;
   maxWidth?: number;
+  /** show zoom controls — needed when small boxes must be filled on a phone */
+  zoomable?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const containerWidth = useContainerWidth(containerRef);
   const [doc, setDoc] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
   const [numPages, setNumPages] = useState(0);
   const [error, setError] = useState(false);
+  const [zoom, setZoom] = useState(1);
 
   useEffect(() => {
     let cancelled = false;
@@ -146,21 +157,48 @@ export function PdfDocViewer({
     };
   }, [url]);
 
-  const width = Math.min(containerWidth || maxWidth, maxWidth);
+  const width = Math.min(containerWidth || maxWidth, maxWidth) * zoom;
 
   return (
-    <div ref={containerRef} className="flex flex-col items-center gap-3">
-      {error && (
-        <div className="flex items-center gap-2 rounded-[11px] bg-danger/10 px-3 py-2.5 text-[13px] font-semibold text-danger">
-          <Icon name="error" size={18} /> שגיאה בטעינת ה-PDF
+    // outer div measures the available width; the inner column may grow past it
+    // when zoomed in, letting the scroll container pan across the page
+    <div ref={containerRef} className="w-full">
+      {zoomable && doc && (
+        <div className="sticky top-0 z-10 mb-2 ml-auto flex w-fit items-center gap-1 rounded-full border border-border bg-surface/95 px-1.5 py-1 shadow-sm backdrop-blur">
+          <button
+            type="button"
+            onClick={() => setZoom((z) => Math.max(1, +(z - 0.25).toFixed(2)))}
+            disabled={zoom <= 1}
+            className="grid h-7 w-7 place-items-center rounded-full text-text-2 disabled:opacity-40"
+            aria-label="הקטנה"
+          >
+            <Icon name="zoom_out" size={18} />
+          </button>
+          <span className="min-w-[38px] text-center text-[12px] font-bold text-text-2">{Math.round(zoom * 100)}%</span>
+          <button
+            type="button"
+            onClick={() => setZoom((z) => Math.min(3, +(z + 0.25).toFixed(2)))}
+            disabled={zoom >= 3}
+            className="grid h-7 w-7 place-items-center rounded-full text-text-2 disabled:opacity-40"
+            aria-label="הגדלה"
+          >
+            <Icon name="zoom_in" size={18} />
+          </button>
         </div>
       )}
-      {!doc && !error && <InlineLoader label="טוען מסמך..." />}
-      {doc &&
-        width > 0 &&
-        Array.from({ length: numPages }).map((_, i) => (
-          <PdfPage key={i} doc={doc} pageIndex={i} width={width} renderOverlay={renderOverlay} />
-        ))}
+      <div className="mx-auto flex w-fit min-w-full flex-col items-center gap-3">
+        {error && (
+          <div className="flex items-center gap-2 rounded-[11px] bg-danger/10 px-3 py-2.5 text-[13px] font-semibold text-danger">
+            <Icon name="error" size={18} /> שגיאה בטעינת ה-PDF
+          </div>
+        )}
+        {!doc && !error && <InlineLoader label="טוען מסמך..." />}
+        {doc &&
+          width > 0 &&
+          Array.from({ length: numPages }).map((_, i) => (
+            <PdfPage key={i} doc={doc} pageIndex={i} width={width} renderOverlay={renderOverlay} />
+          ))}
+      </div>
     </div>
   );
 }
@@ -219,19 +257,22 @@ function PdfPage({
 }
 
 /**
- * Manager overlay: drag on empty space to draw a new signature box; drag an
- * existing box to move it; click × to remove. Coordinates handed to callbacks
- * are normalized (0..1) to the page size.
+ * Manager overlay: drag on empty space to draw a new box of the active `tool`;
+ * drag an existing box to move it; click × to remove. Coordinates handed to
+ * callbacks are normalized (0..1) to the page size.
  */
 export function FieldEditorOverlay({
   pageIndex,
   fields,
+  tool = "signature",
   onAdd,
   onRemove,
   onMove,
 }: {
   pageIndex: number;
   fields: SignatureField[];
+  /** which kind of box a new drag creates */
+  tool?: FormFieldKind;
   onAdd: (f: Omit<SignatureField, "id">) => void;
   onRemove: (id: string) => void;
   onMove?: (id: string, x: number, y: number) => void;
@@ -289,8 +330,11 @@ export function FieldEditorOverlay({
       dragging.current = null;
       return;
     }
-    if (draft && draft.w > 0.03 && draft.h > 0.015) {
-      onAdd({ page: pageIndex, x: draft.x, y: draft.y, w: draft.w, h: draft.h });
+    // text boxes trace thin printed lines, so they need a lower size floor
+    const minW = tool === "text" ? 0.015 : 0.03;
+    const minH = tool === "text" ? 0.007 : 0.015;
+    if (draft && draft.w > minW && draft.h > minH) {
+      onAdd({ page: pageIndex, x: draft.x, y: draft.y, w: draft.w, h: draft.h, kind: tool });
     }
     start.current = null;
     setDraft(null);
@@ -305,31 +349,40 @@ export function FieldEditorOverlay({
       onPointerCancel={up}
       className="absolute inset-0 cursor-crosshair touch-none"
     >
-      {fields.map((f) => (
-        <div
-          key={f.id}
-          data-field={f.id}
-          className="absolute cursor-move rounded-[4px] border-2 border-dashed border-accent-2 bg-accent-2/10"
-          style={{ left: `${f.x * 100}%`, top: `${f.y * 100}%`, width: `${f.w * 100}%`, height: `${f.h * 100}%` }}
-        >
-          <button
-            type="button"
-            data-handle="1"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => onRemove(f.id)}
-            className="absolute -right-2.5 -top-2.5 grid h-5 w-5 place-items-center rounded-full bg-danger text-white shadow"
-            aria-label="הסר תיבת חתימה"
+      {fields.map((f) => {
+        const text = kindOf(f) === "text";
+        return (
+          <div
+            key={f.id}
+            data-field={f.id}
+            className={`absolute cursor-move rounded-[4px] border-2 border-dashed ${
+              text ? "border-info bg-info/10" : "border-accent-2 bg-accent-2/10"
+            }`}
+            style={{ left: `${f.x * 100}%`, top: `${f.y * 100}%`, width: `${f.w * 100}%`, height: `${f.h * 100}%` }}
           >
-            <Icon name="close" size={13} />
-          </button>
-          <span className="pointer-events-none absolute inset-0 grid place-items-center text-[11px] font-bold text-accent-2">
-            חתימה
-          </span>
-        </div>
-      ))}
+            <button
+              type="button"
+              data-handle="1"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => onRemove(f.id)}
+              className="absolute -right-2 -top-2 grid h-[18px] w-[18px] place-items-center rounded-full bg-danger text-white shadow"
+              aria-label={text ? "הסר תיבת טקסט" : "הסר תיבת חתימה"}
+            >
+              <Icon name="close" size={12} />
+            </button>
+            <span
+              className={`pointer-events-none absolute inset-0 grid place-items-center overflow-hidden text-[10px] font-bold ${
+                text ? "text-info" : "text-accent-2"
+              }`}
+            >
+              {text ? f.label || "טקסט" : "חתימה"}
+            </span>
+          </div>
+        );
+      })}
       {draft && (
         <div
-          className="absolute rounded-[4px] border-2 border-accent-2 bg-accent-2/15"
+          className={`absolute rounded-[4px] border-2 ${tool === "text" ? "border-info bg-info/15" : "border-accent-2 bg-accent-2/15"}`}
           style={{ left: `${draft.x * 100}%`, top: `${draft.y * 100}%`, width: `${draft.w * 100}%`, height: `${draft.h * 100}%` }}
         />
       )}
@@ -337,21 +390,33 @@ export function FieldEditorOverlay({
   );
 }
 
+/** Share of the box height a typed value occupies — kept identical on screen and in the PDF. */
+const TEXT_FILL_RATIO = 0.68;
+const TEXT_COLOR = "#10214a";
+const TEXT_FONT = (px: number) => `600 ${px}px "Heebo", system-ui, sans-serif`;
+
 /**
- * Employee overlay: each signature box is tappable to open a signature pad;
- * once signed, the captured image is shown inside the box.
+ * Employee overlay: signature boxes are tappable to open a signature pad, and
+ * text boxes are typed into directly on top of the document — no printing,
+ * no scanning, no handwriting to decipher.
  */
 export function FieldSignOverlay({
   pageIndex,
   fields,
   signatures,
+  dims,
   onTap,
+  onText,
   readonly,
 }: {
   pageIndex: number;
   fields: SignatureField[];
+  /** field id -> PNG dataURL (signature) or typed string (text) */
   signatures: Record<string, string>;
+  /** rendered page size, used to scale typed text to the document */
+  dims?: PageDims;
   onTap?: (fieldId: string) => void;
+  onText?: (fieldId: string, value: string) => void;
   readonly?: boolean;
 }) {
   return (
@@ -359,7 +424,38 @@ export function FieldSignOverlay({
       {fields
         .filter((f) => f.page === pageIndex)
         .map((f) => {
-          const img = signatures[f.id];
+          const value = signatures[f.id] ?? "";
+          const box = {
+            left: `${f.x * 100}%`,
+            top: `${f.y * 100}%`,
+            width: `${f.w * 100}%`,
+            height: `${f.h * 100}%`,
+          };
+
+          if (kindOf(f) === "text") {
+            const fontSize = Math.max(7, (dims?.height ?? 900) * f.h * TEXT_FILL_RATIO);
+            return (
+              <input
+                key={f.id}
+                type="text"
+                dir="auto"
+                value={value}
+                readOnly={readonly}
+                placeholder={readonly ? "" : f.label || ""}
+                onChange={(e) => onText?.(f.id, e.target.value)}
+                title={f.label || undefined}
+                className={`absolute rounded-[3px] border bg-white/70 px-1 text-center font-semibold outline-none transition-colors placeholder:font-normal placeholder:text-text-3/70 ${
+                  readonly
+                    ? "border-transparent bg-transparent"
+                    : value
+                      ? "border-success/60 bg-success/5"
+                      : "border-dashed border-info/70 focus:border-info focus:bg-info/5"
+                }`}
+                style={{ ...box, fontSize, lineHeight: 1, color: TEXT_COLOR }}
+              />
+            );
+          }
+
           return (
             <button
               key={f.id}
@@ -367,12 +463,12 @@ export function FieldSignOverlay({
               disabled={readonly}
               onClick={() => onTap?.(f.id)}
               className={`absolute flex items-center justify-center rounded-[4px] border-2 ${
-                img ? "border-success bg-success/5" : "border-dashed border-accent-2 bg-accent-2/10 animate-pulse"
+                value ? "border-success bg-success/5" : "border-dashed border-accent-2 bg-accent-2/10 animate-pulse"
               } ${readonly ? "cursor-default" : "cursor-pointer"}`}
-              style={{ left: `${f.x * 100}%`, top: `${f.y * 100}%`, width: `${f.w * 100}%`, height: `${f.h * 100}%` }}
+              style={box}
             >
-              {img ? (
-                <img src={img} alt="חתימה" className="h-full w-full object-contain p-0.5" />
+              {value ? (
+                <img src={value} alt="חתימה" className="h-full w-full object-contain p-0.5" />
               ) : (
                 <span className="flex items-center gap-1 px-1 text-[11px] font-bold text-accent-2">
                   <Icon name="draw" size={14} /> לחתימה
@@ -467,21 +563,53 @@ export function SignaturePadModal({ onClose, onSave }: { onClose: () => void; on
   );
 }
 
-/** Flatten signatures onto the original PDF and return the signed PDF as a Blob. */
+/**
+ * Rasterize typed text to a transparent PNG sized to the box. Going through
+ * canvas rather than pdf-lib's text API keeps Hebrew shaping and RTL ordering
+ * correct without embedding a Hebrew font in every generated document.
+ */
+function textToPng(text: string, boxWidthPt: number, boxHeightPt: number): string {
+  const scale = 4; // supersample so the flattened text stays crisp when printed
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(boxWidthPt * scale));
+  canvas.height = Math.max(1, Math.round(boxHeightPt * scale));
+  const ctx = canvas.getContext("2d")!;
+  const maxWidth = canvas.width * 0.94;
+
+  let size = boxHeightPt * TEXT_FILL_RATIO * scale;
+  ctx.font = TEXT_FONT(size);
+  // shrink long values until they fit the box instead of overflowing the form
+  for (let i = 0; i < 8; i++) {
+    const w = ctx.measureText(text).width;
+    if (w <= maxWidth || size <= 4) break;
+    size = Math.max(4, size * Math.max(0.7, maxWidth / w));
+    ctx.font = TEXT_FONT(size);
+  }
+
+  ctx.fillStyle = TEXT_COLOR;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, canvas.width / 2, canvas.height / 2, maxWidth);
+  return canvas.toDataURL("image/png");
+}
+
+/** Flatten signatures and typed text onto the original PDF and return it as a Blob. */
 export async function buildSignedPdf(
   url: string,
   fields: SignatureField[],
-  fieldSignatures: Record<string, string>
+  fieldValues: Record<string, string>
 ): Promise<Blob> {
   const bytes = await fetch(url).then((r) => r.arrayBuffer());
   const pdf = await PDFDocument.load(bytes);
   const pages = pdf.getPages();
   for (const f of fields) {
-    const dataUrl = fieldSignatures[f.id];
-    if (!dataUrl) continue;
+    const value = fieldValues[f.id];
+    if (!value || !value.trim()) continue;
     const page = pages[f.page];
     if (!page) continue;
     const { width: pw, height: ph } = page.getSize();
+    const dataUrl =
+      kindOf(f) === "text" ? textToPng(value.trim(), f.w * pw, f.h * ph) : value;
     const png = await pdf.embedPng(dataUrl);
     // pdf-lib origin is bottom-left; our coords are top-left normalized.
     page.drawImage(png, {

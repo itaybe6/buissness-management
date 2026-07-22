@@ -1,6 +1,6 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Badge, Button, EmptyState, Field, Icon, Input, ErrorState, InlineLoader, LoadingOverlay, PageLoader, SectionLoader, Select } from "@/components/ui";
+import { Badge, Button, EmptyState, Field, Icon, Input, ErrorState, InlineLoader, LoadingOverlay, PageLoader, SectionLoader, Select, MultiSelect } from "@/components/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { Modal } from "@/components/ui/Modal";
 import { WastePanel } from "@/components/waste/WastePanel";
@@ -8,7 +8,8 @@ import { DualUnitQtyInput } from "@/components/inventory/DualUnitQtyInput";
 import { InventoryQtyUpdatePanel } from "@/components/inventory/InventoryQtyUpdatePanel";
 import { formatOrderReceivedLabel, OrderReceiveControls } from "@/components/inventory/OrderReceiveControls";
 import { useAuth } from "@/lib/auth";
-import { useBusinessId, HE_DAYS } from "@/lib/db";
+import { useBusinessId, HE_DAYS, formatCurrency } from "@/lib/db";
+import { canSeeInventoryPrices } from "@/lib/constants";
 import {
   useInventory,
   useCreateItem,
@@ -31,10 +32,16 @@ import {
   type ItemWithQty,
   type ItemLog,
   isTrackedLowStock,
+  inventoryLineTotal,
+  orderLineBillableQty,
+  orderBatchTotal,
+  formatUnitPriceLabel,
 } from "@/api/inventory";
+import { useDepartments } from "@/api/departments";
+import { useSuppliers, useSupplierItemPriceIndex, supplierPricesFor, type SupplierItemPriceIndex } from "@/api/suppliers";
 import { useIsMdUp } from "@/hooks/useMediaQuery";
 import { useWaste } from "@/api/waste";
-import type { InventoryAction, InventoryWaste } from "@/types/database";
+import type { Department, InventoryAction, InventoryWaste } from "@/types/database";
 
 type InventoryTab = "items" | "orders" | "waste";
 
@@ -46,6 +53,8 @@ type OrderBatch = {
   created_at: string;
   ordered_by: string | null;
   ordered_by_name: string | null;
+  supplier_id: string | null;
+  supplier_name: string | null;
   lines: OrderLine[];
 };
 
@@ -61,6 +70,8 @@ function groupOrderBatches(orders: InventoryOrderWithUser[], items: ItemWithQty[
         created_at: o.created_at,
         ordered_by: o.ordered_by,
         ordered_by_name: o.ordered_by_name,
+        supplier_id: o.supplier_id,
+        supplier_name: o.supplier_name,
         lines: [],
       });
     }
@@ -96,11 +107,25 @@ type ItemForm = {
   qty: string;
   minQty: string;
   deliveryDay: string;
+  unitPrice: string;
+  departmentIds: string[];
   imageUrl: string | null;
   file: File | null;
 };
 
-const EMPTY_FORM: ItemForm = { name: "", category: "", unit: "יחידות", unitsPerPackage: "", qty: "0", minQty: "0", deliveryDay: "", imageUrl: null, file: null };
+const EMPTY_FORM: ItemForm = {
+  name: "",
+  category: "",
+  unit: "יחידות",
+  unitsPerPackage: "",
+  qty: "0",
+  minQty: "0",
+  deliveryDay: "",
+  unitPrice: "",
+  departmentIds: [],
+  imageUrl: null,
+  file: null,
+};
 
 function formatDeliveryDay(day: number | null | undefined): string {
   if (day == null || day < 0 || day > 6) return "לא הוגדר";
@@ -265,6 +290,9 @@ function TabSearchBar<T extends string>({
   addIcon = "add",
   addAriaLabel = "הוספה",
   addDisabled,
+  extraFilterActive,
+  filterTrigger,
+  filterTokens,
 }: {
   query: string;
   onQueryChange: (q: string) => void;
@@ -280,12 +308,18 @@ function TabSearchBar<T extends string>({
   addIcon?: string;
   addAriaLabel?: string;
   addDisabled?: boolean;
+  extraFilterActive?: boolean;
+  filterTrigger?: ReactNode;
+  filterTokens?: ReactNode;
 }) {
-  const hasFilter = query.trim() || (filters.length > 0 && filter !== filters[0]?.key);
+  const hasFilter =
+    query.trim() ||
+    extraFilterActive ||
+    (filters.length > 0 && filter !== filters[0]?.key);
 
   return (
     <div className="inventory-search mb-4 space-y-2.5">
-      <div className="flex items-center gap-2">
+      <div className="inv-searchrow">
         <div className="relative min-w-0 flex-1">
           <Icon
             name="search"
@@ -309,6 +343,7 @@ function TabSearchBar<T extends string>({
             </button>
           )}
         </div>
+        {filterTrigger}
         {showAdd && onAdd && (
           <Button
             icon={addIcon}
@@ -320,17 +355,20 @@ function TabSearchBar<T extends string>({
         )}
       </div>
 
+      {filterTokens}
+
       {filters.length > 0 && (
         <div className="inventory-search-filters flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {filters.map(({ key, label }) => (
             <button
               key={key}
               type="button"
+              aria-pressed={filter === key}
               data-active={filter === key}
               onClick={() => onFilterChange(key)}
-              className="inventory-search-chip shrink-0"
+              className="inv-chip"
             >
-              {label}
+              <span>{label}</span>
             </button>
           ))}
         </div>
@@ -343,6 +381,340 @@ function TabSearchBar<T extends string>({
       )}
     </div>
   );
+}
+
+/** Icon + identity colour per category — chips tint themselves with it. */
+const CATEGORY_FILTER_META: Record<string, { icon: string; color: string }> = {
+  dairy: { icon: "water_drop", color: "#4b93f7" },
+  alcohol: { icon: "local_bar", color: "#a05de0" },
+  dry: { icon: "grain", color: "#d1912c" },
+  beverages: { icon: "local_cafe", color: "#12a5b4" },
+  meat_fish: { icon: "set_meal", color: "#e2445c" },
+  produce: { icon: "nutrition", color: "#1fb974" },
+  frozen: { icon: "ac_unit", color: "#3fb8ef" },
+  cleaning: { icon: "cleaning_services", color: "#7480ea" },
+  other: { icon: "category", color: "#8b939e" },
+};
+
+const DEPT_FILTER_GENERAL = "__general__" as const;
+const CAT_FILTER_NONE = "__none__" as const;
+const FILTER_ALL_KEY = "__all__" as const;
+
+type CategoryFilterValue = string | null;
+type DepartmentFilterValue = string | null;
+
+/** How many products each chip would yield, given the other rows' filters. */
+type CatalogFilterCounts = {
+  stock: Record<string, number>;
+  category: Record<string, number>;
+  department: Record<string, number>;
+};
+
+function FilterChip({
+  label,
+  active,
+  onClick,
+  icon,
+  dot,
+  accent,
+  count,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  icon?: string;
+  dot?: "solid" | "hollow";
+  accent?: string;
+  count?: number;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      data-active={active}
+      data-empty={count === 0 && !active}
+      onClick={onClick}
+      className={accent ? "inv-chip inv-chip--accent" : "inv-chip"}
+      style={accent ? ({ ["--chip-accent"]: accent } as CSSProperties) : undefined}
+    >
+      {dot && <span className="inv-chip-dot" data-hollow={dot === "hollow"} />}
+      {icon && <Icon name={icon} size={15} className="inv-chip-icon" />}
+      <span>{label}</span>
+      {count !== undefined && <span className="inv-chip-count">{count}</span>}
+    </button>
+  );
+}
+
+function InventoryCatalogFilterDeck({
+  stockFilter,
+  onStockChange,
+  categoryFilter,
+  onCategoryChange,
+  departmentFilter,
+  onDepartmentChange,
+  departments,
+  onClearAll,
+  showClear,
+  showGeneralDeptFilter,
+  counts,
+}: {
+  stockFilter: StockFilter;
+  onStockChange: (f: StockFilter) => void;
+  categoryFilter: CategoryFilterValue;
+  onCategoryChange: (f: CategoryFilterValue) => void;
+  departmentFilter: DepartmentFilterValue;
+  onDepartmentChange: (f: DepartmentFilterValue) => void;
+  departments: Department[];
+  onClearAll: () => void;
+  showClear: boolean;
+  showGeneralDeptFilter: boolean;
+  counts: CatalogFilterCounts;
+}) {
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+
+  // Popover manners: click outside or Escape closes it.
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (btnRef.current?.contains(t) || popRef.current?.contains(t)) return;
+      setOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  const activeCount =
+    (stockFilter !== "all" ? 1 : 0) + (categoryFilter ? 1 : 0) + (departmentFilter ? 1 : 0);
+
+  return (
+    <div className="inv-filters-anchor">
+      <button
+        ref={btnRef}
+        type="button"
+        className="inv-filters-btn"
+        data-open={open}
+        data-filtered={activeCount > 0}
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-controls="inventory-filter-panel"
+        aria-label="סינון מוצרים"
+      >
+        <Icon name="tune" size={19} />
+        <span className="inv-filters-btn-label">סינון</span>
+        {activeCount > 0 && <span className="inv-filters-badge">{activeCount}</span>}
+      </button>
+
+      <div
+        ref={popRef}
+        id="inventory-filter-panel"
+        className="inv-filters-pop"
+        data-open={open}
+        role="group"
+        aria-label="סינון מוצרים"
+      >
+        <div className="inv-filters-pop-head">
+          <span className="inv-filters-pop-title">
+            <Icon name="tune" size={15} />
+            סינון מוצרים
+          </span>
+          {showClear && (
+            <button type="button" className="inv-filters-clear" onClick={onClearAll}>
+              <Icon name="filter_alt_off" size={15} />
+              ניקוי
+            </button>
+          )}
+        </div>
+
+        <div className="inv-filters-pop-body">
+          <FilterRow label="מלאי">
+            {STOCK_FILTERS.map(({ key, label }) => (
+              <FilterChip
+                key={key}
+                label={label}
+                icon={key === "low" ? "warning" : undefined}
+                active={stockFilter === key}
+                count={counts.stock[key]}
+                onClick={() => onStockChange(key)}
+              />
+            ))}
+          </FilterRow>
+
+          <FilterRow label="קטגוריה">
+            <FilterChip
+              label="הכל"
+              active={categoryFilter === null}
+              count={counts.category[FILTER_ALL_KEY]}
+              onClick={() => onCategoryChange(null)}
+            />
+            <FilterChip
+              label="ללא"
+              icon="label_off"
+              active={categoryFilter === CAT_FILTER_NONE}
+              count={counts.category[CAT_FILTER_NONE]}
+              onClick={() => onCategoryChange(categoryFilter === CAT_FILTER_NONE ? null : CAT_FILTER_NONE)}
+            />
+            {INVENTORY_CATEGORIES.map((c) => (
+              <FilterChip
+                key={c.value}
+                label={c.label}
+                icon={CATEGORY_FILTER_META[c.value]?.icon ?? "category"}
+                accent={CATEGORY_FILTER_META[c.value]?.color}
+                active={categoryFilter === c.value}
+                count={counts.category[c.value]}
+                onClick={() => onCategoryChange(categoryFilter === c.value ? null : c.value)}
+              />
+            ))}
+          </FilterRow>
+
+          {departments.length > 0 || showGeneralDeptFilter ? (
+            <FilterRow label="מחלקה">
+              <FilterChip
+                label="הכל"
+                active={departmentFilter === null}
+                count={counts.department[FILTER_ALL_KEY]}
+                onClick={() => onDepartmentChange(null)}
+              />
+              {showGeneralDeptFilter && (
+                <FilterChip
+                  label="כללי"
+                  dot="hollow"
+                  active={departmentFilter === DEPT_FILTER_GENERAL}
+                  count={counts.department[DEPT_FILTER_GENERAL]}
+                  onClick={() =>
+                    onDepartmentChange(departmentFilter === DEPT_FILTER_GENERAL ? null : DEPT_FILTER_GENERAL)
+                  }
+                />
+              )}
+              {departments.map((d) => (
+                <FilterChip
+                  key={d.id}
+                  label={d.name}
+                  dot="solid"
+                  accent={d.color ?? undefined}
+                  active={departmentFilter === d.id}
+                  count={counts.department[d.id]}
+                  onClick={() => onDepartmentChange(departmentFilter === d.id ? null : d.id)}
+                />
+              ))}
+            </FilterRow>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FilterRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="inv-filter-row">
+      <span className="inv-filter-row-label">{label}</span>
+      <div className="inv-filter-track">{children}</div>
+    </div>
+  );
+}
+
+/** Active filters as removable pills, so the closed popover still says what is on. */
+function InventoryFilterTokens({
+  stockFilter,
+  onStockChange,
+  categoryFilter,
+  onCategoryChange,
+  departmentFilter,
+  onDepartmentChange,
+  departments,
+}: {
+  stockFilter: StockFilter;
+  onStockChange: (f: StockFilter) => void;
+  categoryFilter: CategoryFilterValue;
+  onCategoryChange: (f: CategoryFilterValue) => void;
+  departmentFilter: DepartmentFilterValue;
+  onDepartmentChange: (f: DepartmentFilterValue) => void;
+  departments: Department[];
+}) {
+  const activeDept = departmentFilter ? departments.find((d) => d.id === departmentFilter) : undefined;
+  const tokens: { key: string; label: string; accent?: string; onRemove: () => void }[] = [];
+
+  if (stockFilter !== "all") {
+    tokens.push({
+      key: "stock",
+      label: "מלאי נמוך",
+      accent: "var(--warning)",
+      onRemove: () => onStockChange("all"),
+    });
+  }
+  if (categoryFilter) {
+    tokens.push({
+      key: "category",
+      label:
+        categoryFilter === CAT_FILTER_NONE ? "ללא קטגוריה" : inventoryCategoryLabel(categoryFilter) ?? "קטגוריה",
+      accent: CATEGORY_FILTER_META[categoryFilter]?.color,
+      onRemove: () => onCategoryChange(null),
+    });
+  }
+  if (departmentFilter) {
+    tokens.push({
+      key: "department",
+      label: departmentFilter === DEPT_FILTER_GENERAL ? "כללי" : activeDept?.name ?? "מחלקה",
+      accent: activeDept?.color ?? undefined,
+      onRemove: () => onDepartmentChange(null),
+    });
+  }
+
+  if (tokens.length === 0) return null;
+
+  return (
+    <div className="inv-filters-tokens">
+      {tokens.map((t, i) => (
+        <button
+          key={t.key}
+          type="button"
+          className="inv-filters-token"
+          onClick={t.onRemove}
+          aria-label={`הסרת הסינון ${t.label}`}
+          style={
+            {
+              ["--chip-accent"]: t.accent ?? "var(--text-3)",
+              animationDelay: `${i * 45}ms`,
+            } as CSSProperties
+          }
+        >
+          <span className="inv-chip-dot" />
+          {t.label}
+          <Icon name="close" size={14} className="inv-filters-token-x" />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function matchesCatalogFilters(
+  item: ItemWithQty,
+  stockFilter: StockFilter,
+  categoryFilter: CategoryFilterValue,
+  departmentFilter: DepartmentFilterValue,
+): boolean {
+  if (stockFilter === "low" && !isTrackedLowStock(item)) return false;
+  if (categoryFilter === CAT_FILTER_NONE) {
+    if (item.category) return false;
+  } else if (categoryFilter && item.category !== categoryFilter) {
+    return false;
+  }
+  if (departmentFilter === DEPT_FILTER_GENERAL) {
+    if (item.department_ids.length > 0) return false;
+  } else if (departmentFilter && !item.department_ids.includes(departmentFilter)) {
+    return false;
+  }
+  return true;
 }
 
 type OrderFilter = "all" | "today" | "week";
@@ -398,15 +770,23 @@ function filterWasteRecords(
   });
 }
 
-function filterOrderBatches(batches: OrderBatch[], query: string, filter: OrderFilter): OrderBatch[] {
+function filterOrderBatches(
+  batches: OrderBatch[],
+  query: string,
+  filter: OrderFilter,
+  supplierId: string | null,
+): OrderBatch[] {
   const q = query.trim().toLowerCase();
   return batches.filter((batch) => {
     if (filter === "today" && !isToday(batch.created_at)) return false;
     if (filter === "week" && !isWithinDays(batch.created_at, 7)) return false;
+    if (supplierId === "__none__" && batch.supplier_id) return false;
+    if (supplierId && supplierId !== "__none__" && batch.supplier_id !== supplierId) return false;
     if (q) {
       const haystack = [
         orderPreviewLabel(batch.lines),
         batchOrderedByLabel(batch),
+        batch.supplier_name ?? "",
         ...batch.lines.map((l) => l.item?.name ?? ""),
       ]
         .join(" ")
@@ -481,6 +861,7 @@ function ItemDetailModal({
   open,
   canUpdateCount,
   isManager,
+  canSeePrices,
   canManageOrders,
   canUpdateOrderArrival,
   pendingOrders,
@@ -498,6 +879,7 @@ function ItemDetailModal({
   open: boolean;
   canUpdateCount: boolean;
   isManager: boolean;
+  canSeePrices: boolean;
   canManageOrders: boolean;
   canUpdateOrderArrival: boolean;
   pendingOrders: InventoryOrderWithUser[];
@@ -723,6 +1105,15 @@ function ItemDetailModal({
         )}
 
         <div className="pd-list">
+          {canSeePrices && Number(item.unit_price) > 0 && (
+            <div className="pd-list-row">
+              <span className="pd-list-icon">
+                <Icon name="payments" size={17} />
+              </span>
+              <span className="pd-list-label">מחיר ל{ item.unit ?? "יחידה"}</span>
+              <span className="pd-list-value tabular-nums">{formatCurrency(Number(item.unit_price))}</span>
+            </div>
+          )}
           <div className="pd-list-row">
             <span className="pd-list-icon">
               <Icon name="local_shipping" size={17} />
@@ -881,6 +1272,7 @@ function ItemCard({
   item,
   index,
   isManager,
+  canSeePrices,
   canUpdateCount,
   canManageOrders,
   onOpen,
@@ -892,6 +1284,7 @@ function ItemCard({
   item: ItemWithQty;
   index: number;
   isManager: boolean;
+  canSeePrices: boolean;
   canUpdateCount: boolean;
   canManageOrders: boolean;
   onOpen: () => void;
@@ -947,6 +1340,11 @@ function ItemCard({
                 <h3 className="line-clamp-2 text-[12px] font-bold leading-snug tracking-tight">{item.name}</h3>
                 {inventoryCategoryLabel(item.category) && (
                   <span className="text-[10px] font-semibold text-text-3">{inventoryCategoryLabel(item.category)}</span>
+                )}
+                {canSeePrices && formatUnitPriceLabel(item) && (
+                  <span className="mt-0.5 block text-[10px] font-bold tabular-nums text-text-2">
+                    {formatUnitPriceLabel(item)}
+                  </span>
                 )}
               </div>
               <div className="shrink-0 text-left leading-none">
@@ -1041,6 +1439,11 @@ function ItemCard({
               <h3 className="text-[15px] font-bold leading-snug tracking-tight">{item.name}</h3>
               {inventoryCategoryLabel(item.category) && (
                 <span className="mt-0.5 block text-[11px] font-semibold text-text-3">{inventoryCategoryLabel(item.category)}</span>
+              )}
+              {canSeePrices && formatUnitPriceLabel(item) && (
+                <span className="mt-0.5 block text-[11px] font-bold tabular-nums text-text-2">
+                  {formatUnitPriceLabel(item)}
+                </span>
               )}
               <div className="mt-1.5">
                 <LastUpdatedLine item={item} />
@@ -1157,12 +1560,16 @@ function OrderDetailLine({
   line,
   index,
   busy,
+  canSeePrices,
+  supplierPrices,
   onReceive,
   onNotArrived,
 }: {
   line: OrderLine;
   index: number;
   busy?: boolean;
+  canSeePrices?: boolean;
+  supplierPrices?: Map<string, number> | null;
   onReceive: (receivedQty: number) => void;
   onNotArrived: () => void;
 }) {
@@ -1175,6 +1582,10 @@ function OrderDetailLine({
   const deliveryDay = item?.supplier_delivery_day;
   const receivedLabel = formatOrderReceivedLabel(line);
   const [receiveOpen, setReceiveOpen] = useState(false);
+  const lineTotal =
+    canSeePrices && item
+      ? inventoryLineTotal(item, orderLineBillableQty(line), supplierPrices?.get(line.item_id))
+      : null;
 
   useEffect(() => {
     if (!pending) setReceiveOpen(false);
@@ -1204,6 +1615,9 @@ function OrderDetailLine({
           {pieces != null && <span>({pieces} יח׳)</span>}
           {deliveryDay != null && deliveryDay >= 0 && deliveryDay <= 6 && (
             <span>· אספקה {HE_DAYS_SHORT[deliveryDay]}</span>
+          )}
+          {lineTotal != null && lineTotal > 0 && (
+            <span>· {formatCurrency(lineTotal)}</span>
           )}
         </div>
         {pending && receiveOpen && (
@@ -1256,6 +1670,8 @@ function OrderBatchRow({
   batch,
   index,
   canManageOrders,
+  canSeePrices,
+  supplierPriceIndex,
   received,
   onDetails,
   onEdit,
@@ -1264,6 +1680,8 @@ function OrderBatchRow({
   batch: OrderBatch;
   index: number;
   canManageOrders: boolean;
+  canSeePrices: boolean;
+  supplierPriceIndex?: SupplierItemPriceIndex;
   received?: boolean;
   onDetails: () => void;
   onEdit: () => void;
@@ -1277,6 +1695,9 @@ function OrderBatchRow({
     : batch.lines.reduce((sum, l) => sum + Number(l.quantity), 0);
   const date = formatOrderDate(batch.created_at);
   const deliveryShort = orderDeliveryDaysShortLabel(batch.lines);
+  const supplierPrices = supplierPricesFor(supplierPriceIndex, batch.supplier_id);
+  const batchTotal = canSeePrices ? orderBatchTotal(batch.lines, supplierPrices) : 0;
+  const showBatchTotal = canSeePrices && batchTotal > 0;
 
   return (
     <article
@@ -1302,6 +1723,8 @@ function OrderBatchRow({
             <b>{batch.lines.length}</b> פריטים · <b>{totalQty}</b> יח׳
             {received ? " התקבלו" : pendingQty < totalQty ? ` · ${pendingQty} ממתין` : ""} · הוזמן{" "}
             {date.time} · {batchOrderedByLabel(batch)}
+            {batch.supplier_name ? ` · ${batch.supplier_name}` : ""}
+            {showBatchTotal ? ` · ${formatCurrency(batchTotal)}` : ""}
           </p>
         </div>
       </button>
@@ -1315,6 +1738,12 @@ function OrderBatchRow({
           <Icon name="local_shipping" size={13} />
           {deliveryShort ? `אספקה ${deliveryShort}` : "אספקה לא הוגדרה"}
         </span>
+        {showBatchTotal && (
+          <span className="inventory-order-delivery-chip" title="סה״כ הזמנה">
+            <Icon name="payments" size={13} />
+            {formatCurrency(batchTotal)}
+          </span>
+        )}
         <span className="inventory-order-foot-spacer" />
         <button
           type="button"
@@ -1357,6 +1786,8 @@ function OrderBatchListSection({
   icon,
   batches,
   canManageOrders,
+  canSeePrices,
+  supplierPriceIndex,
   received,
   onDetails,
   onEdit,
@@ -1366,6 +1797,8 @@ function OrderBatchListSection({
   icon: string;
   batches: OrderBatch[];
   canManageOrders: boolean;
+  canSeePrices: boolean;
+  supplierPriceIndex?: SupplierItemPriceIndex;
   received?: boolean;
   onDetails: (batch: OrderBatch) => void;
   onEdit: (batch: OrderBatch) => void;
@@ -1388,6 +1821,8 @@ function OrderBatchListSection({
             batch={batch}
             index={idx}
             canManageOrders={canManageOrders}
+            canSeePrices={canSeePrices}
+            supplierPriceIndex={supplierPriceIndex}
             received={received}
             onDetails={() => onDetails(batch)}
             onEdit={() => onEdit(batch)}
@@ -1403,6 +1838,8 @@ function OrderDetailsModal({
   batch,
   open,
   receiveBusy,
+  canSeePrices,
+  supplierPriceIndex,
   onClose,
   onReceive,
   onNotArrived,
@@ -1410,6 +1847,8 @@ function OrderDetailsModal({
   batch: OrderBatch | null;
   open: boolean;
   receiveBusy?: boolean;
+  canSeePrices: boolean;
+  supplierPriceIndex?: SupplierItemPriceIndex;
   onClose: () => void;
   onReceive: (line: OrderLine, receivedQty: number) => void;
   onNotArrived: (line: OrderLine) => void;
@@ -1419,10 +1858,20 @@ function OrderDetailsModal({
   const date = formatOrderDate(batch.created_at);
   const totalQty = batch.lines.reduce((sum, l) => sum + Number(l.quantity), 0);
   const pendingCount = batch.lines.filter((l) => l.status !== "received").length;
+  const supplierPrices = supplierPricesFor(supplierPriceIndex, batch.supplier_id);
+  const batchTotal = canSeePrices ? orderBatchTotal(batch.lines, supplierPrices) : 0;
 
   const facts = [
     { icon: "inventory_2", label: "פריטים", value: String(batch.lines.length) },
     { icon: "tag", label: "סה״כ יחידות", value: String(totalQty) },
+    ...(canSeePrices && batchTotal > 0
+      ? [{ icon: "payments", label: "סה״כ הזמנה", value: formatCurrency(batchTotal) }]
+      : []),
+    {
+      icon: "store",
+      label: "ספק",
+      value: batch.supplier_name ?? "לא נבחר",
+    },
     {
       icon: "local_shipping",
       label: "אספקה מהספק",
@@ -1459,6 +1908,8 @@ function OrderDetailsModal({
             line={line}
             index={idx}
             busy={receiveBusy}
+            canSeePrices={canSeePrices}
+            supplierPrices={supplierPrices}
             onReceive={(receivedQty) => onReceive(line, receivedQty)}
             onNotArrived={() => onNotArrived(line)}
           />
@@ -1636,12 +2087,19 @@ export function Inventory() {
   const { profile, hasFeature } = useAuth();
   const showWaste = hasFeature("waste");
   const { data: items, isLoading, isError, refetch } = useInventory(businessId);
+  const { data: departments } = useDepartments(businessId);
+  const departmentOptions = useMemo(
+    () => (departments ?? []).map((d) => ({ value: d.id, label: d.name })),
+    [departments],
+  );
   const canManageOrders = !!(profile && ["manager", "office_manager"].includes(profile.role));
   /** Managers / office / shift managers may mark orders as arrived / not arrived from the product card. */
   const canUpdateOrderArrival = !!(
     profile && ["manager", "office_manager", "shift_manager"].includes(profile.role)
   );
   const { data: orders } = useOrders(businessId, canManageOrders || canUpdateOrderArrival);
+  const { data: supplierList } = useSuppliers(businessId, { activeOnly: false });
+  const { data: supplierPriceIndex } = useSupplierItemPriceIndex(businessId);
   const { data: wasteRecords } = useWaste(showWaste ? businessId : null);
   const createItem = useCreateItem(businessId);
   const updateItem = useUpdateItem(businessId);
@@ -1684,13 +2142,19 @@ export function Inventory() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [stockFilter, setStockFilter] = useState<StockFilter>(() => resolveStockFilter(searchParams.get("stock")));
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilterValue>(null);
+  const [departmentFilter, setDepartmentFilter] = useState<DepartmentFilterValue>(null);
   const [orderSearchQuery, setOrderSearchQuery] = useState("");
   const [orderFilter, setOrderFilter] = useState<OrderFilter>("all");
+  const [orderSupplierFilter, setOrderSupplierFilter] = useState<string | null>(
+    () => searchParams.get("supplier") || null,
+  );
   const [wasteSearchQuery, setWasteSearchQuery] = useState("");
   const [wasteFilter, setWasteFilter] = useState<WasteFilter>("all");
   const fileRef = useRef<HTMLInputElement>(null);
 
   const isManager = !!(profile && ["manager", "shift_manager", "office_manager"].includes(profile.role));
+  const canSeePrices = canSeeInventoryPrices(profile?.role);
   const canUpdateCount = !!(profile && ["manager", "shift_manager", "office_manager", "employee"].includes(profile.role));
 
   function changeTab(next: InventoryTab) {
@@ -1708,7 +2172,17 @@ export function Inventory() {
     if (next !== tab) setTab(next);
     const nextStock = resolveStockFilter(searchParams.get("stock"));
     if (nextStock !== stockFilter) setStockFilter(nextStock);
+    const urlSupplier = searchParams.get("supplier");
+    const nextSupplier = urlSupplier || null;
+    if (nextSupplier !== orderSupplierFilter) setOrderSupplierFilter(nextSupplier);
   }, [searchParams, showWaste, canManageOrders]);
+
+  useEffect(() => {
+    if (tab !== "orders") return;
+    const params: Record<string, string> = { tab: "orders" };
+    if (orderSupplierFilter) params.supplier = orderSupplierFilter;
+    setSearchParams(params, { replace: true });
+  }, [orderSupplierFilter, tab]);
 
   useEffect(() => {
     if (!canManageOrders && tab === "orders") changeTab("items");
@@ -1716,15 +2190,82 @@ export function Inventory() {
   }, [canManageOrders, showWaste, tab]);
 
   const list = items ?? [];
+  const departmentsForFilter = useMemo(() => {
+    const all = departments ?? [];
+    if (isManager) return all;
+    const linked = new Set<string>();
+    for (const item of list) {
+      item.department_ids.forEach((id) => linked.add(id));
+    }
+    if (linked.size === 0) {
+      const mine = profile?.department_id;
+      return mine ? all.filter((d) => d.id === mine) : [];
+    }
+    return all.filter((d) => linked.has(d.id));
+  }, [departments, list, isManager, profile?.department_id]);
+
+  const showGeneralDeptFilter = useMemo(
+    () => isManager || list.some((item) => item.department_ids.length === 0),
+    [isManager, list],
+  );
+
   const detailItemLive = detailItem ? list.find((i) => i.id === detailItem.id) ?? detailItem : null;
   const filteredList = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return list.filter((item) => {
-      if (stockFilter === "low" && !isTrackedLowStock(item)) return false;
+      if (!matchesCatalogFilters(item, stockFilter, categoryFilter, departmentFilter)) return false;
       if (q && !item.name.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [list, searchQuery, stockFilter]);
+  }, [list, searchQuery, stockFilter, categoryFilter, departmentFilter]);
+
+  /** Live per-chip result counts: each row counts against the *other* rows' filters. */
+  const catalogFilterCounts = useMemo<CatalogFilterCounts>(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const base = q ? list.filter((i) => i.name.toLowerCase().includes(q)) : list;
+    const byStock = (i: ItemWithQty, f: StockFilter) => f !== "low" || isTrackedLowStock(i);
+    const byCat = (i: ItemWithQty, f: CategoryFilterValue) =>
+      f === null || (f === CAT_FILTER_NONE ? !i.category : i.category === f);
+    const byDept = (i: ItemWithQty, f: DepartmentFilterValue) =>
+      f === null || (f === DEPT_FILTER_GENERAL ? i.department_ids.length === 0 : i.department_ids.includes(f));
+
+    const stock: Record<string, number> = {};
+    for (const { key } of STOCK_FILTERS) {
+      stock[key] = base.filter(
+        (i) => byStock(i, key) && byCat(i, categoryFilter) && byDept(i, departmentFilter),
+      ).length;
+    }
+
+    const catPool = base.filter((i) => byStock(i, stockFilter) && byDept(i, departmentFilter));
+    const category: Record<string, number> = {
+      [FILTER_ALL_KEY]: catPool.length,
+      [CAT_FILTER_NONE]: catPool.filter((i) => !i.category).length,
+    };
+    for (const c of INVENTORY_CATEGORIES) {
+      category[c.value] = catPool.filter((i) => i.category === c.value).length;
+    }
+
+    const deptPool = base.filter((i) => byStock(i, stockFilter) && byCat(i, categoryFilter));
+    const department: Record<string, number> = {
+      [FILTER_ALL_KEY]: deptPool.length,
+      [DEPT_FILTER_GENERAL]: deptPool.filter((i) => i.department_ids.length === 0).length,
+    };
+    for (const d of departmentsForFilter) {
+      department[d.id] = deptPool.filter((i) => i.department_ids.includes(d.id)).length;
+    }
+
+    return { stock, category, department };
+  }, [list, searchQuery, stockFilter, categoryFilter, departmentFilter, departmentsForFilter]);
+
+  const catalogFiltersActive =
+    stockFilter !== "all" || categoryFilter !== null || departmentFilter !== null;
+
+  function clearCatalogFilters() {
+    setSearchQuery("");
+    changeStockFilter("all");
+    setCategoryFilter(null);
+    setDepartmentFilter(null);
+  }
 
   const orderList = orders ?? [];
   const detailPendingOrders = useMemo(() => {
@@ -1735,12 +2276,12 @@ export function Inventory() {
   const openBatches = useMemo(() => allOrderBatches.filter(batchHasPendingLines), [allOrderBatches]);
   const receivedBatches = useMemo(() => allOrderBatches.filter(batchIsFullyReceived), [allOrderBatches]);
   const filteredOrderBatches = useMemo(
-    () => filterOrderBatches(openBatches, orderSearchQuery, orderFilter),
-    [openBatches, orderSearchQuery, orderFilter],
+    () => filterOrderBatches(openBatches, orderSearchQuery, orderFilter, orderSupplierFilter),
+    [openBatches, orderSearchQuery, orderFilter, orderSupplierFilter],
   );
   const filteredReceivedBatches = useMemo(
-    () => filterOrderBatches(receivedBatches, orderSearchQuery, orderFilter),
-    [receivedBatches, orderSearchQuery, orderFilter],
+    () => filterOrderBatches(receivedBatches, orderSearchQuery, orderFilter, orderSupplierFilter),
+    [receivedBatches, orderSearchQuery, orderFilter, orderSupplierFilter],
   );
   const detailBatch = detailBatchId
     ? allOrderBatches.find((b) => b.id === detailBatchId) ?? null
@@ -1805,6 +2346,8 @@ export function Inventory() {
       qty: String(item.current_qty),
       minQty: String(item.min_quantity),
       deliveryDay: item.supplier_delivery_day != null ? String(item.supplier_delivery_day) : "",
+      unitPrice: item.unit_price != null && item.unit_price > 0 ? String(item.unit_price) : "",
+      departmentIds: [...item.department_ids],
       imageUrl: item.image_url,
       file: null,
     });
@@ -1861,6 +2404,7 @@ export function Inventory() {
         employee_id: profile?.id ?? null,
         batch_id: line.batch_id,
         ordered_by: line.ordered_by,
+        supplier_id: line.supplier_id,
       });
     } catch (e) {
       window.alert(inventorySaveError(e));
@@ -1898,6 +2442,8 @@ export function Inventory() {
       const units_per_package = supportsPieceInput(form.unit)
         ? Math.max(0, Number(form.unitsPerPackage) || 0) || null
         : null;
+      const unit_price = canSeePrices ? Math.max(0, parseFloat(form.unitPrice.replace(/,/g, "")) || 0) : undefined;
+      const department_ids = form.departmentIds;
 
       if (editing) {
         const changed: string[] = [];
@@ -1908,6 +2454,12 @@ export function Inventory() {
         if (supplier_delivery_day !== editing.supplier_delivery_day) changed.push("יום אספקה");
         if (category !== editing.category) changed.push("קטגוריה");
         if (image_url !== editing.image_url) changed.push("תמונה");
+        const prevDepts = [...editing.department_ids].sort().join(",");
+        const nextDepts = [...department_ids].sort().join(",");
+        if (prevDepts !== nextDepts) changed.push("מחלקות");
+        if (canSeePrices && unit_price !== undefined && unit_price !== Number(editing.unit_price ?? 0)) {
+          changed.push("מחיר");
+        }
         await updateItem.mutateAsync({
           id: editing.id,
           business_id: businessId!,
@@ -1920,7 +2472,9 @@ export function Inventory() {
             min_quantity,
             supplier_delivery_day,
             category,
+            ...(canSeePrices && unit_price !== undefined ? { unit_price } : {}),
           },
+          department_ids,
           note: changed.length ? `עודכן: ${changed.join(", ")}` : null,
         });
         if (quantity !== editing.current_qty) {
@@ -1942,6 +2496,8 @@ export function Inventory() {
           min_quantity,
           supplier_delivery_day,
           category,
+          ...(canSeePrices && unit_price !== undefined ? { unit_price } : {}),
+          department_ids,
           quantity,
           employee_id: profile?.id ?? null,
         });
@@ -2034,6 +2590,29 @@ export function Inventory() {
             showAdd
             addIcon="add_shopping_cart"
             addAriaLabel="הזמנה חדשה"
+            extraFilterActive={!!orderSupplierFilter}
+            filterTokens={
+              (supplierList?.length ?? 0) > 0 ? (
+                <Field label="סינון לפי ספק" className="!mb-0">
+                  <Select
+                    value={orderSupplierFilter ?? ""}
+                    onChange={(e) => setOrderSupplierFilter(e.target.value || null)}
+                    searchable
+                    searchPlaceholder="חיפוש ספק..."
+                  >
+                    <option value="">כל הספקים</option>
+                    <option value="__none__">ללא ספק</option>
+                    {(supplierList ?? [])
+                      .filter((s) => s.active)
+                      .map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                  </Select>
+                </Field>
+              ) : null
+            }
           />
           {visibleOrderTotalCount === 0 ? (
             <OrdersEmptyState onCreate={() => openNewOrder()} />
@@ -2043,7 +2622,7 @@ export function Inventory() {
               title="לא נמצאו הזמנות"
               description="נסו מילת חיפוש אחרת או שנו את הסינון."
               action={
-                <Button variant="secondary" onClick={() => { setOrderSearchQuery(""); setOrderFilter("all"); }}>
+                <Button variant="secondary" onClick={() => { setOrderSearchQuery(""); setOrderFilter("all"); setOrderSupplierFilter(null); }}>
                   ניקוי סינון
                 </Button>
               }
@@ -2055,6 +2634,8 @@ export function Inventory() {
                 icon="local_shipping"
                 batches={filteredOrderBatches}
                 canManageOrders={canManageOrders}
+                canSeePrices={canSeePrices}
+                supplierPriceIndex={supplierPriceIndex}
                 onDetails={(batch) => setDetailBatchId(batch.id)}
                 onEdit={openEditOrder}
                 onDelete={handleDeleteOrder}
@@ -2065,6 +2646,8 @@ export function Inventory() {
                   icon="check_circle"
                   batches={filteredReceivedBatches}
                   canManageOrders={canManageOrders}
+                  canSeePrices={canSeePrices}
+                  supplierPriceIndex={supplierPriceIndex}
                   received
                   onDetails={(batch) => setDetailBatchId(batch.id)}
                   onEdit={openEditOrder}
@@ -2088,7 +2671,7 @@ export function Inventory() {
               onQueryChange={setSearchQuery}
               filter={stockFilter}
               onFilterChange={changeStockFilter}
-              filters={STOCK_FILTERS}
+              filters={[]}
               placeholder="חיפוש מוצר..."
               resultCount={filteredList.length}
               totalCount={list.length}
@@ -2097,20 +2680,59 @@ export function Inventory() {
               showAdd={isManager}
               addIcon="add"
               addAriaLabel="פריט חדש"
+              extraFilterActive={catalogFiltersActive}
+              filterTrigger={
+                <InventoryCatalogFilterDeck
+                  stockFilter={stockFilter}
+                  onStockChange={changeStockFilter}
+                  categoryFilter={categoryFilter}
+                  onCategoryChange={setCategoryFilter}
+                  departmentFilter={departmentFilter}
+                  onDepartmentChange={setDepartmentFilter}
+                  departments={departmentsForFilter}
+                  onClearAll={clearCatalogFilters}
+                  showClear={catalogFiltersActive || !!searchQuery.trim()}
+                  showGeneralDeptFilter={showGeneralDeptFilter}
+                  counts={catalogFilterCounts}
+                />
+              }
+              filterTokens={
+                <InventoryFilterTokens
+                  stockFilter={stockFilter}
+                  onStockChange={changeStockFilter}
+                  categoryFilter={categoryFilter}
+                  onCategoryChange={setCategoryFilter}
+                  departmentFilter={departmentFilter}
+                  onDepartmentChange={setDepartmentFilter}
+                  departments={departmentsForFilter}
+                />
+              }
             />
             {filteredList.length === 0 ? (
               <EmptyState
                 icon="search_off"
-                title={stockFilter === "low" ? "אין מוצרים במלאי נמוך" : "לא נמצאו מוצרים"}
+                title={
+                  stockFilter === "low"
+                    ? "אין מוצרים במלאי נמוך"
+                    : catalogFiltersActive
+                      ? "אין מוצרים בסינון הזה"
+                      : "לא נמצאו מוצרים"
+                }
                 description={
                   stockFilter === "low"
                     ? "כל המוצרים מעל סף המלאי שהוגדר."
-                    : "נסו מילת חיפוש אחרת."
+                    : catalogFiltersActive
+                      ? "נסו מחלקה או קטגוריה אחרת, או נקו את הסינון."
+                      : "נסו מילת חיפוש אחרת."
                 }
                 action={
                   stockFilter === "low" ? (
                     <Button variant="secondary" onClick={() => changeStockFilter("all")}>
                       הצג את כל המוצרים
+                    </Button>
+                  ) : catalogFiltersActive || searchQuery.trim() ? (
+                    <Button variant="secondary" onClick={clearCatalogFilters}>
+                      ניקוי סינון
                     </Button>
                   ) : (
                     <Button variant="secondary" onClick={() => setSearchQuery("")}>
@@ -2127,6 +2749,7 @@ export function Inventory() {
                     item={it}
                     index={idx}
                     isManager={isManager}
+                    canSeePrices={canSeePrices}
                     canUpdateCount={canUpdateCount}
                     canManageOrders={canManageOrders}
                     onOpen={() => openItemDetail(it)}
@@ -2214,6 +2837,21 @@ export function Inventory() {
             </Select>
           </Field>
 
+          <Field label="מחלקות">
+            <MultiSelect
+              values={form.departmentIds}
+              onChange={(departmentIds) => setForm((f) => ({ ...f, departmentIds }))}
+              options={departmentOptions}
+              placeholder="כל המחלקות"
+              disabled={!departmentOptions.length}
+            />
+            <p className="mt-1 text-[12px] text-text-3">
+              {departmentOptions.length === 0
+                ? "הוסיפו מחלקות בהגדרות העסק כדי לשייך מוצרים."
+                : "ללא בחירה — המוצר יוצג לכל המחלקות. ניתן לבחור כמה מחלקות (למשל מטבח ובר)."}
+            </p>
+          </Field>
+
           <div className="grid grid-cols-2 gap-3">
             <Field label="יחידת מידה">
               <Select
@@ -2265,6 +2903,22 @@ export function Inventory() {
             <p className="mt-1 text-[12px] text-text-3">מתחת לסף זה הפריט יסומן כמלאי נמוך</p>
           </Field>
 
+          {canSeePrices && (
+            <Field label={`מחיר ל${form.unit || "יחידה"} (₪)`}>
+              <Input
+                type="number"
+                min={0}
+                step="0.01"
+                value={form.unitPrice}
+                onChange={(e) => setForm((f) => ({ ...f, unitPrice: e.target.value }))}
+                placeholder="0"
+              />
+              <p className="mt-1 text-[12px] text-text-3">
+                מוצג רק למנהל ולמנהלת משרד. משמש לחישוב סה״כ בהזמנות.
+              </p>
+            </Field>
+          )}
+
           <Field label="יום אספקה מהספק">
             <Select value={form.deliveryDay} onChange={(e) => setForm((f) => ({ ...f, deliveryDay: e.target.value }))}>
               <option value="">לא הוגדר</option>
@@ -2290,6 +2944,7 @@ export function Inventory() {
         open={!!detailItemLive}
         canUpdateCount={canUpdateCount}
         isManager={isManager}
+        canSeePrices={canSeePrices}
         canManageOrders={canManageOrders}
         canUpdateOrderArrival={canUpdateOrderArrival}
         pendingOrders={detailPendingOrders}
@@ -2322,6 +2977,8 @@ export function Inventory() {
         batch={detailBatch}
         open={!!detailBatch}
         receiveBusy={receiveOrder.isPending || markOrderNotArrived.isPending}
+        canSeePrices={canSeePrices}
+        supplierPriceIndex={supplierPriceIndex}
         onClose={() => setDetailBatchId(null)}
         onReceive={(line, receivedQty) => handleReceive(line, receivedQty)}
         onNotArrived={(line) => handleMarkNotArrived(line)}

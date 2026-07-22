@@ -14,14 +14,18 @@ import { useAuth } from "@/lib/auth";
 import type { ShiftTemplate } from "@/types/database";
 
 function shiftDotStyle(color: string | null | undefined) {
-  return { background: color ?? "var(--accent)" };
+  return { background: color ?? "var(--primary-bg)" };
 }
 
 function TodayShiftBadge({ template }: { template: ShiftTemplate }) {
   return (
     <div className="flex items-center gap-3 rounded-[14px] border border-border/70 bg-surface-2/80 px-4 py-3">
       <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px]" style={shiftDotStyle(template.color)}>
-        <Icon name="schedule" size={20} className="text-white" />
+        <Icon
+          name="schedule"
+          size={20}
+          className={template.color ? "text-white" : "text-on-brand"}
+        />
       </span>
       <div className="min-w-0">
         <div className="text-[15px] font-extrabold tracking-tight text-text">{template.name}</div>

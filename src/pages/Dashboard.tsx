@@ -92,9 +92,9 @@ const MetricCard = memo(function MetricCard({
       <div className="relative flex items-start justify-between gap-2">
         <span
           className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]"
-          style={{ background: accent ?? "var(--accent)" }}
+          style={{ background: accent ?? "var(--primary-bg)" }}
         >
-          <Icon name={icon} size={20} className="text-white" />
+          <Icon name={icon} size={20} className="text-on-brand" />
         </span>
         {spark && spark.length > 0 && (
           <SparkLine data={spark} color={accent ?? "var(--accent)"} className="opacity-80" />
@@ -275,7 +275,7 @@ function SuperAdminDashboard() {
         </Link>
         <Link
           to="/businesses"
-          className="btn-press inline-flex items-center gap-2 rounded-[12px] [background:var(--primary-bg)] px-4 py-2.5 text-[13px] font-bold text-white"
+          className="btn-press inline-flex items-center gap-2 rounded-[12px] [background:var(--primary-bg)] px-4 py-2.5 text-[13px] font-bold text-on-brand"
         >
           <Icon name="add_business" size={18} /> ניהול עסקים
         </Link>

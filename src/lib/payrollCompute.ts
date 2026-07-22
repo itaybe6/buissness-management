@@ -30,8 +30,52 @@ export interface PayrollRow {
   bonus: number;
   /** Approved maintenance work on faults (per-job pay). */
   faultPay: number;
-  /** Grand total paid to the employee. */
+  /** Pay from hours/tips/bonuses/faults before monthly manual adjustments. */
+  grossPay: number;
+  /** Manual cumulative monthly bonus (office). */
+  monthlyBonus: number;
+  /** Advance paid mid-month (deducted from net). */
+  advance: number;
+  /** Manual difference (+ adds, − deducts). */
+  differences: number;
+  /** Net total paid to the employee. */
   total: number;
+}
+
+export interface PayrollAdjustmentsInput {
+  monthlyBonus?: number;
+  advance?: number;
+  differences?: number;
+}
+
+/** Apply office monthly fields: net = gross + monthlyBonus + differences − advance. */
+export function withPayrollAdjustments(
+  row: PayrollRow,
+  adj?: PayrollAdjustmentsInput,
+): PayrollRow {
+  const monthlyBonus = Number(adj?.monthlyBonus) || 0;
+  const advance = Math.max(0, Number(adj?.advance) || 0);
+  const differences = Number(adj?.differences) || 0;
+  const grossPay = row.grossPay;
+  return {
+    ...row,
+    monthlyBonus,
+    advance,
+    differences,
+    total: grossPay + monthlyBonus + differences - advance,
+  };
+}
+
+function finalizePayrollRow(row: Omit<PayrollRow, "grossPay" | "monthlyBonus" | "advance" | "differences" | "total"> & { total: number }): PayrollRow {
+  const grossPay = row.total;
+  return {
+    ...row,
+    grossPay,
+    monthlyBonus: 0,
+    advance: 0,
+    differences: 0,
+    total: grossPay,
+  };
 }
 
 /**
@@ -84,7 +128,7 @@ export function computeEmployeePayroll(input: {
       return s + h * Math.max(Number(t.hourly_from_tips) || 0, rate);
     }, 0);
     const topup = Math.max(0, guaranteed - tipSum);
-    return {
+    return finalizePayrollRow({
       wageType: "tips",
       rate,
       hours,
@@ -94,12 +138,12 @@ export function computeEmployeePayroll(input: {
       bonus,
       faultPay,
       total: guaranteed + bonus + faultPay,
-    };
+    });
   }
 
   const hours = Number(input.attendanceHours) || 0;
   const base = hours * rate;
-  return {
+  return finalizePayrollRow({
     wageType: "hourly",
     rate,
     hours,
@@ -109,5 +153,5 @@ export function computeEmployeePayroll(input: {
     bonus,
     faultPay,
     total: base + bonus + faultPay,
-  };
+  });
 }

@@ -30,6 +30,15 @@ export function inventorySaveError(e: unknown): string {
   if (msg.includes("category")) {
     return "עמודת «קטגוריה» חסרה במסד הנתונים. ב-Supabase: SQL Editor → הריצו את supabase/patches/032_inventory_item_category.sql";
   }
+  if (msg.includes("unit_price")) {
+    return "עמודת «מחיר ליחידה» חסרה במסד הנתונים. ב-Supabase: SQL Editor → הריצו את supabase/patches/047_inventory_unit_price.sql";
+  }
+  if (msg.includes("inventory_item_departments")) {
+    return "טבלת «שיוך מוצרים למחלקות» חסרה. ב-Supabase: SQL Editor → הריצו את supabase/patches/041_inventory_item_departments.sql";
+  }
+  if (msg.includes("supplier_id") || msg.includes("suppliers")) {
+    return "טבלת «ספקים» חסרה. ב-Supabase: SQL Editor → הריצו את supabase/patches/046_suppliers.sql";
+  }
   if (/bucket|storage/i.test(msg)) {
     return "שגיאה בהעלאת תמונה. ודאו שקיים Bucket בשם inventory ב-Storage.";
   }
@@ -37,6 +46,8 @@ export function inventorySaveError(e: unknown): string {
 }
 
 export interface ItemWithQty extends InventoryItem {
+  /** Empty = visible to all departments (legacy / unset). */
+  department_ids: string[];
   current_qty: number;
   /** Sum of quantities in open orders (status ≠ received) */
   ordered_qty: number;
@@ -48,6 +59,59 @@ export interface ItemWithQty extends InventoryItem {
 
 export function isTrackedLowStock(item: ItemWithQty): boolean {
   return item.min_quantity > 0 && item.current_qty <= item.min_quantity;
+}
+
+/** Line total: quantity × unit price (price is per main unit). */
+export function inventoryLineTotal(
+  item: Pick<InventoryItem, "unit_price"> | null | undefined,
+  quantity: number,
+  supplierUnitPrice?: number | null,
+): number {
+  const fromSupplier = supplierUnitPrice != null && supplierUnitPrice > 0 ? supplierUnitPrice : null;
+  const price = fromSupplier ?? Number(item?.unit_price ?? 0);
+  if (!Number.isFinite(quantity) || !Number.isFinite(price)) return 0;
+  return Math.round(quantity * price * 100) / 100;
+}
+
+export function resolveItemUnitPrice(
+  item: Pick<InventoryItem, "unit_price"> | null | undefined,
+  itemId: string,
+  supplierPrices?: Map<string, number> | null,
+): number {
+  const sp = supplierPrices?.get(itemId);
+  if (sp != null && sp > 0) return sp;
+  return Number(item?.unit_price ?? 0);
+}
+
+export function orderLineBillableQty(line: Pick<InventoryOrder, "quantity" | "received_quantity" | "status">): number {
+  if (line.status === "received") {
+    return Number(line.received_quantity ?? line.quantity);
+  }
+  return Number(line.quantity);
+}
+
+export function orderBatchTotal(
+  lines: {
+    item_id: string;
+    quantity: number;
+    received_quantity?: number | null;
+    status: InventoryOrder["status"];
+    item?: Pick<ItemWithQty, "unit_price"> | null;
+  }[],
+  supplierPrices?: Map<string, number> | null,
+): number {
+  return lines.reduce((sum, line) => {
+    const qty = orderLineBillableQty(line as InventoryOrder);
+    const sp = supplierPrices?.get(line.item_id);
+    return sum + inventoryLineTotal(line.item, qty, sp);
+  }, 0);
+}
+
+export function formatUnitPriceLabel(item: Pick<InventoryItem, "unit_price" | "unit">): string | null {
+  const price = Number(item.unit_price ?? 0);
+  if (price <= 0) return null;
+  const unit = item.unit ?? "יחידה";
+  return `${price} ₪ / ${unit}`;
 }
 
 /** An audit-log row enriched with the acting employee's name for display. */
@@ -172,8 +236,44 @@ export function formatQtyWithPieces(
   return unitLabel ? `${packages} ${unitLabel} + ${pieces} יח׳` : `${packages} + ${pieces} יח׳`;
 }
 
+async function fetchItemDepartmentMap(businessId: string): Promise<Map<string, string[]>> {
+  const { data, error } = await supabase
+    .from("inventory_item_departments")
+    .select("item_id, department_id")
+    .eq("business_id", businessId);
+  if (error) {
+    if (error.message.includes("inventory_item_departments")) return new Map();
+    throwDbError(error);
+  }
+  const map = new Map<string, string[]>();
+  (data ?? []).forEach((row: { item_id: string; department_id: string }) => {
+    const list = map.get(row.item_id) ?? [];
+    list.push(row.department_id);
+    map.set(row.item_id, list);
+  });
+  return map;
+}
+
+export async function replaceItemDepartments(
+  businessId: string,
+  itemId: string,
+  departmentIds: string[],
+): Promise<void> {
+  const { error: delError } = await supabase.from("inventory_item_departments").delete().eq("item_id", itemId);
+  throwDbError(delError);
+  const unique = [...new Set(departmentIds.filter(Boolean))];
+  if (!unique.length) return;
+  const rows = unique.map((department_id) => ({
+    business_id: businessId,
+    item_id: itemId,
+    department_id,
+  }));
+  const { error } = await supabase.from("inventory_item_departments").insert(rows);
+  throwDbError(error);
+}
+
 export async function uploadItemImage(businessId: string, file: File): Promise<string> {
-  const compressed = await compressImage(file);
+  const compressed = await compressImage(file, { maxWidth: 640, maxHeight: 640, quality: 0.82 });
   const path = `${businessId}/${crypto.randomUUID()}.jpg`;
   const { error } = await supabase.storage.from("inventory").upload(path, compressed, {
     upsert: false,
@@ -189,7 +289,7 @@ export function useInventory(businessId: string | null) {
     queryKey: ["inventory", businessId],
     enabled: !!businessId,
     queryFn: async (): Promise<ItemWithQty[]> => {
-      const [{ data: items, error }, { data: counts }, { data: orderRows }] = await Promise.all([
+      const [{ data: items, error }, { data: counts }, { data: orderRows }, deptMap] = await Promise.all([
         supabase.from("inventory_items").select("*").eq("business_id", businessId).eq("active", true).order("name"),
         supabase
           .from("inventory_counts")
@@ -197,6 +297,7 @@ export function useInventory(businessId: string | null) {
           .eq("business_id", businessId)
           .order("counted_at", { ascending: false }),
         supabase.from("inventory_orders").select("item_id, quantity, status").eq("business_id", businessId),
+        fetchItemDepartmentMap(businessId!),
       ]);
       throwDbError(error);
       const latest = new Map<
@@ -232,6 +333,7 @@ export function useInventory(businessId: string | null) {
         const updaterId = count?.employee_id ?? null;
         return {
           ...(it as InventoryItem),
+          department_ids: deptMap.get(it.id) ?? [],
           current_qty: count?.qty ?? 0,
           ordered_qty: pending.get(it.id) ?? 0,
           last_updated_by: updaterId,
@@ -253,15 +355,20 @@ export function useCreateItem(businessId: string | null) {
       units_per_package?: number | null;
       image_url?: string | null;
       min_quantity?: number;
+      unit_price?: number;
       supplier_delivery_day?: number | null;
       category?: string | null;
+      department_ids?: string[];
       quantity?: number;
       employee_id?: string | null;
     }) => {
-      const { quantity, employee_id, ...itemInput } = input;
+      const { quantity, employee_id, department_ids, ...itemInput } = input;
       const { data, error } = await supabase.from("inventory_items").insert(itemInput).select("id").single();
       throwDbError(error);
       if (!data) throw new Error("שמירת המוצר נכשלה");
+      if (department_ids?.length) {
+        await replaceItemDepartments(input.business_id, data.id, department_ids);
+      }
       if (quantity != null && quantity >= 0) {
         const { error: countError } = await supabase.from("inventory_counts").insert({
           business_id: input.business_id,
@@ -291,17 +398,22 @@ export function useUpdateItem(businessId: string | null) {
       business_id: string;
       employee_id?: string | null;
       changes: Partial<InventoryItem>;
+      department_ids?: string[];
       /** Human-readable summary of what changed, stored on the audit log. */
       note?: string | null;
     }) => {
-      const { error } = await supabase.from("inventory_items").update(input.changes).eq("id", input.id);
+      const { department_ids, ...rest } = input;
+      const { error } = await supabase.from("inventory_items").update(rest.changes).eq("id", rest.id);
       throwDbError(error);
+      if (department_ids !== undefined) {
+        await replaceItemDepartments(rest.business_id, rest.id, department_ids);
+      }
       await logInventory({
-        business_id: input.business_id,
-        item_id: input.id,
-        employee_id: input.employee_id ?? null,
+        business_id: rest.business_id,
+        item_id: rest.id,
+        employee_id: rest.employee_id ?? null,
         action: "edited",
-        note: input.note ?? null,
+        note: rest.note ?? null,
       });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["inventory", businessId] }),
@@ -367,6 +479,7 @@ export function useItemLogs(businessId: string | null, itemId: string | null) {
 
 export interface InventoryOrderWithUser extends InventoryOrder {
   ordered_by_name: string | null;
+  supplier_name: string | null;
 }
 
 export function useOrders(businessId: string | null, enabled = true) {
@@ -388,9 +501,18 @@ export function useOrders(businessId: string | null, enabled = true) {
         const { data: people } = await supabase.from("profiles").select("id, full_name").in("id", ids);
         (people ?? []).forEach((p) => names.set(p.id, p.full_name));
       }
+
+      const supplierIds = [...new Set(orders.map((o) => o.supplier_id).filter((id): id is string => !!id))];
+      const supplierNames = new Map<string, string>();
+      if (supplierIds.length) {
+        const { data: suppliers } = await supabase.from("suppliers").select("id, name").in("id", supplierIds);
+        (suppliers ?? []).forEach((s) => supplierNames.set(s.id, s.name));
+      }
+
       return orders.map((o) => ({
         ...o,
         ordered_by_name: o.ordered_by ? names.get(o.ordered_by) ?? null : null,
+        supplier_name: o.supplier_id ? supplierNames.get(o.supplier_id) ?? null : null,
       }));
     },
   });
@@ -402,6 +524,7 @@ export function useCreateOrdersBatch(businessId: string | null) {
     mutationFn: async (input: {
       business_id: string;
       ordered_by: string | null;
+      supplier_id?: string | null;
       lines: { item_id: string; quantity: number }[];
     }) => {
       if (!input.lines.length) throw new Error("נא לבחור לפחות מוצר אחד");
@@ -411,6 +534,7 @@ export function useCreateOrdersBatch(businessId: string | null) {
         item_id: l.item_id,
         quantity: l.quantity,
         ordered_by: input.ordered_by,
+        supplier_id: input.supplier_id ?? null,
         batch_id,
         status: "requested" as const,
       }));
@@ -440,6 +564,7 @@ export function useUpdateOrdersBatch(businessId: string | null) {
       batch_id: string;
       business_id: string;
       ordered_by: string | null;
+      supplier_id?: string | null;
       line_ids: string[];
       lines: { item_id: string; quantity: number }[];
     }) => {
@@ -452,6 +577,7 @@ export function useUpdateOrdersBatch(businessId: string | null) {
         item_id: l.item_id,
         quantity: l.quantity,
         ordered_by: input.ordered_by,
+        supplier_id: input.supplier_id ?? null,
         batch_id: input.batch_id,
         status: "requested" as const,
       }));
@@ -536,6 +662,7 @@ export function useReceiveOrder(businessId: string | null) {
       employee_id: string | null;
       batch_id: string | null;
       ordered_by: string | null;
+      supplier_id: string | null;
     }) => {
       const ordered = input.ordered_quantity;
       const received = input.received_quantity;
@@ -551,6 +678,7 @@ export function useReceiveOrder(businessId: string | null) {
           status: "requested",
           ordered_by: input.ordered_by,
           batch_id: input.batch_id,
+          supplier_id: input.supplier_id,
         });
         throwDbError(remainderError);
       }

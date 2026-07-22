@@ -15,8 +15,10 @@ import { WAGE_TYPE_LABELS } from "@/lib/constants";
 import { useBusinessId, formatCurrency } from "@/lib/db";
 import { buildEmployeeShiftRows, fmtHours, monthNow, sumShiftRowTotals } from "@/lib/payrollShiftRows";
 import { useEmployeeAttendanceMonth } from "@/api/attendance";
-import { useEmployeeTips, useEmployeeBonuses, useEmployeeFaultPays } from "@/api/payroll";
+import { useEmployeeTips, useEmployeeBonuses, useEmployeeFaultPays, usePayrollMonthAdjustments, payrollAdjustmentForEmployee } from "@/api/payroll";
 import { buildFaultPayRows } from "@/lib/faultPayrollRows";
+import { withPayrollAdjustments } from "@/lib/payrollCompute";
+import { PayrollAdjustmentCells } from "@/components/payroll/PayrollAdjustmentCells";
 import { useShiftTemplates } from "@/api/shifts";
 import { useProfiles } from "@/api/users";
 
@@ -45,16 +47,26 @@ export function EmployeePayrollDetail() {
   const tipsQ = useEmployeeTips(businessId, isTips ? employeeId : null, month);
   const bonusesQ = useEmployeeBonuses(businessId, employeeId, month);
   const faultPaysQ = useEmployeeFaultPays(businessId, employeeId, month);
+  const adjustmentsQ = usePayrollMonthAdjustments(businessId, month);
   const { data: templates } = useShiftTemplates(businessId);
 
+  const monthAdj = payrollAdjustmentForEmployee(adjustmentsQ.data, employeeId ?? "");
+  const adjValues = {
+    monthlyBonus: Number(monthAdj?.monthly_bonus ?? 0),
+    advance: Number(monthAdj?.advance ?? 0),
+    differences: Number(monthAdj?.differences ?? 0),
+  };
+  const hasAdjustments = adjValues.monthlyBonus > 0 || adjValues.advance > 0 || adjValues.differences !== 0;
+
   const activeQ = isTips ? tipsQ : attendanceQ;
-  const isLoading = usersLoading || activeQ.isLoading || bonusesQ.isLoading || faultPaysQ.isLoading;
-  const isError = usersError || activeQ.isError || bonusesQ.isError || faultPaysQ.isError;
+  const isLoading = usersLoading || activeQ.isLoading || bonusesQ.isLoading || faultPaysQ.isLoading || adjustmentsQ.isLoading;
+  const isError = usersError || activeQ.isError || bonusesQ.isError || faultPaysQ.isError || adjustmentsQ.isError;
   const refetch = () => {
     refetchUsers();
     activeQ.refetch();
     bonusesQ.refetch();
     faultPaysQ.refetch();
+    adjustmentsQ.refetch();
   };
 
   const rows = useMemo(() => {
@@ -77,6 +89,40 @@ export function EmployeePayrollDetail() {
     () => (faultPaysQ.data ?? []).reduce((s, f) => s + (Number(f.work_price) || 0), 0),
     [faultPaysQ.data],
   );
+
+  const netPay = useMemo(() => {
+    const gross = totals.earned;
+    return withPayrollAdjustments(
+      {
+        wageType,
+        rate,
+        hours: totals.hours,
+        base: 0,
+        tips: totals.tips,
+        topup: totals.topup,
+        bonus: totals.bonus,
+        faultPay: faultPayTotal,
+        grossPay: gross,
+        monthlyBonus: 0,
+        advance: 0,
+        differences: 0,
+        total: gross,
+      },
+      adjValues,
+    ).total;
+  }, [
+    totals.earned,
+    totals.hours,
+    totals.tips,
+    totals.topup,
+    totals.bonus,
+    adjValues.monthlyBonus,
+    adjValues.advance,
+    adjValues.differences,
+    wageType,
+    rate,
+    faultPayTotal,
+  ]);
 
   /** Where the money came from — drives the composition bar in the hero. */
   const segments = useMemo(() => {
@@ -177,7 +223,13 @@ export function EmployeePayrollDetail() {
             </div>
           </div>
 
-          <div className="epd-total">{formatCurrency(totals.earned)}</div>
+          <div className="epd-total">{formatCurrency(netPay)}</div>
+
+          {hasAdjustments && (
+            <p className="epd-id-sub mt-1 tabular-nums">
+              לפני התאמות: {formatCurrency(totals.earned)}
+            </p>
+          )}
 
           {segments.length > 1 && (
             <>
@@ -288,6 +340,28 @@ export function EmployeePayrollDetail() {
             showMobileHero={false}
           />
         </div>
+
+        {(isPayrollManager || hasAdjustments) && (
+          <section className="payroll-adj-panel mb-4 rounded-xl border border-border bg-surface p-4 shadow-card">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-[14px] font-bold text-text">התאמות חודשיות</h2>
+              {!isPayrollManager && (
+                <span className="text-[12px] text-text-3">עריכה למנהלת משרד בלבד</span>
+              )}
+            </div>
+            <PayrollAdjustmentCells
+              businessId={businessId}
+              employeeId={employee.id}
+              month={month}
+              values={adjValues}
+              canEdit={!!isPayrollManager}
+              layout="grid"
+            />
+            <p className="mt-3 text-[12px] text-text-2">
+              סה״כ לתשלום לאחר התאמות: <strong className="tabular-nums text-text">{formatCurrency(netPay)}</strong>
+            </p>
+          </section>
+        )}
 
         {rows.length > 0 && (
           <div className="epd-section md:hidden">

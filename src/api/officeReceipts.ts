@@ -48,6 +48,7 @@ export interface CreateOfficeReceiptInput {
   amount: number;
   vendor_name: string;
   vendor_details?: string | null;
+  supplier_id?: string | null;
   document_date?: string | null;
   file_url: string;
   notes?: string | null;

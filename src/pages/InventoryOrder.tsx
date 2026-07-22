@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Navigate, useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { Button, EmptyState, ErrorState, Icon, Input, PageLoader } from "@/components/ui";
+import { Navigate, useLocation, useNavigate, useSearchParams, Link } from "react-router-dom";
+import { Button, EmptyState, ErrorState, Field, Icon, Input, PageLoader, Select } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/lib/auth";
-import { useBusinessId, HE_DAYS } from "@/lib/db";
+import { useBusinessId, HE_DAYS, formatCurrency } from "@/lib/db";
 import {
   useInventory,
   useOrders,
@@ -12,12 +12,14 @@ import {
   INVENTORY_CATEGORIES,
   inventoryCategoryLabel,
   inventorySaveError,
+  inventoryLineTotal,
   canUsePieceInput,
   piecesToMainUnit,
   formatQtyWithPieces,
   isTrackedLowStock,
   type ItemWithQty,
 } from "@/api/inventory";
+import { useSuppliers, useSupplierItemPriceIndex, supplierPricesFor } from "@/api/suppliers";
 
 /** Quantity draft per product: whole packages in the item's main unit + loose single pieces. */
 type QtyDraft = { packs: number; pieces: number };
@@ -366,6 +368,7 @@ export function InventoryOrder() {
 
   const { data: items, isLoading, isError, refetch } = useInventory(businessId);
   const { data: orders } = useOrders(businessId, isEditing);
+  const { data: suppliers } = useSuppliers(businessId, { activeOnly: true });
   const createOrdersBatch = useCreateOrdersBatch(businessId);
   const updateOrdersBatch = useUpdateOrdersBatch(businessId);
 
@@ -379,12 +382,18 @@ export function InventoryOrder() {
   const [error, setError] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [flashId, setFlashId] = useState<string | null>(null);
+  const [supplierId, setSupplierId] = useState<string>("");
   const [batchMissing, setBatchMissing] = useState(false);
   const editInitRef = useRef(false);
   const presetJumpRef = useRef(false);
   const flashTimer = useRef<number>();
 
   const list = items ?? [];
+  const { data: supplierPriceIndex } = useSupplierItemPriceIndex(businessId);
+  const supplierPrices = useMemo(
+    () => supplierPricesFor(supplierPriceIndex, supplierId || null),
+    [supplierPriceIndex, supplierId],
+  );
 
   /** Open lines of the batch being edited (batch key = batch_id, or line id for legacy single orders). */
   const editLines = useMemo(() => {
@@ -404,6 +413,7 @@ export function InventoryOrder() {
       next[line.item_id] = decomposeQty(items.find((i) => i.id === line.item_id), Number(line.quantity));
     }
     setDrafts(next);
+    setSupplierId(editLines[0]?.supplier_id ?? "");
   }, [isEditing, editLines, items]);
 
   // When arriving from a product card ("הזמנה" on a specific item) — scroll to it and flash.
@@ -459,6 +469,16 @@ export function InventoryOrder() {
         .map((item) => ({ item_id: item.id, quantity: draftTotal(item, drafts[item.id]!) }))
         .filter((l) => l.quantity > 0),
     [selectedItems, drafts],
+  );
+
+  const cartTotal = useMemo(
+    () =>
+      selectedItems.reduce(
+        (sum, item) =>
+          sum + inventoryLineTotal(item, draftTotal(item, drafts[item.id]!), supplierPrices?.get(item.id)),
+        0,
+      ),
+    [selectedItems, drafts, supplierPrices],
   );
 
   const deliveryLabel = useMemo(() => {
@@ -547,6 +567,7 @@ export function InventoryOrder() {
           batch_id: batchParam!,
           business_id: businessId!,
           ordered_by: editLines[0].ordered_by ?? profile?.id ?? null,
+          supplier_id: supplierId || null,
           line_ids: editLines.map((l) => l.id),
           lines: orderLines,
         });
@@ -554,6 +575,7 @@ export function InventoryOrder() {
         await createOrdersBatch.mutateAsync({
           business_id: businessId!,
           ordered_by: profile?.id ?? null,
+          supplier_id: supplierId || null,
           lines: orderLines,
         });
       }
@@ -597,6 +619,37 @@ export function InventoryOrder() {
       <Icon name="error" size={18} className="shrink-0" /> {error}
     </div>
   );
+
+  const supplierPicker =
+    (suppliers?.length ?? 0) > 0 ? (
+      <Field label="ספק להזמנה">
+        <Select
+          value={supplierId}
+          onChange={(e) => setSupplierId(e.target.value)}
+          searchable
+          searchPlaceholder="בחר ספק..."
+        >
+          <option value="">ללא ספק</option>
+          {(suppliers ?? []).map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </Select>
+        <p className="mt-1 text-[11.5px] text-text-3">
+          <Link to="/suppliers" className="font-semibold text-accent-2 hover:underline">
+            ניהול ספקים
+          </Link>
+        </p>
+      </Field>
+    ) : (
+      <p className="text-[12px] text-text-3">
+        אין ספקים במערכת.{" "}
+        <Link to="/suppliers" className="font-semibold text-accent-2 hover:underline">
+          הוספת ספק
+        </Link>
+      </p>
+    );
 
   const cartEmpty = (
     <div className="ordc-cart-empty">
@@ -768,6 +821,18 @@ export function InventoryOrder() {
                       <span className="ordc-cart-info">
                         <span className="ordc-cart-name">{item.name}</span>
                         <span className="ordc-cart-qty">{draftLabel(item, drafts[item.id]!)}</span>
+                        {(() => {
+                          const lineSum = inventoryLineTotal(
+                            item,
+                            draftTotal(item, drafts[item.id]!),
+                            supplierPrices?.get(item.id),
+                          );
+                          return lineSum > 0 ? (
+                            <span className="ordc-cart-qty tabular-nums text-text-2">
+                              {formatCurrency(lineSum)}
+                            </span>
+                          ) : null;
+                        })()}
                       </span>
                     </button>
                     <button
@@ -782,6 +847,13 @@ export function InventoryOrder() {
                 ))}
               </ul>
               <div className="ordc-cart-foot">
+                {supplierPicker}
+                {cartTotal > 0 && (
+                  <div className="flex items-center justify-between rounded-[10px] border border-border bg-surface-2 px-3 py-2 text-[13px] font-extrabold">
+                    <span className="text-text-2">סה״כ הזמנה</span>
+                    <span className="tabular-nums text-text">{formatCurrency(cartTotal)}</span>
+                  </div>
+                )}
                 {deliveryLabel && (
                   <p className="ordc-cart-delivery">
                     <Icon name="local_shipping" size={14} />
@@ -856,6 +928,13 @@ export function InventoryOrder() {
           cartEmpty
         ) : (
           <div className="flex flex-col gap-2.5">
+            {supplierPicker}
+            {cartTotal > 0 && (
+              <div className="flex items-center justify-between rounded-[10px] border border-border bg-surface-2 px-3 py-2 text-[13px] font-extrabold">
+                <span className="text-text-2">סה״כ הזמנה</span>
+                <span className="tabular-nums text-text">{formatCurrency(cartTotal)}</span>
+              </div>
+            )}
             {deliveryLabel && (
               <p className="ordc-cart-delivery">
                 <Icon name="local_shipping" size={14} />

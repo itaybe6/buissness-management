@@ -13,6 +13,10 @@ export interface PayrollExportRow {
   baseOrTips: number;
   topup: number;
   bonus: number;
+  monthlyBonus: number;
+  advance: number;
+  differences: number;
+  grossPay: number;
   total: number;
   pensionActive: boolean;
 }
@@ -40,6 +44,10 @@ export function exportPayrollExcel(rows: PayrollExportRow[], month: string) {
     "בסיס / טיפים": Math.round(r.baseOrTips * 100) / 100,
     השלמה: Math.round(r.topup * 100) / 100,
     "תוספת קופה": Math.round(r.bonus * 100) / 100,
+    "בונוס חודשי": Math.round(r.monthlyBonus * 100) / 100,
+    מפרעה: Math.round(r.advance * 100) / 100,
+    הפרשים: Math.round(r.differences * 100) / 100,
+    "שכר לפני התאמות": Math.round(r.grossPay * 100) / 100,
     "שכר סופי": Math.round(r.total * 100) / 100,
     פנסיה: r.pensionActive ? "פעילה" : "לא פעילה",
   }));
@@ -54,6 +62,9 @@ export function exportPayrollExcel(rows: PayrollExportRow[], month: string) {
     { wch: 14 },
     { wch: 12 },
     { wch: 12 },
+    { wch: 12 },
+    { wch: 12 },
+    { wch: 14 },
     { wch: 12 },
     { wch: 12 },
   ];

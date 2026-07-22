@@ -198,9 +198,9 @@ export function MobileSideDrawer({
 
               <div className="flex min-w-0 items-center gap-3">
 
-                <div className="grid h-[38px] w-[38px] flex-none place-items-center rounded-[11px] [background:var(--accent)] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]">
+                <div className="avatar-chip h-[38px] w-[38px] rounded-[11px]">
 
-                  <Icon name="hub" size={22} className="text-white" />
+                  <Icon name="hub" size={22} />
 
                 </div>
 
@@ -266,8 +266,8 @@ export function MobileSideDrawer({
                 {userId ? (
                   <UserAvatar userId={userId} name={userName} avatarUrl={avatarUrl} size={30} rounded="square" />
                 ) : (
-                  <span className="grid h-[30px] w-[30px] flex-none place-items-center rounded-[8px] [background:var(--accent)]">
-                    <Icon name={isSuperAdmin ? "apps" : "storefront"} size={18} className="text-white" />
+                  <span className="avatar-chip grid h-[30px] w-[30px] flex-none place-items-center rounded-[8px]">
+                    <Icon name={isSuperAdmin ? "apps" : "storefront"} size={18} />
                   </span>
                 )}
                 <div className="min-w-0 flex-1">

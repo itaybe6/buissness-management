@@ -26,6 +26,7 @@
   --primary-bg: #14181c;
   --primary-fg: #ffffff;
   --primary-hover: #0d0e12;
+  --on-brand: var(--primary-fg);
   --link: #14181c;
   --bg: #f0f2f5;
   --surface: #ffffff;
@@ -96,6 +97,7 @@
   --primary-bg: #e8eaed;
   --primary-fg: #0d0e12;
   --primary-hover: #f4f5f7;
+  --on-brand: var(--primary-fg);
   --link: #e8eaed;
   --success-bg: #0e2c1c;
   --warning-bg: #2e2410;
@@ -332,13 +334,17 @@ select {
     @apply block text-[13px] font-semibold text-text-2;
   }
 
+  .text-on-brand {
+    color: var(--primary-fg);
+  }
+
   .ui-switch {
     background: color-mix(in srgb, var(--accent) 18%, var(--border));
     transition: background 320ms cubic-bezier(0.32, 0.72, 0, 1);
   }
 
   .ui-switch[data-checked="true"] {
-    background: linear-gradient(178deg, var(--accent) 0%, var(--accent-2) 100%);
+    background: linear-gradient(178deg, var(--primary-bg) 0%, var(--primary-hover) 100%);
     box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.12);
   }
 
@@ -633,8 +639,8 @@ select {
 }
 
 .time-picker-action-primary {
-  background: var(--accent);
-  color: #fff;
+  background: var(--primary-bg);
+  color: var(--primary-fg);
 }
 
 .time-picker-action-primary:hover {
@@ -661,8 +667,9 @@ select {
 }
 
 .select-multi-check--on {
-  border-color: var(--accent-2);
-  background: var(--accent);
+  border-color: var(--primary-hover);
+  background: var(--primary-bg);
+  color: var(--primary-fg);
 }
 
 @keyframes selectFadeIn {
@@ -2183,25 +2190,512 @@ select {
   color: #fff;
 }
 
-.inventory-search-chip {
-  padding: 0.35rem 0.75rem;
+/* ============================================================
+   Inventory filter popover (.inv-filters-* / .inv-chip)
+   The trigger lives in the search row; the panel drops out of it
+   — full row width on phones, a 430px card on desktop, so the
+   facets never stretch across the page. Every chip carries an
+   identity colour and a live count of what it would yield.
+   ============================================================ */
+
+.inventory-search {
+  position: relative;
+  z-index: 20;
+}
+
+.inv-searchrow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* --- Trigger: icon-only next to the search field, labelled on desktop --- */
+.inv-filters-anchor {
+  position: static;
+  flex-shrink: 0;
+}
+
+.inv-filters-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: var(--shadow-sm);
+  transition:
+    background-color 200ms var(--ease-out),
+    border-color 200ms var(--ease-out),
+    color 200ms var(--ease-out),
+    box-shadow 240ms var(--ease-out),
+    transform 200ms var(--ease-spring);
+}
+
+.inv-filters-btn-label {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .inv-filters-anchor {
+    position: relative;
+  }
+
+  .inv-filters-btn {
+    width: auto;
+    padding-inline: 0.9rem;
+  }
+
+  .inv-filters-btn-label {
+    display: inline;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .inv-filters-btn:hover {
+    color: var(--text);
+    background: var(--surface-2);
+    border-color: color-mix(in srgb, var(--accent) 24%, var(--border));
+  }
+}
+
+.inv-filters-btn:active {
+  transform: scale(0.94);
+}
+
+.inv-filters-btn[data-open="true"],
+.inv-filters-btn[data-filtered="true"] {
+  color: var(--primary-fg);
+  border-color: transparent;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--primary-bg) 86%, #fff) 0%,
+    var(--primary-hover) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.2),
+    0 6px 16px -8px color-mix(in srgb, var(--primary-bg) 70%, transparent);
+}
+
+/* Corner badge while the trigger is icon-only; an inline pill once it has a label. */
+.inv-filters-badge {
+  position: absolute;
+  top: -5px;
+  inset-inline-start: -5px;
+  display: grid;
+  place-items: center;
+  min-width: 19px;
+  height: 19px;
+  padding-inline: 5px;
+  border-radius: 999px;
+  border: 1.5px solid var(--bg);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 10.5px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 1px 3px rgb(16 24 40 / 0.18);
+  animation: inv-pop-in 320ms var(--ease-bounce);
+}
+
+@media (min-width: 768px) {
+  .inv-filters-badge {
+    position: static;
+    border: 0;
+    box-shadow: none;
+    background: color-mix(in srgb, currentColor 20%, transparent);
+    color: inherit;
+  }
+}
+
+/* --- The popover --- */
+.inv-filters-pop {
+  position: absolute;
+  top: calc(100% + 0.55rem);
+  inset-inline: 0;
+  z-index: 30;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  max-height: min(70vh, 34rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-8px) scale(0.97);
+  transform-origin: top center;
+  transition:
+    opacity 200ms var(--ease-out),
+    transform 300ms var(--ease-spring),
+    visibility 0s linear 300ms;
+}
+
+.inv-filters-pop[data-open="true"] {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: none;
+  transition-delay: 0s;
+}
+
+@media (min-width: 768px) {
+  .inv-filters-pop {
+    inset-inline: auto;
+    inset-inline-end: 0;
+    width: 430px;
+    max-width: calc(100vw - 3rem);
+    transform-origin: top var(--pop-origin, left);
+  }
+}
+
+.inv-filters-pop-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.7rem 0.9rem 0.6rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border-2);
+}
+
+.inv-filters-pop-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--text-2);
+}
+
+.inv-filters-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  height: 30px;
+  padding-inline: 0.65rem;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--surface);
-  font-size: 11px;
+  color: var(--text-2);
+  font-size: 11.5px;
   font-weight: 700;
-  color: var(--text-3);
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
   transition:
-    background 160ms var(--ease-out),
-    color 160ms var(--ease-out),
-    border-color 160ms var(--ease-out);
+    background-color 180ms var(--ease-out),
+    border-color 180ms var(--ease-out),
+    color 180ms var(--ease-out),
+    transform 200ms var(--ease-spring);
 }
 
-.inventory-search-chip[data-active="true"] {
-  background: var(--ink);
-  border-color: var(--ink);
-  color: #fff;
+.inv-filters-clear:hover {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 34%, var(--border));
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+}
+
+.inv-filters-clear:active {
+  transform: scale(0.94);
+}
+
+/* --- Active filters, shown under the search row --- */
+.inv-filters-tokens {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.inv-filters-token {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  height: 30px;
+  padding-inline: 0.65rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--chip-accent) 34%, transparent);
+  background: color-mix(in srgb, var(--chip-accent) 12%, var(--surface));
+  color: color-mix(in srgb, var(--chip-accent) 50%, var(--text));
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  animation: inv-token-in 300ms var(--ease-bounce) backwards;
+  transition:
+    background-color 180ms var(--ease-out),
+    transform 200ms var(--ease-spring);
+}
+
+.inv-filters-token:hover {
+  background: color-mix(in srgb, var(--chip-accent) 20%, var(--surface));
+}
+
+.inv-filters-token:active {
+  transform: scale(0.94);
+}
+
+.inv-filters-token-x {
+  display: block;
+  opacity: 0.5;
+  transition: opacity 160ms var(--ease-out);
+}
+
+.inv-filters-token:hover .inv-filters-token-x {
+  opacity: 1;
+}
+
+/* --- One row per facet, stacked inside the popover --- */
+.inv-filters-pop-body {
+  padding-bottom: 0.25rem;
+}
+
+.inv-filter-row {
+  padding: 0.65rem 0.9rem;
+  border-top: 1px solid var(--border-2);
+}
+
+.inv-filter-row:first-child {
+  border-top: 0;
+}
+
+.inv-filter-row:last-child {
+  padding-bottom: 0.85rem;
+}
+
+.inv-filter-row-label {
+  display: block;
+  margin-bottom: 0.45rem;
+  padding-inline-start: 0.15rem;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  color: var(--text-3);
+}
+
+.inv-filter-track {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+/* --- The chip itself --- */
+.inv-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  flex-shrink: 0;
+  height: 36px;
+  padding-inline: 0.8rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 1px 1.5px rgb(16 24 40 / 0.04);
+  transition:
+    background-color 200ms var(--ease-out),
+    border-color 200ms var(--ease-out),
+    color 200ms var(--ease-out),
+    box-shadow 220ms var(--ease-out),
+    opacity 200ms var(--ease-out),
+    transform 220ms var(--ease-spring);
+}
+
+/* Roomier thumb target on touch screens. */
+@media (max-width: 767px) {
+  .inv-chip {
+    height: 38px;
+    font-size: 13px;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .inv-chip:hover {
+    color: var(--text);
+    border-color: color-mix(in srgb, var(--chip-accent, var(--accent)) 32%, var(--border));
+    background: color-mix(in srgb, var(--chip-accent, var(--accent)) 6%, var(--surface));
+    transform: translateY(-1px);
+    box-shadow: 0 5px 12px -6px color-mix(in srgb, var(--chip-accent, var(--accent)) 55%, transparent);
+  }
+}
+
+.inv-chip:active {
+  transform: scale(0.95);
+  transition-duration: 90ms;
+}
+
+.inv-chip-icon {
+  display: block;
+  color: var(--chip-accent, var(--text-3));
+  opacity: 0.85;
+  transition:
+    color 200ms var(--ease-out),
+    opacity 200ms var(--ease-out);
+}
+
+.inv-chip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  background: var(--chip-accent, var(--text-3));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--chip-accent, var(--text-3)) 15%, transparent);
+  transition: box-shadow 220ms var(--ease-out);
+}
+
+.inv-chip-dot[data-hollow="true"] {
+  background: transparent;
+  border: 1.5px dashed var(--text-3);
+  box-shadow: none;
+}
+
+.inv-chip-count {
+  min-width: 17px;
+  padding-inline: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  color: var(--text-3);
+  font-size: 10px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  transition:
+    background-color 200ms var(--ease-out),
+    color 200ms var(--ease-out);
+}
+
+/* Options that would return nothing recede, but stay reachable. */
+.inv-chip[data-empty="true"] {
+  opacity: 0.4;
+}
+
+/* Active — neutral chips ("הכל", stock) take the app's ink fill. */
+.inv-chip[data-active="true"] {
+  color: var(--primary-fg);
+  border-color: transparent;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--primary-bg) 86%, #fff) 0%,
+    var(--primary-hover) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.2),
+    0 2px 4px -1px rgb(16 24 40 / 0.16),
+    0 9px 20px -10px color-mix(in srgb, var(--primary-bg) 70%, transparent);
+  animation: inv-chip-pop 320ms var(--ease-bounce);
+}
+
+.inv-chip[data-active="true"] .inv-chip-icon {
+  color: currentColor;
+  opacity: 1;
+}
+
+.inv-chip[data-active="true"] .inv-chip-dot {
+  background: currentColor;
+  border-color: currentColor;
+  box-shadow: none;
+}
+
+.inv-chip[data-active="true"] .inv-chip-dot[data-hollow="true"] {
+  background: transparent;
+}
+
+.inv-chip[data-active="true"] .inv-chip-count {
+  background: color-mix(in srgb, currentColor 18%, transparent);
+  color: inherit;
+}
+
+/* Active — chips with their own identity colour (category, department). */
+.inv-chip--accent[data-active="true"] {
+  color: color-mix(in srgb, var(--chip-accent) 55%, var(--text));
+  border-color: color-mix(in srgb, var(--chip-accent) 42%, transparent);
+  background: color-mix(in srgb, var(--chip-accent) 14%, var(--surface));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--chip-accent) 14%, transparent),
+    0 5px 14px -8px color-mix(in srgb, var(--chip-accent) 80%, transparent);
+}
+
+.inv-chip--accent[data-active="true"] .inv-chip-icon {
+  color: var(--chip-accent);
+  opacity: 1;
+}
+
+.inv-chip--accent[data-active="true"] .inv-chip-dot {
+  background: var(--chip-accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--chip-accent) 24%, transparent);
+}
+
+.inv-chip--accent[data-active="true"] .inv-chip-count {
+  background: color-mix(in srgb, var(--chip-accent) 22%, transparent);
+  color: inherit;
+}
+
+@keyframes inv-chip-pop {
+  0% {
+    transform: scale(0.9);
+  }
+  55% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes inv-pop-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes inv-token-in {
+  0% {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inv-filters-panel,
+  .inv-filters-caret,
+  .inv-filters-toggle-icon,
+  .inv-chip,
+  .inv-filters-token,
+  .inv-filters-clear,
+  .inv-filters-badge {
+    transition-duration: 1ms !important;
+    animation: none !important;
+  }
 }
 
 .inventory-product-grid {
@@ -2699,8 +3193,8 @@ select {
 
 .mobile-drawer-link-active {
   font-weight: 700;
-  color: #fff;
-  background: var(--accent);
+  color: var(--primary-fg);
+  background: var(--primary-bg);
 }
 
 .mobile-drawer-link:active:not(.mobile-drawer-link-active) {
@@ -2939,8 +3433,8 @@ select {
 }
 
 .tasks-mgr-tab-btn[data-active="true"] {
-  color: #fff;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: var(--primary-fg);
+  background: linear-gradient(135deg, var(--primary-bg), var(--primary-hover));
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.2),
     0 4px 12px -6px color-mix(in srgb, var(--accent) 55%, transparent);
@@ -3604,8 +4098,8 @@ select {
   width: 2.5rem;
   height: 2.5rem;
   border-radius: 13px;
-  color: #fff;
-  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+  color: var(--primary-fg);
+  background: linear-gradient(135deg, var(--primary-bg) 0%, var(--primary-hover) 100%);
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.25),
     0 8px 18px -8px color-mix(in srgb, var(--accent) 55%, transparent);
@@ -4286,8 +4780,8 @@ select {
   padding: 0.5rem 1rem;
   border-radius: 12px;
   border: 1px solid transparent;
-  background: var(--accent);
-  color: #fff;
+  background: var(--primary-bg);
+  color: var(--primary-fg);
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
@@ -4300,8 +4794,8 @@ select {
 }
 
 .task-media-action--accent {
-  background: var(--accent);
-  color: #fff;
+  background: var(--primary-bg);
+  color: var(--primary-fg);
 }
 
 .task-media-action--accent:hover:not(:disabled) {
@@ -4336,8 +4830,8 @@ select {
   width: 2.6rem;
   height: 2.6rem;
   border-radius: 12px;
-  background: var(--accent);
-  color: #fff;
+  background: var(--primary-bg);
+  color: var(--primary-fg);
 }
 
 .task-media-strip {
@@ -5048,14 +5542,14 @@ select {
   inset: 0;
   z-index: -1;
   border-radius: 11px;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  background: linear-gradient(135deg, var(--primary-bg), var(--primary-hover));
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.2),
-    0 6px 16px -6px color-mix(in srgb, var(--accent) 65%, transparent);
+    0 6px 16px -6px color-mix(in srgb, var(--primary-bg) 65%, transparent);
 }
 
 .shift-mode-toggle-btn[data-active="true"] {
-  color: #fff;
+  color: var(--primary-fg);
 }
 
 .shift-mode-toggle-btn:active {
@@ -6547,10 +7041,11 @@ select {
 }
 
 .attendance-action[data-mode="in"] {
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  background: linear-gradient(135deg, var(--primary-bg), var(--primary-hover));
   box-shadow:
-    0 4px 14px -4px color-mix(in srgb, var(--accent) 55%, transparent),
+    0 4px 14px -4px color-mix(in srgb, var(--primary-bg) 55%, transparent),
     inset 0 1px 0 rgb(255 255 255 / 0.2);
+  color: var(--primary-fg);
 }
 
 .attendance-action[data-mode="out"] {
@@ -8395,9 +8890,9 @@ select {
   border-radius: 999px;
   font-size: 12px;
   font-weight: 800;
-  color: #fff;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
-  box-shadow: 0 4px 14px -6px color-mix(in srgb, var(--accent) 50%, transparent);
+  color: var(--primary-fg);
+  background: linear-gradient(135deg, var(--primary-bg), var(--primary-hover));
+  box-shadow: 0 4px 14px -6px color-mix(in srgb, var(--primary-bg) 50%, transparent);
 }
 
 /* ── Office receipts panel ── */
@@ -8437,11 +8932,11 @@ select {
   height: 3.5rem;
   border: none;
   border-radius: 999px;
-  color: #fff;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: var(--primary-fg);
+  background: linear-gradient(135deg, var(--primary-bg), var(--primary-hover));
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.22),
-    0 10px 28px -10px color-mix(in srgb, var(--accent) 70%, transparent);
+    0 10px 28px -10px color-mix(in srgb, var(--primary-bg) 70%, transparent);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   transition: transform 160ms var(--ease-out), filter 160ms var(--ease-out);
@@ -9670,15 +10165,15 @@ select {
   padding: 0.75rem 1.25rem;
   border: none;
   border-radius: 14px;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
-  color: #fff;
+  background: linear-gradient(135deg, var(--primary-bg), var(--primary-hover));
+  color: var(--primary-fg);
   font-size: 15px;
   font-weight: 800;
   letter-spacing: -0.01em;
   cursor: pointer;
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.2),
-    0 8px 22px -8px color-mix(in srgb, var(--accent) 58%, transparent);
+    0 8px 22px -8px color-mix(in srgb, var(--primary-bg) 58%, transparent);
   -webkit-tap-highlight-color: transparent;
   transition:
     transform 180ms var(--ease-spring),
@@ -9750,16 +10245,16 @@ select {
 }
 
 .ui-btn--primary {
-  color: #fff;
+  color: var(--primary-fg);
   background: linear-gradient(
     180deg,
-    color-mix(in srgb, var(--accent) 88%, #fff) 0%,
-    var(--accent-2) 100%
+    color-mix(in srgb, var(--primary-bg) 88%, #fff) 0%,
+    var(--primary-hover) 100%
   );
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.22),
     0 1px 2px rgb(23 10 55 / 0.16),
-    0 8px 20px -8px color-mix(in srgb, var(--accent) 60%, transparent);
+    0 8px 20px -8px color-mix(in srgb, var(--primary-bg) 60%, transparent);
 }
 
 .ui-btn--primary:not(:disabled):hover {
@@ -9767,7 +10262,11 @@ select {
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.26),
     0 2px 4px rgb(23 10 55 / 0.14),
-    0 12px 28px -10px color-mix(in srgb, var(--accent) 70%, transparent);
+    0 12px 28px -10px color-mix(in srgb, var(--primary-bg) 70%, transparent);
+}
+
+.ui-btn--primary .material-symbols-rounded {
+  color: inherit;
 }
 
 .ui-btn--danger {
@@ -10159,8 +10658,8 @@ select {
 
 .users-role-chip[data-active="true"] {
   border-color: transparent;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
-  color: #fff;
+  background: linear-gradient(135deg, var(--primary-bg), var(--primary-hover));
+  color: var(--primary-fg);
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.2),
     0 4px 14px -4px color-mix(in srgb, var(--accent) 55%, transparent);
@@ -10223,12 +10722,12 @@ select {
 }
 
 .side-nav-item[data-active="true"] {
-  color: #fff;
+  color: var(--primary-fg);
   font-weight: 700;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  background: linear-gradient(135deg, var(--primary-bg), var(--primary-hover));
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.18),
-    0 10px 24px -10px color-mix(in srgb, var(--accent) 75%, transparent);
+    0 10px 24px -10px color-mix(in srgb, var(--primary-bg) 75%, transparent);
   transform: none;
 }
 
@@ -10283,11 +10782,15 @@ select {
   display: grid;
   place-items: center;
   flex: none;
-  color: #fff;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: var(--primary-fg);
+  background: linear-gradient(135deg, var(--primary-bg), var(--primary-hover));
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.22),
-    0 4px 10px -4px color-mix(in srgb, var(--accent) 55%, transparent);
+    0 4px 10px -4px color-mix(in srgb, var(--primary-bg) 55%, transparent);
+}
+
+.avatar-chip .material-symbols-rounded {
+  color: inherit;
 }
 
 /* --- Skeleton loader --- */
@@ -10503,7 +11006,7 @@ select {
 }
 
 .shift-day-pill[data-active="true"] {
-  color: #fff;
+  color: var(--primary-fg);
 }
 
 .shift-day-pill-bg {
@@ -10511,10 +11014,10 @@ select {
   inset: 0;
   z-index: 0;
   border-radius: 12px;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  background: linear-gradient(135deg, var(--primary-bg), var(--primary-hover));
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.2),
-    0 6px 16px -6px color-mix(in srgb, var(--accent) 65%, transparent);
+    0 6px 16px -6px color-mix(in srgb, var(--primary-bg) 65%, transparent);
 }
 
 .shift-day-pill-name {
@@ -10565,7 +11068,7 @@ select {
 
 .shift-day-pill[data-active="true"] .shift-day-pill-dot,
 .shift-day-pill[data-active="true"] .shift-day-pill-holiday-dot {
-  background: #fff;
+  background: var(--primary-fg);
 }
 
 /* --- Mobile day view: shift rows inside department cards --- */
@@ -11576,7 +12079,7 @@ select {
 }
 
 .filter-pill[data-active="true"] {
-  color: #fff;
+  color: var(--primary-fg);
 }
 
 .filter-pill-thumb {
@@ -11584,10 +12087,10 @@ select {
   inset: 0;
   z-index: 0;
   border-radius: 999px;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  background: linear-gradient(135deg, var(--primary-bg), var(--primary-hover));
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.2),
-    0 6px 16px -6px color-mix(in srgb, var(--accent) 60%, transparent);
+    0 6px 16px -6px color-mix(in srgb, var(--primary-bg) 60%, transparent);
   animation: pillThumbIn 260ms var(--ease-spring);
 }
 
@@ -11627,7 +12130,7 @@ select {
 }
 
 .filter-pill[data-active="true"] .filter-pill-count {
-  color: #fff;
+  color: var(--primary-fg);
   background: rgb(255 255 255 / 0.22);
   box-shadow: none;
 }
@@ -11831,15 +12334,15 @@ select {
 }
 
 .faults-searchbar__icon-btn--accent {
-  color: #fff;
-  background: var(--accent-2);
+  color: var(--primary-fg);
+  background: var(--primary-bg);
   box-shadow:
     0 1px 2px color-mix(in srgb, var(--ink) 8%, transparent),
-    0 10px 22px -12px color-mix(in srgb, var(--accent) 55%, transparent);
+    0 10px 22px -12px color-mix(in srgb, var(--primary-bg) 55%, transparent);
 }
 
 .faults-searchbar__icon-btn--accent:active {
-  background: var(--accent);
+  background: var(--primary-hover);
 }
 
 .faults-searchbar__badge {
@@ -12033,8 +12536,8 @@ select {
   }
 
   .faults-searchbar__icon-btn--accent:hover {
-    color: #fff;
-    background: var(--accent);
+    color: var(--primary-fg);
+    background: var(--primary-hover);
   }
 
   .faults-searchbar__clear:hover {
@@ -12261,11 +12764,11 @@ select {
   font-size: 14px;
   font-weight: 800;
   letter-spacing: -0.01em;
-  color: #fff;
-  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+  color: var(--primary-fg);
+  background: linear-gradient(135deg, var(--primary-bg) 0%, var(--primary-hover) 100%);
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.2),
-    0 12px 32px -8px color-mix(in srgb, var(--accent) 55%, transparent);
+    0 12px 32px -8px color-mix(in srgb, var(--primary-bg) 55%, transparent);
   cursor: pointer;
   transition: transform 180ms var(--ease-out), box-shadow 180ms var(--ease-out);
   -webkit-tap-highlight-color: transparent;
@@ -12354,11 +12857,11 @@ select {
   width: 2.6rem;
   height: 2.6rem;
   border-radius: 14px;
-  color: #fff;
-  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+  color: var(--primary-fg);
+  background: linear-gradient(135deg, var(--primary-bg) 0%, var(--primary-hover) 100%);
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.25),
-    0 8px 20px -8px color-mix(in srgb, var(--accent) 55%, transparent);
+    0 8px 20px -8px color-mix(in srgb, var(--primary-bg) 55%, transparent);
 }
 
 .faults-hero__copy {
@@ -13629,10 +14132,10 @@ select {
   font-family: inherit;
   font-size: 13px;
   font-weight: 800;
-  color: #fff;
-  background: var(--accent);
+  color: var(--primary-fg);
+  background: var(--primary-bg);
   cursor: pointer;
-  box-shadow: 0 4px 14px -4px color-mix(in srgb, var(--accent) 50%, transparent);
+  box-shadow: 0 4px 14px -4px color-mix(in srgb, var(--primary-bg) 50%, transparent);
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -14148,14 +14651,14 @@ select {
 }
 
 .doc-section-btn--primary {
-  color: #fff;
+  color: var(--primary-fg);
   border-color: transparent;
-  background: var(--accent);
-  box-shadow: 0 4px 14px -4px color-mix(in srgb, var(--accent) 50%, transparent);
+  background: var(--primary-bg);
+  box-shadow: 0 4px 14px -4px color-mix(in srgb, var(--primary-bg) 50%, transparent);
 }
 
 .doc-section-btn--primary:hover {
-  background: var(--accent-2);
+  background: var(--primary-hover);
 }
 
 /* Template cards */
@@ -14376,12 +14879,12 @@ select {
   font-family: inherit;
   font-size: 14px;
   font-weight: 800;
-  color: #fff;
-  background: var(--accent);
+  color: var(--primary-fg);
+  background: var(--primary-bg);
   cursor: pointer;
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.18),
-    0 12px 32px -8px color-mix(in srgb, var(--accent) 55%, transparent);
+    0 12px 32px -8px color-mix(in srgb, var(--primary-bg) 55%, transparent);
   transition: transform 180ms var(--ease-out), box-shadow 180ms var(--ease-out);
   -webkit-tap-highlight-color: transparent;
 }
@@ -14692,6 +15195,55 @@ button.doc-status-doc-row:active {
   flex-shrink: 0;
   color: var(--text-3);
   opacity: 0.65;
+}
+
+/* Form-101 keyboard-fill setup banner (manager only) */
+.form101-setup {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  margin-bottom: 0.85rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.form101-setup > .material-symbols-rounded {
+  flex-shrink: 0;
+  color: var(--accent-2);
+}
+
+.form101-setup__text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.form101-setup__title {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.form101-setup__sub {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-3);
+}
+
+@media (max-width: 640px) {
+  .form101-setup {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .form101-setup button {
+    width: 100%;
+  }
 }
 
 /* Mobile form-101 cards */
@@ -15688,11 +16240,11 @@ button.doc-status-doc-row:active {
   flex: none;
   border: none;
   border-radius: 14px;
-  color: #fff;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: var(--primary-fg);
+  background: linear-gradient(135deg, var(--primary-bg), var(--primary-hover));
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.22),
-    0 8px 20px -10px color-mix(in srgb, var(--accent) 70%, transparent);
+    0 8px 20px -10px color-mix(in srgb, var(--primary-bg) 70%, transparent);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
@@ -16218,6 +16770,453 @@ button.doc-status-doc-row:active {
 .pay-cell-chevron {
   flex: none;
   color: var(--text-3);
+}
+
+/* ============================================================
+   Payroll month adjustments — editable money cells
+   (בונוס חודשי / מפרעה / הפרשים)
+   Empty cells stay ghosted so the table reads calm; only real
+   adjustments light up as tone-tinted chips.
+   ============================================================ */
+.pay-adj {
+  --adj-tone: var(--text-3);
+  --adj-tint: var(--surface-2);
+  --adj-ink: color-mix(in srgb, var(--adj-tone) 80%, var(--text));
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1rem;
+  width: 100%;
+  min-width: 0;
+  height: 2.15rem;
+  padding-inline: 0.38rem;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  overflow: hidden;
+  transition:
+    background-color 200ms var(--ease-out),
+    border-color 200ms var(--ease-out),
+    box-shadow 200ms var(--ease-out);
+}
+
+.pay-adj[data-tone="bonus"] {
+  --adj-tone: var(--success);
+  --adj-tint: var(--success-bg);
+}
+.pay-adj[data-tone="advance"] {
+  --adj-tone: var(--warning);
+  --adj-tint: var(--warning-bg);
+}
+.pay-adj[data-tone="plus"] {
+  --adj-tone: var(--info);
+  --adj-tint: var(--info-bg);
+}
+.pay-adj[data-tone="minus"] {
+  --adj-tone: var(--danger);
+  --adj-tint: var(--danger-bg);
+}
+
+/* Nothing entered — hint that the cell is editable, nothing more. */
+.pay-adj[data-state="empty"] {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--border) 90%, transparent);
+  border-style: dashed;
+}
+
+.pay-adj[data-state="filled"] {
+  background: var(--adj-tint);
+  border-color: color-mix(in srgb, var(--adj-tone) 30%, transparent);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .data-row:hover .pay-adj[data-state="empty"],
+  .pay-adj[data-state="empty"]:hover {
+    border-style: solid;
+    background: var(--surface-2);
+  }
+}
+
+.pay-adj:focus-within {
+  border-style: solid;
+  border-color: var(--adj-tone);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--adj-tone) 18%, transparent);
+}
+
+.pay-adj-input {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  outline: none;
+  text-align: center;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--adj-ink);
+  -moz-appearance: textfield;
+}
+
+.pay-adj-input::-webkit-outer-spin-button,
+.pay-adj-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.pay-adj-input::placeholder {
+  color: var(--text-3);
+  font-weight: 600;
+}
+
+.pay-adj-input:disabled {
+  opacity: 0.6;
+}
+
+/* Sign and ₪ live inside the chip — the manager only types digits. */
+.pay-adj-sign,
+.pay-adj-cur {
+  flex: none;
+  font-size: 11.5px;
+  font-weight: 800;
+  line-height: 1;
+  transition: opacity 180ms var(--ease-out);
+}
+
+.pay-adj-sign {
+  color: var(--adj-tone);
+}
+
+.pay-adj-cur {
+  color: color-mix(in srgb, var(--adj-tone) 55%, var(--text-3));
+}
+
+.pay-adj[data-state="empty"]:not(:focus-within) .pay-adj-sign,
+.pay-adj[data-state="empty"]:not(:focus-within) .pay-adj-cur {
+  opacity: 0;
+}
+
+/* הפרשים — the sign mark doubles as a +/− toggle. */
+button.pay-adj-sign {
+  display: grid;
+  place-items: center;
+  min-width: 1.05rem;
+  height: 1.35rem;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background-color 160ms var(--ease-out),
+    transform 220ms var(--ease-spring);
+}
+
+button.pay-adj-sign:hover {
+  background: color-mix(in srgb, var(--adj-tone) 18%, transparent);
+}
+
+button.pay-adj-sign:active {
+  transform: scale(0.86);
+}
+
+/* Save feedback — a sweep while writing, a green pulse when it lands. */
+.pay-adj-status {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.pay-adj[data-save="saving"] .pay-adj-status::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--adj-tone);
+  animation: payAdjSweep 900ms var(--ease-in-out) infinite;
+}
+
+@keyframes payAdjSweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.pay-adj[data-save="saved"] {
+  animation: payAdjSaved 1s var(--ease-out);
+}
+
+@keyframes payAdjSaved {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  30% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 32%, transparent);
+  }
+}
+
+.pay-adj-saved-mark {
+  flex: none;
+  color: var(--success);
+  animation: payAdjPop 300ms var(--ease-bounce);
+}
+
+@keyframes payAdjPop {
+  from {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Employee (read-only) view — plain number, no input affordance. */
+.pay-adj-ro {
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--adj-ink, var(--text-2));
+}
+
+.pay-adj-ro[data-tone="bonus"] {
+  --adj-ink: color-mix(in srgb, var(--success) 80%, var(--text));
+}
+.pay-adj-ro[data-tone="advance"] {
+  --adj-ink: color-mix(in srgb, var(--warning) 80%, var(--text));
+}
+.pay-adj-ro[data-tone="plus"] {
+  --adj-ink: color-mix(in srgb, var(--info) 80%, var(--text));
+}
+.pay-adj-ro[data-tone="minus"] {
+  --adj-ink: color-mix(in srgb, var(--danger) 80%, var(--text));
+}
+.pay-adj-ro[data-tone="neutral"] {
+  --adj-ink: var(--text-3);
+  font-weight: 600;
+}
+
+/* --- Column header dots on the payroll table --- */
+.pay-adj-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+}
+
+.pay-adj-head::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--dot, var(--text-3));
+}
+
+.pay-adj-head[data-tone="bonus"] {
+  --dot: var(--success);
+}
+.pay-adj-head[data-tone="advance"] {
+  --dot: var(--warning);
+}
+.pay-adj-head[data-tone="diff"] {
+  --dot: var(--info);
+}
+
+/* --- Legend strip above the payroll table --- */
+.pay-adj-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 1rem;
+  padding: 0.6rem 1.25rem;
+  border-bottom: 1px solid var(--border-2);
+  background: var(--surface);
+}
+
+.pay-adj-legend-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-inline-end: 0.15rem;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-2);
+}
+
+.pay-adj-legend-title .material-symbols-rounded {
+  color: var(--text-3);
+}
+
+.pay-adj-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.pay-adj-legend-item::before {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--dot, var(--text-3));
+}
+
+.pay-adj-legend-item em {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.pay-adj-legend-item[data-tone="bonus"] {
+  --dot: var(--success);
+}
+.pay-adj-legend-item[data-tone="advance"] {
+  --dot: var(--warning);
+}
+.pay-adj-legend-item[data-tone="diff"] {
+  --dot: var(--info);
+}
+
+/* ============================================================
+   Adjustments panel (EmployeePayrollDetail) — labelled cards
+   ============================================================ */
+.payroll-adj-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+@media (max-width: 640px) {
+  .payroll-adj-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pay-adj-card {
+  --adj-tone: var(--text-3);
+  --adj-tint: var(--surface-2);
+  padding: 0.7rem 0.8rem 0.75rem;
+  border: 1px solid var(--border-2);
+  border-radius: 13px;
+  background: var(--surface-2);
+  transition:
+    border-color 200ms var(--ease-out),
+    background-color 200ms var(--ease-out);
+}
+
+.pay-adj-card[data-tone="bonus"] {
+  --adj-tone: var(--success);
+  --adj-tint: var(--success-bg);
+}
+.pay-adj-card[data-tone="advance"] {
+  --adj-tone: var(--warning);
+  --adj-tint: var(--warning-bg);
+}
+.pay-adj-card[data-tone="plus"] {
+  --adj-tone: var(--info);
+  --adj-tint: var(--info-bg);
+}
+.pay-adj-card[data-tone="minus"] {
+  --adj-tone: var(--danger);
+  --adj-tint: var(--danger-bg);
+}
+
+.pay-adj-card[data-state="filled"] {
+  border-color: color-mix(in srgb, var(--adj-tone) 32%, transparent);
+  background: color-mix(in srgb, var(--adj-tint) 45%, var(--surface));
+}
+
+.pay-adj-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.55rem;
+}
+
+.pay-adj-card-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 9px;
+  background: var(--adj-tint);
+  color: var(--adj-tone);
+}
+
+.pay-adj-card-label {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.pay-adj-card .pay-adj {
+  height: 2.5rem;
+  background: var(--surface);
+  border-color: var(--border);
+  border-style: solid;
+}
+
+.pay-adj-card .pay-adj[data-state="filled"] {
+  border-color: color-mix(in srgb, var(--adj-tone) 38%, transparent);
+}
+
+/* Same specificity as `.pay-adj-card .pay-adj`, so it has to be restated
+   here or the plain card border would win over the focus tone. */
+.pay-adj-card .pay-adj:focus-within {
+  border-color: var(--adj-tone);
+}
+
+.pay-adj-card .pay-adj-input {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.pay-adj-card .pay-adj-sign,
+.pay-adj-card .pay-adj-cur {
+  font-size: 13px;
+}
+
+.pay-adj-card button.pay-adj-sign {
+  min-width: 1.6rem;
+  height: 1.6rem;
+}
+
+.pay-adj-card-hint {
+  display: block;
+  margin-top: 0.45rem;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.payroll-adj-panel {
+  animation: fadeUp 0.35s ease both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pay-adj[data-save="saved"],
+  .pay-adj[data-save="saving"] .pay-adj-status::after,
+  .pay-adj-saved-mark {
+    animation: none;
+  }
+  button.pay-adj-sign:active {
+    transform: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

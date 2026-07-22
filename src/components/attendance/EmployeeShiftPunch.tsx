@@ -16,9 +16,9 @@ function ShiftChip({ template }: { template: ShiftTemplate }) {
     <div className="flex items-center gap-2.5 rounded-[14px] border border-border/70 bg-surface/90 px-3 py-2.5">
       <span
         className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px]"
-        style={{ background: template.color ?? "var(--accent)" }}
+        style={{ background: template.color ?? "var(--primary-bg)" }}
       >
-        <Icon name="schedule" size={18} className="text-white" />
+        <Icon name="schedule" size={18} className={template.color ? "text-white" : "text-on-brand"} />
       </span>
       <div className="min-w-0">
         <div className="truncate text-[13.5px] font-bold text-text">{template.name}</div>

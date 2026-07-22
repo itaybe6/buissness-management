@@ -24,6 +24,9 @@ export type OrderStatus = "requested" | "ordered" | "received";
 /** Kind of action recorded in the inventory audit log (inventory_logs.action). */
 export type InventoryAction = "created" | "count" | "edited" | "waste" | "order";
 
+/** Subscription package assigned by the super admin. 'custom' = hand-picked modules. */
+export type BusinessPlan = "starter" | "growth" | "full" | "custom";
+
 /** Feature keys that can be toggled per business (business_features.feature_key). */
 export type FeatureKey =
   | "agreements"
@@ -41,6 +44,12 @@ export interface Business {
   id: string;
   name: string;
   active: boolean;
+  /** Subscription package. Drives the default module set; 'custom' when hand-picked. */
+  plan: BusinessPlan;
+  /** Seat cap enforced by a DB trigger on profiles. null = unlimited. */
+  max_users: number | null;
+  /** Super-admin-only note. Never shown to the business's own users. */
+  admin_notes: string | null;
   location_lat: number | null;
   location_lng: number | null;
   location_address: string | null;
@@ -122,8 +131,11 @@ export interface ShiftTemplate {
   created_at: string;
 }
 
+/** "signature" = draw pad; "text" = typed straight onto the document. */
+export type FormFieldKind = "signature" | "text";
+
 /**
- * A signature box the manager marks on a PDF page. Coordinates are normalized
+ * A fillable box the manager marks on a PDF page. Coordinates are normalized
  * (0..1) relative to the page size, so they render correctly at any zoom.
  */
 export interface SignatureField {
@@ -134,6 +146,10 @@ export interface SignatureField {
   y: number;
   w: number;
   h: number;
+  /** missing = "signature" (all boxes were signatures before typed fields existed) */
+  kind?: FormFieldKind;
+  /** placeholder shown to the employee inside a text box */
+  label?: string;
 }
 
 export interface AgreementTemplate {
@@ -160,7 +176,7 @@ export interface AgreementSignature {
   employee_id: string;
   agreed: boolean;
   signature_data: string | null;
-  /** map of SignatureField.id -> signature image (PNG dataURL) */
+  /** map of SignatureField.id -> signature image (PNG dataURL), or typed text for text fields */
   field_signatures: Record<string, string>;
   /** flattened, signed PDF with signatures stamped in */
   signed_file_url: string | null;
@@ -193,10 +209,34 @@ export interface OfficeReceipt {
   amount: number;
   vendor_name: string;
   vendor_details: string | null;
+  supplier_id: string | null;
   document_date: string | null;
   file_url: string;
   notes: string | null;
   created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** ספק קבוע לעסק */
+export interface Supplier {
+  id: string;
+  business_id: string;
+  name: string;
+  phone: string | null;
+  tax_id: string | null;
+  notes: string | null;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** מחיר מוצר אצל ספק (ליחידת המידה הראשית של הפריט) */
+export interface SupplierItem {
+  business_id: string;
+  supplier_id: string;
+  item_id: string;
+  unit_price: number;
   created_at: string;
   updated_at: string;
 }
@@ -358,6 +398,27 @@ export interface PayrollRecord {
   created_at: string;
 }
 
+/** Manual monthly payroll fields (office manager). */
+export interface PayrollMonthAdjustment {
+  id: string;
+  business_id: string;
+  employee_id: string;
+  /** First day of month (YYYY-MM-DD). */
+  period_month: string;
+  monthly_bonus: number;
+  advance: number;
+  differences: number;
+  updated_by: string | null;
+  updated_at: string;
+}
+
+export interface InventoryItemDepartment {
+  business_id: string;
+  item_id: string;
+  department_id: string;
+  created_at: string;
+}
+
 export interface InventoryItem {
   id: string;
   business_id: string;
@@ -371,6 +432,8 @@ export interface InventoryItem {
   supplier_delivery_day: number | null;
   /** Product category key (dairy, alcohol, dry, etc.) */
   category: string | null;
+  /** Price per main unit (unit field). Visible in UI to manager / office_manager only. */
+  unit_price: number;
   active: boolean;
   created_at: string;
 }
@@ -394,6 +457,7 @@ export interface InventoryOrder {
   status: OrderStatus;
   ordered_by: string | null;
   batch_id: string | null;
+  supplier_id: string | null;
   created_at: string;
 }
 

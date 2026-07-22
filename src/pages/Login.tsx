@@ -47,7 +47,7 @@ export function Login() {
         <div className="login-blob login-blob--slow absolute -bottom-[160px] -right-[80px] h-[340px] w-[340px] rounded-full bg-white/[0.04]" />
         <div className="relative flex items-center gap-3">
           <div className="grid h-[46px] w-[46px] place-items-center avatar-chip rounded-[13px]">
-            <Icon name="hub" size={26} className="text-white" />
+            <Icon name="hub" size={26} />
           </div>
           <div>
             <div className="text-[21px] font-extrabold tracking-tight">AMI</div>

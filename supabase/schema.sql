@@ -17,8 +17,9 @@ drop trigger if exists on_auth_user_created on auth.users;
 -- מחיקת טבלאות (אם קיימות) בסדר תלות
 drop table if exists
   public.tasks, public.task_templates, public.events, public.faults, public.inventory_logs,
-  public.inventory_waste, public.inventory_orders, public.inventory_counts, public.inventory_items,
-  public.payroll_records,
+  public.inventory_waste, public.inventory_orders, public.inventory_counts, public.inventory_item_departments,
+  public.inventory_items, public.suppliers, public.supplier_items,
+  public.payroll_records, public.payroll_month_adjustments,
   public.tips, public.shift_bonuses, public.shift_reports, public.attendance, public.shift_assignments, public.shift_preferences,
   public.shift_templates, public.departments,
   public.form_101, public.agreement_signatures, public.agreement_templates,
@@ -30,6 +31,7 @@ drop function if exists public.can_access cascade;
 drop function if exists public.is_super_admin cascade;
 drop function if exists public.auth_role cascade;
 drop function if exists public.auth_business_id cascade;
+drop function if exists public.auth_department_id cascade;
 drop function if exists public.set_updated_at cascade;
 
 -- מחיקת סוגים (enums) אם קיימים
@@ -37,7 +39,7 @@ drop type if exists
   public.user_role, public.shift_period, public.availability,
   public.fault_status, public.agreement_type, public.task_type,
   public.task_status, public.task_approval, public.order_status,
-  public.inventory_action cascade;
+  public.inventory_action, public.business_plan cascade;
 
 -- ----------------------------------------------------------------------------
 -- 0.1 הרחבות (Extensions)
@@ -58,6 +60,9 @@ create type public.user_role as enum (
   'maintenance',       -- איש אחזקה - רואה רק תקלות
   'event_manager'      -- מנהלת אירועים - ניהול אירועים ומדיה
 );
+
+-- חבילות מנוי לעסק ('custom' = הסופר אדמין בחר מודולים ידנית)
+create type public.business_plan as enum ('starter', 'growth', 'full', 'custom');
 
 -- חלקי משמרת
 create type public.shift_period as enum ('morning', 'noon', 'evening');
@@ -112,6 +117,11 @@ returns public.user_role language sql stable security definer set search_path = 
   select role from public.profiles where id = auth.uid()
 $$;
 
+create or replace function public.auth_department_id()
+returns uuid language sql stable security definer set search_path = public as $$
+  select department_id from public.profiles where id = auth.uid()
+$$;
+
 -- האם המשתמש הוא סופר אדמין
 create or replace function public.is_super_admin()
 returns boolean language sql stable security definer set search_path = public as $$
@@ -146,6 +156,12 @@ create table public.businesses (
   -- מינימום ימים מלאים להגשת זמינות (א׳–ד׳ / ה׳–ש׳; null = ללא דרישה)
   shift_prefs_min_weekdays smallint check (shift_prefs_min_weekdays is null or (shift_prefs_min_weekdays >= 0 and shift_prefs_min_weekdays <= 4)),
   shift_prefs_min_weekend smallint check (shift_prefs_min_weekend is null or (shift_prefs_min_weekend >= 0 and shift_prefs_min_weekend <= 3)),
+  -- חבילת המנוי שהסופר אדמין הקצה לעסק ('custom' = בחירת מודולים ידנית)
+  plan        public.business_plan not null default 'custom',
+  -- מגבלת משתמשים (מושבים). null = ללא הגבלה.
+  max_users   integer check (max_users is null or max_users > 0),
+  -- הערה פנימית של הסופר אדמין (לא נחשפת למנהל העסק)
+  admin_notes text,
   created_by  uuid references auth.users(id),
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
@@ -155,10 +171,45 @@ create table public.businesses (
 create table public.business_features (
   id          uuid primary key default gen_random_uuid(),
   business_id uuid not null references public.businesses(id) on delete cascade,
-  feature_key text not null,   -- 'agreements','forms','shifts','payroll','attendance','inventory','faults','events','tasks'
+  feature_key text not null,   -- 'agreements','shifts','shift_reports','payroll','attendance','inventory','waste','faults','events','tasks'
   enabled     boolean not null default true,
   unique (business_id, feature_key)
 );
+
+-- תלויות בין מודולים: בלאי מפחית מהמלאי, וחישוב שכר שואב שעות מהחתמות נוכחות.
+-- כיבוי הורה מכבה את הבן; הדלקת בן מדליקה את ההורה.
+create or replace function public.enforce_feature_dependencies()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  parent_of constant jsonb := '{"waste": "inventory", "payroll": "attendance"}'::jsonb;
+  parent_key text;
+begin
+  parent_key := parent_of ->> new.feature_key;
+
+  if new.enabled then
+    if parent_key is not null then
+      insert into public.business_features (business_id, feature_key, enabled)
+      values (new.business_id, parent_key, true)
+      on conflict (business_id, feature_key) do update set enabled = true;
+    end if;
+  else
+    update public.business_features f
+    set enabled = false
+    where f.business_id = new.business_id
+      and f.enabled
+      and (parent_of ->> f.feature_key) = new.feature_key;
+  end if;
+
+  return new;
+end $$;
+
+create trigger trg_feature_dependencies
+  after insert or update of enabled on public.business_features
+  for each row execute function public.enforce_feature_dependencies();
 
 
 -- ----------------------------------------------------------------------------
@@ -221,6 +272,47 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
+-- מגבלת מושבים: חוסמת שיוך משתמש לעסק שהגיע ל-businesses.max_users.
+create or replace function public.enforce_business_seat_limit()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  seat_cap integer;
+  used integer;
+begin
+  if new.business_id is null then
+    return new;
+  end if;
+
+  -- נבדק רק בשיוך חדש לעסק (יצירה או העברה בין עסקים)
+  if tg_op = 'UPDATE' and new.business_id is not distinct from old.business_id then
+    return new;
+  end if;
+
+  select max_users into seat_cap from public.businesses where id = new.business_id;
+  if seat_cap is null then
+    return new;
+  end if;
+
+  select count(*) into used
+  from public.profiles
+  where business_id = new.business_id and id <> new.id;
+
+  if used >= seat_cap then
+    raise exception 'SEAT_LIMIT_REACHED: business % is capped at % users', new.business_id, seat_cap
+      using errcode = 'check_violation';
+  end if;
+
+  return new;
+end $$;
+
+create trigger trg_business_seat_limit
+  before insert or update of business_id on public.profiles
+  for each row execute function public.enforce_business_seat_limit();
+
 
 -- ----------------------------------------------------------------------------
 -- 5. מודול: הסכמים
@@ -233,7 +325,7 @@ create table public.agreement_templates (
   title       text not null,
   content     text not null default '',  -- ניתן לעריכה ע"י המנהל
   file_url    text,                      -- קובץ PDF/DOC מצורף (אופציונלי)
-  signature_fields jsonb not null default '[]'::jsonb, -- תיבות חתימה לכל עמוד: [{id,page,x,y,w,h} מנורמל 0..1]
+  signature_fields jsonb not null default '[]'::jsonb, -- תיבות מילוי לכל עמוד: [{id,page,x,y,w,h,kind,label} מנורמל 0..1]; kind = 'signature' (ברירת מחדל) או 'text'
   employee_id uuid references public.profiles(id) on delete cascade, -- null = קבוע לכל העובדים
   is_editable boolean not null default true,
   created_by  uuid references public.profiles(id),
@@ -254,7 +346,7 @@ create table public.agreement_signatures (
   employee_id   uuid not null references public.profiles(id) on delete cascade,
   agreed        boolean not null default false,  -- "קראתי והסכמתי"
   signature_data text,                           -- חתימה דיגיטלית (base64) — תאימות לאחור
-  field_signatures jsonb not null default '{}'::jsonb, -- מיפוי fieldId -> תמונת חתימה (dataURL)
+  field_signatures jsonb not null default '{}'::jsonb, -- מיפוי fieldId -> תמונת חתימה (dataURL) או טקסט שהוקלד
   signed_file_url text,                          -- ה-PDF הסופי החתום (חתימות מוטבעות)
   signed_at     timestamptz,
   email_notified_at timestamptz,
@@ -463,6 +555,20 @@ create table public.payroll_records (
   unique (employee_id, period_month)
 );
 
+-- התאמות שכר חודשיות (בונוס חודשי, מפרעה, הפרשים)
+create table public.payroll_month_adjustments (
+  id              uuid primary key default gen_random_uuid(),
+  business_id     uuid not null references public.businesses(id) on delete cascade,
+  employee_id     uuid not null references public.profiles(id) on delete cascade,
+  period_month    date not null,
+  monthly_bonus   numeric(12,2) not null default 0,
+  advance         numeric(12,2) not null default 0 check (advance >= 0),
+  differences     numeric(12,2) not null default 0,
+  updated_by      uuid references public.profiles(id),
+  updated_at      timestamptz not null default now(),
+  unique (business_id, employee_id, period_month)
+);
+
 
 -- ----------------------------------------------------------------------------
 -- 10. מודול: סחורות / מלאי
@@ -478,8 +584,39 @@ create table public.inventory_items (
   min_quantity  numeric(12,2) not null default 0,  -- סף מלאי נמוך
   supplier_delivery_day smallint check (supplier_delivery_day between 0 and 6),  -- יום אספקה מהספק
   category      text,                 -- קטגוריית המוצר (חלבי, אלכוהול, יבשים וכו׳)
+  unit_price    numeric(12,2) not null default 0,  -- מחיר ליחידת מידה ראשית (unit)
   active        boolean not null default true,
   created_at    timestamptz not null default now()
+);
+
+create table public.suppliers (
+  id            uuid primary key default gen_random_uuid(),
+  business_id   uuid not null references public.businesses(id) on delete cascade,
+  name          text not null,
+  phone         text,
+  tax_id        text,
+  notes         text,
+  active        boolean not null default true,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
+
+create table public.supplier_items (
+  business_id   uuid not null references public.businesses(id) on delete cascade,
+  supplier_id   uuid not null references public.suppliers(id) on delete cascade,
+  item_id       uuid not null references public.inventory_items(id) on delete cascade,
+  unit_price    numeric(12,2) not null check (unit_price >= 0),
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  primary key (supplier_id, item_id)
+);
+
+create table public.inventory_item_departments (
+  business_id   uuid not null references public.businesses(id) on delete cascade,
+  item_id       uuid not null references public.inventory_items(id) on delete cascade,
+  department_id uuid not null references public.departments(id) on delete cascade,
+  created_at    timestamptz not null default now(),
+  primary key (item_id, department_id)
 );
 
 -- ספירת מלאי בסוף משמרת (העובד מעדכן)
@@ -502,6 +639,7 @@ create table public.inventory_orders (
   status      public.order_status not null default 'requested',
   ordered_by  uuid references public.profiles(id),
   batch_id    uuid,                 -- קיבוץ שורות מאותה הזמנה
+  supplier_id uuid references public.suppliers(id) on delete set null,
   created_at  timestamptz not null default now()
 );
 
@@ -692,9 +830,18 @@ create index idx_shift_bonuses_business      on public.shift_bonuses(business_id
 create index idx_shift_bonuses_employee      on public.shift_bonuses(business_id, employee_id, shift_date);
 create index idx_shift_bonuses_report        on public.shift_bonuses(shift_report_id);
 create index idx_payroll_business           on public.payroll_records(business_id);
+create index idx_payroll_month_adj_business on public.payroll_month_adjustments(business_id);
+create index idx_payroll_month_adj_period   on public.payroll_month_adjustments(business_id, period_month);
 create index idx_inv_items_business         on public.inventory_items(business_id);
+create index idx_inv_item_depts_business    on public.inventory_item_departments(business_id);
+create index idx_inv_item_depts_department    on public.inventory_item_departments(department_id);
 create index idx_inv_counts_business        on public.inventory_counts(business_id);
+create index idx_suppliers_business         on public.suppliers(business_id);
+create index idx_suppliers_business_active  on public.suppliers(business_id, active);
+create index idx_supplier_items_business    on public.supplier_items(business_id);
+create index idx_supplier_items_item        on public.supplier_items(item_id);
 create index idx_inv_orders_business        on public.inventory_orders(business_id);
+create index idx_inv_orders_supplier        on public.inventory_orders(business_id, supplier_id);
 create index idx_inv_waste_business         on public.inventory_waste(business_id);
 create index idx_inv_logs_business          on public.inventory_logs(business_id);
 create index idx_inv_logs_item              on public.inventory_logs(item_id, created_at desc);
@@ -728,7 +875,11 @@ alter table public.shift_reports        enable row level security;
 alter table public.tips                 enable row level security;
 alter table public.shift_bonuses        enable row level security;
 alter table public.payroll_records      enable row level security;
+alter table public.payroll_month_adjustments enable row level security;
+alter table public.suppliers            enable row level security;
+alter table public.supplier_items       enable row level security;
 alter table public.inventory_items      enable row level security;
+alter table public.inventory_item_departments enable row level security;
 alter table public.inventory_counts     enable row level security;
 alter table public.inventory_orders     enable row level security;
 alter table public.inventory_waste      enable row level security;
@@ -848,9 +999,35 @@ create policy "shift_bonuses_tenant" on public.shift_bonuses
 -- payroll_records
 create policy "payroll_tenant" on public.payroll_records
   for all using (public.can_access(business_id)) with check (public.can_access(business_id));
--- inventory_items — קריאה לכולם; עריכת קטלוג למנהלים בלבד
+create policy "payroll_month_adj_tenant" on public.payroll_month_adjustments
+  for all using (public.can_access(business_id)) with check (public.can_access(business_id));
+-- inventory_items — קריאה לפי מחלקה; עריכת קטלוג למנהלים בלבד
 create policy "inv_items_read" on public.inventory_items
+  for select using (
+    public.can_access(business_id)
+    and (
+      public.auth_role() in ('manager', 'shift_manager', 'office_manager')
+      or not exists (
+        select 1 from public.inventory_item_departments d
+        where d.item_id = inventory_items.id
+      )
+      or exists (
+        select 1 from public.inventory_item_departments d
+        where d.item_id = inventory_items.id
+          and d.department_id = public.auth_department_id()
+      )
+    )
+  );
+create policy "inv_item_depts_read" on public.inventory_item_departments
   for select using (public.can_access(business_id));
+create policy "inv_item_depts_manager_write" on public.inventory_item_departments
+  for all using (
+    public.can_access(business_id)
+    and public.auth_role() in ('manager', 'shift_manager', 'office_manager')
+  ) with check (
+    public.can_access(business_id)
+    and public.auth_role() in ('manager', 'shift_manager', 'office_manager')
+  );
 create policy "inv_items_manager_insert" on public.inventory_items
   for insert with check (
     public.can_access(business_id)
@@ -869,6 +1046,11 @@ create policy "inv_items_manager_delete" on public.inventory_items
     public.can_access(business_id)
     and public.auth_role() in ('manager', 'shift_manager', 'office_manager')
   );
+-- suppliers
+create policy "suppliers_tenant" on public.suppliers
+  for all using (public.can_access(business_id)) with check (public.can_access(business_id));
+create policy "supplier_items_tenant" on public.supplier_items
+  for all using (public.can_access(business_id)) with check (public.can_access(business_id));
 -- inventory_counts — עדכון כמות (ספירה) לכל חברי העסק כולל עובדים
 create policy "inv_counts_read" on public.inventory_counts
   for select using (public.can_access(business_id));

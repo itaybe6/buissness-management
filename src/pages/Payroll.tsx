@@ -6,10 +6,11 @@ import { WAGE_TYPE_LABELS } from "@/lib/constants";
 import { useBusinessId, formatCurrency, initialsOf, colorFor } from "@/lib/db";
 import { useProfiles } from "@/api/users";
 import { useAttendanceMonth } from "@/api/attendance";
-import { useTips, useShiftBonuses, useApprovedFaultPays } from "@/api/payroll";
-import { computeEmployeePayroll, sumAttendanceHours } from "@/lib/payrollCompute";
+import { useTips, useShiftBonuses, useApprovedFaultPays, usePayrollMonthAdjustments, payrollAdjustmentForEmployee } from "@/api/payroll";
+import { computeEmployeePayroll, sumAttendanceHours, withPayrollAdjustments } from "@/lib/payrollCompute";
 import { sumFaultPayAmount } from "@/lib/faultPayrollRows";
 import { countEmployeeShifts, exportPayrollExcel, type PayrollExportRow } from "@/lib/payrollExport";
+import { PayrollAdjustmentCells } from "@/components/payroll/PayrollAdjustmentCells";
 import type { WageType } from "@/types/database";
 
 function monthNow() {
@@ -38,6 +39,10 @@ function toExportRows(
     tips: number;
     topup: number;
     bonus: number;
+    grossPay: number;
+    monthlyBonus: number;
+    advance: number;
+    differences: number;
     total: number;
     pensionActive: boolean;
   }[],
@@ -52,6 +57,10 @@ function toExportRows(
     baseOrTips: r.wageType === "tips" ? r.tips : r.base,
     topup: r.topup,
     bonus: r.bonus,
+    monthlyBonus: r.monthlyBonus,
+    advance: r.advance,
+    differences: r.differences,
+    grossPay: r.grossPay,
     total: r.total,
     pensionActive: r.pensionActive,
   }));
@@ -69,6 +78,7 @@ export function Payroll() {
   const { data: tips } = useTips(businessId, month);
   const { data: bonuses } = useShiftBonuses(businessId, month);
   const { data: faultPays } = useApprovedFaultPays(businessId, month);
+  const { data: monthAdjustments } = usePayrollMonthAdjustments(businessId, month);
 
   const isPayrollManager = profile && ["manager", "office_manager"].includes(profile.role);
 
@@ -84,14 +94,24 @@ export function Payroll() {
 
       // עובד טיפים: השכר מקופת הטיפים עם רצפת מינימום לכל משמרת בנפרד.
       // עובד שעתי: שעות נוכחות × תעריף, ללא טיפים.
-      const pay = computeEmployeePayroll({
-        wageType,
-        rate,
-        tips: myTips,
-        bonusSum,
-        faultPaySum,
-        attendanceHours: sumAttendanceHours(attendance ?? [], u.id),
-      });
+      const pay = withPayrollAdjustments(
+        computeEmployeePayroll({
+          wageType,
+          rate,
+          tips: myTips,
+          bonusSum,
+          faultPaySum,
+          attendanceHours: sumAttendanceHours(attendance ?? [], u.id),
+        }),
+        (() => {
+          const adj = payrollAdjustmentForEmployee(monthAdjustments, u.id);
+          return {
+            monthlyBonus: Number(adj?.monthly_bonus ?? 0),
+            advance: Number(adj?.advance ?? 0),
+            differences: Number(adj?.differences ?? 0),
+          };
+        })(),
+      );
       const shifts = countEmployeeShifts(wageType, u.id, attendance ?? [], myTips);
       return {
         id: u.id,
@@ -101,7 +121,7 @@ export function Payroll() {
         ...pay,
       };
     });
-  }, [users, attendance, tips, bonuses, faultPays, isPayrollManager, profile?.id]);
+  }, [users, attendance, tips, bonuses, faultPays, monthAdjustments, isPayrollManager, profile?.id]);
 
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -120,10 +140,16 @@ export function Payroll() {
       topup: acc.topup + r.topup,
       bonus: acc.bonus + r.bonus,
       faultPay: acc.faultPay + r.faultPay,
+      monthlyBonus: acc.monthlyBonus + r.monthlyBonus,
+      advance: acc.advance + r.advance,
+      differences: acc.differences + r.differences,
       total: acc.total + r.total,
     }),
-    { hours: 0, base: 0, tips: 0, topup: 0, bonus: 0, faultPay: 0, total: 0 },
+    { hours: 0, base: 0, tips: 0, topup: 0, bonus: 0, faultPay: 0, monthlyBonus: 0, advance: 0, differences: 0, total: 0 },
   );
+
+  const PAYROLL_GRID =
+    "grid grid-cols-[1.45fr_0.62fr_0.52fr_0.62fr_0.78fr_0.58fr_0.68fr_0.86fr_0.86fr_0.86fr_0.82fr] gap-1.5";
 
   return (
     <div className="w-full animate-fadeUp">
@@ -248,6 +274,9 @@ export function Payroll() {
                     <span className="user-cell-role">{WAGE_TYPE_LABELS[r.wageType]}</span>
                     <span className="user-cell-dept"> · {r.hours.toFixed(1)} שע׳</span>
                     {r.bonus > 0 && <span className="pay-cell-flag">% קופה</span>}
+                    {(r.monthlyBonus > 0 || r.advance > 0 || r.differences !== 0) && (
+                      <span className="pay-cell-flag">התאמות</span>
+                    )}
                   </span>
                 </span>
                 <span className="pay-cell-total">
@@ -284,17 +313,61 @@ export function Payroll() {
       </div>
 
       <Card className="hidden overflow-hidden !p-0 shadow-card md:block">
+        {isPayrollManager && (
+          <div className="pay-adj-legend">
+            <span className="pay-adj-legend-title">
+              <Icon name="edit_note" size={16} />
+              התאמות חודשיות — ניתן לערוך ישירות בטבלה
+            </span>
+            <span className="pay-adj-legend-item" data-tone="bonus">
+              בונוס חודשי <em>מתווסף לסה״כ</em>
+            </span>
+            <span className="pay-adj-legend-item" data-tone="advance">
+              מפרעה <em>מנוכה מהסה״כ</em>
+            </span>
+            <span className="pay-adj-legend-item" data-tone="diff">
+              הפרשים <em>תיקון + או −</em>
+            </span>
+          </div>
+        )}
         <div className="overflow-auto">
-          <div className="min-w-[720px]">
-            <div className="grid grid-cols-[1.7fr_0.8fr_0.7fr_0.8fr_1fr_0.9fr_0.9fr_1fr] gap-2 border-b border-border bg-surface-2 px-5 py-3 text-[11.5px] font-bold uppercase tracking-wide text-text-3">
-              <span>עובד</span><span>סוג</span><span>שעות</span><span>תעריף</span><span>בסיס / טיפים</span><span>השלמה</span><span>תוספת קופה</span><span>סה״כ</span>
+          <div className="min-w-[1140px]">
+            <div className={`${PAYROLL_GRID} border-b border-border bg-surface-2 px-5 py-3 text-[10.5px] font-bold uppercase tracking-wide text-text-3`}>
+              <span>עובד</span>
+              <span>סוג</span>
+              <span>שעות</span>
+              <span>תעריף</span>
+              <span>בסיס / טיפים</span>
+              <span>השלמה</span>
+              <span>תוספת קופה</span>
+              <span className="pay-adj-head" data-tone="bonus">בונוס חודשי</span>
+              <span className="pay-adj-head" data-tone="advance">מפרעה</span>
+              <span className="pay-adj-head" data-tone="diff">הפרשים</span>
+              <span>סה״כ</span>
             </div>
-            {filteredRows.map((r) => (
-              <button
+            {filteredRows.map((r) => {
+              const adj = payrollAdjustmentForEmployee(monthAdjustments, r.id);
+              const adjValues = {
+                monthlyBonus: Number(adj?.monthly_bonus ?? r.monthlyBonus),
+                advance: Number(adj?.advance ?? r.advance),
+                differences: Number(adj?.differences ?? r.differences),
+              };
+              const open = () => navigate(`/payroll/${r.id}?month=${month}`);
+              return (
+              // Not a <button>: the adjustment cells nest their own input and
+              // sign toggle, which is invalid (and unclickable) inside one.
+              <div
                 key={r.id}
-                type="button"
-                onClick={() => navigate(`/payroll/${r.id}?month=${month}`)}
-                className="data-row data-row--clickable grid w-full grid-cols-[1.7fr_0.8fr_0.7fr_0.8fr_1fr_0.9fr_0.9fr_1fr] items-center gap-2 border-b border-border-2 px-5 py-3 text-[13.5px] text-right"
+                role="button"
+                tabIndex={0}
+                onClick={open}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    open();
+                  }
+                }}
+                className={`data-row data-row--clickable ${PAYROLL_GRID} w-full items-center border-b border-border-2 px-5 py-2.5 text-[13px] text-right`}
               >
                 <span className="flex min-w-0 items-center gap-2.5">
                   <span className="person-chip h-8 w-8 rounded-[9px] text-[12px]" style={{ background: colorFor(r.id) }}>{initialsOf(r.name)}</span>
@@ -306,9 +379,17 @@ export function Payroll() {
                 <span className={`tabular-nums ${r.wageType === "tips" ? "font-bold text-accent-2" : ""}`}>{formatCurrency(r.wageType === "tips" ? r.tips : r.base)}</span>
                 <span className="tabular-nums text-text-2">{r.topup > 0 ? formatCurrency(r.topup) : "—"}</span>
                 <span className={`tabular-nums ${r.bonus > 0 ? "font-bold text-accent" : "text-text-2"}`}>{r.bonus > 0 ? formatCurrency(r.bonus) : "—"}</span>
+                <PayrollAdjustmentCells
+                  businessId={businessId}
+                  employeeId={r.id}
+                  month={month}
+                  values={adjValues}
+                  canEdit={!!isPayrollManager}
+                />
                 <span className="font-extrabold tabular-nums">{formatCurrency(r.total)}</span>
-              </button>
-            ))}
+              </div>
+            );
+            })}
             {filteredRows.length === 0 && (
               <div className="px-5 py-10 text-center text-text-2">
                 {search.trim() ? "לא נמצאו עובדים." : "אין נתונים לחודש זה."}

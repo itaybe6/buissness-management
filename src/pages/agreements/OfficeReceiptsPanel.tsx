@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Badge, Button, Card, EmptyState, Field, Icon, Input, InlineLoader, Textarea } from "@/components/ui";
+import { Badge, Button, Card, EmptyState, Field, Icon, Input, InlineLoader, Select, Textarea } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import {
   uploadReceiptFile,
@@ -8,6 +8,7 @@ import {
   useOfficeReceipts,
   type CreateOfficeReceiptInput,
 } from "@/api/officeReceipts";
+import { useSuppliers } from "@/api/suppliers";
 import { formatCurrency, todayISO } from "@/lib/db";
 import type { OfficeReceipt, ReceiptType } from "@/types/database";
 import { PdfFirstPagePreview } from "./pdf";
@@ -330,6 +331,7 @@ function UploadForm({
 }) {
   const [type, setType] = useState<ReceiptType>("tax_invoice");
   const [amount, setAmount] = useState("");
+  const [supplierId, setSupplierId] = useState("");
   const [vendorName, setVendorName] = useState("");
   const [vendorDetails, setVendorDetails] = useState("");
   const [documentDate, setDocumentDate] = useState(todayISO());
@@ -340,6 +342,7 @@ function UploadForm({
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const { data: suppliers } = useSuppliers(businessId, { activeOnly: true });
 
   useEffect(() => {
     return () => {
@@ -366,6 +369,15 @@ function UploadForm({
     }
   }
 
+  function pickSupplier(id: string) {
+    setSupplierId(id);
+    const s = (suppliers ?? []).find((x) => x.id === id);
+    if (s) {
+      setVendorName(s.name);
+      if (s.tax_id && !vendorDetails.trim()) setVendorDetails(s.tax_id);
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -387,6 +399,7 @@ function UploadForm({
         amount: parsedAmount,
         vendor_name: savedVendor,
         vendor_details: vendorDetails.trim() || null,
+        supplier_id: supplierId || null,
         document_date: documentDate || null,
         file_url: fileUrl,
         notes: notes.trim() || null,
@@ -428,6 +441,25 @@ function UploadForm({
           })}
         </div>
       </Field>
+
+      {(suppliers?.length ?? 0) > 0 && (
+        <Field label="קישור לספק במערכת (אופציונלי)">
+          <Select
+            value={supplierId}
+            onChange={(e) => pickSupplier(e.target.value)}
+            searchable
+            searchPlaceholder="בחר ספק..."
+          >
+            <option value="">ללא קישור — שם חופשי למטה</option>
+            {(suppliers ?? []).map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </Select>
+          <p className="mt-1 text-[12px] text-text-3">בחירת ספק תמלא את השם ותאפשר לראות מסמכים והזמנות בעמוד הספקים.</p>
+        </Field>
+      )}
 
       <Field label="שם הספק / מי הוציא את המסמך">
         <Input
