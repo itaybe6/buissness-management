@@ -2102,6 +2102,7 @@ select {
   .module-capsule--tail { grid-column: span 5; }
   .module-capsule--third { grid-column: span 4; }
   .module-capsule--wide { grid-column: span 8; }
+  .module-capsule--full { grid-column: span 12; }
   .module-capsule--hero { grid-column: span 8; }
   .module-capsule--hero .module-capsule-frame { min-height: 10.5rem; }
   .module-capsule--hero .module-capsule-icon-ring {
@@ -14507,6 +14508,205 @@ select {
   background: var(--surface-2);
 }
 
+/* Employee ID card upload */
+.id-card-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 1rem;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 8px 28px -14px color-mix(in srgb, var(--ink) 14%, transparent);
+}
+
+.id-card-panel--compact {
+  padding: 0.85rem;
+  border-radius: 16px;
+}
+
+.id-card-panel__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.id-card-panel__icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 14px;
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.id-card-panel__icon[data-tone="success"] {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 12%, var(--surface));
+}
+
+.id-card-panel__icon[data-tone="warning"] {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 14%, var(--surface));
+}
+
+.id-card-panel__copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.id-card-panel__title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.id-card-panel__sub {
+  margin: 0.2rem 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--text-3);
+}
+
+.id-card-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.id-card-panel__view {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.75rem;
+  border-radius: 11px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.id-card-panel__error {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0.5rem 0.65rem;
+  border-radius: 11px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--danger);
+  background: var(--danger-bg);
+}
+
+.id-card-drop {
+  cursor: pointer;
+  border-radius: 16px;
+  border: 2px dashed color-mix(in srgb, var(--border) 90%, var(--accent));
+  background: var(--surface-2);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.id-card-drop--over {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-2));
+}
+
+.id-card-drop--busy {
+  cursor: wait;
+  opacity: 0.85;
+}
+
+.id-card-drop__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 1.75rem 1rem;
+  text-align: center;
+}
+
+.id-card-drop__glyph {
+  display: grid;
+  place-items: center;
+  width: 3.25rem;
+  height: 3.25rem;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--accent);
+}
+
+.id-card-drop__label {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.id-card-drop__hint {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.id-card-drop__preview {
+  padding: 0.5rem;
+}
+
+.id-card-drop__img {
+  display: block;
+  width: 100%;
+  max-height: 200px;
+  object-fit: contain;
+  border-radius: 12px;
+}
+
+.id-card-drop__pdf {
+  min-height: 120px;
+}
+
+.id-card-drop__busy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 2rem 1rem;
+}
+
+.id-card-drop__spinner {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  border: 3px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-top-color: var(--accent);
+  animation: id-card-spin 0.7s linear infinite;
+}
+
+@keyframes id-card-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.id-card-drop__busy-text {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-2);
+}
+
+.docs-id-card-only-hint {
+  margin: 0;
+  padding: 0 0.5rem 0.5rem;
+}
+
 .doc-employee-empty__title {
   position: relative;
   margin: 0.25rem 0 0;
@@ -16773,331 +16973,150 @@ button.doc-status-doc-row:active {
 }
 
 /* ============================================================
-   Payroll month adjustments — editable money cells
-   (בונוס חודשי / מפרעה / הפרשים)
-   Empty cells stay ghosted so the table reads calm; only real
-   adjustments light up as tone-tinted chips.
+   Payroll month adjustments — בונוס חודשי / מפרעה / הפרשים
+   Read-only everywhere; all editing happens in the dialog that
+   the row's edit button opens.
    ============================================================ */
-.pay-adj {
-  --adj-tone: var(--text-3);
-  --adj-tint: var(--surface-2);
-  --adj-ink: color-mix(in srgb, var(--adj-tone) 80%, var(--text));
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.1rem;
-  width: 100%;
-  min-width: 0;
-  height: 2.15rem;
-  padding-inline: 0.38rem;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  overflow: hidden;
-  transition:
-    background-color 200ms var(--ease-out),
-    border-color 200ms var(--ease-out),
-    box-shadow 200ms var(--ease-out);
+
+/* --- Sign switch (הפרשים can be a credit or a charge) --- */
+.pay-adj-sign-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--surface-2);
 }
 
-.pay-adj[data-tone="bonus"] {
-  --adj-tone: var(--success);
-  --adj-tint: var(--success-bg);
-}
-.pay-adj[data-tone="advance"] {
-  --adj-tone: var(--warning);
-  --adj-tint: var(--warning-bg);
-}
-.pay-adj[data-tone="plus"] {
-  --adj-tone: var(--info);
-  --adj-tint: var(--info-bg);
-}
-.pay-adj[data-tone="minus"] {
-  --adj-tone: var(--danger);
-  --adj-tint: var(--danger-bg);
-}
-
-/* Nothing entered — hint that the cell is editable, nothing more. */
-.pay-adj[data-state="empty"] {
-  background: transparent;
-  border-color: color-mix(in srgb, var(--border) 90%, transparent);
-  border-style: dashed;
-}
-
-.pay-adj[data-state="filled"] {
-  background: var(--adj-tint);
-  border-color: color-mix(in srgb, var(--adj-tone) 30%, transparent);
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .data-row:hover .pay-adj[data-state="empty"],
-  .pay-adj[data-state="empty"]:hover {
-    border-style: solid;
-    background: var(--surface-2);
-  }
-}
-
-.pay-adj:focus-within {
-  border-style: solid;
-  border-color: var(--adj-tone);
-  background: var(--surface);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--adj-tone) 18%, transparent);
-}
-
-.pay-adj-input {
-  flex: 1 1 auto;
-  width: 100%;
-  min-width: 0;
-  padding: 0;
+.pay-adj-sign-btn {
+  min-width: 3.1rem;
+  height: 1.95rem;
+  padding-inline: 0.5rem;
   border: 0;
+  border-radius: 8px;
   background: transparent;
-  outline: none;
-  text-align: center;
   font: inherit;
-  font-size: 13px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-2);
+  cursor: pointer;
+  transition:
+    background-color 180ms var(--ease-out),
+    color 180ms var(--ease-out),
+    box-shadow 180ms var(--ease-out);
+}
+
+.pay-adj-sign-btn[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+
+.pay-adj-sign-btn:active {
+  transform: scale(0.96);
+}
+
+/* --- Money input with a ₪ affix --- */
+.pay-adj-money {
+  position: relative;
+}
+
+.pay-adj-money .field {
+  padding-inline-end: 2.1rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: var(--adj-ink);
-  -moz-appearance: textfield;
 }
 
-.pay-adj-input::-webkit-outer-spin-button,
-.pay-adj-input::-webkit-inner-spin-button {
+.pay-adj-money .field::-webkit-outer-spin-button,
+.pay-adj-money .field::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
 
-.pay-adj-input::placeholder {
-  color: var(--text-3);
-  font-weight: 600;
-}
-
-.pay-adj-input:disabled {
-  opacity: 0.6;
-}
-
-/* Sign and ₪ live inside the chip — the manager only types digits. */
-.pay-adj-sign,
-.pay-adj-cur {
-  flex: none;
-  font-size: 11.5px;
-  font-weight: 800;
-  line-height: 1;
-  transition: opacity 180ms var(--ease-out);
-}
-
-.pay-adj-sign {
-  color: var(--adj-tone);
-}
-
-.pay-adj-cur {
-  color: color-mix(in srgb, var(--adj-tone) 55%, var(--text-3));
-}
-
-.pay-adj[data-state="empty"]:not(:focus-within) .pay-adj-sign,
-.pay-adj[data-state="empty"]:not(:focus-within) .pay-adj-cur {
-  opacity: 0;
-}
-
-/* הפרשים — the sign mark doubles as a +/− toggle. */
-button.pay-adj-sign {
-  display: grid;
-  place-items: center;
-  min-width: 1.05rem;
-  height: 1.35rem;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  cursor: pointer;
-  transition:
-    background-color 160ms var(--ease-out),
-    transform 220ms var(--ease-spring);
-}
-
-button.pay-adj-sign:hover {
-  background: color-mix(in srgb, var(--adj-tone) 18%, transparent);
-}
-
-button.pay-adj-sign:active {
-  transform: scale(0.86);
-}
-
-/* Save feedback — a sweep while writing, a green pulse when it lands. */
-.pay-adj-status {
+.pay-adj-money-cur {
   position: absolute;
-  inset-inline: 0;
-  bottom: 0;
-  height: 2px;
-  overflow: hidden;
+  inset-inline-end: 0.9rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-3);
   pointer-events: none;
 }
 
-.pay-adj[data-save="saving"] .pay-adj-status::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: var(--adj-tone);
-  animation: payAdjSweep 900ms var(--ease-in-out) infinite;
+.pay-adj-hint {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-3);
 }
 
-@keyframes payAdjSweep {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(100%);
-  }
+/* --- Live "after adjustments" preview in the dialog footer area --- */
+.pay-adj-preview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.15rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border-2);
+  border-radius: 13px;
+  background: var(--surface-2);
 }
 
-.pay-adj[data-save="saved"] {
-  animation: payAdjSaved 1s var(--ease-out);
+.pay-adj-preview-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
 }
 
-@keyframes payAdjSaved {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 transparent;
-  }
-  30% {
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 32%, transparent);
-  }
+.pay-adj-preview-nums {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
 }
 
-.pay-adj-saved-mark {
-  flex: none;
-  color: var(--success);
-  animation: payAdjPop 300ms var(--ease-bounce);
+.pay-adj-preview-was {
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+  text-decoration: line-through;
 }
 
-@keyframes payAdjPop {
-  from {
-    transform: scale(0.4);
-    opacity: 0;
-  }
-  to {
-    transform: scale(1);
+.pay-adj-preview-value {
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+/* --- Row edit button on the payroll table --- */
+.pay-adj-edit {
+  opacity: 0;
+  transition: opacity 160ms var(--ease-out);
+}
+
+.data-row:hover .pay-adj-edit,
+.pay-adj-edit:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .pay-adj-edit {
     opacity: 1;
   }
 }
 
-/* Employee (read-only) view — plain number, no input affordance. */
-.pay-adj-ro {
-  font-size: 13px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--adj-ink, var(--text-2));
-}
-
-.pay-adj-ro[data-tone="bonus"] {
-  --adj-ink: color-mix(in srgb, var(--success) 80%, var(--text));
-}
-.pay-adj-ro[data-tone="advance"] {
-  --adj-ink: color-mix(in srgb, var(--warning) 80%, var(--text));
-}
-.pay-adj-ro[data-tone="plus"] {
-  --adj-ink: color-mix(in srgb, var(--info) 80%, var(--text));
-}
-.pay-adj-ro[data-tone="minus"] {
-  --adj-ink: color-mix(in srgb, var(--danger) 80%, var(--text));
-}
-.pay-adj-ro[data-tone="neutral"] {
-  --adj-ink: var(--text-3);
-  font-weight: 600;
-}
-
-/* --- Column header dots on the payroll table --- */
-.pay-adj-head {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.32rem;
-}
-
-.pay-adj-head::before {
-  content: "";
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--dot, var(--text-3));
-}
-
-.pay-adj-head[data-tone="bonus"] {
-  --dot: var(--success);
-}
-.pay-adj-head[data-tone="advance"] {
-  --dot: var(--warning);
-}
-.pay-adj-head[data-tone="diff"] {
-  --dot: var(--info);
-}
-
-/* --- Legend strip above the payroll table --- */
-.pay-adj-legend {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.4rem 1rem;
-  padding: 0.6rem 1.25rem;
-  border-bottom: 1px solid var(--border-2);
-  background: var(--surface);
-}
-
-.pay-adj-legend-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  margin-inline-end: 0.15rem;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-2);
-}
-
-.pay-adj-legend-title .material-symbols-rounded {
-  color: var(--text-3);
-}
-
-.pay-adj-legend-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text);
-}
-
-.pay-adj-legend-item::before {
-  content: "";
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: var(--dot, var(--text-3));
-}
-
-.pay-adj-legend-item em {
-  font-style: normal;
-  font-weight: 600;
-  color: var(--text-3);
-}
-
-.pay-adj-legend-item[data-tone="bonus"] {
-  --dot: var(--success);
-}
-.pay-adj-legend-item[data-tone="advance"] {
-  --dot: var(--warning);
-}
-.pay-adj-legend-item[data-tone="diff"] {
-  --dot: var(--info);
-}
-
 /* ============================================================
-   Adjustments panel (EmployeePayrollDetail) — labelled cards
+   Adjustments panel (EmployeePayrollDetail) — read-only summary
    ============================================================ */
 .payroll-adj-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.65rem;
+  gap: 0.6rem;
 }
 
 @media (max-width: 640px) {
@@ -17106,100 +17125,32 @@ button.pay-adj-sign:active {
   }
 }
 
-.pay-adj-card {
-  --adj-tone: var(--text-3);
-  --adj-tint: var(--surface-2);
-  padding: 0.7rem 0.8rem 0.75rem;
+.pay-adj-item {
+  padding: 0.7rem 0.85rem;
   border: 1px solid var(--border-2);
-  border-radius: 13px;
+  border-radius: 12px;
   background: var(--surface-2);
-  transition:
-    border-color 200ms var(--ease-out),
-    background-color 200ms var(--ease-out);
 }
 
-.pay-adj-card[data-tone="bonus"] {
-  --adj-tone: var(--success);
-  --adj-tint: var(--success-bg);
-}
-.pay-adj-card[data-tone="advance"] {
-  --adj-tone: var(--warning);
-  --adj-tint: var(--warning-bg);
-}
-.pay-adj-card[data-tone="plus"] {
-  --adj-tone: var(--info);
-  --adj-tint: var(--info-bg);
-}
-.pay-adj-card[data-tone="minus"] {
-  --adj-tone: var(--danger);
-  --adj-tint: var(--danger-bg);
-}
-
-.pay-adj-card[data-state="filled"] {
-  border-color: color-mix(in srgb, var(--adj-tone) 32%, transparent);
-  background: color-mix(in srgb, var(--adj-tint) 45%, var(--surface));
-}
-
-.pay-adj-card-head {
+.pay-adj-item-label {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
-  margin-bottom: 0.55rem;
+  gap: 0.35rem;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-3);
 }
 
-.pay-adj-card-icon {
-  display: grid;
-  place-items: center;
-  flex: none;
-  width: 1.7rem;
-  height: 1.7rem;
-  border-radius: 9px;
-  background: var(--adj-tint);
-  color: var(--adj-tone);
-}
-
-.pay-adj-card-label {
-  font-size: 12.5px;
+.pay-adj-item-value {
+  margin-top: 0.3rem;
+  font-size: 17px;
   font-weight: 800;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
   color: var(--text);
 }
 
-.pay-adj-card .pay-adj {
-  height: 2.5rem;
-  background: var(--surface);
-  border-color: var(--border);
-  border-style: solid;
-}
-
-.pay-adj-card .pay-adj[data-state="filled"] {
-  border-color: color-mix(in srgb, var(--adj-tone) 38%, transparent);
-}
-
-/* Same specificity as `.pay-adj-card .pay-adj`, so it has to be restated
-   here or the plain card border would win over the focus tone. */
-.pay-adj-card .pay-adj:focus-within {
-  border-color: var(--adj-tone);
-}
-
-.pay-adj-card .pay-adj-input {
-  font-size: 15px;
-  font-weight: 800;
-}
-
-.pay-adj-card .pay-adj-sign,
-.pay-adj-card .pay-adj-cur {
-  font-size: 13px;
-}
-
-.pay-adj-card button.pay-adj-sign {
-  min-width: 1.6rem;
-  height: 1.6rem;
-}
-
-.pay-adj-card-hint {
-  display: block;
-  margin-top: 0.45rem;
-  font-size: 11px;
+.pay-adj-item[data-empty="true"] .pay-adj-item-value {
   font-weight: 600;
   color: var(--text-3);
 }
@@ -17209,21 +17160,14 @@ button.pay-adj-sign:active {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pay-adj[data-save="saved"],
-  .pay-adj[data-save="saving"] .pay-adj-status::after,
-  .pay-adj-saved-mark {
-    animation: none;
-  }
-  button.pay-adj-sign:active {
-    transform: none;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
   .payroll-hero,
   .payroll-stat,
-  .pay-cell {
+  .pay-cell,
+  .payroll-adj-panel {
     animation: none;
+  }
+  .pay-adj-sign-btn:active {
+    transform: none;
   }
 }
 
@@ -24215,3 +24159,516 @@ button.pd-stat[aria-expanded="true"] {
     animation: none;
   }
 }
+
+
+/* ============================================================
+   Super admin — plan picker, module dependencies, business rail
+   ============================================================ */
+
+/* --- Dependency chips on a module capsule --- */
+.module-capsule-dep {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.55rem;
+  padding: 0.2rem 0.5rem 0.2rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--text-2);
+}
+
+.module-capsule-dep--locked {
+  border-color: color-mix(in srgb, var(--warning) 40%, var(--border));
+  background: var(--warning-bg);
+  color: color-mix(in srgb, var(--warning) 70%, var(--text));
+}
+
+.module-capsule[data-locked="true"] .module-capsule-frame {
+  border-style: dashed;
+}
+
+.module-capsule[data-locked="true"] .module-capsule-watermark {
+  opacity: 0.04;
+}
+
+/* --- Cascade notice --- */
+.module-rack-cascade {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.9rem;
+  padding: 0.6rem 0.85rem;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--info) 32%, var(--border));
+  background: var(--info-bg);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--info) 62%, var(--text));
+}
+
+.module-rack-domain-tagline {
+  position: relative;
+  z-index: 1;
+  margin: 0 0 0.9rem;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.module-rack-nav-icon {
+  position: relative;
+  opacity: 0.75;
+}
+
+.module-rack-nav-item.is-active .module-rack-nav-icon {
+  opacity: 1;
+}
+
+.module-rack-advice {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-top: 1.1rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: 12px;
+  border: 1px dashed var(--border);
+  background: var(--surface-2);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+
+.module-rack-advice b {
+  color: var(--text);
+}
+
+/* --- Plan picker --- */
+.plan-picker {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+  padding: 1.15rem 1.6rem 1.35rem;
+  border-bottom: 1px solid var(--border-2);
+  background: var(--surface-2);
+}
+
+@media (min-width: 760px) {
+  .plan-picker {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.plan-card {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.9rem 0.95rem 1rem;
+  border-radius: 14px;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  text-align: right;
+  cursor: pointer;
+  transition:
+    border-color 0.22s var(--ease-out),
+    box-shadow 0.22s var(--ease-out),
+    transform 0.22s var(--ease-out);
+}
+
+.plan-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
+
+.plan-card[data-active="true"] {
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 3px var(--focus-ring),
+    var(--shadow);
+}
+
+.plan-card[data-tone="custom"] {
+  border-style: dashed;
+}
+
+.plan-card-glow {
+  position: absolute;
+  inset: auto -30% -60% auto;
+  width: 12rem;
+  height: 8rem;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 14%, transparent), transparent 68%);
+  opacity: 0;
+  transition: opacity 0.3s var(--ease-out);
+  pointer-events: none;
+}
+
+.plan-card[data-active="true"] .plan-card-glow {
+  opacity: 1;
+}
+
+.plan-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.plan-card-icon {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 9px;
+  background: var(--accent-tint);
+  color: var(--accent-2);
+}
+
+.plan-card[data-active="true"] .plan-card-icon {
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+}
+
+.plan-card-check {
+  color: var(--accent-2);
+}
+
+.plan-card-label {
+  font-size: 14.5px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.plan-card-tagline {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.plan-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.45rem;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+.plan-card-meta span {
+  padding: 0.15rem 0.45rem;
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+
+/* --- Business rail (users page picker) --- */
+.biz-rail {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.9rem;
+}
+
+@media (min-width: 720px) {
+  .biz-rail {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr));
+  }
+}
+
+.biz-tile {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1.1rem 1.2rem 1.2rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  text-align: right;
+  cursor: pointer;
+  transition:
+    transform 0.24s var(--ease-out),
+    box-shadow 0.24s var(--ease-out),
+    border-color 0.24s var(--ease-out);
+}
+
+.biz-tile:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+  box-shadow: var(--shadow-lg);
+}
+
+.biz-tile[data-inactive="true"] {
+  opacity: 0.62;
+}
+
+.biz-tile-sheen {
+  position: absolute;
+  inset: -60% -20% auto auto;
+  width: 14rem;
+  height: 10rem;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 12%, transparent), transparent 70%);
+  opacity: 0;
+  transition: opacity 0.3s var(--ease-out);
+  pointer-events: none;
+}
+
+.biz-tile:hover .biz-tile-sheen {
+  opacity: 1;
+}
+
+.biz-tile-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.biz-tile-mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 800;
+  color: #fff;
+}
+
+.biz-tile-name {
+  min-width: 0;
+  font-size: 15.5px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.biz-tile-sub {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.biz-tile-stats {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
+.biz-tile-stat {
+  flex: 1;
+  padding: 0.5rem 0.6rem;
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.biz-tile-stat-value {
+  font-size: 17px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.biz-tile-stat-label {
+  margin-top: 0.05rem;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-3);
+}
+
+/* Seat usage meter */
+.seat-meter {
+  position: relative;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.seat-meter-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.5s var(--ease-out);
+}
+
+.seat-meter-fill[data-tone="warn"] { background: var(--warning); }
+.seat-meter-fill[data-tone="full"] { background: var(--danger); }
+
+/* --- Wizard stepper --- */
+.wizard-steps {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 1.35rem;
+}
+
+.wizard-step {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.7rem 0.35rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-3);
+  white-space: nowrap;
+  transition: all 0.24s var(--ease-out);
+}
+
+.wizard-step[data-state="active"] {
+  border-color: var(--accent);
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+}
+
+.wizard-step[data-state="done"] {
+  border-color: color-mix(in srgb, var(--success) 40%, var(--border));
+  background: var(--success-bg);
+  color: color-mix(in srgb, var(--success) 65%, var(--text));
+}
+
+.wizard-step-num {
+  display: grid;
+  place-items: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 18%, transparent);
+  font-size: 10.5px;
+  font-weight: 800;
+}
+
+.wizard-step-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+@media (max-width: 560px) {
+  .wizard-step-label {
+    display: none;
+  }
+}
+
+/* ── Supplier form: product picker ── */
+.sup-product-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-2);
+}
+
+.sup-product-line-thumb {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: 11px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+
+.sup-product-line-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.sup-product-pick-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+@media (min-width: 480px) {
+  .sup-product-pick-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 640px) {
+  .sup-product-pick-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+.sup-product-pick-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  text-align: center;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.sup-product-pick-btn:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  box-shadow: 0 2px 8px rgb(0 0 0 / 6%);
+}
+
+.sup-product-pick-btn:active {
+  transform: scale(0.98);
+}
+
+.sup-product-pick-thumb {
+  aspect-ratio: 1;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+
+.sup-product-pick-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.sup-product-pick-name {
+  font-size: 10.5px;
+  font-weight: 800;
+  line-height: 1.25;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.sup-product-pick-unit {
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+

@@ -1,7 +1,12 @@
 import type { Task, TaskTemplate, UserRole } from "@/types/database";
 import { todayISO } from "@/lib/db";
 import { matchesRecurrenceWeekday } from "@/lib/taskRecurrence";
-import { isRecurringTaskForDate, recurringMaterializedTemplateIds, templateVisibleForDailyChecklist } from "@/lib/todayTasks";
+import {
+  effectiveOneTimeDueDate,
+  isRecurringTaskForDate,
+  recurringMaterializedTemplateIds,
+  templateVisibleForDailyChecklist,
+} from "@/lib/todayTasks";
 
 export interface PendingTask {
   title: string;
@@ -44,7 +49,9 @@ export function pendingTasksForEmployee(
     if (t.type === "recurring") {
       if (isRecurringTaskForDate(t, today)) result.push({ title: t.title, type: "recurring" });
     } else {
-      result.push({ title: t.title, type: "one_time" });
+      if (!t.due_date || effectiveOneTimeDueDate(t, today) === today) {
+        result.push({ title: t.title, type: "one_time" });
+      }
     }
   });
 

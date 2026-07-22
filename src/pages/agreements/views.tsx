@@ -11,6 +11,7 @@ import {
   useUpdateAgreement,
 } from "@/api/agreements";
 import { useProfiles } from "@/api/users";
+import { idCardByEmployee, useEmployeeIdCards } from "@/api/employeeIdCards";
 import { Modal } from "@/components/ui/Modal";
 import type { AgreementSignature, AgreementTemplate, Profile } from "@/types/database";
 import { AgreementEditorModal, ReadSignModal, type EditorVariant } from "./AgreementModals";
@@ -30,6 +31,7 @@ import {
 } from "./DocumentsUI";
 import { DocumentStatusTable, Form101OverviewTable } from "./StatusTables";
 import { OfficeReceiptsPanel } from "./OfficeReceiptsPanel";
+import { EmployeeIdCardUploadPanel } from "./EmployeeIdCardPanel";
 import { TAX_YEAR, FORM_101_BLANK_URL, type DocsMgmtCategory, type ManagerTab } from "./types";
 
 const ADD_LABELS: Record<DocsMgmtCategory, string> = {
@@ -274,6 +276,7 @@ export function ManagerDocumentsView({
   const [staffSearch, setStaffSearch] = useState("");
   const { data: employees } = useProfiles(businessId);
   const { data: signatures } = useSignatures(businessId);
+  const { data: idCards } = useEmployeeIdCards(businessId);
 
   const staff = useMemo(
     () => (employees ?? []).filter((e) => e.active && ["employee", "shift_manager", "office_manager"].includes(e.role)),
@@ -338,7 +341,15 @@ export function ManagerDocumentsView({
       ) : (
         <>
           {tab === "status" && (
-            <DocumentStatusTable staff={visibleStaff} signatures={signatures ?? []} globalFixed={globalFixed} globalWork={globalWork} agreements={agreements} taxYear={TAX_YEAR} />
+            <DocumentStatusTable
+              staff={visibleStaff}
+              signatures={signatures ?? []}
+              globalFixed={globalFixed}
+              globalWork={globalWork}
+              agreements={agreements}
+              idCards={idCards ?? []}
+              taxYear={TAX_YEAR}
+            />
           )}
           {tab === "form101" && (
             <>
@@ -404,13 +415,16 @@ export function EmployeeDocumentsView({
     [employees]
   );
   const { data: signatures } = useSignatures(businessId, employeeId);
+  const { data: idCards } = useEmployeeIdCards(businessId);
+  const myIdCard = idCardByEmployee(idCards, employeeId);
   const myAgreements = useMemo(() => agreementsForEmployee(agreements, employeeId), [agreements, employeeId]);
   const [reading, setReading] = useState<AgreementTemplate | null>(null);
   const [fabVariant, setFabVariant] = useState<EditorVariant | null>(null);
   const [pageTab, setPageTab] = useState<"mine" | "manage">(canEditTemplates ? "manage" : "mine");
   const signedSet = new Set((signatures ?? []).filter((s) => s.agreed).map((s) => s.agreement_id));
 
-  const pending = myAgreements.filter((a) => !signedSet.has(a.id)).length;
+  const pending =
+    myAgreements.filter((a) => !signedSet.has(a.id)).length + (myIdCard ? 0 : 1);
   const showTabs = Boolean(canEditTemplates && profileId);
 
   return (
@@ -426,6 +440,8 @@ export function EmployeeDocumentsView({
 
       {(!showTabs || pageTab === "mine") && (
         <>
+          <EmployeeIdCardUploadPanel businessId={businessId} employeeId={employeeId} />
+
           {myAgreements.length > 0 ? (
             <div className="profile-card">
               {myAgreements.map((a, i) => {
@@ -442,8 +458,12 @@ export function EmployeeDocumentsView({
                 );
               })}
             </div>
-          ) : (
+          ) : myIdCard ? (
             <DocsEmployeeEmpty name={employeeName} />
+          ) : (
+            <p className="docs-id-card-only-hint text-center text-[13px] font-semibold text-text-3">
+              לאחר העלאת תעודת הזהות — יופיעו כאן גם הסכמים לחתימה, אם יש.
+            </p>
           )}
 
           {reading && (

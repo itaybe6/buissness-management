@@ -1,5 +1,6 @@
-import { useRef, useState, type CSSProperties, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from "react";
 import {
+  AnimatePresence,
   motion,
   useMotionValue,
   useReducedMotion,
@@ -7,60 +8,63 @@ import {
   useTransform,
 } from "motion/react";
 import { Icon, Switch } from "@/components/ui";
-import { ALL_FEATURES } from "@/lib/constants";
+import {
+  FEATURE_DOMAINS,
+  MODULE_BY_KEY,
+  applyFeatureToggle,
+  dependentsOf,
+  featureStateFromKeys,
+  missingRecommendations,
+  modulesInDomain,
+  type FeatureDomainId,
+  type FeatureModule,
+} from "@/lib/features";
 import type { FeatureKey } from "@/types/database";
 
 const SPRING = { stiffness: 280, damping: 28, mass: 0.6 };
 const EASE: [number, number, number, number] = [0.32, 0.72, 0, 1];
 
-const MODULE_GROUPS: { id: string; label: string; keys: FeatureKey[] }[] = [
-  { id: "hr", label: "עובדים ומסמכים", keys: ["agreements"] },
-  { id: "shifts", label: "משמרות ושכר", keys: ["shifts", "shift_reports", "payroll", "attendance"] },
-  { id: "ops", label: "מלאי ותפעול", keys: ["inventory", "waste", "faults", "events", "tasks"] },
-];
-
 type ModuleLayout = "cinema" | "portrait" | "orbit";
 
-const MODULE_ART: Record<
-  FeatureKey,
-  {
-    layout: ModuleLayout;
-    span: string;
-    decor: string;
-  }
-> = {
-  agreements: { layout: "cinema", span: "module-capsule--half", decor: "decor-rings" },
-  shifts: { layout: "cinema", span: "module-capsule--lead", decor: "decor-grid" },
-  shift_reports: { layout: "portrait", span: "module-capsule--tail", decor: "decor-wave" },
-  payroll: { layout: "orbit", span: "module-capsule--third", decor: "decor-dots" },
-  attendance: { layout: "cinema", span: "module-capsule--wide", decor: "decor-arc" },
-  inventory: { layout: "cinema", span: "module-capsule--hero", decor: "decor-stripe" },
-  waste: { layout: "orbit", span: "module-capsule--third", decor: "decor-rings" },
-  faults: { layout: "portrait", span: "module-capsule--third", decor: "decor-grid" },
-  events: { layout: "orbit", span: "module-capsule--third", decor: "decor-wave" },
-  tasks: { layout: "portrait", span: "module-capsule--third", decor: "decor-lines" },
+/**
+ * Each module gets its own visual treatment so the rack reads as a set of
+ * distinct worlds rather than a grid of identical switches.
+ */
+const MODULE_ART: Record<FeatureKey, { layout: ModuleLayout; span: string; decor: string }> = {
+  // core
+  attendance: { layout: "cinema", span: "module-capsule--lead", decor: "decor-arc" },
+  shifts: { layout: "portrait", span: "module-capsule--tail", decor: "decor-grid" },
+  tasks: { layout: "cinema", span: "module-capsule--full", decor: "decor-lines" },
+  // workforce
+  payroll: { layout: "cinema", span: "module-capsule--wide", decor: "decor-dots" },
+  agreements: { layout: "portrait", span: "module-capsule--third", decor: "decor-rings" },
+  shift_reports: { layout: "cinema", span: "module-capsule--full", decor: "decor-wave" },
+  // operations
+  inventory: { layout: "cinema", span: "module-capsule--lead", decor: "decor-stripe" },
+  faults: { layout: "portrait", span: "module-capsule--tail", decor: "decor-grid" },
+  waste: { layout: "orbit", span: "module-capsule--full", decor: "decor-rings" },
+  // growth
+  events: { layout: "cinema", span: "module-capsule--full", decor: "decor-wave" },
 };
 
-const featureByKey = new Map(ALL_FEATURES.map((f) => [f.key, f]));
-
 function ModuleCapsule({
-  featureKey,
+  module,
   enabled,
-  icon,
-  label,
-  desc,
   index,
+  lockedBy,
+  breaks,
   onToggle,
 }: {
-  featureKey: FeatureKey;
+  module: FeatureModule;
   enabled: boolean;
-  icon: string;
-  label: string;
-  desc: string;
   index: number;
+  /** Module that must be turned on first — renders this capsule as locked. */
+  lockedBy: FeatureModule | null;
+  /** Modules that will switch off along with this one. */
+  breaks: FeatureModule[];
   onToggle: () => void;
 }) {
-  const art = MODULE_ART[featureKey];
+  const art = MODULE_ART[module.key];
   const reduce = useReducedMotion();
   const ref = useRef<HTMLButtonElement>(null);
 
@@ -89,6 +93,31 @@ function ModuleCapsule({
     ref.current?.style.setProperty("--spot-y", "50%");
   };
 
+  const meta = (
+    <>
+      {lockedBy && (
+        <span className="module-capsule-dep module-capsule-dep--locked">
+          <Icon name="lock" size={13} />
+          דורש {lockedBy.label}
+        </span>
+      )}
+      {!lockedBy && enabled && breaks.length > 0 && (
+        <span className="module-capsule-dep">
+          <Icon name="link" size={13} />
+          כיבוי יכבה גם {breaks.map((b) => b.label).join(", ")}
+        </span>
+      )}
+    </>
+  );
+
+  const body = (
+    <>
+      <span className="module-capsule-title">{module.label}</span>
+      <p className="module-capsule-desc">{module.desc}</p>
+      {meta}
+    </>
+  );
+
   return (
     <motion.button
       ref={ref}
@@ -101,50 +130,37 @@ function ModuleCapsule({
       onMouseMove={onMove}
       onMouseLeave={onLeave}
       data-enabled={enabled}
-      data-module={featureKey}
+      data-module={module.key}
       data-layout={art.layout}
-      style={
-        {
-          "--spot-x": "50%",
-          "--spot-y": "50%",
-          perspective: 900,
-        } as CSSProperties
-      }
+      data-locked={!!lockedBy}
+      title={lockedBy ? `הפעלת ${module.label} תדליק אוטומטית את ${lockedBy.label}` : module.dependencyNote}
+      style={{ "--spot-x": "50%", "--spot-y": "50%", perspective: 900 } as CSSProperties}
       className={`module-capsule group ${art.span}`}
       aria-pressed={enabled}
     >
       <motion.span
         className="module-capsule-tilt"
-        style={
-          reduce
-            ? undefined
-            : {
-                rotateX,
-                rotateY,
-                transformStyle: "preserve-3d",
-              }
-        }
+        style={reduce ? undefined : { rotateX, rotateY, transformStyle: "preserve-3d" }}
       >
         <span className="module-capsule-frame">
           <span className={`module-capsule-decor ${art.decor}`} aria-hidden />
           <span className="module-capsule-spotlight" aria-hidden />
           <span className="module-capsule-watermark" aria-hidden>
-            <Icon name={icon} size={120} />
+            <Icon name={module.icon} size={120} />
           </span>
 
           {art.layout === "cinema" && (
             <span className="module-capsule-inner module-capsule-inner--cinema">
               <span className="module-capsule-stage">
                 <span className="module-capsule-icon-ring">
-                  <Icon name={icon} size={28} />
+                  <Icon name={module.icon} size={28} />
                 </span>
               </span>
               <span className="module-capsule-content">
                 <span className="module-capsule-head">
                   <Switch checked={enabled} />
                 </span>
-                <span className="module-capsule-title">{label}</span>
-                <p className="module-capsule-desc">{desc}</p>
+                {body}
               </span>
             </span>
           )}
@@ -153,12 +169,11 @@ function ModuleCapsule({
             <span className="module-capsule-inner module-capsule-inner--portrait">
               <span className="module-capsule-head">
                 <span className="module-capsule-icon-ring module-capsule-icon-ring--sm">
-                  <Icon name={icon} size={24} />
+                  <Icon name={module.icon} size={24} />
                 </span>
                 <Switch checked={enabled} />
               </span>
-              <span className="module-capsule-title">{label}</span>
-              <p className="module-capsule-desc">{desc}</p>
+              {body}
             </span>
           )}
 
@@ -167,15 +182,14 @@ function ModuleCapsule({
               <span className="module-capsule-orbit-wrap">
                 <span className="module-capsule-orbit-ring" aria-hidden />
                 <span className="module-capsule-icon-ring module-capsule-icon-ring--orbit">
-                  <Icon name={icon} size={22} />
+                  <Icon name={module.icon} size={22} />
                 </span>
               </span>
               <span className="module-capsule-content module-capsule-content--orbit">
                 <span className="module-capsule-head">
                   <Switch checked={enabled} />
                 </span>
-                <span className="module-capsule-title">{label}</span>
-                <p className="module-capsule-desc">{desc}</p>
+                {body}
               </span>
             </span>
           )}
@@ -190,14 +204,49 @@ function ModuleCapsule({
 export function ActiveModulesPanel({
   enabledSet,
   onToggle,
+  onBulkChange,
+  headerSlot,
 }: {
   enabledSet: Set<FeatureKey>;
+  /** Called for every module the toggle changed, including dependency cascades. */
   onToggle: (key: FeatureKey, enabled: boolean) => void;
+  /** Optional bulk apply — when absent, cascades are emitted as individual onToggle calls. */
+  onBulkChange?: (changes: { key: FeatureKey; enabled: boolean }[]) => void;
+  /** Rendered in the panel header (e.g. the plan picker). */
+  headerSlot?: React.ReactNode;
 }) {
-  const total = ALL_FEATURES.length;
-  const enabled = enabledSet.size;
-  const [activeGroup, setActiveGroup] = useState(MODULE_GROUPS[0].id);
+  const [activeDomain, setActiveDomain] = useState<FeatureDomainId>(FEATURE_DOMAINS[0].id);
+  const [cascade, setCascade] = useState<string | null>(null);
   const reduce = useReducedMotion();
+
+  const state = useMemo(() => featureStateFromKeys(enabledSet), [enabledSet]);
+  const total = MODULE_BY_KEY.size;
+  const enabled = enabledSet.size;
+  const advice = useMemo(() => missingRecommendations(state), [state]);
+
+  useEffect(() => {
+    if (!cascade) return;
+    const t = setTimeout(() => setCascade(null), 4200);
+    return () => clearTimeout(t);
+  }, [cascade]);
+
+  function handleToggle(key: FeatureKey) {
+    const next = !state[key];
+    const result = applyFeatureToggle(state, key, next);
+    const changes = [
+      { key, enabled: next },
+      ...result.turnedOn.map((k) => ({ key: k, enabled: true })),
+      ...result.turnedOff.map((k) => ({ key: k, enabled: false })),
+    ];
+
+    if (onBulkChange) onBulkChange(changes);
+    else changes.forEach((c) => onToggle(c.key, c.enabled));
+
+    const names = (keys: FeatureKey[]) => keys.map((k) => MODULE_BY_KEY.get(k)?.label).filter(Boolean).join(", ");
+    if (result.turnedOn.length) setCascade(`הופעל אוטומטית גם: ${names(result.turnedOn)} — נדרש עבור ${MODULE_BY_KEY.get(key)?.label}`);
+    else if (result.turnedOff.length) setCascade(`כובה אוטומטית גם: ${names(result.turnedOff)} — תלוי ב${MODULE_BY_KEY.get(key)?.label}`);
+    else setCascade(null);
+  }
 
   return (
     <section className="module-rack mb-6">
@@ -205,7 +254,9 @@ export function ActiveModulesPanel({
         <div className="module-rack-head-glow" aria-hidden />
         <div className="module-rack-head-main">
           <h2 className="module-rack-title">מודולים פעילים</h2>
-          <p className="module-rack-lede">כל מודול הוא עולם משלו. הקש כדי להדליק או לכבות.</p>
+          <p className="module-rack-lede">
+            כל מודול הוא עולם משלו. מה שכבוי כאן פשוט לא קיים עבור העסק — לא בתפריט ולא בנתונים.
+          </p>
         </div>
         <div className="module-rack-meter" aria-label={`${enabled} מתוך ${total} מודולים פעילים`}>
           <span className="module-rack-meter-value">{enabled}</span>
@@ -214,17 +265,21 @@ export function ActiveModulesPanel({
         </div>
       </header>
 
+      {headerSlot}
+
       <div className="module-rack-shell">
-        <nav className="module-rack-nav" aria-label="קטגוריות מודולים">
-          {MODULE_GROUPS.map((group) => {
-            const on = activeGroup === group.id;
-            const lit = group.keys.filter((k) => enabledSet.has(k)).length;
+        <nav className="module-rack-nav" aria-label="תחומי מודולים">
+          {FEATURE_DOMAINS.map((domain) => {
+            const on = activeDomain === domain.id;
+            const keys = modulesInDomain(domain.id).map((m) => m.key);
+            const lit = keys.filter((k) => enabledSet.has(k)).length;
             return (
               <button
-                key={group.id}
+                key={domain.id}
                 type="button"
-                onClick={() => setActiveGroup(group.id)}
+                onClick={() => setActiveDomain(domain.id)}
                 className={`module-rack-nav-item ${on ? "is-active" : ""}`}
+                title={domain.tagline}
               >
                 {on && !reduce && (
                   <motion.span
@@ -234,8 +289,11 @@ export function ActiveModulesPanel({
                   />
                 )}
                 {on && reduce && <span className="module-rack-nav-mark" />}
-                <span className="module-rack-nav-label">{group.label}</span>
-                <span className="module-rack-nav-count">{lit}</span>
+                <Icon name={domain.icon} size={17} className="module-rack-nav-icon" />
+                <span className="module-rack-nav-label">{domain.label}</span>
+                <span className="module-rack-nav-count">
+                  {lit}/{keys.length}
+                </span>
               </button>
             );
           })}
@@ -243,33 +301,74 @@ export function ActiveModulesPanel({
 
         <div className="module-rack-stage">
           <div className="module-rack-stage-mesh" aria-hidden />
-          {MODULE_GROUPS.filter((g) => g.id === activeGroup).map((group) => (
-            <motion.div
-              key={group.id}
-              initial={reduce ? false : { opacity: 0, filter: "blur(6px)" }}
-              animate={{ opacity: 1, filter: "blur(0px)" }}
-              transition={{ duration: 0.45, ease: EASE }}
-              className="module-rack-grid"
-            >
-              {group.keys.map((key, idx) => {
-                const f = featureByKey.get(key);
-                if (!f) return null;
-                const on = enabledSet.has(key);
-                return (
-                  <ModuleCapsule
-                    key={key}
-                    featureKey={key}
-                    enabled={on}
-                    icon={f.icon}
-                    label={f.label}
-                    desc={f.desc}
-                    index={idx}
-                    onToggle={() => onToggle(key, !on)}
-                  />
-                );
-              })}
+
+          <AnimatePresence mode="wait">
+            {cascade && (
+              <motion.div
+                key={cascade}
+                initial={reduce ? false : { opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={reduce ? undefined : { opacity: 0, y: -8 }}
+                className="module-rack-cascade"
+                role="status"
+              >
+                <Icon name="account_tree" size={17} />
+                {cascade}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {FEATURE_DOMAINS.filter((d) => d.id === activeDomain).map((domain) => (
+            <motion.div key={domain.id}>
+              <motion.p
+                initial={reduce ? false : { opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="module-rack-domain-tagline"
+              >
+                {domain.tagline}
+              </motion.p>
+              <motion.div
+                initial={reduce ? false : { opacity: 0, filter: "blur(6px)" }}
+                animate={{ opacity: 1, filter: "blur(0px)" }}
+                transition={{ duration: 0.45, ease: EASE }}
+                className="module-rack-grid"
+              >
+                {modulesInDomain(domain.id).map((m, idx) => {
+                  const on = enabledSet.has(m.key);
+                  const unmetDep = m.requires.find((k) => !enabledSet.has(k));
+                  const willBreak = on
+                    ? dependentsOf(m.key)
+                        .filter((k) => enabledSet.has(k))
+                        .map((k) => MODULE_BY_KEY.get(k)!)
+                    : [];
+                  return (
+                    <ModuleCapsule
+                      key={m.key}
+                      module={m}
+                      enabled={on}
+                      index={idx}
+                      lockedBy={!on && unmetDep ? MODULE_BY_KEY.get(unmetDep)! : null}
+                      breaks={willBreak}
+                      onToggle={() => handleToggle(m.key)}
+                    />
+                  );
+                })}
+              </motion.div>
             </motion.div>
           ))}
+
+          {advice.length > 0 && (
+            <div className="module-rack-advice">
+              <Icon name="lightbulb" size={17} />
+              <div>
+                {advice.slice(0, 2).map(({ module, missing }) => (
+                  <div key={module.key}>
+                    <b>{module.label}</b> יעבוד טוב יותר עם {missing.map((x) => x.label).join(" ו")}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </section>

@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { Badge, Button, EmptyState, Field, Icon, Input, ErrorState, InlineLoader, LoadingOverlay, PageLoader, SectionLoader, Select, MultiSelect } from "@/components/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { Modal } from "@/components/ui/Modal";
@@ -35,7 +35,6 @@ import {
   inventoryLineTotal,
   orderLineBillableQty,
   orderBatchTotal,
-  formatUnitPriceLabel,
 } from "@/api/inventory";
 import { useDepartments } from "@/api/departments";
 import { useSuppliers, useSupplierItemPriceIndex, supplierPricesFor, type SupplierItemPriceIndex } from "@/api/suppliers";
@@ -107,7 +106,6 @@ type ItemForm = {
   qty: string;
   minQty: string;
   deliveryDay: string;
-  unitPrice: string;
   departmentIds: string[];
   imageUrl: string | null;
   file: File | null;
@@ -121,7 +119,6 @@ const EMPTY_FORM: ItemForm = {
   qty: "0",
   minQty: "0",
   deliveryDay: "",
-  unitPrice: "",
   departmentIds: [],
   imageUrl: null,
   file: null,
@@ -350,8 +347,10 @@ function TabSearchBar<T extends string>({
             onClick={onAdd}
             disabled={addDisabled}
             aria-label={addAriaLabel}
-            className="!h-11 !w-11 shrink-0 !p-0 !bg-ink shadow-sm hover:brightness-110 active:scale-[0.97] md:hidden"
-          />
+            className="!h-11 shrink-0 whitespace-nowrap !bg-ink shadow-sm hover:brightness-110 active:scale-[0.97]"
+          >
+            {addAriaLabel}
+          </Button>
         )}
       </div>
 
@@ -861,7 +860,6 @@ function ItemDetailModal({
   open,
   canUpdateCount,
   isManager,
-  canSeePrices,
   canManageOrders,
   canUpdateOrderArrival,
   pendingOrders,
@@ -879,7 +877,6 @@ function ItemDetailModal({
   open: boolean;
   canUpdateCount: boolean;
   isManager: boolean;
-  canSeePrices: boolean;
   canManageOrders: boolean;
   canUpdateOrderArrival: boolean;
   pendingOrders: InventoryOrderWithUser[];
@@ -1105,15 +1102,6 @@ function ItemDetailModal({
         )}
 
         <div className="pd-list">
-          {canSeePrices && Number(item.unit_price) > 0 && (
-            <div className="pd-list-row">
-              <span className="pd-list-icon">
-                <Icon name="payments" size={17} />
-              </span>
-              <span className="pd-list-label">מחיר ל{ item.unit ?? "יחידה"}</span>
-              <span className="pd-list-value tabular-nums">{formatCurrency(Number(item.unit_price))}</span>
-            </div>
-          )}
           <div className="pd-list-row">
             <span className="pd-list-icon">
               <Icon name="local_shipping" size={17} />
@@ -1272,7 +1260,6 @@ function ItemCard({
   item,
   index,
   isManager,
-  canSeePrices,
   canUpdateCount,
   canManageOrders,
   onOpen,
@@ -1284,7 +1271,6 @@ function ItemCard({
   item: ItemWithQty;
   index: number;
   isManager: boolean;
-  canSeePrices: boolean;
   canUpdateCount: boolean;
   canManageOrders: boolean;
   onOpen: () => void;
@@ -1340,11 +1326,6 @@ function ItemCard({
                 <h3 className="line-clamp-2 text-[12px] font-bold leading-snug tracking-tight">{item.name}</h3>
                 {inventoryCategoryLabel(item.category) && (
                   <span className="text-[10px] font-semibold text-text-3">{inventoryCategoryLabel(item.category)}</span>
-                )}
-                {canSeePrices && formatUnitPriceLabel(item) && (
-                  <span className="mt-0.5 block text-[10px] font-bold tabular-nums text-text-2">
-                    {formatUnitPriceLabel(item)}
-                  </span>
                 )}
               </div>
               <div className="shrink-0 text-left leading-none">
@@ -1439,11 +1420,6 @@ function ItemCard({
               <h3 className="text-[15px] font-bold leading-snug tracking-tight">{item.name}</h3>
               {inventoryCategoryLabel(item.category) && (
                 <span className="mt-0.5 block text-[11px] font-semibold text-text-3">{inventoryCategoryLabel(item.category)}</span>
-              )}
-              {canSeePrices && formatUnitPriceLabel(item) && (
-                <span className="mt-0.5 block text-[11px] font-bold tabular-nums text-text-2">
-                  {formatUnitPriceLabel(item)}
-                </span>
               )}
               <div className="mt-1.5">
                 <LastUpdatedLine item={item} />
@@ -2346,7 +2322,6 @@ export function Inventory() {
       qty: String(item.current_qty),
       minQty: String(item.min_quantity),
       deliveryDay: item.supplier_delivery_day != null ? String(item.supplier_delivery_day) : "",
-      unitPrice: item.unit_price != null && item.unit_price > 0 ? String(item.unit_price) : "",
       departmentIds: [...item.department_ids],
       imageUrl: item.image_url,
       file: null,
@@ -2442,7 +2417,6 @@ export function Inventory() {
       const units_per_package = supportsPieceInput(form.unit)
         ? Math.max(0, Number(form.unitsPerPackage) || 0) || null
         : null;
-      const unit_price = canSeePrices ? Math.max(0, parseFloat(form.unitPrice.replace(/,/g, "")) || 0) : undefined;
       const department_ids = form.departmentIds;
 
       if (editing) {
@@ -2457,9 +2431,6 @@ export function Inventory() {
         const prevDepts = [...editing.department_ids].sort().join(",");
         const nextDepts = [...department_ids].sort().join(",");
         if (prevDepts !== nextDepts) changed.push("מחלקות");
-        if (canSeePrices && unit_price !== undefined && unit_price !== Number(editing.unit_price ?? 0)) {
-          changed.push("מחיר");
-        }
         await updateItem.mutateAsync({
           id: editing.id,
           business_id: businessId!,
@@ -2472,7 +2443,6 @@ export function Inventory() {
             min_quantity,
             supplier_delivery_day,
             category,
-            ...(canSeePrices && unit_price !== undefined ? { unit_price } : {}),
           },
           department_ids,
           note: changed.length ? `עודכן: ${changed.join(", ")}` : null,
@@ -2496,7 +2466,6 @@ export function Inventory() {
           min_quantity,
           supplier_delivery_day,
           category,
-          ...(canSeePrices && unit_price !== undefined ? { unit_price } : {}),
           department_ids,
           quantity,
           employee_id: profile?.id ?? null,
@@ -2510,33 +2479,8 @@ export function Inventory() {
     }
   }
 
-  const showTabActions = (isManager && tab === "items") || (canManageOrders && tab === "orders") || (showWaste && tab === "waste");
-
   return (
     <div className="w-full animate-fadeUp">
-      {showTabActions && (
-        <header className="mb-4 hidden w-full flex-wrap items-center justify-end gap-4 md:mb-6 md:flex">
-          {tab === "items" && isManager ? (
-            <Button icon="add" onClick={openCreate} className="!bg-ink shadow-sm hover:brightness-110 active:scale-[0.97]">
-              פריט חדש
-            </Button>
-          ) : tab === "orders" && canManageOrders ? (
-            <Button icon="add_shopping_cart" onClick={() => openNewOrder()} className="!bg-ink shadow-sm hover:brightness-110 active:scale-[0.97]">
-              הזמנה חדשה
-            </Button>
-          ) : tab === "waste" && showWaste ? (
-            <Button
-              icon="add"
-              onClick={() => setWasteReportOpen(true)}
-              disabled={list.length === 0}
-              className="!bg-ink shadow-sm hover:brightness-110 active:scale-[0.97]"
-            >
-              דיווח בלאי
-            </Button>
-          ) : null}
-        </header>
-      )}
-
       <TabBar
         tab={tab}
         total={list.length}
@@ -2749,7 +2693,6 @@ export function Inventory() {
                     item={it}
                     index={idx}
                     isManager={isManager}
-                    canSeePrices={canSeePrices}
                     canUpdateCount={canUpdateCount}
                     canManageOrders={canManageOrders}
                     onOpen={() => openItemDetail(it)}
@@ -2903,22 +2846,6 @@ export function Inventory() {
             <p className="mt-1 text-[12px] text-text-3">מתחת לסף זה הפריט יסומן כמלאי נמוך</p>
           </Field>
 
-          {canSeePrices && (
-            <Field label={`מחיר ל${form.unit || "יחידה"} (₪)`}>
-              <Input
-                type="number"
-                min={0}
-                step="0.01"
-                value={form.unitPrice}
-                onChange={(e) => setForm((f) => ({ ...f, unitPrice: e.target.value }))}
-                placeholder="0"
-              />
-              <p className="mt-1 text-[12px] text-text-3">
-                מוצג רק למנהל ולמנהלת משרד. משמש לחישוב סה״כ בהזמנות.
-              </p>
-            </Field>
-          )}
-
           <Field label="יום אספקה מהספק">
             <Select value={form.deliveryDay} onChange={(e) => setForm((f) => ({ ...f, deliveryDay: e.target.value }))}>
               <option value="">לא הוגדר</option>
@@ -2929,6 +2856,15 @@ export function Inventory() {
               ))}
             </Select>
             <p className="mt-1 text-[12px] text-text-3">ביום זה הסחורה אמורה להגיע מהספק לאחר הזמנה</p>
+            {canSeePrices && (
+              <p className="mt-1 text-[12px] text-text-3">
+                מחירי רכש מוגדרים לפי ספק ב{" "}
+                <Link to="/suppliers" className="font-semibold text-accent-2 hover:underline">
+                  עמוד הספקים
+                </Link>
+                .
+              </p>
+            )}
           </Field>
 
           {error && (
@@ -2944,7 +2880,6 @@ export function Inventory() {
         open={!!detailItemLive}
         canUpdateCount={canUpdateCount}
         isManager={isManager}
-        canSeePrices={canSeePrices}
         canManageOrders={canManageOrders}
         canUpdateOrderArrival={canUpdateOrderArrival}
         pendingOrders={detailPendingOrders}

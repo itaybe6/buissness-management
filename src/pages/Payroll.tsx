@@ -10,7 +10,11 @@ import { useTips, useShiftBonuses, useApprovedFaultPays, usePayrollMonthAdjustme
 import { computeEmployeePayroll, sumAttendanceHours, withPayrollAdjustments } from "@/lib/payrollCompute";
 import { sumFaultPayAmount } from "@/lib/faultPayrollRows";
 import { countEmployeeShifts, exportPayrollExcel, type PayrollExportRow } from "@/lib/payrollExport";
-import { PayrollAdjustmentCells } from "@/components/payroll/PayrollAdjustmentCells";
+import {
+  PayrollAdjustmentsDialog,
+  formatAdjustment,
+  type PayrollAdjustmentValues,
+} from "@/components/payroll/PayrollAdjustments";
 import type { WageType } from "@/types/database";
 
 function monthNow() {
@@ -73,6 +77,7 @@ export function Payroll() {
   const [searchParams] = useSearchParams();
   const [month, setMonth] = useState(searchParams.get("month") ?? monthNow());
   const [search, setSearch] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
   const { data: users, isLoading, isError, refetch } = useProfiles(businessId);
   const { data: attendance } = useAttendanceMonth(businessId, month);
   const { data: tips } = useTips(businessId, month);
@@ -148,8 +153,22 @@ export function Payroll() {
     { hours: 0, base: 0, tips: 0, topup: 0, bonus: 0, faultPay: 0, monthlyBonus: 0, advance: 0, differences: 0, total: 0 },
   );
 
-  const PAYROLL_GRID =
-    "grid grid-cols-[1.45fr_0.62fr_0.52fr_0.62fr_0.78fr_0.58fr_0.68fr_0.86fr_0.86fr_0.86fr_0.82fr] gap-1.5";
+  // Two full literals, not an interpolated one — Tailwind only picks up
+  // arbitrary values it can find verbatim in the source.
+  const PAYROLL_GRID = isPayrollManager
+    ? "grid grid-cols-[1.45fr_0.62fr_0.52fr_0.62fr_0.78fr_0.58fr_0.68fr_0.72fr_0.62fr_0.62fr_0.82fr_44px] gap-1.5"
+    : "grid grid-cols-[1.45fr_0.62fr_0.52fr_0.62fr_0.78fr_0.58fr_0.68fr_0.72fr_0.62fr_0.62fr_0.82fr] gap-1.5";
+
+  const editingRow = filteredRows.find((r) => r.id === editingId) ?? null;
+
+  const adjustmentsFor = (id: string): PayrollAdjustmentValues => {
+    const adj = payrollAdjustmentForEmployee(monthAdjustments, id);
+    return {
+      monthlyBonus: Number(adj?.monthly_bonus ?? 0),
+      advance: Number(adj?.advance ?? 0),
+      differences: Number(adj?.differences ?? 0),
+    };
+  };
 
   return (
     <div className="w-full animate-fadeUp">
@@ -314,24 +333,16 @@ export function Payroll() {
 
       <Card className="hidden overflow-hidden !p-0 shadow-card md:block">
         {isPayrollManager && (
-          <div className="pay-adj-legend">
-            <span className="pay-adj-legend-title">
-              <Icon name="edit_note" size={16} />
-              התאמות חודשיות — ניתן לערוך ישירות בטבלה
-            </span>
-            <span className="pay-adj-legend-item" data-tone="bonus">
-              בונוס חודשי <em>מתווסף לסה״כ</em>
-            </span>
-            <span className="pay-adj-legend-item" data-tone="advance">
-              מפרעה <em>מנוכה מהסה״כ</em>
-            </span>
-            <span className="pay-adj-legend-item" data-tone="diff">
-              הפרשים <em>תיקון + או −</em>
-            </span>
-          </div>
+          <p className="flex items-center gap-1.5 border-b border-border-2 bg-surface px-5 py-2.5 text-[12.5px] text-text-2">
+            <Icon name="edit_note" size={17} className="text-text-3" />
+            <strong className="text-text">בונוס חודשי</strong> מתווסף לסה״כ ·{" "}
+            <strong className="text-text">מפרעה</strong> מנוכה מהסה״כ ·{" "}
+            <strong className="text-text">הפרשים</strong> תיקון לפני תשלום — לעריכה יש ללחוץ על
+            העיפרון בסוף השורה
+          </p>
         )}
         <div className="overflow-auto">
-          <div className="min-w-[1140px]">
+          <div className="min-w-[1124px]">
             <div className={`${PAYROLL_GRID} border-b border-border bg-surface-2 px-5 py-3 text-[10.5px] font-bold uppercase tracking-wide text-text-3`}>
               <span>עובד</span>
               <span>סוג</span>
@@ -340,22 +351,18 @@ export function Payroll() {
               <span>בסיס / טיפים</span>
               <span>השלמה</span>
               <span>תוספת קופה</span>
-              <span className="pay-adj-head" data-tone="bonus">בונוס חודשי</span>
-              <span className="pay-adj-head" data-tone="advance">מפרעה</span>
-              <span className="pay-adj-head" data-tone="diff">הפרשים</span>
+              <span>בונוס חודשי</span>
+              <span>מפרעה</span>
+              <span>הפרשים</span>
               <span>סה״כ</span>
+              {isPayrollManager && <span className="sr-only">עריכה</span>}
             </div>
             {filteredRows.map((r) => {
-              const adj = payrollAdjustmentForEmployee(monthAdjustments, r.id);
-              const adjValues = {
-                monthlyBonus: Number(adj?.monthly_bonus ?? r.monthlyBonus),
-                advance: Number(adj?.advance ?? r.advance),
-                differences: Number(adj?.differences ?? r.differences),
-              };
+              const adjValues = adjustmentsFor(r.id);
               const open = () => navigate(`/payroll/${r.id}?month=${month}`);
               return (
-              // Not a <button>: the adjustment cells nest their own input and
-              // sign toggle, which is invalid (and unclickable) inside one.
+              // Not a <button>: managers get an edit button inside the row, and
+              // a nested <button> is invalid (and unclickable) inside one.
               <div
                 key={r.id}
                 role="button"
@@ -379,14 +386,30 @@ export function Payroll() {
                 <span className={`tabular-nums ${r.wageType === "tips" ? "font-bold text-accent-2" : ""}`}>{formatCurrency(r.wageType === "tips" ? r.tips : r.base)}</span>
                 <span className="tabular-nums text-text-2">{r.topup > 0 ? formatCurrency(r.topup) : "—"}</span>
                 <span className={`tabular-nums ${r.bonus > 0 ? "font-bold text-accent" : "text-text-2"}`}>{r.bonus > 0 ? formatCurrency(r.bonus) : "—"}</span>
-                <PayrollAdjustmentCells
-                  businessId={businessId}
-                  employeeId={r.id}
-                  month={month}
-                  values={adjValues}
-                  canEdit={!!isPayrollManager}
-                />
+                <span className={`tabular-nums ${adjValues.monthlyBonus ? "font-bold" : "text-text-2"}`}>
+                  {formatAdjustment("monthlyBonus", adjValues.monthlyBonus)}
+                </span>
+                <span className={`tabular-nums ${adjValues.advance ? "font-bold" : "text-text-2"}`}>
+                  {formatAdjustment("advance", adjValues.advance)}
+                </span>
+                <span className={`tabular-nums ${adjValues.differences ? "font-bold" : "text-text-2"}`}>
+                  {formatAdjustment("differences", adjValues.differences)}
+                </span>
                 <span className="font-extrabold tabular-nums">{formatCurrency(r.total)}</span>
+                {isPayrollManager && (
+                  <button
+                    type="button"
+                    className="data-row-action pay-adj-edit"
+                    aria-label={`עריכת התאמות שכר — ${r.name ?? ""}`}
+                    title="עריכת התאמות שכר"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingId(r.id);
+                    }}
+                  >
+                    <Icon name="edit" size={18} />
+                  </button>
+                )}
               </div>
             );
             })}
@@ -398,6 +421,19 @@ export function Payroll() {
           </div>
         </div>
       </Card>
+
+      {editingRow && (
+        <PayrollAdjustmentsDialog
+          open
+          onClose={() => setEditingId(null)}
+          businessId={businessId}
+          employeeId={editingRow.id}
+          employeeName={editingRow.name}
+          month={month}
+          grossPay={editingRow.grossPay}
+          values={adjustmentsFor(editingRow.id)}
+        />
+      )}
     </div>
   );
 }

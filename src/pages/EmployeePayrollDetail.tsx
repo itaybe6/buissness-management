@@ -18,7 +18,10 @@ import { useEmployeeAttendanceMonth } from "@/api/attendance";
 import { useEmployeeTips, useEmployeeBonuses, useEmployeeFaultPays, usePayrollMonthAdjustments, payrollAdjustmentForEmployee } from "@/api/payroll";
 import { buildFaultPayRows } from "@/lib/faultPayrollRows";
 import { withPayrollAdjustments } from "@/lib/payrollCompute";
-import { PayrollAdjustmentCells } from "@/components/payroll/PayrollAdjustmentCells";
+import {
+  PayrollAdjustmentSummary,
+  PayrollAdjustmentsDialog,
+} from "@/components/payroll/PayrollAdjustments";
 import { useShiftTemplates } from "@/api/shifts";
 import { useProfiles } from "@/api/users";
 
@@ -29,6 +32,7 @@ export function EmployeePayrollDetail() {
   const businessId = useBusinessId();
   const { profile } = useAuth();
   const [selectedRow, setSelectedRow] = useState<ShiftRow | null>(null);
+  const [editingAdjustments, setEditingAdjustments] = useState(false);
 
   const month = searchParams.get("month") ?? monthNow();
   const setMonth = (m: string) => setSearchParams({ month: m }, { replace: true });
@@ -345,22 +349,37 @@ export function EmployeePayrollDetail() {
           <section className="payroll-adj-panel mb-4 rounded-xl border border-border bg-surface p-4 shadow-card">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-[14px] font-bold text-text">התאמות חודשיות</h2>
-              {!isPayrollManager && (
+              {isPayrollManager ? (
+                <button
+                  type="button"
+                  className="ui-btn ui-btn--secondary inline-flex items-center gap-1.5 rounded-[10px] px-3 py-1.5 text-[12.5px] font-bold text-text-2"
+                  onClick={() => setEditingAdjustments(true)}
+                >
+                  <Icon name="edit" size={16} />
+                  עריכה
+                </button>
+              ) : (
                 <span className="text-[12px] text-text-3">עריכה למנהלת משרד בלבד</span>
               )}
             </div>
-            <PayrollAdjustmentCells
-              businessId={businessId}
-              employeeId={employee.id}
-              month={month}
-              values={adjValues}
-              canEdit={!!isPayrollManager}
-              layout="grid"
-            />
+            <PayrollAdjustmentSummary values={adjValues} />
             <p className="mt-3 text-[12px] text-text-2">
               סה״כ לתשלום לאחר התאמות: <strong className="tabular-nums text-text">{formatCurrency(netPay)}</strong>
             </p>
           </section>
+        )}
+
+        {isPayrollManager && (
+          <PayrollAdjustmentsDialog
+            open={editingAdjustments}
+            onClose={() => setEditingAdjustments(false)}
+            businessId={businessId}
+            employeeId={employee.id}
+            employeeName={employee.full_name}
+            month={month}
+            grossPay={totals.earned}
+            values={adjValues}
+          />
         )}
 
         {rows.length > 0 && (

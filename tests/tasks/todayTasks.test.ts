@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pendingTasksForEmployee } from "@/lib/pendingTasks";
 import {
   buildTodayTasks,
+  effectiveOneTimeDueDate,
+  isOneTimeTaskForDate,
   isRecurringTaskForDate,
   isTaskVisibleInDailyChecklist,
   recurringMaterializedTemplateIds,
@@ -185,6 +187,72 @@ describe("isRecurringTaskForDate", () => {
         TODAY,
       ),
     ).toBe(true);
+  });
+});
+
+describe("one-time task rollover", () => {
+  const YESTERDAY = "2026-07-12";
+  const TODAY = "2026-07-13";
+
+  function oneTime(overrides: Partial<Task> = {}): Task {
+    return {
+      id: "ot-1",
+      business_id: BUSINESS_ID,
+      template_id: null,
+      title: "סידור מיוחד",
+      description: null,
+      type: "one_time",
+      assigned_to: PROFILE_ID,
+      assigned_by: null,
+      due_date: YESTERDAY,
+      recurrence_weekday: null,
+      status: "open",
+      approval_status: null,
+      photo_url: null,
+      media_urls: [],
+      completed_at: null,
+      last_documented_by: null,
+      last_documented_at: null,
+      created_at: `${YESTERDAY}T08:00:00.000Z`,
+      updated_at: `${YESTERDAY}T08:00:00.000Z`,
+      ...overrides,
+    };
+  }
+
+  it("rolls effective due date to today when still open", () => {
+    expect(effectiveOneTimeDueDate(oneTime(), TODAY)).toBe(TODAY);
+  });
+
+  it("shows rolled task on today's checklist", () => {
+    const task = oneTime();
+    expect(isTaskVisibleInDailyChecklist(task, TODAY)).toBe(true);
+  });
+
+  it("places open overdue one-time task on today's week cell only", () => {
+    const task = oneTime();
+    expect(isOneTimeTaskForDate(task, YESTERDAY, TODAY)).toBe(false);
+    expect(isOneTimeTaskForDate(task, TODAY, TODAY)).toBe(true);
+  });
+
+  it("includes rolled task in pending list for clock-out", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(`${TODAY}T12:00:00`));
+
+    const pending = pendingTasksForEmployee([oneTime()], [], PROFILE_ID, null, TODAY_WEEKDAY, "employee");
+
+    expect(pending).toEqual([{ title: "סידור מיוחד", type: "one_time" }]);
+
+    vi.useRealTimers();
+  });
+
+  it("does not roll completed one-time tasks", () => {
+    const done = oneTime({
+      status: "done",
+      completed_at: `${YESTERDAY}T20:00:00.000Z`,
+    });
+    expect(effectiveOneTimeDueDate(done, TODAY)).toBe(YESTERDAY);
+    expect(isTaskVisibleInDailyChecklist(done, TODAY)).toBe(false);
+    expect(isTaskVisibleInDailyChecklist(done, YESTERDAY)).toBe(true);
   });
 });
 

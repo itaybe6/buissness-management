@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { compressImage } from "@/lib/compressImage";
+import { todayISO } from "@/lib/db";
 import { supabase } from "@/lib/supabase";
 import { normalizeRecurrenceWeekdays } from "@/lib/taskRecurrence";
+import { oneTimeTaskNeedsDueDateRollover } from "@/lib/todayTasks";
 import type { Task, TaskApproval, TaskStatus, TaskType } from "@/types/database";
 
 function normalizeTask(row: Task): Task {
@@ -46,7 +48,16 @@ export function useTasks(businessId: string | null) {
         .eq("business_id", businessId)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return ((data ?? []) as Task[]).map(normalizeTask);
+      const rows = ((data ?? []) as Task[]).map(normalizeTask);
+      const today = todayISO();
+      const rollIds = rows.filter((t) => oneTimeTaskNeedsDueDateRollover(t, today)).map((t) => t.id);
+      if (rollIds.length) {
+        const { error: rollError } = await supabase.from("tasks").update({ due_date: today }).in("id", rollIds);
+        if (rollError) throw rollError;
+      }
+      return rows.map((t) =>
+        rollIds.includes(t.id) ? { ...t, due_date: today } : t,
+      );
     },
   });
 }

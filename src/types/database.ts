@@ -185,6 +185,18 @@ export interface AgreementSignature {
   created_at: string;
 }
 
+/** סריקת תעודת זהות שהעלה העובד */
+export interface EmployeeIdCard {
+  id: string;
+  business_id: string;
+  employee_id: string;
+  file_url: string;
+  file_name: string | null;
+  uploaded_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Form101 {
   id: string;
   business_id: string;
@@ -432,8 +444,6 @@ export interface InventoryItem {
   supplier_delivery_day: number | null;
   /** Product category key (dairy, alcohol, dry, etc.) */
   category: string | null;
-  /** Price per main unit (unit field). Visible in UI to manager / office_manager only. */
-  unit_price: number;
   active: boolean;
   created_at: string;
 }

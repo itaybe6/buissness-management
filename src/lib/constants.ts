@@ -80,6 +80,9 @@ export function canForceEmployeeClockOut(role: UserRole | string | null | undefi
 /** Roles that can create fixed templates and assign one-time tasks. */
 export const TASK_CREATE_ROLES: UserRole[] = ["manager"];
 
+/** Roles allowed to open the faults module (report, triage, or maintenance work). */
+export const FAULTS_PAGE_ROLES: UserRole[] = ["manager", "shift_manager", "maintenance"];
+
 /** Without a department assignment, these roles still see all daily checklist templates. */
 export const DAILY_CHECKLIST_ALL_DEPT_ROLES: UserRole[] = ["manager", "shift_manager", "office_manager"];
 
@@ -179,7 +182,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "tasks", label: "משימות", icon: "checklist", group: "ops", roles: ["manager", "shift_manager", "office_manager"], feature: "tasks" },
   { key: "inventory", label: "סחורות", icon: "inventory_2", group: "ops", roles: ["manager", "shift_manager", "office_manager", "employee"], feature: "inventory" },
   { key: "suppliers", label: "ספקים", icon: "local_shipping", group: "ops", roles: ["manager", "office_manager"], feature: "inventory" },
-  { key: "faults", label: "תקלות", icon: "build", group: "ops", roles: ["manager", "shift_manager", "employee"], feature: "faults" },
+  { key: "faults", label: "תקלות", icon: "build", group: "ops", roles: ["manager", "shift_manager"], feature: "faults" },
   { key: "events", label: "אירועים", icon: "celebration", group: "ops", roles: ["manager", "event_manager", "shift_manager", "office_manager", "employee"], feature: "events" },
 
   { key: "settings", label: "הגדרות עסק", icon: "settings", group: "settings", roles: ["manager"] },

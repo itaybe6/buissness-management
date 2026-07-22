@@ -26,6 +26,7 @@ import { EmployeePayrollDetail } from "@/pages/EmployeePayrollDetail";
 import { Inventory } from "@/pages/Inventory";
 import { InventoryOrder } from "@/pages/InventoryOrder";
 import { Suppliers } from "@/pages/Suppliers";
+import { SupplierFormPage } from "@/pages/SupplierFormPage";
 import { Waste } from "@/pages/Waste";
 // Lazy — pulls in the PDF rendering/stamping libraries only when opened.
 const Agreements = lazy(() => import("@/pages/Agreements").then((m) => ({ default: m.Agreements })));
@@ -90,6 +91,8 @@ export function App() {
           <Route path="inventory" element={<FeatureGate feature="inventory"><Inventory /></FeatureGate>} />
           <Route path="inventory/order" element={<FeatureGate feature="inventory"><InventoryOrder /></FeatureGate>} />
           <Route path="suppliers" element={<FeatureGate feature="inventory"><Suppliers /></FeatureGate>} />
+          <Route path="suppliers/new" element={<FeatureGate feature="inventory"><SupplierFormPage /></FeatureGate>} />
+          <Route path="suppliers/:supplierId/edit" element={<FeatureGate feature="inventory"><SupplierFormPage /></FeatureGate>} />
           <Route path="waste" element={<FeatureGate feature="waste"><Waste /></FeatureGate>} />
           <Route path="faults" element={<FeatureGate feature="faults"><Faults /></FeatureGate>} />
           <Route path="agreements" element={<FeatureGate feature="agreements"><Suspense fallback={<PageLoader />}><Agreements /></Suspense></FeatureGate>} />

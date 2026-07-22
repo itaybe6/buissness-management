@@ -4,21 +4,21 @@ import { Icon } from "@/components/ui";
 import { HE_DAYS, addDays, formatDateShort, weekStart, todayISO } from "@/lib/db";
 import { useIsMdUp } from "@/hooks/useMediaQuery";
 import { matchesRecurrenceWeekday } from "@/lib/taskRecurrence";
-import { isRecurringTaskForDate, recurringOccurrenceDate } from "@/lib/todayTasks";
+import { isOneTimeTaskForDate, isRecurringTaskForDate, recurringOccurrenceDate } from "@/lib/todayTasks";
 import type { Department, Profile, Task, TaskTemplate } from "@/types/database";
 
 function dayIndex(iso: string): number {
   return new Date(iso + "T12:00:00").getDay();
 }
 
-function tasksForCell(tasks: Task[], employeeId: string, date: string): Task[] {
+function tasksForCell(tasks: Task[], employeeId: string, date: string, today: string): Task[] {
   return tasks.filter((t) => {
     if (t.assigned_to !== employeeId) return false;
     if (t.type === "recurring" && t.recurrence_weekday != null) {
       return isRecurringTaskForDate(t, date);
     }
-    if (t.type === "one_time" && t.due_date) {
-      return t.due_date === date;
+    if (t.type === "one_time") {
+      return isOneTimeTaskForDate(t, date, today);
     }
     return false;
   });
@@ -203,11 +203,12 @@ function sectionTaskCount(
   tasks: Task[],
   templates: TaskTemplate[],
   materialized: Set<string>,
+  today: string,
 ) {
   let n = 0;
   employees.forEach((emp) => {
     weekDates.forEach((date) => {
-      n += tasksForCell(tasks, emp.id, date).length;
+      n += tasksForCell(tasks, emp.id, date, today).length;
       n += templatesForCell(templates, emp, date, materialized).length;
     });
   });
@@ -260,6 +261,7 @@ export function TaskWeekSchedule({
   }, [departments, activeEmployees]);
 
   const weekDates = useMemo(() => HE_DAYS.map((_, i) => addDays(wk, i)), [wk]);
+  const today = todayISO();
 
   const materialized = useMemo(() => {
     const s = new Set<string>();
@@ -272,8 +274,8 @@ export function TaskWeekSchedule({
   }, [tasks]);
 
   const totalTasks = useMemo(
-    () => sectionTaskCount(activeEmployees, weekDates, tasks, templates, materialized),
-    [tasks, templates, materialized, activeEmployees, weekDates],
+    () => sectionTaskCount(activeEmployees, weekDates, tasks, templates, materialized, today),
+    [tasks, templates, materialized, activeEmployees, weekDates, today],
   );
 
   function shiftWeek(d: number) {
@@ -331,7 +333,7 @@ export function TaskWeekSchedule({
             >
               {deptSections.map(({ dept, employees: deptEmps }) => {
                 const deptColor = dept?.color ?? "#94a3b8";
-                const dayCount = sectionTaskCount(deptEmps, [selectedDate], tasks, templates, materialized);
+                const dayCount = sectionTaskCount(deptEmps, [selectedDate], tasks, templates, materialized, today);
                 return (
                   <div
                     key={dept?.id ?? "unassigned"}
@@ -352,7 +354,7 @@ export function TaskWeekSchedule({
                     </div>
                     <div>
                       {deptEmps.map((emp) => {
-                        const cellTasks = tasksForCell(tasks, emp.id, selectedDate);
+                        const cellTasks = tasksForCell(tasks, emp.id, selectedDate, today);
                         const cellTemplates = templatesForCell(templates, emp, selectedDate, materialized);
                         const isEmpty = cellTasks.length === 0 && cellTemplates.length === 0;
                         return (
@@ -392,7 +394,7 @@ export function TaskWeekSchedule({
           >
             {deptSections.map(({ dept, employees: deptEmps }, sectionIndex) => {
               const deptColor = dept?.color ?? "#94a3b8";
-              const weekCount = sectionTaskCount(deptEmps, weekDates, tasks, templates, materialized);
+              const weekCount = sectionTaskCount(deptEmps, weekDates, tasks, templates, materialized, today);
               return (
                 <div
                   key={dept?.id ?? "unassigned"}
@@ -432,7 +434,7 @@ export function TaskWeekSchedule({
                             <span className="text-[13px] font-extrabold text-text">{emp.full_name}</span>
                           </div>
                           {weekDates.map((date) => {
-                            const cellTasks = tasksForCell(tasks, emp.id, date);
+                            const cellTasks = tasksForCell(tasks, emp.id, date, today);
                             const cellTemplates = templatesForCell(templates, emp, date, materialized);
                             const meta = dayMeta(wk, weekDates.indexOf(date));
                             const isEmpty = cellTasks.length === 0 && cellTemplates.length === 0;

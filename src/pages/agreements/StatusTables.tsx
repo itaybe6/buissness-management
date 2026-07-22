@@ -1,8 +1,7 @@
 import { useMemo, useState, type CSSProperties } from "react";
 import { Badge, Card, EmptyState, Icon } from "@/components/ui";
 import { form101Template, globalForm101Template, isSigned, signatureOf } from "@/api/agreements";
-import { colorFor, initialsOf } from "@/lib/db";
-import type { AgreementSignature, AgreementTemplate, Profile } from "@/types/database";
+import type { AgreementSignature, AgreementTemplate, EmployeeIdCard, Profile } from "@/types/database";
 import { ReadSignModal } from "./AgreementModals";
 import { FORM_101_BLANK_URL, TAX_YEAR } from "./types";
 
@@ -37,7 +36,13 @@ function StatusIcon({
   return badge;
 }
 
-type DocStatus = { label: string; done: boolean; optional: boolean; template?: AgreementTemplate };
+type DocStatus = {
+  label: string;
+  done: boolean;
+  optional: boolean;
+  template?: AgreementTemplate;
+  idCard?: EmployeeIdCard;
+};
 
 export function DocumentStatusTable({
   staff,
@@ -45,6 +50,7 @@ export function DocumentStatusTable({
   globalFixed,
   globalWork,
   agreements,
+  idCards,
   taxYear = TAX_YEAR,
 }: {
   staff: Profile[];
@@ -52,6 +58,7 @@ export function DocumentStatusTable({
   globalFixed: AgreementTemplate[];
   globalWork: AgreementTemplate | undefined;
   agreements: AgreementTemplate[];
+  idCards: EmployeeIdCard[];
   taxYear?: number;
 }) {
   const [viewing, setViewing] = useState<{ agreement: AgreementTemplate; employeeId: string } | null>(null);
@@ -70,13 +77,17 @@ export function DocumentStatusTable({
     return isSigned(signatures, template.id, empId);
   }
 
+  const idCardOf = (empId: string) => idCards.find((c) => c.employee_id === empId);
+
   function docsOf(empId: string): DocStatus[] {
     const form101 = form101Status(empId);
     const form101Tpl = form101Template(agreements);
     const personalWork = agreements.find((a) => a.type === "work" && a.employee_id === empId);
     const workTemplate = personalWork ?? globalWork;
     const workOptional = !globalWork && !personalWork;
+    const idCard = idCardOf(empId);
     return [
+      { label: "תעודת זהות", done: !!idCard, optional: false, idCard },
       { label: `טופס 101 (${taxYear})`, done: form101.done, optional: form101.optional, template: form101Tpl },
       { label: "הסכם עבודה", done: workStatus(empId), optional: workOptional, template: workTemplate },
       ...globalFixed.map((a) => ({
@@ -138,7 +149,7 @@ export function DocumentStatusTable({
                 <div className="doc-status-cell-details-clip">
                   <div className="doc-status-cell-docs">
                     {docs.map((d) => {
-                      const clickable = !!d.template;
+                      const clickable = !!d.template || !!d.idCard;
                       const state = d.done ? "done" : d.optional ? "optional" : "missing";
                       const icon = d.done ? "check" : d.optional ? "remove" : "close";
                       if (!clickable) {
@@ -158,7 +169,9 @@ export function DocumentStatusTable({
                           className="doc-status-doc-row"
                           data-state={state}
                           aria-label={`צפייה ב${d.label}`}
-                          onClick={() => setViewing({ agreement: d.template!, employeeId: emp.id })}
+                          onClick={() =>
+                            d.idCard ? openIdCard(d.idCard) : setViewing({ agreement: d.template!, employeeId: emp.id })
+                          }
                         >
                           <span className="doc-status-doc-icon">
                             <Icon name={icon} size={14} />
@@ -183,6 +196,7 @@ export function DocumentStatusTable({
             <thead>
               <tr className="border-b border-border bg-surface-2 text-right text-[12px] font-bold text-text-2">
                 <th className="px-4 py-3">עובד/ת</th>
+                <th className="px-4 py-3 text-center">תעודת זהות</th>
                 <th className="px-4 py-3 text-center">טופס 101 ({taxYear})</th>
                 <th className="px-4 py-3 text-center">הסכם עבודה</th>
                 {globalFixed.map((a) => (
@@ -193,14 +207,22 @@ export function DocumentStatusTable({
             <tbody>
               {staff.map((emp) => {
                 const docs = docsOf(emp.id);
-                const form101Doc = docs[0];
-                const workDoc = docs[1];
-                const fixedDocs = docs.slice(2);
+                const idCardDoc = docs[0];
+                const form101Doc = docs[1];
+                const workDoc = docs[2];
+                const fixedDocs = docs.slice(3);
+                const idCard = idCardDoc.idCard;
                 const openSigned = (template: AgreementTemplate | undefined) =>
                   template ? () => setViewing({ agreement: template, employeeId: emp.id }) : undefined;
                 return (
                   <tr key={emp.id} className="border-b border-border last:border-0">
                     <td className="px-4 py-3 font-semibold">{emp.full_name ?? "—"}</td>
+                    <td className="px-4 py-3 text-center">
+                      <IdCardStatusCell
+                        card={idCard}
+                        onView={idCard ? () => openIdCard(idCard) : undefined}
+                      />
+                    </td>
                     <td className="px-4 py-3 text-center">
                       <StatusIcon
                         done={form101Doc.done}

@@ -30,8 +30,8 @@ export function inventorySaveError(e: unknown): string {
   if (msg.includes("category")) {
     return "עמודת «קטגוריה» חסרה במסד הנתונים. ב-Supabase: SQL Editor → הריצו את supabase/patches/032_inventory_item_category.sql";
   }
-  if (msg.includes("unit_price")) {
-    return "עמודת «מחיר ליחידה» חסרה במסד הנתונים. ב-Supabase: SQL Editor → הריצו את supabase/patches/047_inventory_unit_price.sql";
+  if (msg.includes("unit_price") && msg.includes("inventory_items")) {
+    return "עמודת «מחיר ליחידה» הוסרה ממוצרי המלאי — המחירים מוגדרים לפי ספק בלבד.";
   }
   if (msg.includes("inventory_item_departments")) {
     return "טבלת «שיוך מוצרים למחלקות» חסרה. ב-Supabase: SQL Editor → הריצו את supabase/patches/041_inventory_item_departments.sql";
@@ -61,26 +61,24 @@ export function isTrackedLowStock(item: ItemWithQty): boolean {
   return item.min_quantity > 0 && item.current_qty <= item.min_quantity;
 }
 
-/** Line total: quantity × unit price (price is per main unit). */
+/** Line total: quantity × supplier unit price (per main unit). */
 export function inventoryLineTotal(
-  item: Pick<InventoryItem, "unit_price"> | null | undefined,
+  _item: unknown,
   quantity: number,
   supplierUnitPrice?: number | null,
 ): number {
-  const fromSupplier = supplierUnitPrice != null && supplierUnitPrice > 0 ? supplierUnitPrice : null;
-  const price = fromSupplier ?? Number(item?.unit_price ?? 0);
+  const price = supplierUnitPrice != null && supplierUnitPrice > 0 ? supplierUnitPrice : 0;
   if (!Number.isFinite(quantity) || !Number.isFinite(price)) return 0;
   return Math.round(quantity * price * 100) / 100;
 }
 
 export function resolveItemUnitPrice(
-  item: Pick<InventoryItem, "unit_price"> | null | undefined,
+  _item: unknown,
   itemId: string,
   supplierPrices?: Map<string, number> | null,
 ): number {
   const sp = supplierPrices?.get(itemId);
-  if (sp != null && sp > 0) return sp;
-  return Number(item?.unit_price ?? 0);
+  return sp != null && sp > 0 ? sp : 0;
 }
 
 export function orderLineBillableQty(line: Pick<InventoryOrder, "quantity" | "received_quantity" | "status">): number {
@@ -96,7 +94,7 @@ export function orderBatchTotal(
     quantity: number;
     received_quantity?: number | null;
     status: InventoryOrder["status"];
-    item?: Pick<ItemWithQty, "unit_price"> | null;
+    item?: Pick<ItemWithQty, "id"> | null;
   }[],
   supplierPrices?: Map<string, number> | null,
 ): number {
@@ -105,13 +103,6 @@ export function orderBatchTotal(
     const sp = supplierPrices?.get(line.item_id);
     return sum + inventoryLineTotal(line.item, qty, sp);
   }, 0);
-}
-
-export function formatUnitPriceLabel(item: Pick<InventoryItem, "unit_price" | "unit">): string | null {
-  const price = Number(item.unit_price ?? 0);
-  if (price <= 0) return null;
-  const unit = item.unit ?? "יחידה";
-  return `${price} ₪ / ${unit}`;
 }
 
 /** An audit-log row enriched with the acting employee's name for display. */
@@ -355,7 +346,6 @@ export function useCreateItem(businessId: string | null) {
       units_per_package?: number | null;
       image_url?: string | null;
       min_quantity?: number;
-      unit_price?: number;
       supplier_delivery_day?: number | null;
       category?: string | null;
       department_ids?: string[];

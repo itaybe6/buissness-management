@@ -8,7 +8,6 @@ import {
   ErrorState,
   Icon,
   Input,
-  PageHeader,
   PageLoader,
 } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
@@ -90,31 +89,36 @@ export function Suppliers() {
 
   return (
     <div className="w-full animate-fadeUp">
-      <PageHeader
-        title="ספקים"
-        subtitle="ניהול ספקים קבועים, קישור להזמנות מלאי ולמסמכים פיננסיים"
-        actions={
-          <Link to="/suppliers/new">
-            <Button icon="add" className="!bg-ink shadow-sm">
+      <div className="inventory-search mb-4 space-y-2.5">
+        <div className="inv-searchrow">
+          <div className="relative min-w-0 flex-1">
+            <Icon
+              name="search"
+              size={18}
+              className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-text-3"
+            />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="חיפוש לפי שם, טלפון, ח.פ..."
+              className="!pr-10"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                aria-label="ניקוי חיפוש"
+                className="absolute left-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-md text-text-3 transition-colors hover:bg-surface-2 hover:text-text"
+              >
+                <Icon name="close" size={16} />
+              </button>
+            )}
+          </div>
+          <Link to="/suppliers/new" className="shrink-0">
+            <Button icon="add" className="!h-11 !bg-ink whitespace-nowrap shadow-sm hover:brightness-110 active:scale-[0.97]">
               ספק חדש
             </Button>
           </Link>
-        }
-      />
-
-      <div className="inventory-search mb-4 space-y-2.5">
-        <div className="relative">
-          <Icon
-            name="search"
-            size={18}
-            className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-text-3"
-          />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="חיפוש לפי שם, טלפון, ח.פ..."
-            className="!pr-10"
-          />
         </div>
         <div className="inventory-search-filters flex gap-1.5 overflow-x-auto pb-0.5">
           {STATUS_FILTERS.map(({ key, label }) => (

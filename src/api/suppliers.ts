@@ -34,6 +34,7 @@ export interface SupplierWithStats extends Supplier {
 export interface SupplierItemRow extends SupplierItem {
   item_name: string;
   item_unit: string | null;
+  item_image_url: string | null;
 }
 
 export type SupplierItemPriceIndex = Map<string, Map<string, number>>;
@@ -183,15 +184,18 @@ export function useSupplierItems(businessId: string | null, supplierId: string |
       }
       const rows = (data ?? []) as SupplierItem[];
       const itemIds = [...new Set(rows.map((r) => r.item_id))];
-      const names = new Map<string, { name: string; unit: string | null }>();
+      const names = new Map<string, { name: string; unit: string | null; image_url: string | null }>();
       if (itemIds.length) {
-        const { data: items } = await supabase.from("inventory_items").select("id, name, unit").in("id", itemIds);
-        (items ?? []).forEach((i) => names.set(i.id, { name: i.name, unit: i.unit }));
+        const { data: items } = await supabase.from("inventory_items").select("id, name, unit, image_url").in("id", itemIds);
+        (items ?? []).forEach((i) =>
+          names.set(i.id, { name: i.name, unit: i.unit, image_url: i.image_url ?? null }),
+        );
       }
       return rows.map((r) => ({
         ...r,
         item_name: names.get(r.item_id)?.name ?? "פריט",
         item_unit: names.get(r.item_id)?.unit ?? null,
+        item_image_url: names.get(r.item_id)?.image_url ?? null,
       }));
     },
   });

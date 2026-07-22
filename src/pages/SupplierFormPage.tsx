@@ -411,7 +411,7 @@ export function SupplierFormPage() {
             loading={create.isPending || update.isPending || saveItems.isPending}
             onClick={submitForm}
             className="!bg-ink"
-            icon="save"
+            icon="check"
           >
             שמירה
           </Button>

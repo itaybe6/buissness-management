@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type RefObject } from "react";
+import { Navigate } from "react-router-dom";
 import { Button, Card, EmptyState, Icon, Input, PageLoader, ErrorState, Field, Textarea, Badge } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useProfiles } from "@/api/users";
 import { useAuth } from "@/lib/auth";
+import { FAULTS_PAGE_ROLES, getHomePath } from "@/lib/constants";
 import { addDays, todayISO, toISODate, useBusinessId, formatCurrency } from "@/lib/db";
 import { isVideoFile, isVideoUrl } from "@/lib/media";
 import { useFaults, useCreateFault, useUpdateFault, useDeleteFault, uploadFaultPhotos } from "@/api/faults";
@@ -1040,6 +1042,14 @@ function FaultsToolbar({
 }
 
 export function Faults() {
+  const { profile } = useAuth();
+  if (profile && !FAULTS_PAGE_ROLES.includes(profile.role)) {
+    return <Navigate to={getHomePath(profile.role)} replace />;
+  }
+  return <FaultsPage />;
+}
+
+function FaultsPage() {
   const businessId = useBusinessId();
   const { profile } = useAuth();
   const { data: faults, isLoading, isError, refetch } = useFaults(businessId);

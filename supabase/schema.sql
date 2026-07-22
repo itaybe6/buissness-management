@@ -22,7 +22,7 @@ drop table if exists
   public.payroll_records, public.payroll_month_adjustments,
   public.tips, public.shift_bonuses, public.shift_reports, public.attendance, public.shift_assignments, public.shift_preferences,
   public.shift_templates, public.departments,
-  public.form_101, public.agreement_signatures, public.agreement_templates,
+  public.employee_id_cards, public.form_101, public.agreement_signatures, public.agreement_templates,
   public.business_features, public.profiles, public.businesses cascade;
 
 -- מחיקת פונקציות (אם קיימות)
@@ -354,6 +354,21 @@ create table public.agreement_signatures (
   unique (agreement_id, employee_id)
 );
 
+-- תעודת זהות — העלאה חובה לכל עובד (מודול מסמכים)
+create table public.employee_id_cards (
+  id          uuid primary key default gen_random_uuid(),
+  business_id uuid not null references public.businesses(id) on delete cascade,
+  employee_id uuid not null references public.profiles(id) on delete cascade,
+  file_url    text not null,
+  file_name   text,
+  uploaded_at timestamptz not null default now(),
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  unique (business_id, employee_id)
+);
+
+create index idx_employee_id_cards_business on public.employee_id_cards(business_id);
+
 
 -- ----------------------------------------------------------------------------
 -- 6. מודול: טפסים (טופס 101)
@@ -584,7 +599,6 @@ create table public.inventory_items (
   min_quantity  numeric(12,2) not null default 0,  -- סף מלאי נמוך
   supplier_delivery_day smallint check (supplier_delivery_day between 0 and 6),  -- יום אספקה מהספק
   category      text,                 -- קטגוריית המוצר (חלבי, אלכוהול, יבשים וכו׳)
-  unit_price    numeric(12,2) not null default 0,  -- מחיר ליחידת מידה ראשית (unit)
   active        boolean not null default true,
   created_at    timestamptz not null default now()
 );
@@ -759,6 +773,7 @@ create table public.tasks (
 create trigger trg_businesses_updated   before update on public.businesses          for each row execute function public.set_updated_at();
 create trigger trg_profiles_updated      before update on public.profiles            for each row execute function public.set_updated_at();
 create trigger trg_agreements_updated    before update on public.agreement_templates for each row execute function public.set_updated_at();
+create trigger trg_employee_id_cards_updated before update on public.employee_id_cards for each row execute function public.set_updated_at();
 create trigger trg_form101_updated       before update on public.form_101            for each row execute function public.set_updated_at();
 create trigger trg_shift_reports_updated before update on public.shift_reports        for each row execute function public.set_updated_at();
 create trigger trg_faults_updated        before update on public.faults              for each row execute function public.set_updated_at();
@@ -867,6 +882,7 @@ alter table public.departments          enable row level security;
 alter table public.shift_templates      enable row level security;
 alter table public.agreement_templates  enable row level security;
 alter table public.agreement_signatures enable row level security;
+alter table public.employee_id_cards    enable row level security;
 alter table public.form_101             enable row level security;
 alter table public.shift_preferences    enable row level security;
 alter table public.shift_assignments    enable row level security;
@@ -974,6 +990,36 @@ create policy "agr_signatures_update" on public.agreement_signatures
     public.can_access(business_id) and employee_id = auth.uid()
   ) with check (
     public.can_access(business_id) and employee_id = auth.uid()
+  );
+-- employee_id_cards — עובד מעלה/מעדכן את שלו; מנהלים רואים הכל
+create policy "employee_id_cards_select" on public.employee_id_cards
+  for select using (
+    public.can_access(business_id)
+    and (
+      public.auth_role() in ('manager', 'office_manager', 'shift_manager')
+      or employee_id = auth.uid()
+    )
+  );
+create policy "employee_id_cards_insert" on public.employee_id_cards
+  for insert with check (
+    public.can_access(business_id)
+    and employee_id = auth.uid()
+  );
+create policy "employee_id_cards_update" on public.employee_id_cards
+  for update using (
+    public.can_access(business_id)
+    and employee_id = auth.uid()
+  ) with check (
+    public.can_access(business_id)
+    and employee_id = auth.uid()
+  );
+create policy "employee_id_cards_delete" on public.employee_id_cards
+  for delete using (
+    public.can_access(business_id)
+    and (
+      public.auth_role() in ('manager', 'shift_manager')
+      or employee_id = auth.uid()
+    )
   );
 -- form_101
 create policy "form101_tenant" on public.form_101

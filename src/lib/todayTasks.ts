@@ -79,6 +79,43 @@ function completedToday(task: Pick<Task, "completed_at">, today: string): boolea
   return !!task.completed_at && task.completed_at.startsWith(today);
 }
 
+/** Open one-time tasks with a past due date roll forward to today. */
+export function effectiveOneTimeDueDate(
+  task: Pick<Task, "type" | "status" | "due_date">,
+  today: string,
+): string | null {
+  if (task.type !== "one_time" || !task.due_date) return task.due_date;
+  if (task.status === "done") return task.due_date;
+  return task.due_date < today ? today : task.due_date;
+}
+
+export function oneTimeTaskNeedsDueDateRollover(
+  task: Pick<Task, "type" | "status" | "due_date">,
+  today: string,
+): boolean {
+  return (
+    task.type === "one_time" &&
+    !!task.due_date &&
+    task.due_date < today &&
+    task.status !== "done"
+  );
+}
+
+/** Week grid / calendar cell for a one-time task row. */
+export function isOneTimeTaskForDate(
+  task: Pick<Task, "type" | "status" | "due_date" | "completed_at">,
+  date: string,
+  today: string,
+): boolean {
+  if (task.type !== "one_time") return false;
+  if (task.status === "done") {
+    if (task.due_date === date) return true;
+    return !!task.completed_at && task.completed_at.startsWith(date);
+  }
+  if (!task.due_date) return false;
+  return effectiveOneTimeDueDate(task, today) === date;
+}
+
 /** Whether an assigned row belongs on today's checklist (any status, including done). */
 export function isTaskVisibleInDailyChecklist(
   task: Task,
@@ -87,7 +124,10 @@ export function isTaskVisibleInDailyChecklist(
   if (task.type === "recurring") {
     return isRecurringTaskForDate(task, today);
   }
-  if (task.status !== "done") return true;
+  if (task.status !== "done") {
+    if (!task.due_date) return true;
+    return effectiveOneTimeDueDate(task, today) === today;
+  }
   if (task.due_date === today) return true;
   if (completedToday(task, today)) return true;
   return false;
