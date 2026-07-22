@@ -110,6 +110,8 @@ function translateCreateError(msg: string): string {
   const m = (msg || "").toLowerCase();
   if (m.includes("not found") || m.includes("failed to send") || m.includes("fetch"))
     return "פונקציית יצירת המשתמש (create-user) לא פרוסה. ראו README. בינתיים אפשר ליצור משתמש דרך לוח Supabase.";
+  if (m.includes("seat_limit_reached"))
+    return "העסק הגיע למגבלת המשתמשים שהוגדרה לו. הגדילו את המגבלה בעמוד העסק כדי להוסיף משתמש נוסף.";
   if (m.includes("already") || m.includes("exists")) return "כתובת המייל כבר רשומה במערכת";
   if (m.includes("forbidden")) return "אין לך הרשאה ליצור משתמש כזה";
   if (m.includes("password")) return "הסיסמה חייבת להכיל לפחות 6 תווים";

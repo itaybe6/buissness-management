@@ -55,9 +55,9 @@ export function useShiftPunch() {
   const now = useLiveClock();
 
   const showShifts = hasFeature("shifts");
-  const showAttendance =
-    hasFeature("attendance") ||
-    Boolean(profile && ["employee", "shift_manager"].includes(profile.role));
+  // No role bypass: when the super admin disables the attendance module the
+  // punch clock disappears for everyone in the business.
+  const showAttendance = hasFeature("attendance");
 
   const todayShifts = useMemo(() => {
     if (!showShifts) return [];

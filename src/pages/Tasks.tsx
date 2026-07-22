@@ -39,10 +39,11 @@ import { useBusiness } from "@/api/businesses";
 import { MANAGER_ROLES, TASK_CREATE_ROLES } from "@/lib/constants";
 import { WorkerHome } from "@/components/dashboard/WorkerHome";
 import { TaskWeekSchedule } from "@/components/tasks/TaskWeekSchedule";
+import { RecurringTasksBoard } from "@/components/tasks/RecurringTasksBoard";
 import { taskMedia, isVideoUrl } from "@/components/tasks/DailyTasksChecklist";
 import type { Department, Task, TaskTemplate, TaskType } from "@/types/database";
 
-type ManagerTab = "assign" | "one_time" | "templates";
+type ManagerTab = "tracking" | "one_time" | "templates";
 type ListTab = TaskType;
 
 export function Tasks() {
@@ -123,10 +124,10 @@ function ManagerTasksView({ businessId, profileId }: { businessId: string; profi
   const updateTpl = useUpdateTaskTemplate(businessId);
   const delTpl = useDeleteTaskTemplate(businessId);
 
-  const [managerTab, setManagerTab] = useState<ManagerTab>("assign");
+  const [managerTab, setManagerTab] = useState<ManagerTab>("tracking");
 
   useEffect(() => {
-    if (!canCreateTasks && managerTab !== "assign") setManagerTab("assign");
+    if (!canCreateTasks && managerTab !== "tracking") setManagerTab("tracking");
   }, [canCreateTasks, managerTab]);
 
   const userById = useMemo(() => {
@@ -160,15 +161,12 @@ function ManagerTasksView({ businessId, profileId }: { businessId: string; profi
     return target?.role === "maintenance" ? "pending" : null;
   }
 
-  const scheduleBlock = (
-    <TaskWeekSchedule
+  const trackingBlock = (
+    <RecurringTasksBoard
       tasks={tasks ?? []}
       templates={templates ?? []}
       employees={users ?? []}
       departments={departments ?? []}
-      onToggle={(id, done) =>
-        updateTask.mutate({ id, status: done ? "open" : "done", completed_at: done ? null : new Date().toISOString() })
-      }
     />
   );
 
@@ -178,8 +176,8 @@ function ManagerTasksView({ businessId, profileId }: { businessId: string; profi
         title="משימות"
         subtitle={
           canCreateTasks
-            ? "משימות קבועות · שיוך לעובדים · חד-פעמיות"
-            : "צפייה במשימות · סידור שבועי"
+            ? "מעקב ביצוע · משימות קבועות · חד-פעמיות"
+            : "מעקב ביצוע המשימות הקבועות של העסק"
         }
       />
 
@@ -201,7 +199,7 @@ function ManagerTasksView({ businessId, profileId }: { businessId: string; profi
         <div className="tasks-mgr-tabs mb-5">
           {(
             [
-              ["assign", "שיוך משימות", "calendar_view_week"],
+              ["tracking", "מעקב ביצוע", "fact_check"],
               ["one_time", "משימות חד-פעמיות", "playlist_add_check"],
               ["templates", "משימות קבועות", "event_repeat"],
             ] as const
@@ -263,7 +261,7 @@ function ManagerTasksView({ businessId, profileId }: { businessId: string; profi
           onDelete={(id) => delTask.mutate(id)}
         />
       ) : (
-        scheduleBlock
+        trackingBlock
       )}
     </div>
   );
