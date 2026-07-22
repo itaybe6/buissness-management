@@ -6,6 +6,7 @@ import { AuthProvider } from "@/lib/auth";
 import { ThemeProvider } from "@/lib/theme";
 import { App } from "@/App";
 import "./index.css";
+import "./styles/auth.css";
 
 const queryClient = new QueryClient({
   defaultOptions: {

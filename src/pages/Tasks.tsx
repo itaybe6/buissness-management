@@ -7,7 +7,6 @@ import {
   Field,
   Icon,
   Input,
-  PageHeader,
   PageLoader,
   ErrorState,
   Select,
@@ -172,15 +171,6 @@ function ManagerTasksView({ businessId, profileId }: { businessId: string; profi
 
   return (
     <div className="w-full animate-fadeUp">
-      <PageHeader
-        title="משימות"
-        subtitle={
-          canCreateTasks
-            ? "מעקב ביצוע · משימות קבועות · חד-פעמיות"
-            : "מעקב ביצוע המשימות הקבועות של העסק"
-        }
-      />
-
       {canApprove && pendingApprovals.length > 0 && (
         <ApprovalQueue
           tasks={pendingApprovals}

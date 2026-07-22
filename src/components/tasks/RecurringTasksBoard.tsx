@@ -37,10 +37,19 @@ interface Occurrence {
   template: TaskTemplate;
   status: OccStatus;
   performers: Performer[];
+  /** Every file attached to the day, used for the row preview and counts. */
   media: string[];
+  /** Files on rows with no identifiable uploader. */
+  orphanMedia: string[];
   /** Timestamp of the completion / last documentation shown on the row. */
   at: string | null;
 }
+
+const PERSON_STATUS: Record<TaskStatus, string> = {
+  done: "סימן כבוצע",
+  in_progress: "בטיפול",
+  open: "פתח ולא סיים",
+};
 
 interface DeptSection {
   id: string;
@@ -52,6 +61,8 @@ interface DeptSection {
 }
 
 const STATUS_WEIGHT: Record<TaskStatus, number> = { done: 2, in_progress: 1, open: 0 };
+
+const HE_DAY_LETTERS = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
 
 function weekdayOf(date: string): number {
   return new Date(date + "T12:00:00").getDay();
@@ -78,6 +89,7 @@ function buildOccurrence(
 ): Occurrence {
   const byPerson = new Map<string, Performer>();
   const media: string[] = [];
+  const orphanMedia: string[] = [];
   let best: OccStatus = date < today ? "missed" : "pending";
   let at: string | null = null;
 
@@ -85,36 +97,45 @@ function buildOccurrence(
     const rowMedia = taskMedia(row);
     media.push(...rowMedia);
 
-    if (row.status === "done" && best !== "done") best = "done";
+    if (row.status === "done") best = "done";
     else if (row.status === "in_progress" && best !== "done") best = "in_progress";
 
     const stamp = row.completed_at ?? row.last_documented_at ?? null;
     if (stamp && (!at || stamp > at)) at = stamp;
 
     const actorId = row.last_documented_by ?? row.assigned_to;
-    if (!actorId) continue;
+    if (!actorId) {
+      orphanMedia.push(...rowMedia);
+      continue;
+    }
+
     const profile = employeeById.get(actorId);
     const prev = byPerson.get(actorId);
-    const next: Performer = {
+    const mergedMedia = [...new Set([...(prev?.media ?? []), ...rowMedia])];
+    const wins = !prev || STATUS_WEIGHT[row.status] > STATUS_WEIGHT[prev.status];
+
+    byPerson.set(actorId, {
       id: actorId,
       name: profile?.full_name ?? "עובד",
       avatarUrl: profile?.avatar_url ?? null,
-      status: row.status,
-      at: stamp,
-      media: [...(prev?.media ?? []), ...rowMedia],
-    };
-    if (!prev || STATUS_WEIGHT[row.status] > STATUS_WEIGHT[prev.status]) {
-      byPerson.set(actorId, next);
-    } else {
-      byPerson.set(actorId, { ...prev, media: next.media });
-    }
+      status: wins ? row.status : prev.status,
+      at: wins ? stamp : prev.at,
+      media: mergedMedia,
+    });
   }
 
   const performers = [...byPerson.values()].sort(
     (a, b) => STATUS_WEIGHT[b.status] - STATUS_WEIGHT[a.status],
   );
 
-  return { template, status: best, performers, media: [...new Set(media)], at };
+  return {
+    template,
+    status: best,
+    performers,
+    media: [...new Set(media)],
+    orphanMedia: [...new Set(orphanMedia)],
+    at,
+  };
 }
 
 function matchesFilter(occ: Occurrence, filter: StatusFilter): boolean {
@@ -317,38 +338,62 @@ function OccurrenceRow({
               <p className="rtb-row-desc">{occ.template.description}</p>
             )}
 
-            {occ.performers.length > 0 && (
+            {occ.performers.length > 0 || occ.orphanMedia.length > 0 ? (
               <div className="rtb-block">
                 <span className="rtb-block-label">
                   <Icon name="how_to_reg" size={14} />
-                  מי טיפל
+                  ביצוע ותיעוד
                 </span>
-                <div className="rtb-who-list">
+                <div className="rtb-log">
                   {occ.performers.map((p) => (
-                    <PerformerChip key={p.id} performer={p} />
+                    <div key={p.id} className="rtb-log-entry" data-status={p.status}>
+                      <div className="rtb-log-head">
+                        <UserAvatar
+                          userId={p.id}
+                          name={p.name}
+                          avatarUrl={p.avatarUrl}
+                          size={26}
+                          rounded="circle"
+                        />
+                        <span className="rtb-log-name">{p.name}</span>
+                        <span className="rtb-log-status">{PERSON_STATUS[p.status]}</span>
+                        {timeOf(p.at) && <span className="rtb-log-time">{timeOf(p.at)}</span>}
+                      </div>
+                      {p.media.length > 0 ? (
+                        <div className="rtb-media-grid">
+                          {p.media.map((url) => (
+                            <MediaTile key={url} url={url} onOpen={() => onPreview(url)} />
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="rtb-log-nomedia">לא צירף תמונה או סרטון</span>
+                      )}
+                    </div>
                   ))}
-                </div>
-              </div>
-            )}
 
-            {occ.media.length > 0 ? (
-              <div className="rtb-block">
-                <span className="rtb-block-label">
-                  <Icon name="perm_media" size={14} />
-                  תיעוד
-                </span>
-                <div className="rtb-media-grid">
-                  {occ.media.map((url) => (
-                    <MediaTile key={url} url={url} onOpen={() => onPreview(url)} />
-                  ))}
+                  {occ.orphanMedia.length > 0 && (
+                    <div className="rtb-log-entry">
+                      <div className="rtb-log-head">
+                        <span className="rtb-log-anon" aria-hidden="true">
+                          <Icon name="perm_media" size={15} />
+                        </span>
+                        <span className="rtb-log-name">תיעוד ללא שיוך</span>
+                      </div>
+                      <div className="rtb-media-grid">
+                        {occ.orphanMedia.map((url) => (
+                          <MediaTile key={url} url={url} onOpen={() => onPreview(url)} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (
               <span className="rtb-row-hint">
                 <Icon name="info" size={15} />
-                {occ.status === "done"
-                  ? "המשימה סומנה כבוצעה ללא צירוף תמונה או סרטון."
-                  : "עדיין לא הועלה תיעוד למשימה זו."}
+                {occ.status === "missed"
+                  ? "אף עובד לא דיווח על המשימה הזו ביום זה."
+                  : "עדיין לא דווח ביצוע למשימה זו."}
               </span>
             )}
           </div>
@@ -500,6 +545,7 @@ export function RecurringTasksBoard({
   }, [dayOccurrences, departments, deptById, filter]);
 
   const isToday = date === today;
+  const isFuture = date > today;
   const weekdayName = HE_DAYS[weekdayOf(date)];
 
   const chips: { key: StatusFilter; label: string; count: number; icon: string }[] = [
@@ -566,14 +612,18 @@ export function RecurringTasksBoard({
             <span className="rtb-summary-title">
               {counts.total === 0
                 ? "אין משימות קבועות ליום זה"
-                : `${counts.done} מתוך ${counts.total} משימות בוצעו`}
+                : isFuture
+                  ? `${counts.total} משימות מתוכננות ליום זה`
+                  : `${counts.done} מתוך ${counts.total} משימות בוצעו`}
             </span>
             <span className="rtb-summary-sub">
               {counts.total === 0
-                ? "המשימות מוגדרות לפי ימים בלשונית משימות קבועות"
-                : counts.todo === 0 && counts.inProgress === 0
-                  ? "כל המשימות הקבועות של היום הושלמו"
-                  : "לחיצה על משימה פותחת את הפרטים, המבצעים והתיעוד"}
+                ? "המשימות מוגדרות לפי ימים ומחלקות בלשונית «משימות קבועות»"
+                : isFuture
+                  ? "יום עתידי — הדיווח ייפתח לעובדים ביום המשימה"
+                  : counts.todo === 0 && counts.inProgress === 0
+                    ? "כל המשימות הקבועות של היום הושלמו"
+                    : "לחיצה על משימה פותחת את הפרטים, המבצעים והתיעוד"}
             </span>
           </div>
         </div>
@@ -593,7 +643,7 @@ export function RecurringTasksBoard({
                 onClick={() => setDate(d.date)}
                 title={`${HE_DAYS[i]} ${formatDateShort(d.date)} · ${d.done}/${d.total}`}
               >
-                <span className="rtb-strip-name">{HE_DAYS[i].slice(0, 3)}</span>
+                <span className="rtb-strip-name">{HE_DAY_LETTERS[i]}</span>
                 <span className="rtb-strip-num">{d.date.slice(8, 10)}</span>
                 <span className="rtb-strip-bar" aria-hidden="true">
                   <i style={{ transform: `scaleX(${d.total ? d.pct : 0})` }} />
@@ -622,7 +672,7 @@ export function RecurringTasksBoard({
               className="press rtb-chip"
               data-tone={c.key}
               data-active={filter === c.key || undefined}
-              disabled={c.count === 0}
+              data-zero={c.count === 0 || undefined}
               onClick={() => setFilter((f) => (f === c.key ? "all" : c.key))}
             >
               <Icon name={c.icon} size={15} />
@@ -682,8 +732,12 @@ export function RecurringTasksBoard({
                     <i style={{ transform: `scaleX(${section.total ? section.done / section.total : 0})` }} />
                   </span>
                   <span className="rtb-dept-ratio">
-                    <b>{section.done}</b>/{section.total}
-                    <span className="rtb-dept-pct">{pct}%</span>
+                    <span className="rtb-dept-count">
+                      <b>{section.done}</b>/{section.total}
+                    </span>
+                    <span className="rtb-dept-pct" data-full={pct === 100 || undefined}>
+                      {pct}%
+                    </span>
                   </span>
                   <span className="rtb-dept-chevron" aria-hidden="true">
                     <Icon name="expand_more" size={20} />
