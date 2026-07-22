@@ -11,6 +11,13 @@ import {
   useDeleteDepartment,
 } from "@/api/departments";
 import {
+  useInventoryCategories,
+  useCreateInventoryCategory,
+  useUpdateInventoryCategory,
+  useDeleteInventoryCategory,
+  nextInventoryCategoryColor,
+} from "@/api/inventoryCategories";
+import {
   useShiftTemplates,
   useCreateShiftTemplate,
   useUpdateShiftTemplate,
@@ -31,12 +38,13 @@ import type { UserRole } from "@/types/database";
 
 const SHIFT_COLORS = ["#eab308", "#fdab3d", "#ef4444", "#7c3aed", "#0d9488", "#2563eb"];
 
-type SettingsPanel = "name" | "location" | "maintenance" | "deadline" | "minimum" | "departments" | "shifts";
+type SettingsPanel = "name" | "location" | "maintenance" | "deadline" | "minimum" | "departments" | "inventoryCategories" | "shifts";
 
 export function Settings() {
   const businessId = useBusinessId();
   const { data: biz, isLoading, isError, refetch } = useBusiness(businessId);
   const { data: departments } = useDepartments(businessId);
+  const { data: inventoryCategories } = useInventoryCategories(businessId);
   const { data: templates } = useShiftTemplates(businessId);
   const [panel, setPanel] = useState<SettingsPanel | null>(null);
   const close = () => setPanel(null);
@@ -56,6 +64,7 @@ export function Settings() {
 
   const activeShifts = (templates ?? []).filter((t) => t.active).length;
   const deptCount = departments?.length ?? 0;
+  const invCatCount = inventoryCategories?.length ?? 0;
   const exemptCount = biz.attendance_geofence_exempt_roles?.length ?? 0;
   const locationSub = !biz.attendance_geofence_enabled
     ? "בדיקת GPS כבויה"
@@ -147,6 +156,20 @@ export function Settings() {
             onEdit={() => setPanel("departments")}
           />
           <SettingsItem
+            icon="inventory_2"
+            label="קטגוריות מוצרים"
+            value={invCatCount > 0 ? `${invCatCount} קטגוריות` : "אין קטגוריות"}
+            sub={
+              invCatCount > 0
+                ? (inventoryCategories ?? [])
+                    .slice(0, 2)
+                    .map((c) => c.name)
+                    .join(" · ")
+                : "חלבי, יבשים, משקאות…"
+            }
+            onEdit={() => setPanel("inventoryCategories")}
+          />
+          <SettingsItem
             icon="schedule"
             label="שעות משמרת"
             value={`${activeShifts} פעילות`}
@@ -162,6 +185,7 @@ export function Settings() {
       <ShiftPrefsDeadlineModal businessId={businessId} open={panel === "deadline"} onClose={close} />
       <ShiftPrefsMinimumModal businessId={businessId} open={panel === "minimum"} onClose={close} />
       <DepartmentsModal businessId={businessId} open={panel === "departments"} onClose={close} />
+      <InventoryCategoriesModal businessId={businessId} open={panel === "inventoryCategories"} onClose={close} />
       <ShiftTemplatesModal businessId={businessId} open={panel === "shifts"} onClose={close} />
     </PageEnter>
   );
@@ -1015,6 +1039,84 @@ function DepartmentsModal({
             הוספה
           </Button>
         </div>
+      </ModalBody>
+    </Modal>
+  );
+}
+
+function InventoryCategoriesModal({
+  businessId,
+  open,
+  onClose,
+}: {
+  businessId: string;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const { data: categories } = useInventoryCategories(businessId);
+  const create = useCreateInventoryCategory();
+  const update = useUpdateInventoryCategory(businessId);
+  const del = useDeleteInventoryCategory(businessId);
+  const [name, setName] = useState("");
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="קטגוריות מוצרים"
+      subtitle="קטגוריות לסינון ולשיוך מוצרים במלאי — לכל עסק רשימה משלו"
+      icon="inventory_2"
+      maxWidth={560}
+      footer={<Button onClick={onClose}>סגירה</Button>}
+    >
+      <ModalBody>
+        <div className="flex flex-col gap-2">
+          {(categories ?? []).map((c) => (
+            <div key={c.id} className="settings-dept-row">
+              <span
+                className="settings-dept-dot"
+                style={{ background: c.color ?? "#8b939e", color: c.color ?? "#8b939e" }}
+              />
+              <Input
+                className="flex-1 !bg-surface"
+                defaultValue={c.name}
+                onBlur={(e) => e.target.value !== c.name && update.mutate({ id: c.id, name: e.target.value.trim() })}
+              />
+              <button
+                type="button"
+                onClick={() => del.mutate(c.id)}
+                className="grid h-9 w-9 place-items-center rounded-lg text-text-3 transition hover:[background:var(--danger-bg)] hover:text-danger"
+                aria-label="מחק קטגוריה"
+              >
+                <Icon name="delete" size={20} />
+              </button>
+            </div>
+          ))}
+          {categories && categories.length === 0 && (
+            <div className="py-4 text-center text-[13px] text-text-3">עדיין אין קטגוריות. הוסיפו את הראשונה למטה.</div>
+          )}
+        </div>
+        <div className="flex gap-2.5">
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="שם קטגוריה חדשה" />
+          <Button
+            icon="add"
+            loading={create.isPending}
+            onClick={() => {
+              const trimmed = name.trim();
+              if (!trimmed) return;
+              create.mutate({
+                business_id: businessId,
+                name: trimmed,
+                color: nextInventoryCategoryColor(categories?.length ?? 0),
+                sort_order: categories?.length ?? 0,
+              });
+              setName("");
+            }}
+          >
+            הוספה
+          </Button>
+        </div>
+        <p className="text-[12px] text-text-3">מחיקת קטגוריה תשאיר מוצרים משויכים אליה ללא קטגוריה.</p>
       </ModalBody>
     </Modal>
   );

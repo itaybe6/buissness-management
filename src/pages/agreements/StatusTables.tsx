@@ -2,6 +2,8 @@ import { useMemo, useState, type CSSProperties } from "react";
 import { Badge, Card, EmptyState, Icon } from "@/components/ui";
 import { form101Template, globalForm101Template, isSigned, signatureOf } from "@/api/agreements";
 import type { AgreementSignature, AgreementTemplate, EmployeeIdCard, Profile } from "@/types/database";
+import { colorFor, initialsOf } from "@/lib/db";
+import { IdCardStatusCell, openIdCard } from "./EmployeeIdCardPanel";
 import { ReadSignModal } from "./AgreementModals";
 import { FORM_101_BLANK_URL, TAX_YEAR } from "./types";
 

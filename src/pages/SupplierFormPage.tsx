@@ -97,13 +97,19 @@ function SupplierProductCatalogEditor({
         </div>
 
         {lines.length === 0 ? (
-          <div className="rounded-[14px] border border-dashed border-border bg-surface-2 px-4 py-6 text-center">
-            <Icon name="inventory_2" size={28} className="mx-auto text-text-3" />
-            <p className="mt-2 text-[13px] font-bold text-text">עדיין לא נבחרו מוצרים</p>
-            <p className="mt-1 text-[12px] text-text-3">בחרו מהרשימה למטה והזינו מחיר לכל מוצר.</p>
+          <div className="sup-form-empty-lines">
+            <span className="sup-form-empty-lines-icon" aria-hidden>
+              <Icon name="inventory_2" size={26} />
+            </span>
+            <div>
+              <p className="text-[13px] font-extrabold text-text">עדיין לא נבחרו מוצרים</p>
+              <p className="mt-1 text-[12px] leading-relaxed text-text-3">
+                בחרו מהקטלוג למטה והזינו מחיר ליחידת המידה הראשית.
+              </p>
+            </div>
           </div>
         ) : (
-          <ul className="space-y-2">
+          <ul className="sup-product-lines-grid">
             {lines.map((line) => {
               const item = inventory.find((i) => i.id === line.itemId);
               return (
@@ -152,10 +158,12 @@ function SupplierProductCatalogEditor({
         )}
       </div>
 
-      <div className="rounded-[14px] border border-border bg-surface p-3 sm:p-4">
+      <div className="sup-form-picker-shell">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-[13px] font-extrabold text-text">הוספת מוצרים מהמלאי</h3>
-          <span className="text-[11px] font-semibold text-text-3">{available.length} זמינים</span>
+          <span className="rounded-full border border-border bg-surface px-2.5 py-0.5 text-[11px] font-bold text-text-2 tabular-nums">
+            {available.length} זמינים
+          </span>
         </div>
         <div className="relative mb-3">
           <Icon
@@ -188,7 +196,7 @@ function SupplierProductCatalogEditor({
             {query.trim() ? "לא נמצאו מוצרים בחיפוש." : "כל המוצרים כבר משויכים לספק זה."}
           </p>
         ) : (
-          <div className="sup-product-pick-grid max-h-[min(52vh,420px)] overflow-y-auto pr-0.5">
+          <div className="sup-product-pick-grid sup-form-picker-scroll overflow-y-auto pr-0.5">
             {available.map((item) => (
               <button
                 key={item.id}
@@ -342,25 +350,33 @@ export function SupplierFormPage() {
   }
   if (loading) return <PageLoader label={isEdit ? "טוען ספק..." : "טוען..."} />;
 
+  const saving = create.isPending || update.isPending || saveItems.isPending;
+
   return (
-    <div className="supplier-form-page page-enter w-full max-w-2xl pb-8">
-      <header className="mb-5 flex items-center gap-3">
-        <button type="button" className="icon-btn shrink-0" onClick={goBack} aria-label="חזרה לספקים">
-          <Icon name="arrow_forward" size={20} />
-        </button>
-        <div className="min-w-0 flex-1">
-          <h1 className="text-[19px] font-extrabold leading-tight tracking-tight md:text-[23px]">
-            {isEdit ? "עריכת ספק" : "ספק חדש"}
-          </h1>
-          <p className="mt-0.5 text-[12px] text-text-3 md:text-[13px]">
-            {isEdit ? editing?.name : "פרטי הספק ומחירי המוצרים שאותו הוא מספק"}
-          </p>
+    <div className="supplier-form-page page-enter w-full pb-8 lg:pb-10">
+      <header className="sup-form-head">
+        <div className="flex min-w-0 items-center gap-3">
+          <button type="button" className="icon-btn shrink-0" onClick={goBack} aria-label="חזרה לספקים">
+            <Icon name="arrow_forward" size={20} />
+          </button>
+          <div className="min-w-0 flex-1">
+            <h1 className="sup-form-title">{isEdit ? "עריכת ספק" : "ספק חדש"}</h1>
+            <p className="sup-form-subtitle">
+              {isEdit ? editing?.name : "פרטי הספק ומחירי המוצרים שאותו הוא מספק"}
+            </p>
+          </div>
         </div>
+        {productLines.length > 0 && (
+          <span className="sup-form-head-chip hidden sm:inline-flex">
+            <Icon name="inventory_2" size={15} />
+            {productLines.length} מוצרים
+          </span>
+        )}
       </header>
 
-      <div className="space-y-6">
-        <section className="rounded-[16px] border border-border bg-surface p-4 sm:p-5">
-          <h2 className="mb-4 text-[14px] font-extrabold text-text">פרטים כלליים</h2>
+      <div className="sup-form-layout">
+        <section className="sup-form-panel sup-form-details">
+          <h2 className="sup-form-panel-title">פרטים כלליים</h2>
           {formError && (
             <p className="mb-4 rounded-[11px] [background:var(--danger-bg)] px-3 py-2 text-[13px] font-semibold text-danger">
               {formError}
@@ -368,9 +384,14 @@ export function SupplierFormPage() {
           )}
           <div className="space-y-4">
             <Field label="שם הספק">
-              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required autoFocus={!isEdit} />
+              <Input
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                required
+                autoFocus={!isEdit}
+              />
             </Field>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
               <Field label="טלפון">
                 <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} inputMode="tel" />
               </Field>
@@ -379,7 +400,7 @@ export function SupplierFormPage() {
               </Field>
             </div>
             <Field label="הערות">
-              <Textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+              <Textarea rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
             </Field>
             {isEdit && (
               <Field label="סטטוס">
@@ -395,7 +416,7 @@ export function SupplierFormPage() {
           </div>
         </section>
 
-        <section className="rounded-[16px] border border-border bg-surface p-4 sm:p-5">
+        <section className="sup-form-panel sup-form-main">
           <SupplierProductCatalogEditor
             inventory={inventoryList}
             lines={productLines}
@@ -403,16 +424,11 @@ export function SupplierFormPage() {
           />
         </section>
 
-        <div className="flex flex-wrap justify-end gap-2 pt-1">
-          <Button variant="secondary" onClick={goBack}>
+        <div className="sup-form-actions">
+          <Button variant="secondary" onClick={goBack} className="min-w-[5.5rem]">
             ביטול
           </Button>
-          <Button
-            loading={create.isPending || update.isPending || saveItems.isPending}
-            onClick={submitForm}
-            className="!bg-ink"
-            icon="check"
-          >
+          <Button loading={saving} onClick={submitForm} className="min-w-[5.5rem] !bg-ink" icon="check">
             שמירה
           </Button>
         </div>

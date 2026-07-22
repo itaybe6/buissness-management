@@ -23,8 +23,6 @@ import {
   useItemLogs,
   uploadItemImage,
   INVENTORY_UNITS,
-  INVENTORY_CATEGORIES,
-  inventoryCategoryLabel,
   inventorySaveError,
   supportsPieceInput,
   mainUnitToPieces,
@@ -37,10 +35,14 @@ import {
   orderBatchTotal,
 } from "@/api/inventory";
 import { useDepartments } from "@/api/departments";
+import {
+  useInventoryCategories,
+  inventoryCategoryById,
+} from "@/api/inventoryCategories";
 import { useSuppliers, useSupplierItemPriceIndex, supplierPricesFor, type SupplierItemPriceIndex } from "@/api/suppliers";
 import { useIsMdUp } from "@/hooks/useMediaQuery";
 import { useWaste } from "@/api/waste";
-import type { Department, InventoryAction, InventoryWaste } from "@/types/database";
+import type { Department, InventoryAction, InventoryCategory, InventoryWaste } from "@/types/database";
 
 type InventoryTab = "items" | "orders" | "waste";
 
@@ -100,7 +102,7 @@ function batchOrderedByLabel(batch: OrderBatch): string {
 
 type ItemForm = {
   name: string;
-  category: string;
+  categoryId: string;
   unit: string;
   unitsPerPackage: string;
   qty: string;
@@ -113,7 +115,7 @@ type ItemForm = {
 
 const EMPTY_FORM: ItemForm = {
   name: "",
-  category: "",
+  categoryId: "",
   unit: "יחידות",
   unitsPerPackage: "",
   qty: "0",
@@ -382,19 +384,6 @@ function TabSearchBar<T extends string>({
   );
 }
 
-/** Icon + identity colour per category — chips tint themselves with it. */
-const CATEGORY_FILTER_META: Record<string, { icon: string; color: string }> = {
-  dairy: { icon: "water_drop", color: "#4b93f7" },
-  alcohol: { icon: "local_bar", color: "#a05de0" },
-  dry: { icon: "grain", color: "#d1912c" },
-  beverages: { icon: "local_cafe", color: "#12a5b4" },
-  meat_fish: { icon: "set_meal", color: "#e2445c" },
-  produce: { icon: "nutrition", color: "#1fb974" },
-  frozen: { icon: "ac_unit", color: "#3fb8ef" },
-  cleaning: { icon: "cleaning_services", color: "#7480ea" },
-  other: { icon: "category", color: "#8b939e" },
-};
-
 const DEPT_FILTER_GENERAL = "__general__" as const;
 const CAT_FILTER_NONE = "__none__" as const;
 const FILTER_ALL_KEY = "__all__" as const;
@@ -452,6 +441,7 @@ function InventoryCatalogFilterDeck({
   departmentFilter,
   onDepartmentChange,
   departments,
+  inventoryCategories,
   onClearAll,
   showClear,
   showGeneralDeptFilter,
@@ -464,6 +454,7 @@ function InventoryCatalogFilterDeck({
   departmentFilter: DepartmentFilterValue;
   onDepartmentChange: (f: DepartmentFilterValue) => void;
   departments: Department[];
+  inventoryCategories: InventoryCategory[];
   onClearAll: () => void;
   showClear: boolean;
   showGeneralDeptFilter: boolean;
@@ -562,15 +553,15 @@ function InventoryCatalogFilterDeck({
               count={counts.category[CAT_FILTER_NONE]}
               onClick={() => onCategoryChange(categoryFilter === CAT_FILTER_NONE ? null : CAT_FILTER_NONE)}
             />
-            {INVENTORY_CATEGORIES.map((c) => (
+            {inventoryCategories.map((c) => (
               <FilterChip
-                key={c.value}
-                label={c.label}
-                icon={CATEGORY_FILTER_META[c.value]?.icon ?? "category"}
-                accent={CATEGORY_FILTER_META[c.value]?.color}
-                active={categoryFilter === c.value}
-                count={counts.category[c.value]}
-                onClick={() => onCategoryChange(categoryFilter === c.value ? null : c.value)}
+                key={c.id}
+                label={c.name}
+                icon="category"
+                accent={c.color ?? undefined}
+                active={categoryFilter === c.id}
+                count={counts.category[c.id]}
+                onClick={() => onCategoryChange(categoryFilter === c.id ? null : c.id)}
               />
             ))}
           </FilterRow>
@@ -631,6 +622,7 @@ function InventoryFilterTokens({
   departmentFilter,
   onDepartmentChange,
   departments,
+  inventoryCategories,
 }: {
   stockFilter: StockFilter;
   onStockChange: (f: StockFilter) => void;
@@ -639,6 +631,7 @@ function InventoryFilterTokens({
   departmentFilter: DepartmentFilterValue;
   onDepartmentChange: (f: DepartmentFilterValue) => void;
   departments: Department[];
+  inventoryCategories: InventoryCategory[];
 }) {
   const activeDept = departmentFilter ? departments.find((d) => d.id === departmentFilter) : undefined;
   const tokens: { key: string; label: string; accent?: string; onRemove: () => void }[] = [];
@@ -652,11 +645,11 @@ function InventoryFilterTokens({
     });
   }
   if (categoryFilter) {
+    const cat = inventoryCategoryById(inventoryCategories, categoryFilter);
     tokens.push({
       key: "category",
-      label:
-        categoryFilter === CAT_FILTER_NONE ? "ללא קטגוריה" : inventoryCategoryLabel(categoryFilter) ?? "קטגוריה",
-      accent: CATEGORY_FILTER_META[categoryFilter]?.color,
+      label: categoryFilter === CAT_FILTER_NONE ? "ללא קטגוריה" : cat?.name ?? "קטגוריה",
+      accent: cat?.color ?? undefined,
       onRemove: () => onCategoryChange(null),
     });
   }
@@ -704,8 +697,8 @@ function matchesCatalogFilters(
 ): boolean {
   if (stockFilter === "low" && !isTrackedLowStock(item)) return false;
   if (categoryFilter === CAT_FILTER_NONE) {
-    if (item.category) return false;
-  } else if (categoryFilter && item.category !== categoryFilter) {
+    if (item.category_id) return false;
+  } else if (categoryFilter && item.category_id !== categoryFilter) {
     return false;
   }
   if (departmentFilter === DEPT_FILTER_GENERAL) {
@@ -872,6 +865,7 @@ function ItemDetailModal({
   onOrder,
   onMarkArrived,
   onMarkNotArrived,
+  categoryNames,
 }: {
   item: ItemWithQty | null;
   open: boolean;
@@ -889,6 +883,7 @@ function ItemDetailModal({
   onOrder: () => void;
   onMarkArrived: (order: InventoryOrderWithUser, receivedQty: number) => void;
   onMarkNotArrived: (order: InventoryOrderWithUser) => void;
+  categoryNames: Record<string, string>;
 }) {
   const [editingQty, setEditingQty] = useState(false);
   const [draftQty, setDraftQty] = useState(0);
@@ -937,7 +932,7 @@ function ItemDetailModal({
     setEditingQty(false);
   }
 
-  const categoryLabel = inventoryCategoryLabel(item.category);
+  const categoryLabel = item.category_id ? categoryNames[item.category_id] ?? null : null;
 
   return (
     <Modal
@@ -1267,6 +1262,7 @@ function ItemCard({
   onHistory,
   onOrder,
   onSetQty,
+  categoryNames,
 }: {
   item: ItemWithQty;
   index: number;
@@ -1278,9 +1274,11 @@ function ItemCard({
   onHistory: () => void;
   onOrder: () => void;
   onSetQty: (qty: number) => void;
+  categoryNames: Record<string, string>;
 }) {
   const status = stockStatus(item);
   const meta = STOCK_META[status];
+  const categoryLabel = item.category_id ? categoryNames[item.category_id] ?? null : null;
   const qtySplit =
     supportsPieceInput(item.unit) && (item.units_per_package ?? 0) > 0
       ? splitPackageQty(item.current_qty, item.units_per_package!)
@@ -1324,8 +1322,8 @@ function ItemCard({
             <div className="flex items-start justify-between gap-1.5">
               <div className="min-w-0 flex-1">
                 <h3 className="line-clamp-2 text-[12px] font-bold leading-snug tracking-tight">{item.name}</h3>
-                {inventoryCategoryLabel(item.category) && (
-                  <span className="text-[10px] font-semibold text-text-3">{inventoryCategoryLabel(item.category)}</span>
+                {categoryLabel && (
+                  <span className="text-[10px] font-semibold text-text-3">{categoryLabel}</span>
                 )}
               </div>
               <div className="shrink-0 text-left leading-none">
@@ -1418,8 +1416,8 @@ function ItemCard({
           <div className="flex items-start justify-between gap-2">
             <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-right active:opacity-80">
               <h3 className="text-[15px] font-bold leading-snug tracking-tight">{item.name}</h3>
-              {inventoryCategoryLabel(item.category) && (
-                <span className="mt-0.5 block text-[11px] font-semibold text-text-3">{inventoryCategoryLabel(item.category)}</span>
+              {categoryLabel && (
+                <span className="mt-0.5 block text-[11px] font-semibold text-text-3">{categoryLabel}</span>
               )}
               <div className="mt-1.5">
                 <LastUpdatedLine item={item} />
@@ -2064,6 +2062,12 @@ export function Inventory() {
   const showWaste = hasFeature("waste");
   const { data: items, isLoading, isError, refetch } = useInventory(businessId);
   const { data: departments } = useDepartments(businessId);
+  const { data: inventoryCategories } = useInventoryCategories(businessId);
+  const categoryNameMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const c of inventoryCategories ?? []) m[c.id] = c.name;
+    return m;
+  }, [inventoryCategories]);
   const departmentOptions = useMemo(
     () => (departments ?? []).map((d) => ({ value: d.id, label: d.name })),
     [departments],
@@ -2201,7 +2205,7 @@ export function Inventory() {
     const base = q ? list.filter((i) => i.name.toLowerCase().includes(q)) : list;
     const byStock = (i: ItemWithQty, f: StockFilter) => f !== "low" || isTrackedLowStock(i);
     const byCat = (i: ItemWithQty, f: CategoryFilterValue) =>
-      f === null || (f === CAT_FILTER_NONE ? !i.category : i.category === f);
+      f === null || (f === CAT_FILTER_NONE ? !i.category_id : i.category_id === f);
     const byDept = (i: ItemWithQty, f: DepartmentFilterValue) =>
       f === null || (f === DEPT_FILTER_GENERAL ? i.department_ids.length === 0 : i.department_ids.includes(f));
 
@@ -2215,10 +2219,10 @@ export function Inventory() {
     const catPool = base.filter((i) => byStock(i, stockFilter) && byDept(i, departmentFilter));
     const category: Record<string, number> = {
       [FILTER_ALL_KEY]: catPool.length,
-      [CAT_FILTER_NONE]: catPool.filter((i) => !i.category).length,
+      [CAT_FILTER_NONE]: catPool.filter((i) => !i.category_id).length,
     };
-    for (const c of INVENTORY_CATEGORIES) {
-      category[c.value] = catPool.filter((i) => i.category === c.value).length;
+    for (const c of inventoryCategories ?? []) {
+      category[c.id] = catPool.filter((i) => i.category_id === c.id).length;
     }
 
     const deptPool = base.filter((i) => byStock(i, stockFilter) && byCat(i, categoryFilter));
@@ -2231,7 +2235,7 @@ export function Inventory() {
     }
 
     return { stock, category, department };
-  }, [list, searchQuery, stockFilter, categoryFilter, departmentFilter, departmentsForFilter]);
+  }, [list, searchQuery, stockFilter, categoryFilter, departmentFilter, departmentsForFilter, inventoryCategories]);
 
   const catalogFiltersActive =
     stockFilter !== "all" || categoryFilter !== null || departmentFilter !== null;
@@ -2316,7 +2320,7 @@ export function Inventory() {
     setEditing(item);
     setForm({
       name: item.name,
-      category: item.category ?? "",
+      categoryId: item.category_id ?? "",
       unit: item.unit ?? "יחידות",
       unitsPerPackage: item.units_per_package != null ? String(item.units_per_package) : "",
       qty: String(item.current_qty),
@@ -2413,7 +2417,7 @@ export function Inventory() {
       const quantity = Number(form.qty) || 0;
       const min_quantity = Math.max(0, Number(form.minQty) || 0);
       const supplier_delivery_day = form.deliveryDay === "" ? null : Number(form.deliveryDay);
-      const category = form.category || null;
+      const category_id = form.categoryId || null;
       const units_per_package = supportsPieceInput(form.unit)
         ? Math.max(0, Number(form.unitsPerPackage) || 0) || null
         : null;
@@ -2426,7 +2430,7 @@ export function Inventory() {
         if (units_per_package !== editing.units_per_package) changed.push("יחידים ביחידת מידה");
         if (min_quantity !== editing.min_quantity) changed.push("כמות מינימום");
         if (supplier_delivery_day !== editing.supplier_delivery_day) changed.push("יום אספקה");
-        if (category !== editing.category) changed.push("קטגוריה");
+        if (category_id !== editing.category_id) changed.push("קטגוריה");
         if (image_url !== editing.image_url) changed.push("תמונה");
         const prevDepts = [...editing.department_ids].sort().join(",");
         const nextDepts = [...department_ids].sort().join(",");
@@ -2442,7 +2446,7 @@ export function Inventory() {
             image_url,
             min_quantity,
             supplier_delivery_day,
-            category,
+            category_id,
           },
           department_ids,
           note: changed.length ? `עודכן: ${changed.join(", ")}` : null,
@@ -2465,7 +2469,7 @@ export function Inventory() {
           image_url,
           min_quantity,
           supplier_delivery_day,
-          category,
+          category_id,
           department_ids,
           quantity,
           employee_id: profile?.id ?? null,
@@ -2634,6 +2638,7 @@ export function Inventory() {
                   departmentFilter={departmentFilter}
                   onDepartmentChange={setDepartmentFilter}
                   departments={departmentsForFilter}
+                  inventoryCategories={inventoryCategories ?? []}
                   onClearAll={clearCatalogFilters}
                   showClear={catalogFiltersActive || !!searchQuery.trim()}
                   showGeneralDeptFilter={showGeneralDeptFilter}
@@ -2649,6 +2654,7 @@ export function Inventory() {
                   departmentFilter={departmentFilter}
                   onDepartmentChange={setDepartmentFilter}
                   departments={departmentsForFilter}
+                  inventoryCategories={inventoryCategories ?? []}
                 />
               }
             />
@@ -2709,6 +2715,7 @@ export function Inventory() {
                       openNewOrder(it.id);
                     }}
                     onSetQty={(quantity) => handleSetQty(it, quantity)}
+                    categoryNames={categoryNameMap}
                   />
                 ))}
               </div>
@@ -2770,14 +2777,23 @@ export function Inventory() {
           </Field>
 
           <Field label="קטגוריה">
-            <Select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}>
+            <Select value={form.categoryId} onChange={(e) => setForm((f) => ({ ...f, categoryId: e.target.value }))}>
               <option value="">ללא קטגוריה</option>
-              {INVENTORY_CATEGORIES.map((c) => (
-                <option key={c.value} value={c.value}>
-                  {c.label}
+              {(inventoryCategories ?? []).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
                 </option>
               ))}
             </Select>
+            {isManager && !(inventoryCategories?.length) && (
+              <p className="mt-1 text-[12px] text-text-3">
+                הוסיפו קטגוריות מוצרים ב{" "}
+                <Link to="/settings" className="font-semibold text-accent-2 hover:underline">
+                  הגדרות העסק
+                </Link>
+                .
+              </p>
+            )}
           </Field>
 
           <Field label="מחלקות">
@@ -2904,6 +2920,7 @@ export function Inventory() {
         }}
         onMarkArrived={handleReceive}
         onMarkNotArrived={handleMarkNotArrived}
+        categoryNames={categoryNameMap}
       />
 
       <HistoryModal businessId={businessId} item={historyItem} onClose={() => setHistoryItem(null)} />

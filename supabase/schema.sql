@@ -18,7 +18,7 @@ drop trigger if exists on_auth_user_created on auth.users;
 drop table if exists
   public.tasks, public.task_templates, public.events, public.faults, public.inventory_logs,
   public.inventory_waste, public.inventory_orders, public.inventory_counts, public.inventory_item_departments,
-  public.inventory_items, public.suppliers, public.supplier_items,
+  public.inventory_items, public.inventory_categories, public.suppliers, public.supplier_items,
   public.payroll_records, public.payroll_month_adjustments,
   public.tips, public.shift_bonuses, public.shift_reports, public.attendance, public.shift_assignments, public.shift_preferences,
   public.shift_templates, public.departments,
@@ -589,6 +589,19 @@ create table public.payroll_month_adjustments (
 -- 10. מודול: סחורות / מלאי
 -- ----------------------------------------------------------------------------
 
+create table public.inventory_categories (
+  id          uuid primary key default gen_random_uuid(),
+  business_id uuid not null references public.businesses(id) on delete cascade,
+  name        text not null,
+  color       text default '#8b939e',
+  sort_order  integer not null default 0,
+  active      boolean not null default true,
+  created_at  timestamptz not null default now()
+);
+
+create unique index idx_inv_categories_business_name
+  on public.inventory_categories (business_id, lower(trim(name)));
+
 create table public.inventory_items (
   id            uuid primary key default gen_random_uuid(),
   business_id   uuid not null references public.businesses(id) on delete cascade,
@@ -598,7 +611,7 @@ create table public.inventory_items (
   image_url     text,                 -- תמונת המוצר ב-Storage
   min_quantity  numeric(12,2) not null default 0,  -- סף מלאי נמוך
   supplier_delivery_day smallint check (supplier_delivery_day between 0 and 6),  -- יום אספקה מהספק
-  category      text,                 -- קטגוריית המוצר (חלבי, אלכוהול, יבשים וכו׳)
+  category_id   uuid references public.inventory_categories(id) on delete set null,
   active        boolean not null default true,
   created_at    timestamptz not null default now()
 );
@@ -847,7 +860,9 @@ create index idx_shift_bonuses_report        on public.shift_bonuses(shift_repor
 create index idx_payroll_business           on public.payroll_records(business_id);
 create index idx_payroll_month_adj_business on public.payroll_month_adjustments(business_id);
 create index idx_payroll_month_adj_period   on public.payroll_month_adjustments(business_id, period_month);
+create index idx_inv_categories_business    on public.inventory_categories(business_id, sort_order);
 create index idx_inv_items_business         on public.inventory_items(business_id);
+create index idx_inv_items_category_id      on public.inventory_items(business_id, category_id);
 create index idx_inv_item_depts_business    on public.inventory_item_departments(business_id);
 create index idx_inv_item_depts_department    on public.inventory_item_departments(department_id);
 create index idx_inv_counts_business        on public.inventory_counts(business_id);
@@ -894,6 +909,7 @@ alter table public.payroll_records      enable row level security;
 alter table public.payroll_month_adjustments enable row level security;
 alter table public.suppliers            enable row level security;
 alter table public.supplier_items       enable row level security;
+alter table public.inventory_categories enable row level security;
 alter table public.inventory_items      enable row level security;
 alter table public.inventory_item_departments enable row level security;
 alter table public.inventory_counts     enable row level security;
@@ -1047,6 +1063,17 @@ create policy "payroll_tenant" on public.payroll_records
   for all using (public.can_access(business_id)) with check (public.can_access(business_id));
 create policy "payroll_month_adj_tenant" on public.payroll_month_adjustments
   for all using (public.can_access(business_id)) with check (public.can_access(business_id));
+-- inventory_categories — קריאה לכל העסק; עריכה למנהלים
+create policy "inv_categories_read" on public.inventory_categories
+  for select using (public.can_access(business_id));
+create policy "inv_categories_manager_write" on public.inventory_categories
+  for all using (
+    public.can_access(business_id)
+    and public.auth_role() in ('manager', 'shift_manager', 'office_manager')
+  ) with check (
+    public.can_access(business_id)
+    and public.auth_role() in ('manager', 'shift_manager', 'office_manager')
+  );
 -- inventory_items — קריאה לפי מחלקה; עריכת קטלוג למנהלים בלבד
 create policy "inv_items_read" on public.inventory_items
   for select using (

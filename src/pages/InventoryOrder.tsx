@@ -9,8 +9,6 @@ import {
   useOrders,
   useCreateOrdersBatch,
   useUpdateOrdersBatch,
-  INVENTORY_CATEGORIES,
-  inventoryCategoryLabel,
   inventorySaveError,
   inventoryLineTotal,
   canUsePieceInput,
@@ -19,22 +17,11 @@ import {
   isTrackedLowStock,
   type ItemWithQty,
 } from "@/api/inventory";
+import { useInventoryCategories } from "@/api/inventoryCategories";
 import { useSuppliers, useSupplierItemPriceIndex, supplierPricesFor } from "@/api/suppliers";
 
 /** Quantity draft per product: whole packages in the item's main unit + loose single pieces. */
 type QtyDraft = { packs: number; pieces: number };
-
-const CATEGORY_ICONS: Record<string, string> = {
-  dairy: "egg_alt",
-  alcohol: "liquor",
-  dry: "grain",
-  beverages: "local_cafe",
-  meat_fish: "set_meal",
-  produce: "nutrition",
-  frozen: "ac_unit",
-  cleaning: "cleaning_services",
-  other: "category",
-};
 
 function round4(n: number): number {
   return Math.round(n * 10000) / 10000;
@@ -215,6 +202,7 @@ function ProductCard({
   onAdd,
   onPatch,
   onRemove,
+  categoryName,
 }: {
   item: ItemWithQty;
   index: number;
@@ -223,10 +211,11 @@ function ProductCard({
   onAdd: () => void;
   onPatch: (patch: Partial<QtyDraft>) => void;
   onRemove: () => void;
+  categoryName: string | null;
 }) {
   const meta = STOCK_META[stockStatus(item)];
   const selected = !!draft;
-  const category = inventoryCategoryLabel(item.category);
+  const category = categoryName;
 
   return (
     <article
@@ -367,6 +356,12 @@ export function InventoryOrder() {
   const canManageOrders = !!(profile && ["manager", "office_manager"].includes(profile.role));
 
   const { data: items, isLoading, isError, refetch } = useInventory(businessId);
+  const { data: inventoryCategories } = useInventoryCategories(businessId);
+  const categoryNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of inventoryCategories ?? []) m.set(c.id, c.name);
+    return m;
+  }, [inventoryCategories]);
   const { data: orders } = useOrders(businessId, isEditing);
   const { data: suppliers } = useSuppliers(businessId, { activeOnly: true });
   const createOrdersBatch = useCreateOrdersBatch(businessId);
@@ -440,12 +435,11 @@ export function InventoryOrder() {
 
   const categories = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const it of list) if (it.category) counts.set(it.category, (counts.get(it.category) ?? 0) + 1);
-    return INVENTORY_CATEGORIES.filter((c) => counts.has(c.value)).map((c) => ({
-      ...c,
-      count: counts.get(c.value)!,
-    }));
-  }, [list]);
+    for (const it of list) if (it.category_id) counts.set(it.category_id, (counts.get(it.category_id) ?? 0) + 1);
+    return (inventoryCategories ?? [])
+      .filter((c) => counts.has(c.id))
+      .map((c) => ({ id: c.id, label: c.name, count: counts.get(c.id)! }));
+  }, [list, inventoryCategories]);
 
   const recoItems = useMemo(() => list.filter(isTrackedLowStock).slice(0, 12), [list]);
   const showReco = recoItems.length > 0 && !query.trim() && category === "all";
@@ -455,7 +449,7 @@ export function InventoryOrder() {
     return list.filter((it) => {
       if (category === "low") {
         if (!isTrackedLowStock(it)) return false;
-      } else if (category !== "all" && it.category !== category) {
+      } else if (category !== "all" && it.category_id !== category) {
         return false;
       }
       if (q && !it.name.toLowerCase().includes(q)) return false;
@@ -738,13 +732,13 @@ export function InventoryOrder() {
                   )}
                   {categories.map((c) => (
                     <button
-                      key={c.value}
+                      key={c.id}
                       type="button"
                       className="ordc-chip"
-                      data-active={category === c.value}
-                      onClick={() => setCategory(c.value)}
+                      data-active={category === c.id}
+                      onClick={() => setCategory(c.id)}
                     >
-                      <Icon name={CATEGORY_ICONS[c.value] ?? "category"} size={14} />
+                      <Icon name="category" size={14} />
                       {c.label}
                       <span className="ordc-chip-count">{c.count}</span>
                     </button>
@@ -783,6 +777,7 @@ export function InventoryOrder() {
                       onAdd={() => addItem(it)}
                       onPatch={(patch) => patchDraft(it, patch)}
                       onRemove={() => removeItem(it.id)}
+                      categoryName={it.category_id ? categoryNameById.get(it.category_id) ?? null : null}
                     />
                   ))}
                 </div>

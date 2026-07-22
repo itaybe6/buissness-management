@@ -31,7 +31,7 @@ export function idCardsMap(cards: EmployeeIdCard[] | undefined): Map<string, Emp
   return m;
 }
 
-async function uploadIdCardFile(businessId: string, employeeId: string, file: File): Promise<{ url: string; name: string }> {
+async function uploadIdCardFile(businessId: string, file: File): Promise<{ url: string; name: string }> {
   const isImage = file.type.startsWith("image/");
   const isPdf = file.type === "application/pdf";
   if (!isImage && !isPdf) {
@@ -50,7 +50,7 @@ export function useUploadEmployeeIdCard(businessId: string | null) {
   return useMutation({
     mutationFn: async (input: { employee_id: string; file: File }) => {
       if (!businessId) throw new Error("חסר מזהה עסק");
-      const { url, name } = await uploadIdCardFile(businessId, input.employee_id, input.file);
+      const { url, name } = await uploadIdCardFile(businessId, input.file);
       const row = {
         business_id: businessId,
         employee_id: input.employee_id,
