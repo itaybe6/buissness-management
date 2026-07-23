@@ -131,8 +131,8 @@ export interface ShiftTemplate {
   created_at: string;
 }
 
-/** "signature" = draw pad; "text" = typed straight onto the document. */
-export type FormFieldKind = "signature" | "text";
+/** "signature" = draw pad; "text" = typed straight onto the document; "checkbox" = tap to tick. */
+export type FormFieldKind = "signature" | "text" | "checkbox";
 
 /**
  * A fillable box the manager marks on a PDF page. Coordinates are normalized

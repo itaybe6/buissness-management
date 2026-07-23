@@ -65,16 +65,22 @@ interface Kpi {
 function KpiCard({ kpi, delay }: { kpi: Kpi; delay: number }) {
   const body = (
     <>
+      <span className="dash-kpi-ghost" aria-hidden>
+        <Icon name={kpi.icon} size={132} />
+      </span>
       <div className="relative flex items-center justify-between">
-        <span className="dash-kpi-icon grid h-10 w-10 place-items-center rounded-[11px]" style={{ background: kpi.tint, color: kpi.color }}>
-          <Icon name={kpi.icon} size={21} />
+        <span className="dash-kpi-icon">
+          <Icon name={kpi.icon} size={20} />
+          <span className="dash-kpi-icon-sheen" aria-hidden />
         </span>
         {kpi.to && <Icon name="chevron_left" size={18} className="dash-kpi-go text-text-3" />}
       </div>
       <div className="relative mt-3">
         <div className="text-[12px] font-bold text-text-3">{kpi.label}</div>
         <div className="mt-0.5 text-[24px] font-extrabold leading-tight tracking-tight tabular-nums text-text">
-          <CountUp value={kpi.value} format={kpi.format} />
+          <span className="dash-kpi-value">
+            <CountUp value={kpi.value} format={kpi.format} />
+          </span>
         </div>
         {kpi.sub && <div className="mt-1 flex items-center gap-1.5 text-[11.5px] font-semibold text-text-2">{kpi.sub}</div>}
       </div>
@@ -83,7 +89,6 @@ function KpiCard({ kpi, delay }: { kpi: Kpi; delay: number }) {
   const className = "dash-kpi dash-rise p-4";
   const style = {
     ["--rise-delay" as string]: `${delay}ms`,
-    ["--kpi-color" as string]: kpi.color,
   } as React.CSSProperties;
   return kpi.to ? (
     <Link to={kpi.to} className={className} style={style}>

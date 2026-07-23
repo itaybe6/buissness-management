@@ -76,6 +76,7 @@ export function AgreementEditorModal({
   // placed even before the manager uploads a business-specific version.
   const editorUrl = isForm101 ? fileUrl || FORM_101_BLANK_URL : fileUrl;
   const textFields = fields.filter((f) => kindOf(f) === "text");
+  const checkFields = fields.filter((f) => kindOf(f) === "checkbox");
   const signFields = fields.filter((f) => kindOf(f) === "signature");
 
   async function autoDetect() {
@@ -211,6 +212,7 @@ export function AgreementEditorModal({
               {(
                 [
                   { key: "text", label: "תיבת טקסט", icon: "keyboard" },
+                  { key: "checkbox", label: "תיבת סימון", icon: "check_box" },
                   { key: "signature", label: "תיבת חתימה", icon: "draw" },
                 ] as const
               ).map((t) => (
@@ -229,7 +231,7 @@ export function AgreementEditorModal({
                 </button>
               ))}
               <span className="mr-auto text-[12px] font-semibold text-text-3">
-                {textFields.length} טקסט · {signFields.length} חתימה
+                {textFields.length} טקסט · {checkFields.length} סימון · {signFields.length} חתימה
               </span>
             </div>
             <div className="mb-2 flex flex-wrap items-center gap-2 rounded-[11px] bg-accent-tint px-3 py-2.5 text-[12.5px] font-semibold text-accent-2">
@@ -498,8 +500,10 @@ function PdfSignModal({
 
   const signBoxes = fields.filter((f) => kindOf(f) === "signature");
   const textBoxes = fields.filter((f) => kindOf(f) === "text");
+  const checkBoxes = fields.filter((f) => kindOf(f) === "checkbox");
   const missingSignatures = signBoxes.filter((f) => !values[f.id]).length;
   const filledText = textBoxes.filter((f) => values[f.id]?.trim()).length;
+  const tickedCount = checkBoxes.filter((f) => values[f.id]).length;
   const ready = fields.every((f) => isFieldFilled(f, values));
   const viewUrl = alreadySigned && signature?.signed_file_url ? signature.signed_file_url : agreement.file_url!;
   const overlayValues = alreadySigned ? signature?.field_signatures ?? {} : values;
@@ -580,6 +584,12 @@ function PdfSignModal({
                 מולאו {filledText} מתוך {textBoxes.length} שדות טקסט
               </span>
             )}
+            {checkBoxes.length > 0 && (
+              <span className="flex items-center gap-1.5">
+                <Icon name="check_box" size={18} />
+                סומנו {tickedCount} תיבות
+              </span>
+            )}
           </div>
         )}
         {!canSign && !alreadySigned && (
@@ -601,6 +611,14 @@ function PdfSignModal({
                   readonly={false}
                   onTap={(fid) => setPadField(fid)}
                   onText={(fid, v) => setValues((p) => ({ ...p, [fid]: v }))}
+                  onToggle={(fid, checked) =>
+                    setValues((p) => {
+                      const next = { ...p };
+                      if (checked) next[fid] = "1";
+                      else delete next[fid];
+                      return next;
+                    })
+                  }
                 />
               ) : null
             }

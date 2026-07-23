@@ -401,9 +401,6 @@ function TaskList({
               <div className="flex flex-wrap items-center gap-2">
                 <div className={`text-[14.5px] font-semibold ${done ? "text-text-3 line-through" : ""}`}>{t.title}</div>
                 {tpl && <Badge tone="violet">ממשימה קבועה</Badge>}
-                {!t.template_id && t.type === "one_time" && showAssignee && (
-                  <Badge tone="info">חד-פעמית</Badge>
-                )}
                 {t.status === "in_progress" && <Badge tone="warning">בטיפול</Badge>}
                 {t.approval_status === "pending" && <Badge tone="warning">ממתין לאישור מנהל</Badge>}
               </div>

@@ -8,12 +8,29 @@ import type { FormFieldKind, SignatureField } from "@/types/database";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
+/**
+ * Shared getDocument options. `disableFontFace` makes pdf.js paint glyph
+ * outlines directly instead of registering the PDF's embedded fonts as CSS
+ * @font-face rules. Official Hebrew forms embed subsetted David/Times fonts,
+ * and browsers routinely fail to load those as font-faces and substitute a
+ * system font with different metrics — which renders the Hebrew garbled and
+ * spaced out. Drawing the outlines is a touch slower but always correct.
+ */
+export const PDF_DOC_OPTIONS = { disableFontFace: true } as const;
+
 /** Boxes with no explicit kind predate typed fields — they were all signatures. */
 export const kindOf = (f: SignatureField): FormFieldKind => f.kind ?? "signature";
 
-/** Only signature boxes block submission; typed boxes are often conditional (spouse, children...). */
+/** Signatures block submission; typed and ticked boxes are optional (spouse, children...). */
 export const isFieldFilled = (f: SignatureField, values: Record<string, string>) =>
-  kindOf(f) === "text" ? true : !!values[f.id];
+  kindOf(f) === "signature" ? !!values[f.id] : true;
+
+/** Per-kind palette + wording used across the manager editor. */
+const KIND_META: Record<FormFieldKind, { border: string; tint: string; text: string; name: string }> = {
+  text: { border: "border-info", tint: "bg-info/10", text: "text-info", name: "טקסט" },
+  signature: { border: "border-accent-2", tint: "bg-accent-2/10", text: "text-accent-2", name: "חתימה" },
+  checkbox: { border: "border-warning", tint: "bg-warning/10", text: "text-warning", name: "סימון" },
+};
 
 /** Rendered (CSS pixel) size of a single PDF page. */
 export interface PageDims {
@@ -57,7 +74,7 @@ export function PdfFirstPagePreview({
 
     (async () => {
       try {
-        doc = await pdfjsLib.getDocument({ url }).promise;
+        doc = await pdfjsLib.getDocument({ url, ...PDF_DOC_OPTIONS }).promise;
         if (cancelled) return;
         const page = await doc.getPage(1);
         if (cancelled) return;
@@ -142,7 +159,7 @@ export function PdfDocViewer({
     setError(false);
     setDoc(null);
     setNumPages(0);
-    const task = pdfjsLib.getDocument({ url });
+    const task = pdfjsLib.getDocument({ url, ...PDF_DOC_OPTIONS });
     task.promise.then(
       (d) => {
         if (cancelled) return;
@@ -330,9 +347,10 @@ export function FieldEditorOverlay({
       dragging.current = null;
       return;
     }
-    // text boxes trace thin printed lines, so they need a lower size floor
-    const minW = tool === "text" ? 0.015 : 0.03;
-    const minH = tool === "text" ? 0.007 : 0.015;
+    // text boxes trace thin printed lines and checkboxes are tiny squares, so
+    // both need a lower size floor than a signature box
+    const minW = tool === "signature" ? 0.03 : tool === "checkbox" ? 0.008 : 0.015;
+    const minH = tool === "signature" ? 0.015 : tool === "checkbox" ? 0.004 : 0.007;
     if (draft && draft.w > minW && draft.h > minH) {
       onAdd({ page: pageIndex, x: draft.x, y: draft.y, w: draft.w, h: draft.h, kind: tool });
     }
@@ -350,14 +368,13 @@ export function FieldEditorOverlay({
       className="absolute inset-0 cursor-crosshair touch-none"
     >
       {fields.map((f) => {
-        const text = kindOf(f) === "text";
+        const kind = kindOf(f);
+        const m = KIND_META[kind];
         return (
           <div
             key={f.id}
             data-field={f.id}
-            className={`absolute cursor-move rounded-[4px] border-2 border-dashed ${
-              text ? "border-info bg-info/10" : "border-accent-2 bg-accent-2/10"
-            }`}
+            className={`absolute cursor-move rounded-[4px] border-2 border-dashed ${m.border} ${m.tint}`}
             style={{ left: `${f.x * 100}%`, top: `${f.y * 100}%`, width: `${f.w * 100}%`, height: `${f.h * 100}%` }}
           >
             <button
@@ -366,23 +383,21 @@ export function FieldEditorOverlay({
               onPointerDown={(e) => e.stopPropagation()}
               onClick={() => onRemove(f.id)}
               className="absolute -right-2 -top-2 grid h-[18px] w-[18px] place-items-center rounded-full bg-danger text-white shadow"
-              aria-label={text ? "הסר תיבת טקסט" : "הסר תיבת חתימה"}
+              aria-label={`הסר תיבת ${m.name}`}
             >
               <Icon name="close" size={12} />
             </button>
-            <span
-              className={`pointer-events-none absolute inset-0 grid place-items-center overflow-hidden text-[10px] font-bold ${
-                text ? "text-info" : "text-accent-2"
-              }`}
-            >
-              {text ? f.label || "טקסט" : "חתימה"}
-            </span>
+            {kind !== "checkbox" && (
+              <span className={`pointer-events-none absolute inset-0 grid place-items-center overflow-hidden text-[10px] font-bold ${m.text}`}>
+                {kind === "text" ? f.label || "טקסט" : "חתימה"}
+              </span>
+            )}
           </div>
         );
       })}
       {draft && (
         <div
-          className={`absolute rounded-[4px] border-2 ${tool === "text" ? "border-info bg-info/15" : "border-accent-2 bg-accent-2/15"}`}
+          className={`absolute rounded-[4px] border-2 ${KIND_META[tool].border} ${KIND_META[tool].tint}`}
           style={{ left: `${draft.x * 100}%`, top: `${draft.y * 100}%`, width: `${draft.w * 100}%`, height: `${draft.h * 100}%` }}
         />
       )}
@@ -407,16 +422,18 @@ export function FieldSignOverlay({
   dims,
   onTap,
   onText,
+  onToggle,
   readonly,
 }: {
   pageIndex: number;
   fields: SignatureField[];
-  /** field id -> PNG dataURL (signature) or typed string (text) */
+  /** field id -> PNG dataURL (signature), typed string (text), or "1" (checkbox) */
   signatures: Record<string, string>;
   /** rendered page size, used to scale typed text to the document */
   dims?: PageDims;
   onTap?: (fieldId: string) => void;
   onText?: (fieldId: string, value: string) => void;
+  onToggle?: (fieldId: string, checked: boolean) => void;
   readonly?: boolean;
 }) {
   return (
@@ -431,6 +448,31 @@ export function FieldSignOverlay({
             width: `${f.w * 100}%`,
             height: `${f.h * 100}%`,
           };
+
+          if (kindOf(f) === "checkbox") {
+            const checked = !!value;
+            return (
+              <button
+                key={f.id}
+                type="button"
+                role="checkbox"
+                aria-checked={checked}
+                title={f.label || undefined}
+                disabled={readonly}
+                onClick={() => onToggle?.(f.id, !checked)}
+                className={`absolute grid place-items-center rounded-[2px] border-2 transition-colors ${
+                  checked
+                    ? "border-success bg-success/15 text-success"
+                    : readonly
+                      ? "border-transparent"
+                      : "border-warning/80 bg-warning/10 hover:bg-warning/20"
+                } ${readonly ? "cursor-default" : "cursor-pointer"}`}
+                style={box}
+              >
+                {checked && <Icon name="check" size={Math.max(10, (dims?.height ?? 900) * f.h * 0.9)} className="leading-none" />}
+              </button>
+            );
+          }
 
           if (kindOf(f) === "text") {
             const fontSize = Math.max(7, (dims?.height ?? 900) * f.h * TEXT_FILL_RATIO);
@@ -593,7 +635,29 @@ function textToPng(text: string, boxWidthPt: number, boxHeightPt: number): strin
   return canvas.toDataURL("image/png");
 }
 
-/** Flatten signatures and typed text onto the original PDF and return it as a Blob. */
+/** Draw a check mark (✓) sized to the box as a transparent PNG. */
+function checkToPng(boxWidthPt: number, boxHeightPt: number): string {
+  const scale = 4;
+  const w = Math.max(1, Math.round(boxWidthPt * scale));
+  const h = Math.max(1, Math.round(boxHeightPt * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d")!;
+  ctx.strokeStyle = TEXT_COLOR;
+  ctx.lineWidth = Math.max(1.5, Math.min(w, h) * 0.13);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  // a check mark inset from the box edges
+  ctx.beginPath();
+  ctx.moveTo(w * 0.2, h * 0.52);
+  ctx.lineTo(w * 0.42, h * 0.75);
+  ctx.lineTo(w * 0.82, h * 0.24);
+  ctx.stroke();
+  return canvas.toDataURL("image/png");
+}
+
+/** Flatten signatures, typed text and ticks onto the original PDF and return it as a Blob. */
 export async function buildSignedPdf(
   url: string,
   fields: SignatureField[],
@@ -608,8 +672,13 @@ export async function buildSignedPdf(
     const page = pages[f.page];
     if (!page) continue;
     const { width: pw, height: ph } = page.getSize();
+    const kind = kindOf(f);
     const dataUrl =
-      kindOf(f) === "text" ? textToPng(value.trim(), f.w * pw, f.h * ph) : value;
+      kind === "text"
+        ? textToPng(value.trim(), f.w * pw, f.h * ph)
+        : kind === "checkbox"
+          ? checkToPng(f.w * pw, f.h * ph)
+          : value;
     const png = await pdf.embedPng(dataUrl);
     // pdf-lib origin is bottom-left; our coords are top-left normalized.
     page.drawImage(png, {

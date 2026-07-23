@@ -40,7 +40,7 @@ interface RawField {
   w: number;
   h: number;
   label?: string;
-  kind?: "signature" | "text";
+  kind?: "signature" | "text" | "checkbox";
 }
 
 const median = (a: number[]) => a.slice().sort((x, y) => x - y)[a.length >> 1];
@@ -100,6 +100,21 @@ async function pageSegments(page: pdfjsLib.PDFPageProxy): Promise<Seg[]> {
   return segs;
 }
 
+/**
+ * Empty checkboxes on official forms are printed as a dingbat glyph (a box
+ * character), not vector line art. On Form 101 they arrive from the text layer
+ * as a lone "o"/"q" in a ZapfDingbats-style font; other forms use ☐/□/❑. A
+ * standalone, roughly square single glyph on a form is a checkbox.
+ */
+const BOX_GLYPHS = new Set(["o", "q", "O", "❑", "❒", "□", "■", "▪", "☐", "◻", "◼", "�"]);
+function isCheckboxGlyph(t: TextBox): boolean {
+  const s = t.str.trim();
+  if (s.length !== 1 || !BOX_GLYPHS.has(s)) return false;
+  if (t.h < 6 || t.h > 22 || t.w < 4) return false;
+  const aspect = t.w / t.h;
+  return aspect > 0.5 && aspect < 1.8;
+}
+
 /** Short Hebrew strings read as field captions; sentences and bare numbers do not. */
 function caption(s: string): string | null {
   const v = s.trim().replace(/\s+/g, " ").replace(/^[):.\s]+|[(:.\s]+$/g, "");
@@ -118,6 +133,15 @@ function detectOnPage(segs: Seg[], texts: TextBox[]): RawField[] {
     else if (dy < 1.6 && dx >= 25) rules.push({ x0: Math.min(a[0], b[0]), x1: Math.max(a[0], b[0]), y: (a[1] + b[1]) / 2 });
   }
   if (rules.length === 0) return [];
+
+  // checkboxes come straight from the text layer, not the line art
+  const checkboxes: RawField[] = texts.filter(isCheckboxGlyph).map((t) => ({
+    x: t.x,
+    y: t.y,
+    w: t.w,
+    h: t.h,
+    kind: "checkbox" as const,
+  }));
 
   const captions: Caption[] = texts
     .map((t) => ({ ...t, cap: caption(t.str) }))
@@ -244,9 +268,18 @@ function detectOnPage(segs: Seg[], texts: TextBox[]): RawField[] {
     fields.push({ x: r.x0, y: r.y, w, h: 11, label: labelFor(r.x0, r.y, w, 11) });
   }
 
+  // checkboxes win any overlap — a text/blank field on a tick box is a mistake
+  const onCheckbox = (f: RawField) =>
+    checkboxes.some((c) => {
+      const ox = Math.min(c.x + c.w, f.x + f.w) - Math.max(c.x, f.x);
+      const oy = Math.min(c.y + c.h, f.y + f.h) - Math.max(c.y, f.y);
+      return ox > 0 && oy > 0;
+    });
+
   // --- forms are often drawn twice with a slight offset; keep one box per spot ---
-  const out: RawField[] = [];
+  const out: RawField[] = [...checkboxes];
   for (const f of fields) {
+    if (onCheckbox(f)) continue;
     const dup = out.some((g) => {
       const ox = Math.min(g.x + g.w, f.x + f.w) - Math.max(g.x, f.x);
       const oy = Math.min(g.y + g.h, f.y + f.h) - Math.max(g.y, f.y);
@@ -255,7 +288,20 @@ function detectOnPage(segs: Seg[], texts: TextBox[]): RawField[] {
     if (!dup) out.push(f);
   }
 
-  for (const f of out) if (f.label && /חתימ/.test(f.label)) f.kind = "signature";
+  // signature lines are captioned *below* the blank ("____ / חתימת העובד"),
+  // so promote any text field with a חתימה caption right under it
+  const signCaption = captions.filter((t) => /חתימ/.test(t.cap));
+  for (const f of out) {
+    if (f.kind === "checkbox") continue;
+    if (/חתימ/.test(f.label ?? "")) {
+      f.kind = "signature";
+      continue;
+    }
+    const below = signCaption.some(
+      (t) => t.y < f.y && f.y - (t.y + t.h) < 14 && t.x + t.w > f.x && t.x < f.x + f.w
+    );
+    if (below) f.kind = "signature";
+  }
   return out;
 }
 
