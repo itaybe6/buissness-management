@@ -50,6 +50,8 @@ interface MobileSideDrawerProps {
 
   newFaultCount?: number;
 
+  partialDeliveryOrderCount?: number;
+
 }
 
 
@@ -83,6 +85,8 @@ export function MobileSideDrawer({
   onLogout,
 
   newFaultCount = 0,
+
+  partialDeliveryOrderCount = 0,
 
 }: MobileSideDrawerProps) {
 
@@ -312,7 +316,18 @@ export function MobileSideDrawer({
                         <span className="flex-1 text-right">{item.label}</span>
 
                         {role === "maintenance" && item.key === "faults" ? (
-                          <NavItemBadge count={newFaultCount} className="mobile-drawer-badge" />
+                          <NavItemBadge
+                            count={newFaultCount}
+                            className="mobile-drawer-badge"
+                            ariaLabel={`${newFaultCount} תקלות חדשות`}
+                          />
+                        ) : null}
+                        {role === "office_manager" && item.key === "inventory" ? (
+                          <NavItemBadge
+                            count={partialDeliveryOrderCount}
+                            className="mobile-drawer-badge"
+                            ariaLabel={`${partialDeliveryOrderCount} הזמנות שלא הגיעו במלואן`}
+                          />
                         ) : null}
 
                       </NavLink>

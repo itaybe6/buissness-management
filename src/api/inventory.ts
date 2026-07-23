@@ -91,6 +91,38 @@ export function orderLineBillableQty(line: Pick<InventoryOrder, "quantity" | "re
   return Number(line.quantity);
 }
 
+export function isPartialReceivedOrderLine(
+  line: Pick<InventoryOrder, "status" | "quantity" | "received_quantity">,
+): boolean {
+  if (line.status !== "received") return false;
+  const received = Number(line.received_quantity ?? line.quantity);
+  return received < Number(line.quantity);
+}
+
+/** Batch has a partial receive and still has lines waiting (remainder open). */
+export function batchHasActivePartialDelivery(lines: Pick<InventoryOrder, "status" | "quantity" | "received_quantity">[]): boolean {
+  if (lines.length === 0) return false;
+  const hasPartial = lines.some(isPartialReceivedOrderLine);
+  const hasPending = lines.some((l) => l.status !== "received");
+  return hasPartial && hasPending;
+}
+
+export function batchPartialDeliveryEventAt(lines: Pick<InventoryOrder, "created_at">[]): string {
+  if (lines.length === 0) return "";
+  return lines.reduce((max, l) => (l.created_at > max ? l.created_at : max), lines[0].created_at);
+}
+
+export function groupInventoryOrdersByBatch(orders: InventoryOrder[]): Map<string, InventoryOrder[]> {
+  const map = new Map<string, InventoryOrder[]>();
+  for (const o of orders) {
+    const key = o.batch_id ?? o.id;
+    const list = map.get(key);
+    if (list) list.push(o);
+    else map.set(key, [o]);
+  }
+  return map;
+}
+
 export function orderBatchTotal(
   lines: {
     item_id: string;

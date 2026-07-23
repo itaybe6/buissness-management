@@ -182,6 +182,7 @@ function StackedBarChart({
             <div
               key={i}
               className="labor-chart-col"
+              style={{ ["--i" as string]: i }}
               data-today={isToday || undefined}
               data-empty={d.total <= 0 || undefined}
               data-hover={hover?.i === i || undefined}
@@ -193,14 +194,24 @@ function StackedBarChart({
               </div>
               <div className="labor-chart-stack" style={{ height: plotH }}>
                 {d.total > 0 ? (
-                  <div className="labor-chart-bar" style={{ height: mounted || reduce ? totalH : 0 }}>
-                    {segs.map(([key, v]) => (
-                      <div
-                        key={key}
-                        className={`labor-chart-seg labor-chart-seg--${key}`}
-                        style={{ height: (v / d.total) * avail }}
+                  <div className="labor-chart-bar-wrap">
+                    {isToday && (
+                      <span
+                        className="labor-chart-bar-glow"
+                        aria-hidden
+                        style={{ height: mounted || reduce ? totalH : 0 }}
                       />
-                    ))}
+                    )}
+                    <div className="labor-chart-bar" style={{ height: mounted || reduce ? totalH : 0 }}>
+                      {segs.map(([key, v]) => (
+                        <div
+                          key={key}
+                          className={`labor-chart-seg labor-chart-seg--${key}`}
+                          style={{ height: (v / d.total) * avail }}
+                        />
+                      ))}
+                      <span className="labor-chart-bar-sheen" aria-hidden />
+                    </div>
                   </div>
                 ) : (
                   <div className="labor-chart-nub" data-today={isToday || undefined} />
@@ -422,6 +433,11 @@ export function EmployeeCostPanel({
 
   return (
     <section className="labor-cost-panel dash-rise" style={{ ["--rise-delay" as string]: "60ms" }}>
+      <div className="labor-aura" aria-hidden>
+        <span className="labor-aura-blob labor-aura-blob--1" />
+        <span className="labor-aura-blob labor-aura-blob--2" />
+        <span className="labor-aura-blob labor-aura-blob--3" />
+      </div>
       <div className="labor-cost-top">
         <div className="labor-cost-top-main">
           <span className="dash-panel-icon">
@@ -434,7 +450,13 @@ export function EmployeeCostPanel({
         </div>
 
         <div className="labor-cost-top-actions">
-          <div className="labor-granularity" role="tablist" aria-label="תצוגת זמן">
+          <div
+            className="labor-granularity"
+            role="tablist"
+            aria-label="תצוגת זמן"
+            style={{ ["--seg" as string]: granularity === "week" ? 0 : 1 }}
+          >
+            <span className="labor-granularity-thumb" aria-hidden />
             {(
               [
                 ["week", "שבוע"],
@@ -459,6 +481,8 @@ export function EmployeeCostPanel({
 
       <div className="labor-cost-body">
         <div className="labor-cost-hero-stat">
+          <span className="labor-hero-glow" aria-hidden />
+          <span className="labor-hero-sheen" aria-hidden />
           <div className="labor-cost-hero-label">
             {granularity === "week" ? "עלות השבוע" : "עלות החודש"}
           </div>

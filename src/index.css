@@ -1228,8 +1228,61 @@ select {
   color: var(--success);
 }
 
-.inventory-order-status--received .inventory-order-status-dot {
+.inventory-order-status--handled {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.inventory-order-status--received .inventory-order-status-dot,
+.inventory-order-status--handled .inventory-order-status-dot {
   background: var(--success);
+}
+
+.inventory-order-partial-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 12px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--warning) 28%, var(--border));
+  background: var(--surface-2);
+}
+
+.inventory-order-partial-banner--handled {
+  border-color: color-mix(in srgb, var(--success) 28%, var(--border));
+}
+
+.inventory-order-partial-banner-text {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+
+.inventory-order-partial-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  flex: none;
+  padding: 0.2rem 0.45rem;
+  border-radius: 999px;
+  background: var(--warning-bg);
+  color: #9a5b00;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+[data-theme="dark"] .inventory-order-partial-chip {
+  color: #fbbf24;
 }
 
 .inventory-order-delivery {
@@ -11379,11 +11432,76 @@ select {
   --labor-topup-bg: #e2f6ee;
   --labor-bonus: #f59e0b;
   --labor-bonus-bg: #fdf0d9;
+  position: relative;
   border-radius: var(--radius);
   background: var(--surface);
   box-shadow: var(--shadow-card);
   border: 1px solid var(--border);
   overflow: hidden;
+}
+
+/* Keep real content above the ambient aurora layer. */
+.labor-cost-top,
+.labor-cost-body,
+.labor-cost-footer {
+  position: relative;
+  z-index: 1;
+}
+
+/* Ambient aurora — three slow-drifting blobs in the labor palette that
+   bleed through the card padding and behind the header. */
+.labor-aura {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.labor-aura-blob {
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(46px);
+  opacity: 0.5;
+  will-change: transform;
+}
+
+.labor-aura-blob--1 {
+  top: -34%;
+  inset-inline-end: -6%;
+  width: 42%;
+  height: 150%;
+  background: radial-gradient(ellipse at center, color-mix(in srgb, var(--labor-hourly) 55%, transparent), transparent 68%);
+  animation: labor-aura-a 19s var(--ease-in-out) infinite alternate;
+}
+
+.labor-aura-blob--2 {
+  bottom: -60%;
+  inset-inline-start: -8%;
+  width: 38%;
+  height: 150%;
+  background: radial-gradient(ellipse at center, color-mix(in srgb, var(--labor-topup) 45%, transparent), transparent 68%);
+  animation: labor-aura-b 24s var(--ease-in-out) -6s infinite alternate;
+}
+
+.labor-aura-blob--3 {
+  top: 12%;
+  inset-inline-start: 32%;
+  width: 30%;
+  height: 120%;
+  opacity: 0.32;
+  background: radial-gradient(ellipse at center, color-mix(in srgb, var(--labor-bonus) 42%, transparent), transparent 66%);
+  animation: labor-aura-a 28s var(--ease-in-out) -12s infinite alternate-reverse;
+}
+
+@keyframes labor-aura-a {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(-9%, 12%, 0) scale(1.18); }
+}
+
+@keyframes labor-aura-b {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(11%, -14%, 0) scale(1.22); }
 }
 
 /* Dark mode uses its own validated steps (deeper emerald/amber). */
@@ -11421,6 +11539,7 @@ select {
 }
 
 .labor-granularity {
+  position: relative;
   display: inline-flex;
   padding: 3px;
   border-radius: 11px;
@@ -11428,20 +11547,41 @@ select {
   border: 1px solid var(--border);
 }
 
+/* Sliding spring thumb — glides between שבוע / חודש. RTL: week (0) rests
+   on the right, month (1) shifts one slot to the left. */
+.labor-granularity-thumb {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  right: 3px;
+  width: calc(50% - 3px);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  transform: translateX(calc(var(--seg, 0) * -100%));
+  transition: transform 480ms var(--ease-spring);
+  pointer-events: none;
+}
+
 .labor-granularity-btn {
+  position: relative;
+  z-index: 1;
+  flex: 1;
   min-width: 2.85rem;
   padding: 0.36rem 0.72rem;
   border-radius: 8px;
   font-size: 12px;
   font-weight: 800;
   color: var(--text-3);
-  transition: color 180ms var(--ease-out), background 180ms var(--ease-out), box-shadow 180ms var(--ease-out);
+  transition: color 220ms var(--ease-out), transform 220ms var(--ease-spring);
+}
+
+.labor-granularity-btn:active {
+  transform: scale(0.94);
 }
 
 .labor-granularity-btn[data-active] {
   color: var(--text);
-  background: var(--surface);
-  box-shadow: var(--shadow-card);
 }
 
 .labor-cost-more {
@@ -11474,6 +11614,8 @@ select {
 }
 
 .labor-cost-hero-stat {
+  position: relative;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
@@ -11481,6 +11623,59 @@ select {
   border-radius: calc(var(--radius) - 2px);
   background: var(--surface-2);
   border: 1px solid var(--border);
+}
+
+/* Soft indigo bloom anchored to the top corner of the hero card. */
+.labor-hero-glow {
+  position: absolute;
+  inset-block-start: -55%;
+  inset-inline-start: -30%;
+  width: 90%;
+  height: 130%;
+  border-radius: 999px;
+  background: radial-gradient(ellipse at center, color-mix(in srgb, var(--labor-hourly) 34%, transparent), transparent 66%);
+  filter: blur(26px);
+  pointer-events: none;
+  animation: labor-hero-breathe 7s var(--ease-in-out) infinite alternate;
+}
+
+/* One-time diagonal light sweep across the card on mount. */
+.labor-hero-sheen {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    115deg,
+    transparent 30%,
+    color-mix(in srgb, var(--labor-hourly) 22%, transparent) 46%,
+    rgb(255 255 255 / 0.55) 50%,
+    color-mix(in srgb, var(--labor-hourly) 22%, transparent) 54%,
+    transparent 70%
+  );
+  background-size: 250% 100%;
+  background-position: 130% 0;
+  mix-blend-mode: overlay;
+  opacity: 0;
+  animation: labor-hero-sweep 1400ms var(--ease-out) 420ms 1;
+}
+
+@keyframes labor-hero-breathe {
+  from { transform: translate3d(0, 0, 0) scale(1); opacity: 0.75; }
+  to { transform: translate3d(6%, 4%, 0) scale(1.15); opacity: 1; }
+}
+
+@keyframes labor-hero-sweep {
+  0% { background-position: 130% 0; opacity: 0; }
+  25% { opacity: 1; }
+  100% { background-position: -130% 0; opacity: 0; }
+}
+
+.labor-cost-hero-stat > .labor-cost-hero-label,
+.labor-cost-hero-stat > .labor-cost-hero-row,
+.labor-cost-hero-stat > .labor-cost-hero-meta,
+.labor-cost-hero-stat > .labor-breakdown-grid {
+  position: relative;
+  z-index: 1;
 }
 
 .labor-cost-hero-label {
@@ -11504,7 +11699,27 @@ select {
   line-height: 1;
   letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
-  color: var(--text);
+  /* An indigo highlight band slides slowly through the big number. Most of
+     the gradient stays on --text so the figure never loses legibility. */
+  background: linear-gradient(
+    100deg,
+    var(--text) 0%,
+    var(--text) 38%,
+    color-mix(in srgb, var(--labor-hourly) 90%, var(--text)) 50%,
+    var(--text) 62%,
+    var(--text) 100%
+  );
+  background-size: 260% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: labor-amount-shine 5.5s var(--ease-in-out) infinite;
+}
+
+@keyframes labor-amount-shine {
+  0% { background-position: 130% 0; }
+  100% { background-position: -130% 0; }
 }
 
 .labor-cost-hero-meta {
@@ -11535,8 +11750,25 @@ select {
   gap: 0.65rem;
   padding: 0.55rem 0.7rem;
   border-radius: 12px;
-  background: var(--surface-2);
+  background: var(--surface);
   border: 1px solid var(--border);
+  animation: labor-value-in 520ms var(--ease-out) both;
+  transition: transform 220ms var(--ease-spring), box-shadow 220ms var(--ease-out);
+}
+
+.labor-breakdown-grid .labor-breakdown-pill:nth-child(1) { animation-delay: 220ms; }
+.labor-breakdown-grid .labor-breakdown-pill:nth-child(2) { animation-delay: 300ms; }
+.labor-breakdown-grid .labor-breakdown-pill:nth-child(3) { animation-delay: 380ms; }
+
+@media (hover: hover) and (pointer: fine) {
+  .labor-breakdown-pill:hover {
+    transform: translateX(-3px);
+    box-shadow: var(--shadow-card);
+  }
+
+  .labor-breakdown-pill:hover .labor-breakdown-pill-icon {
+    transform: scale(1.12) rotate(-6deg);
+  }
 }
 
 .labor-breakdown-pill-icon {
@@ -11546,6 +11778,7 @@ select {
   height: 2rem;
   flex: none;
   border-radius: 9px;
+  transition: transform 260ms var(--ease-spring);
 }
 
 .labor-breakdown-pct {
@@ -11715,6 +11948,20 @@ select {
 /* Focus the hovered day; recede the rest. */
 .labor-chart-bars[data-hovering] .labor-chart-col:not([data-hover]) {
   opacity: 0.4;
+  filter: saturate(0.6);
+}
+
+/* Lift + energize the hovered bar. */
+.labor-chart-col[data-hover] .labor-chart-bar-wrap {
+  transform: translateY(-4px) scale(1.04);
+}
+
+.labor-chart-col[data-hover] .labor-chart-bar {
+  box-shadow: 0 12px 22px -8px color-mix(in srgb, var(--labor-hourly) 55%, transparent);
+}
+
+.labor-chart-bar-wrap {
+  transition: transform 260ms var(--ease-spring);
 }
 
 .labor-chart-value {
@@ -11727,10 +11974,20 @@ select {
   color: var(--text-2);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  /* Values drift up into place, trailing their bar. */
+  animation: labor-value-in 560ms var(--ease-out) calc(var(--i, 0) * 70ms + 360ms) both;
 }
 
+/* Today's figure glows in the accent. */
 .labor-chart-col[data-today] .labor-chart-value {
   color: var(--labor-hourly);
+  font-weight: 900;
+  text-shadow: 0 0 12px color-mix(in srgb, var(--labor-hourly) 45%, transparent);
+}
+
+@keyframes labor-value-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
 }
 
 .labor-chart-stack {
@@ -11740,9 +11997,35 @@ select {
   align-items: center;
 }
 
+/* Wrapper holds the bar plus its ambient glow, both anchored to baseline. */
+.labor-chart-bar-wrap {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 100%;
+}
+
+/* Vertical aura behind the highlighted (today) bar — pulses gently. */
+.labor-chart-bar-glow {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 34px;
+  transform: translateX(-50%);
+  border-radius: 10px;
+  background: linear-gradient(180deg, var(--labor-hourly), color-mix(in srgb, var(--labor-hourly) 40%, transparent));
+  filter: blur(13px);
+  opacity: 0.6;
+  transition: height 820ms var(--ease-spring) calc(var(--i, 0) * 70ms);
+  animation: labor-bar-pulse 2.6s var(--ease-in-out) 1200ms infinite;
+  pointer-events: none;
+}
+
 /* The bar: rounded data-end at the top, square at the baseline.
    Transparent 2px flex gaps let the surface separate the segments. */
 .labor-chart-bar {
+  position: relative;
   width: 100%;
   max-width: 26px;
   display: flex;
@@ -11751,13 +12034,48 @@ select {
   gap: 2px;
   border-radius: 6px 6px 0 0;
   overflow: hidden;
-  transition: height 720ms cubic-bezier(0.22, 1, 0.36, 1);
+  /* Staggered spring rise — each column trails the one before it. */
+  transition: height 820ms var(--ease-spring) calc(var(--i, 0) * 70ms);
   will-change: height;
 }
 
+/* One-time light beam that sweeps top→bottom through every bar on mount. */
+.labor-chart-bar-sheen {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 55%;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent, rgb(255 255 255 / 0.55), transparent);
+  transform: translateY(-160%);
+  animation: labor-bar-sheen 1100ms var(--ease-out) calc(var(--i, 0) * 70ms + 720ms) 1;
+}
+
 .labor-chart-seg {
+  position: relative;
   width: 100%;
   flex: none;
+}
+
+/* Glassy top-light on the crowning segment of each bar. */
+.labor-chart-bar > .labor-chart-seg:first-child::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 45%;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.28), transparent);
+  pointer-events: none;
+}
+
+@keyframes labor-bar-pulse {
+  0%, 100% { opacity: 0.45; filter: blur(13px); }
+  50% { opacity: 0.85; filter: blur(17px); }
+}
+
+@keyframes labor-bar-sheen {
+  0% { transform: translateY(-160%); opacity: 0; }
+  30% { opacity: 1; }
+  100% { transform: translateY(320%); opacity: 0; }
 }
 
 .labor-chart-seg--hourly {
@@ -11888,6 +12206,8 @@ select {
 }
 
 .labor-cost-footer-stat {
+  position: relative;
+  overflow: hidden;
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -11896,6 +12216,41 @@ select {
   background: var(--surface-2);
   border: 1px solid var(--border);
   color: var(--text-3);
+  transition: transform 220ms var(--ease-spring), box-shadow 220ms var(--ease-out), border-color 220ms var(--ease-out);
+}
+
+/* Accent bar wipes in along the top edge on hover. */
+.labor-cost-footer-stat::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--labor-hourly), transparent);
+  transform: scaleX(0);
+  transition: transform 320ms var(--ease-out);
+  pointer-events: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .labor-cost-footer-stat:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow);
+    border-color: color-mix(in srgb, var(--labor-hourly) 45%, var(--border));
+  }
+
+  .labor-cost-footer-stat:hover::before {
+    transform: scaleX(1);
+  }
+
+  .labor-cost-footer-stat:hover > .material-symbols-rounded {
+    color: var(--labor-hourly);
+    transform: scale(1.12) rotate(-6deg);
+  }
+}
+
+.labor-cost-footer-stat > .material-symbols-rounded {
+  transition: transform 240ms var(--ease-spring), color 220ms var(--ease-out);
 }
 
 .labor-cost-footer-stat > div {
@@ -11925,10 +12280,76 @@ select {
   }
 }
 
+/* Animated header medallion — soft indigo wash + a slow float. */
+.labor-cost-panel .dash-panel-icon {
+  position: relative;
+  overflow: hidden;
+  color: var(--labor-hourly);
+  background: linear-gradient(150deg, var(--labor-hourly-bg), color-mix(in srgb, var(--labor-topup-bg) 70%, transparent));
+  animation: labor-icon-float 5s var(--ease-in-out) infinite alternate;
+}
+
+.labor-cost-panel .dash-panel-icon::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 40%, rgb(255 255 255 / 0.5) 50%, transparent 60%);
+  background-size: 220% 100%;
+  background-position: 130% 0;
+  animation: labor-amount-shine 4.5s var(--ease-in-out) 1.2s infinite;
+}
+
+@keyframes labor-icon-float {
+  from { transform: translateY(0) rotate(0deg); }
+  to { transform: translateY(-2px) rotate(3deg); }
+}
+
+/* Y-max reference chip eases in after the grid settles. */
+.labor-chart-ymax {
+  animation: labor-value-in 500ms var(--ease-out) 240ms both;
+}
+
+/* Dark surfaces need a lighter ambient touch. */
+[data-theme="dark"] .labor-aura-blob {
+  opacity: 0.34;
+}
+
+[data-theme="dark"] .labor-aura-blob--3 {
+  opacity: 0.22;
+}
+
+[data-theme="dark"] .labor-hero-sheen {
+  mix-blend-mode: screen;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .labor-chart-seg,
-  .labor-chart-bar {
+  .labor-chart-bar,
+  .labor-chart-bar-glow,
+  .labor-chart-bar-wrap,
+  .labor-granularity-thumb {
     transition: none;
+  }
+
+  .labor-aura-blob,
+  .labor-hero-glow,
+  .labor-hero-sheen,
+  .labor-cost-hero-amount,
+  .labor-chart-bar-glow,
+  .labor-chart-bar-sheen,
+  .labor-chart-value,
+  .labor-chart-ymax,
+  .labor-breakdown-pill,
+  .labor-cost-panel .dash-panel-icon,
+  .labor-cost-panel .dash-panel-icon::after {
+    animation: none;
+  }
+
+  /* Keep the big number legible without its moving gradient. */
+  .labor-cost-hero-amount {
+    background: none;
+    -webkit-text-fill-color: var(--text);
+    color: var(--text);
   }
 }
 
@@ -25360,8 +25781,10 @@ button.pd-stat[aria-expanded="true"] {
   }
 }
 
+/* Inside the form's catalog column the toolbar lives in a grid track,
+   so it must not bleed. The suppliers list keeps the full-width bleed. */
 @media (min-width: 1024px) {
-  .spf-toolbar {
+  .spf-main .spf-toolbar {
     margin-inline: 0;
     padding-inline: 0;
   }
@@ -25931,23 +26354,792 @@ button.pd-stat[aria-expanded="true"] {
   }
 }
 
-/* Still used by the supplier detail modal in Suppliers.tsx */
-.sup-product-line-thumb {
-  flex: none;
-  width: 48px;
-  height: 48px;
-  border-radius: 11px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  overflow: hidden;
-  display: grid;
-  place-items: center;
+/* ══════════════════════════════════════════════════════════════
+   Suppliers list (/suppliers) — ".spl". Shares the module shell
+   above (.spf-page / .spf-hero / .spf-stat / .spf-toolbar /
+   .spf-chip / .spf-search) and adds the roster: supplier cards
+   with a monogram, a price-list thumbnail strip and a facts
+   foot, plus the ink-hero detail modal with tabs.
+   ══════════════════════════════════════════════════════════════ */
+
+/* Four live stats instead of three (list hero) */
+.spf-hero-stats--4 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.sup-product-line-thumb img {
+@media (min-width: 640px) {
+  .spf-hero-stats--4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    max-width: 720px;
+  }
+}
+
+.spl-hero-top {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.spl-hero-title {
+  margin-top: 0.5rem;
+  font-size: clamp(1.5rem, 4vw, 2.25rem);
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+}
+
+.spl-hero-sub {
+  margin-top: 0.35rem;
+  max-width: 46ch;
+  font-size: 12px;
+  line-height: 1.55;
+  font-weight: 500;
+  color: rgb(255 255 255 / 0.58);
+}
+
+@media (min-width: 768px) {
+  .spl-hero-sub {
+    font-size: 13px;
+  }
+}
+
+.spl-cta {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.7rem 1.1rem;
+  border-radius: 999px;
+  background: #fff;
+  color: #14181f;
+  font-size: 13.5px;
+  font-weight: 900;
+  white-space: nowrap;
+  box-shadow:
+    inset 0 -1px 0 rgb(0 0 0 / 0.08),
+    0 12px 28px -12px rgb(0 0 0 / 0.85);
+  transition:
+    transform 200ms var(--ease-spring),
+    box-shadow 220ms var(--ease-out);
+}
+
+.spl-cta:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    inset 0 -1px 0 rgb(0 0 0 / 0.08),
+    0 18px 34px -14px rgb(0 0 0 / 0.9);
+}
+
+.spl-cta:active {
+  transform: scale(0.97);
+}
+
+@media (max-width: 520px) {
+  .spl-hero-top {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.9rem;
+  }
+
+  .spl-cta {
+    justify-content: center;
+  }
+}
+
+/* --- Toolbar extras --- */
+.spl-result {
+  flex: none;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  padding: 0 0.35rem;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.spl-result b {
+  font-size: 16px;
+  font-weight: 900;
+  color: var(--text);
+}
+
+@media (max-width: 420px) {
+  .spl-result span {
+    display: none;
+  }
+}
+
+.spl-chip-sep {
+  flex: none;
+  align-self: stretch;
+  width: 1px;
+  margin-inline: 0.25rem;
+  background: var(--border);
+}
+
+/* --- Cards --- */
+.spl-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+  padding-bottom: 1.5rem;
+}
+
+@media (min-width: 560px) {
+  .spl-grid {
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 0.85rem;
+  }
+}
+
+.spl-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  overflow: hidden;
+  padding: 0.9rem 1rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  cursor: pointer;
+  animation: spl-card-in 380ms var(--ease-out) both;
+  transition:
+    border-color 200ms var(--ease-out),
+    box-shadow 260ms var(--ease-out),
+    transform 260ms var(--ease-spring);
+}
+
+@keyframes spl-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .spl-card:hover {
+    transform: translateY(-3px);
+    border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  }
+}
+
+.spl-card:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  box-shadow: 0 0 0 3px var(--focus-ring), var(--shadow-card);
+}
+
+.spl-card[data-inactive="true"] {
+  background: color-mix(in srgb, var(--surface-2) 55%, var(--surface));
+}
+
+.spl-card[data-inactive="true"] .spl-mono {
+  filter: grayscale(1);
+  opacity: 0.75;
+}
+
+/* Accent edge on the inline-start side */
+.spl-card-edge {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 3px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 60%, transparent),
+    color-mix(in srgb, var(--accent) 10%, transparent)
+  );
+  opacity: 0;
+  transition: opacity 240ms var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .spl-card:hover .spl-card-edge {
+    opacity: 1;
+  }
+}
+
+.spl-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+}
+
+.spl-mono {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 14px;
+  background: linear-gradient(150deg, var(--ink), var(--ink-2, var(--ink)));
+  color: #fff;
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.18),
+    0 8px 18px -10px color-mix(in srgb, var(--ink) 70%, transparent);
+}
+
+[data-theme="dark"] .spl-mono {
+  background: linear-gradient(150deg, #2b3342, #1a212b);
+}
+
+.spl-mono--lg {
+  width: 3.4rem;
+  height: 3.4rem;
+  border-radius: 18px;
+  font-size: 24px;
+  background: linear-gradient(150deg, rgb(255 255 255 / 0.24), rgb(255 255 255 / 0.06));
+  border: 1px solid rgb(255 255 255 / 0.18);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+.spl-card-name {
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spl-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.2rem 0.6rem;
+  margin-top: 0.2rem;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.spl-card-meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+}
+
+.spl-card-meta .material-symbols-rounded {
+  color: var(--text-3);
+}
+
+.spl-card-meta-empty {
+  color: var(--text-3);
+  font-weight: 500;
+}
+
+.spl-card-flags {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+}
+
+.spl-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 10.5px;
+  font-weight: 800;
+  white-space: nowrap;
+  color: var(--text-3);
+}
+
+.spl-flag--live {
+  border-color: color-mix(in srgb, var(--warning) 40%, transparent);
+  background: var(--warning-bg);
+  color: color-mix(in srgb, var(--warning) 78%, var(--text));
+}
+
+.spl-flag--live i {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: var(--warning);
+  animation: spl-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes spl-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.78);
+  }
+}
+
+/* --- Price-list strip --- */
+.spl-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--border-2);
+  border-radius: 14px;
+  background: var(--surface-2);
+}
+
+.spl-strip[data-empty="true"] {
+  border-style: dashed;
+  background: transparent;
+}
+
+.spl-strip-thumbs {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.spl-thumb {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  border-radius: 9px;
+  overflow: hidden;
+  border: 1.5px solid var(--surface);
+  background: var(--surface);
+  color: var(--text-3);
+  box-shadow: 0 1px 3px rgb(16 24 40 / 0.1);
+  transition: transform 220ms var(--ease-spring);
+}
+
+.spl-thumb + .spl-thumb {
+  margin-inline-start: -0.5rem;
+}
+
+.spl-thumb img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .spl-card:hover .spl-thumb {
+    transform: translateY(-1px);
+  }
+}
+
+.spl-thumb--more {
+  background: var(--surface-2);
+  font-size: 10px;
+  font-weight: 900;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.spl-strip-sum {
+  flex: none;
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.spl-strip-empty {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-3);
+}
+
+/* --- Foot: facts + actions --- */
+.spl-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border-2);
+}
+
+.spl-facts {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.spl-facts > span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  color: var(--text-3);
+}
+
+.spl-facts b {
+  font-size: 14px;
+  font-weight: 900;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.spl-card-actions {
+  flex: none;
+  display: flex;
+  gap: 0.25rem;
+}
+
+.spl-act {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-3);
+  cursor: pointer;
+  transition:
+    background-color 160ms var(--ease-out),
+    border-color 160ms var(--ease-out),
+    color 160ms var(--ease-out),
+    transform 160ms var(--ease-spring);
+}
+
+.spl-act:hover {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+
+.spl-act:active {
+  transform: scale(0.94);
+}
+
+.spl-act--danger:hover {
+  background: var(--danger-bg);
+  border-color: color-mix(in srgb, var(--danger) 35%, transparent);
+  color: var(--danger);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .spl-card-actions {
+    opacity: 0;
+    transform: translateY(3px);
+    transition:
+      opacity 200ms var(--ease-out),
+      transform 220ms var(--ease-spring);
+  }
+
+  .spl-card:hover .spl-card-actions,
+  .spl-card:focus-within .spl-card-actions {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* --- Detail modal --- */
+.spl-mhero {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  padding: 1.4rem 1.25rem 1.15rem;
+  color: #fff;
+  background: linear-gradient(163deg, #242b38 0%, #10141b 78%);
+}
+
+[data-theme="dark"] .spl-mhero {
+  background: linear-gradient(163deg, #282e3a 0%, #151a22 78%);
+}
+
+.spl-mhero-id {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  /* Clear of the floating glass close button */
+  padding-inline-end: 2.5rem;
+}
+
+.spl-mhero-name {
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.spl-mhero-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.4rem;
+  margin-top: 0.35rem;
+}
+
+.spl-mhero-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.18rem 0.55rem;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.08);
+  font-size: 11px;
+  font-weight: 800;
+  color: rgb(255 255 255 / 0.82);
+}
+
+.spl-mhero-state i {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: var(--text-3);
+}
+
+.spl-mhero-state[data-active="true"] i {
+  background: var(--success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 25%, transparent);
+}
+
+.spl-notes {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  margin-bottom: 0.9rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+
+.spl-notes .material-symbols-rounded {
+  flex: none;
+  color: var(--text-3);
+}
+
+.spl-tabs {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-2);
+}
+
+.spl-tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  min-width: 0;
+  padding: 0.5rem 0.35rem;
+  border-radius: 10px;
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--text-3);
+  cursor: pointer;
+  transition:
+    background-color 200ms var(--ease-out),
+    color 200ms var(--ease-out),
+    transform 160ms var(--ease-spring);
+}
+
+.spl-tab:active {
+  transform: scale(0.97);
+}
+
+.spl-tab[data-active="true"] {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+
+.spl-tab-count {
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 10px;
+  font-weight: 900;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.spl-tab[data-active="true"] .spl-tab-count {
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+}
+
+.spl-tabpanel {
+  margin-top: 0.85rem;
+  animation: spl-panel-in 260ms var(--ease-out) both;
+}
+
+@keyframes spl-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.spl-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.spl-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border-2);
+  border-radius: 13px;
+  background: var(--surface);
+  transition: border-color 160ms var(--ease-out);
+}
+
+.spl-row:hover {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+}
+
+.spl-row-thumb {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.spl-row-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.spl-row-thumb--doc {
+  color: var(--text-3);
+}
+
+.spl-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.spl-row-main b {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spl-row-main em {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.spl-row-price {
+  flex: none;
+  font-size: 13px;
+  font-weight: 900;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.spl-pill {
+  flex: none;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.spl-pill--ok {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.spl-pill--warn {
+  background: var(--warning-bg);
+  color: color-mix(in srgb, var(--warning) 80%, var(--text));
+}
+
+.spl-empty-line {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 1.4rem 0.75rem;
+  justify-content: center;
+  text-align: center;
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-3);
+}
+
+.spl-skel {
+  height: 3.2rem;
+  border-radius: 13px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spl-card,
+  .spl-tabpanel,
+  .spl-flag--live i {
+    animation: none;
+  }
+
+  .spl-card,
+  .spl-thumb,
+  .spl-card-actions {
+    transition: none;
+  }
 }
 
 
@@ -26265,8 +27457,9 @@ button.pd-stat[aria-expanded="true"] {
       "summary datenav"
       "strip strip";
     align-items: center;
-    padding: 1.05rem 1.15rem 1.1rem;
-    column-gap: 1.25rem;
+    padding: 1.15rem 1.25rem 1.2rem;
+    column-gap: 1.5rem;
+    row-gap: 1.1rem;
   }
 
   .rtb-deck-top {
@@ -26278,13 +27471,57 @@ button.pd-stat[aria-expanded="true"] {
     grid-area: summary;
   }
 
-  /* Fixed-width pills instead of 7 equal fractions — on a wide deck the
-     stretched cells left the day labels floating in empty boxes. */
+  /* Full-bleed week overview: 7 equal segments, each a card carrying its
+     own completion bar — reads as a single strip across the whole deck. */
   .rtb-strip {
     grid-area: strip;
-    grid-template-columns: repeat(7, 4.6rem);
-    justify-content: start;
-    justify-self: start;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 0.5rem;
+    padding: 0;
+    border: none;
+    background: transparent;
+  }
+
+  .rtb-strip-day {
+    gap: 0.28rem;
+    padding: 0.7rem 0.5rem 0.78rem;
+    border-color: var(--border-2);
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .rtb-strip-day:hover {
+    background: var(--surface-2);
+    border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+  }
+
+  .rtb-strip-day[data-active] {
+    background: var(--primary-bg);
+    border-color: transparent;
+  }
+
+  .rtb-strip-day[data-today]:not([data-active]) {
+    border-color: color-mix(in srgb, var(--accent) 34%, transparent);
+  }
+
+  .rtb-strip-name {
+    font-size: 11.5px;
+    opacity: 1;
+    color: var(--text-3);
+  }
+
+  .rtb-strip-day[data-active] .rtb-strip-name {
+    color: color-mix(in srgb, var(--primary-fg) 78%, transparent);
+  }
+
+  .rtb-strip-num {
+    font-size: 17px;
+  }
+
+  .rtb-strip-bar {
+    width: 100%;
+    height: 5px;
+    margin-top: 0.32rem;
   }
 
   .rtb-summary-title {
@@ -26293,18 +27530,6 @@ button.pd-stat[aria-expanded="true"] {
 
   .rtb-summary-sub {
     font-size: 12.5px;
-  }
-
-  .rtb-strip-day {
-    padding-block: 0.5rem 0.45rem;
-  }
-
-  .rtb-strip-name {
-    font-size: 11px;
-  }
-
-  .rtb-strip-num {
-    font-size: 15px;
   }
 }
 
@@ -26778,6 +28003,10 @@ button.pd-stat[aria-expanded="true"] {
   color: var(--text-2);
 }
 
+.rtb-row-media[data-empty] {
+  display: none;
+}
+
 @media (min-width: 640px) {
   .rtb-row-head {
     padding-inline: 1rem 0.6rem;
@@ -26792,6 +28021,37 @@ button.pd-stat[aria-expanded="true"] {
     width: 2.1rem;
     height: 2.1rem;
     border-radius: 9px;
+  }
+}
+
+/* On wide screens the row reads as a table line: mark | title | status |
+   evidence | chevron, with fixed columns so 15 rows scan vertically. */
+@media (min-width: 880px) {
+  .rtb-row-copy {
+    flex-direction: row;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .rtb-row-title {
+    flex: 1;
+    -webkit-line-clamp: 1;
+  }
+
+  .rtb-row-sub {
+    flex: none;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    width: 17rem;
+  }
+
+  .rtb-row-media {
+    justify-content: flex-end;
+    min-width: 4.25rem;
+  }
+
+  .rtb-row-media[data-empty] {
+    display: flex;
   }
 }
 
@@ -26812,37 +28072,184 @@ button.pd-stat[aria-expanded="true"] {
   overflow: hidden;
 }
 
-/* The rail lines up with the status mark, so details hang under the title:
-   head padding (0.85) + mark (2.15) = 3rem, then 0.6rem back to the text. */
-.rtb-row-details {
+/* ── Expanded dossier ──────────────────────────────────────────────
+   A self-contained card that slides open under the row: a tinted status
+   banner (hero) over a specs + instructions + performer-timeline grid.
+   --tone is inherited from the row's data-status. */
+.rtb-detail {
+  margin: 0 0.55rem 0.7rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--tone) 22%, var(--border));
+  border-radius: 17px;
+  background: var(--surface);
+  box-shadow:
+    0 1px 2px rgba(16, 24, 40, 0.05),
+    0 18px 40px -26px color-mix(in srgb, var(--tone) 65%, transparent);
+}
+
+/* --- Status banner (hero) --- */
+.rtb-detail-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.7rem 0.8rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--tone) 16%, var(--border));
+  background:
+    linear-gradient(
+      120deg,
+      color-mix(in srgb, var(--tone) 15%, transparent),
+      color-mix(in srgb, var(--tone) 4%, transparent) 62%
+    ),
+    var(--surface);
+}
+
+.rtb-detail-banner-mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 13px;
+  color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 16%, var(--surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 30%, transparent);
+}
+
+.rtb-detail-banner-copy {
   display: flex;
   flex-direction: column;
-  gap: 0.7rem;
-  margin-inline-start: 1.9rem;
-  padding-block: 0.15rem 0.9rem;
-  padding-inline: 0.75rem 0.85rem;
-  border-inline-start: 2px solid color-mix(in srgb, var(--tone) 25%, transparent);
+  gap: 0.1rem;
+  min-width: 0;
 }
 
-.rtb-facts {
+.rtb-detail-banner-label {
+  font-size: 14.5px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: var(--tone);
+}
+
+.rtb-detail-banner-sub {
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+
+/* --- Overlapping performer avatars, glanceable on the banner --- */
+.rtb-stack {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  margin-inline-start: auto;
+  padding-inline-start: 0.4rem;
+}
+
+.rtb-stack-item {
+  display: inline-flex;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--surface);
+}
+
+.rtb-stack-item:not(:first-child) {
+  margin-inline-start: -0.5rem;
+}
+
+.rtb-stack-more {
+  margin-inline-start: 0.4rem;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--text-2);
+}
+
+/* --- Body grid --- */
+.rtb-detail-grid {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-areas:
+    "specs"
+    "main";
+  padding: 0.8rem;
+}
+
+.rtb-detail-side {
+  grid-area: specs;
+  min-width: 0;
+}
+
+.rtb-detail-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.95rem;
+  grid-area: main;
+  min-width: 0;
+}
+
+/* --- Specs: compact chips on mobile, a labeled list on desktop --- */
+.rtb-specs {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.3rem;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.rtb-fact {
+.rtb-spec {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
-  padding: 0.2rem 0.5rem;
-  border-radius: 8px;
-  font-size: 11.5px;
-  font-weight: 700;
-  color: var(--text-2);
+  gap: 0.38rem;
+  min-width: 0;
+  padding: 0.34rem 0.6rem 0.34rem 0.5rem;
+  border: 1px solid var(--border-2);
+  border-radius: 999px;
   background: var(--surface-2);
 }
 
-.rtb-fact .material-symbols-rounded {
+.rtb-spec-ic {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  color: var(--text-3);
+}
+
+.rtb-spec-ic .material-symbols-rounded {
+  color: var(--text-2);
+}
+
+.rtb-spec-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+
+.rtb-spec-key {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-3);
+}
+
+.rtb-spec-val {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+/* Mobile: the icon already names the field — drop the label word. */
+@media (max-width: 879px) {
+  .rtb-spec-key {
+    display: none;
+  }
+}
+
+.rtb-block-empty {
+  font-size: 12px;
+  font-weight: 600;
   color: var(--text-3);
 }
 
@@ -26912,23 +28319,124 @@ button.pd-stat[aria-expanded="true"] {
   background: rgb(0 0 0 / 0.35);
 }
 
-.rtb-row-hint {
-  display: inline-flex;
+/* --- "nobody reported yet" placeholder --- */
+.rtb-log-empty {
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 0.35rem;
-  font-size: 11.5px;
-  font-weight: 600;
+  gap: 0.2rem;
+  padding: 1.15rem 1rem;
+  border: 1px dashed color-mix(in srgb, var(--tone) 32%, var(--border));
+  border-radius: 13px;
   color: var(--text-3);
+  background: color-mix(in srgb, var(--tone) 4%, transparent);
+  text-align: center;
+}
+
+.rtb-log-empty .material-symbols-rounded {
+  color: color-mix(in srgb, var(--tone) 70%, var(--text-3));
+}
+
+.rtb-log-empty-title {
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: -0.015em;
+  color: var(--text-2);
+}
+
+.rtb-log-empty-sub {
+  max-width: 24rem;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.55;
 }
 
 @media (min-width: 640px) {
-  .rtb-row-details {
-    margin-inline-start: 2.05rem;
-    padding-inline-end: 1rem;
-  }
-
   .rtb-media-tile {
     --tile: 4.4rem;
+  }
+}
+
+@media (min-width: 880px) {
+  .rtb-detail {
+    margin-inline: 0.7rem;
+  }
+
+  .rtb-detail-banner {
+    gap: 0.8rem;
+    padding: 0.85rem 1rem;
+  }
+
+  .rtb-detail-banner-mark {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+
+  .rtb-detail-banner-label {
+    font-size: 15.5px;
+  }
+
+  .rtb-detail-banner-sub {
+    font-size: 12.5px;
+  }
+
+  .rtb-detail-grid {
+    grid-template-columns: minmax(0, 1fr) 15.5rem;
+    grid-template-areas: "main specs";
+    gap: 1.4rem;
+    padding: 1.1rem 1.15rem;
+  }
+
+  /* No position:sticky here — .rtb-row-panel is overflow:hidden for the
+     grid-rows expand animation, so there is no scrollport to stick to. */
+  .rtb-detail-side {
+    align-self: start;
+  }
+
+  /* Desktop: specs become a labeled vertical card in the side column. */
+  .rtb-specs {
+    flex-direction: column;
+    gap: 0;
+    padding: 0.3rem 0.85rem;
+    border: 1px solid var(--border-2);
+    border-radius: 14px;
+    background: var(--surface-2);
+  }
+
+  .rtb-spec {
+    width: 100%;
+    padding: 0.55rem 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .rtb-spec + .rtb-spec {
+    border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  }
+
+  .rtb-spec-ic {
+    width: 1.6rem;
+    height: 1.6rem;
+    border-radius: 8px;
+    background: var(--surface);
+    box-shadow: inset 0 0 0 1px var(--border-2);
+  }
+
+  .rtb-spec-val {
+    max-width: 8.5rem;
+    margin-inline-start: auto;
+    text-align: end;
+  }
+
+  /* Prose stays readable — never a 1400px-long line of text. */
+  .rtb-row-desc {
+    max-width: 70ch;
+    font-size: 13px;
+  }
+
+  .rtb-log-empty {
+    padding-block: 1.7rem;
   }
 }
 

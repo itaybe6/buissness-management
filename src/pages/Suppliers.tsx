@@ -1,20 +1,12 @@
 import { useMemo, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
-import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  ErrorState,
-  Icon,
-  Input,
-  PageLoader,
-} from "@/components/ui";
+import { Button, EmptyState, ErrorState, Icon, PageLoader } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useBusinessId, formatCurrency } from "@/lib/db";
 import { useAuth } from "@/lib/auth";
 import {
   useDeleteSupplier,
+  useSupplierItemPriceIndex,
   useSupplierItems,
   useSupplierOrderBatches,
   useSupplierReceipts,
@@ -22,15 +14,32 @@ import {
   supplierSaveError,
   type SupplierWithStats,
 } from "@/api/suppliers";
+import { useInventory } from "@/api/inventory";
 import { RECEIPT_TYPE_LABELS } from "@/pages/agreements/types";
 
 type StatusFilter = "all" | "active" | "inactive";
+type SortKey = "name" | "products" | "orders";
 
 const STATUS_FILTERS: { key: StatusFilter; label: string }[] = [
   { key: "all", label: "הכל" },
   { key: "active", label: "פעילים" },
   { key: "inactive", label: "לא פעילים" },
 ];
+
+const SORTS: { key: SortKey; label: string; icon: string }[] = [
+  { key: "name", label: "א-ת", icon: "sort_by_alpha" },
+  { key: "products", label: "הכי הרבה מוצרים", icon: "inventory_2" },
+  { key: "orders", label: "הזמנות פתוחות", icon: "local_shipping" },
+];
+
+/** Thumbnails shown in a card's price-list strip. */
+const STRIP_MAX = 6;
+
+type SupplierMeta = {
+  /** Sum of the supplier's own unit prices — the "size" of its price list. */
+  total: number;
+  thumbs: { id: string; url: string | null; name: string }[];
+};
 
 function formatWhen(iso: string) {
   return new Date(iso).toLocaleDateString("he-IL", {
@@ -42,6 +51,11 @@ function formatWhen(iso: string) {
   });
 }
 
+function monogram(name: string) {
+  const t = name.trim();
+  return t ? t[0] : "?";
+}
+
 export function Suppliers() {
   const businessId = useBusinessId();
   const navigate = useNavigate();
@@ -49,32 +63,77 @@ export function Suppliers() {
   const canManage = !!(profile && ["manager", "office_manager"].includes(profile.role));
 
   const { data: suppliers, isLoading, isError, error, refetch } = useSuppliers(businessId);
+  const { data: priceIndex } = useSupplierItemPriceIndex(businessId);
+  const { data: inventory } = useInventory(businessId);
   const del = useDeleteSupplier(businessId);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
+  const [sort, setSort] = useState<SortKey>("name");
   const [detail, setDetail] = useState<SupplierWithStats | null>(null);
   const [toDelete, setToDelete] = useState<SupplierWithStats | null>(null);
 
+  const itemMeta = useMemo(() => new Map((inventory ?? []).map((i) => [i.id, i])), [inventory]);
+
+  /** supplier → price-list total + a few product thumbnails (images first). */
+  const supplierMeta = useMemo(() => {
+    const out = new Map<string, SupplierMeta>();
+    if (!priceIndex) return out;
+    for (const [sid, lines] of priceIndex) {
+      let total = 0;
+      const all: { id: string; url: string | null; name: string }[] = [];
+      for (const [itemId, price] of lines) {
+        total += price;
+        const it = itemMeta.get(itemId);
+        if (it) all.push({ id: itemId, url: it.image_url, name: it.name });
+      }
+      all.sort((a, b) => Number(!!b.url) - Number(!!a.url));
+      out.set(sid, { total, thumbs: all.slice(0, STRIP_MAX) });
+    }
+    return out;
+  }, [priceIndex, itemMeta]);
+
+  const heroStats = useMemo(() => {
+    const list = suppliers ?? [];
+    return {
+      total: list.length,
+      active: list.filter((s) => s.active).length,
+      products: list.reduce((a, s) => a + s.product_count, 0),
+      openLines: list.reduce((a, s) => a + s.open_order_lines, 0),
+    };
+  }, [suppliers]);
+
+  const statusCounts = useMemo(() => {
+    const list = suppliers ?? [];
+    return {
+      all: list.length,
+      active: list.filter((s) => s.active).length,
+      inactive: list.filter((s) => !s.active).length,
+    };
+  }, [suppliers]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return (suppliers ?? []).filter((s) => {
+    const rows = (suppliers ?? []).filter((s) => {
       if (statusFilter === "active" && !s.active) return false;
       if (statusFilter === "inactive" && s.active) return false;
       if (!q) return true;
       const hay = [s.name, s.phone ?? "", s.tax_id ?? "", s.notes ?? ""].join(" ").toLowerCase();
       return hay.includes(q);
     });
-  }, [suppliers, search, statusFilter]);
+    const sorted = [...rows];
+    if (sort === "products") sorted.sort((a, b) => b.product_count - a.product_count || a.name.localeCompare(b.name, "he"));
+    else if (sort === "orders") sorted.sort((a, b) => b.open_order_lines - a.open_order_lines || a.name.localeCompare(b.name, "he"));
+    else sorted.sort((a, b) => a.name.localeCompare(b.name, "he"));
+    return sorted;
+  }, [suppliers, search, statusFilter, sort]);
 
   if (!canManage) return <Navigate to="/inventory" replace />;
   if (!businessId) {
     return <EmptyState icon="store" title="לא משויך לעסק" description="פנו למנהל המערכת לשיוך לעסק." />;
   }
   if (isLoading) return <PageLoader label="טוען ספקים..." />;
-  if (isError) {
-    return <ErrorState message={supplierSaveError(error)} onRetry={refetch} />;
-  }
+  if (isError) return <ErrorState message={supplierSaveError(error)} onRetry={refetch} />;
 
   async function confirmDelete() {
     if (!toDelete) return;
@@ -87,133 +146,165 @@ export function Suppliers() {
     }
   }
 
-  return (
-    <div className="w-full animate-fadeUp">
-      <div className="inventory-search mb-4 space-y-2.5">
-        <div className="inv-searchrow">
-          <div className="relative min-w-0 flex-1">
-            <Icon
-              name="search"
-              size={18}
-              className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-text-3"
-            />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="חיפוש לפי שם, טלפון, ח.פ..."
-              className="!pr-10"
-            />
-            {search && (
-              <button
-                type="button"
-                onClick={() => setSearch("")}
-                aria-label="ניקוי חיפוש"
-                className="absolute left-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-md text-text-3 transition-colors hover:bg-surface-2 hover:text-text"
-              >
-                <Icon name="close" size={16} />
-              </button>
-            )}
-          </div>
-          <Link to="/suppliers/new" className="shrink-0">
-            <Button icon="add" className="!h-11 !bg-ink whitespace-nowrap shadow-sm hover:brightness-110 active:scale-[0.97]">
-              ספק חדש
-            </Button>
-          </Link>
-        </div>
-        <div className="inventory-search-filters flex gap-1.5 overflow-x-auto pb-0.5">
-          {STATUS_FILTERS.map(({ key, label }) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setStatusFilter(key)}
-              className={`inventory-search-filter${statusFilter === key ? " inventory-search-filter--active" : ""}`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <p className="text-[12px] font-medium text-text-3">
-          {filtered.length} מתוך {suppliers?.length ?? 0} ספקים
-        </p>
-      </div>
+  const noSuppliers = (suppliers?.length ?? 0) === 0;
 
-      {filtered.length === 0 ? (
-        <EmptyState
-          icon="local_shipping"
-          title={suppliers?.length ? "לא נמצאו ספקים" : "עדיין אין ספקים"}
-          description={
-            suppliers?.length
-              ? "נסו חיפוש אחר או שנו את הסינון."
-              : "הוסיפו ספקים קבועים כדי לקשר אליהם הזמנות וחשבוניות."
-          }
-          action={
-            suppliers?.length ? (
-              <Button variant="secondary" onClick={() => { setSearch(""); setStatusFilter("all"); }}>
-                ניקוי סינון
-              </Button>
-            ) : (
-              <Link to="/suppliers/new">
-                <Button icon="add">ספק ראשון</Button>
-              </Link>
-            )
-          }
-        />
-      ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((s, i) => (
-            <Card
-              key={s.id}
-              className="group cursor-pointer border-border bg-surface p-4 transition hover:border-accent/35 hover:shadow-sm"
-              style={{ animationDelay: `${Math.min(i, 12) * 40}ms` }}
-              onClick={() => setDetail(s)}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <h3 className="truncate text-[15px] font-extrabold text-text">{s.name}</h3>
-                  {s.phone && (
-                    <p className="mt-0.5 flex items-center gap-1 text-[12.5px] text-text-2">
-                      <Icon name="call" size={14} />
-                      {s.phone}
-                    </p>
-                  )}
-                  {s.tax_id && <p className="mt-0.5 text-[12px] text-text-3">ח.פ / ע.מ {s.tax_id}</p>}
-                </div>
-                {!s.active && <Badge tone="neutral">לא פעיל</Badge>}
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2 text-[11.5px] font-semibold text-text-2">
-                <span className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2.5 py-1">
-                  <Icon name="inventory_2" size={14} />
-                  {s.product_count} מוצרים
-                </span>
-                <span className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2.5 py-1">
-                  <Icon name="local_shipping" size={14} />
-                  {s.open_order_lines > 0 ? `${s.open_order_lines} שורות פתוחות` : "אין הזמנות פתוחות"}
-                </span>
-                <span className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2.5 py-1">
-                  <Icon name="receipt_long" size={14} />
-                  {s.receipt_count} מסמכים
-                </span>
-              </div>
-              <div className="mt-3 flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
+  return (
+    <div className="spf-page page-enter">
+      {/* ── Ink hero ── */}
+      <header className="spf-hero">
+        <span className="spf-glow spf-glow--1" aria-hidden />
+        <span className="spf-glow spf-glow--2" aria-hidden />
+        <span className="spf-grid-lines" aria-hidden />
+
+        <div className="spf-hero-inner">
+          <div className="spl-hero-top">
+            <div className="min-w-0">
+              <span className="spf-hero-tag">
+                <Icon name="local_shipping" size={14} />
+                ניהול ספקים
+              </span>
+              <h1 className="spl-hero-title">ספקים</h1>
+              <p className="spl-hero-sub">
+                כל מי שמספק לעסק — עם המחירון שלו, ההזמנות הפתוחות והמסמכים הפיננסיים.
+              </p>
+            </div>
+            <Link to="/suppliers/new" className="spl-cta">
+              <Icon name="add" size={19} />
+              ספק חדש
+            </Link>
+          </div>
+
+          <div className="spf-hero-stats spf-hero-stats--4">
+            <div className="spf-stat">
+              <span className="spf-stat-label">סה״כ ספקים</span>
+              <b className="spf-stat-value" key={`t${heroStats.total}`}>
+                {heroStats.total}
+              </b>
+            </div>
+            <div className="spf-stat">
+              <span className="spf-stat-label">פעילים</span>
+              <b className="spf-stat-value" key={`a${heroStats.active}`}>
+                {heroStats.active}
+              </b>
+            </div>
+            <div className="spf-stat">
+              <span className="spf-stat-label">מוצרים במחירונים</span>
+              <b className="spf-stat-value" key={`p${heroStats.products}`}>
+                {heroStats.products}
+              </b>
+            </div>
+            <div className="spf-stat" data-tone={heroStats.openLines > 0 ? "warn" : undefined}>
+              <span className="spf-stat-label">שורות פתוחות</span>
+              <b className="spf-stat-value" key={`o${heroStats.openLines}`}>
+                {heroStats.openLines}
+              </b>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div className="spf-body">
+        {/* ── Sticky filters ── */}
+        <div className="spf-toolbar">
+          <div className="spf-toolbar-top">
+            <div className="spf-search">
+              <Icon name="search" size={18} className="spf-search-icon" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="חיפוש לפי שם, טלפון, ח.פ..."
+                className="spf-search-input"
+                aria-label="חיפוש ספק"
+              />
+              {search && (
+                <button type="button" className="spf-search-x" onClick={() => setSearch("")} aria-label="ניקוי חיפוש">
+                  <Icon name="close" size={15} />
+                </button>
+              )}
+            </div>
+            <span className="spl-result">
+              <b>{filtered.length}</b>
+              <span>מתוך {statusCounts.all}</span>
+            </span>
+          </div>
+
+          <div className="spf-chips">
+            {STATUS_FILTERS.map(({ key, label }) => (
+              <button
+                key={key}
+                type="button"
+                className="spf-chip"
+                data-active={statusFilter === key}
+                onClick={() => setStatusFilter(key)}
+              >
+                {label}
+                <span className="spf-chip-count">{statusCounts[key]}</span>
+              </button>
+            ))}
+            <span className="spl-chip-sep" aria-hidden />
+            {SORTS.map((s) => (
+              <button
+                key={s.key}
+                type="button"
+                className="spf-chip"
+                data-active={sort === s.key}
+                onClick={() => setSort(s.key)}
+              >
+                <Icon name={s.icon} size={14} />
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Cards ── */}
+        {filtered.length === 0 ? (
+          <EmptyState
+            icon="local_shipping"
+            title={noSuppliers ? "עדיין אין ספקים" : "לא נמצאו ספקים"}
+            description={
+              noSuppliers
+                ? "הוסיפו ספקים קבועים כדי לקשר אליהם מחירונים, הזמנות וחשבוניות."
+                : "נסו חיפוש אחר או שנו את הסינון."
+            }
+            action={
+              noSuppliers ? (
+                <Link to="/suppliers/new">
+                  <Button icon="add">ספק ראשון</Button>
+                </Link>
+              ) : (
                 <Button
-                  variant="ghost"
-                  icon="edit"
-                  className="!px-2 !py-1.5 text-[12px]"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    navigate(`/suppliers/${s.id}/edit`);
+                  variant="secondary"
+                  onClick={() => {
+                    setSearch("");
+                    setStatusFilter("all");
                   }}
                 >
-                  עריכה
+                  ניקוי סינון
                 </Button>
-              </div>
-            </Card>
-          ))}
-        </div>
-      )}
+              )
+            }
+          />
+        ) : (
+          <div className="spl-grid">
+            {filtered.map((s, i) => (
+              <SupplierCard
+                key={s.id}
+                supplier={s}
+                meta={supplierMeta.get(s.id)}
+                index={i}
+                onOpen={() => setDetail(s)}
+                onEdit={() => navigate(`/suppliers/${s.id}/edit`)}
+                onDelete={() => setToDelete(s)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
 
       <SupplierDetailModal
         supplier={detail}
+        meta={detail ? supplierMeta.get(detail.id) : undefined}
         businessId={businessId}
         onClose={() => setDetail(null)}
         onEdit={() => {
@@ -226,7 +317,7 @@ export function Suppliers() {
       />
 
       <Modal open={!!toDelete} onClose={() => setToDelete(null)} title="מחיקת ספק" icon="delete" maxWidth={400}>
-        <p className="text-[14px] text-text-2">
+        <p className="text-[14px] leading-relaxed text-text-2">
           למחוק את «{toDelete?.name}»? קישורים קיימים להזמנות ולמסמכים יישארו ללא ספק משויך.
         </p>
         <div className="mt-4 flex justify-end gap-2">
@@ -242,151 +333,382 @@ export function Suppliers() {
   );
 }
 
+/* ---------------------------------------------------------------- */
+/* Card                                                              */
+/* ---------------------------------------------------------------- */
+function SupplierCard({
+  supplier: s,
+  meta,
+  index,
+  onOpen,
+  onEdit,
+  onDelete,
+}: {
+  supplier: SupplierWithStats;
+  meta: SupplierMeta | undefined;
+  index: number;
+  onOpen: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const thumbs = meta?.thumbs ?? [];
+  const rest = Math.max(0, s.product_count - thumbs.length);
+
+  return (
+    <article
+      className="spl-card"
+      data-inactive={!s.active}
+      style={{ animationDelay: `${Math.min(index, 14) * 35}ms` }}
+      onClick={onOpen}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        // Only the card itself — never a key press bubbling up from an action button.
+        if (e.target !== e.currentTarget) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+    >
+      <span className="spl-card-edge" aria-hidden />
+
+      <div className="spl-card-head">
+        <span className="spl-mono" aria-hidden>
+          {monogram(s.name)}
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 className="spl-card-name">{s.name}</h3>
+          <p className="spl-card-meta">
+            {s.phone ? (
+              <span>
+                <Icon name="call" size={13} />
+                {s.phone}
+              </span>
+            ) : null}
+            {s.tax_id ? (
+              <span>
+                <Icon name="badge" size={13} />
+                {s.tax_id}
+              </span>
+            ) : null}
+            {!s.phone && !s.tax_id && <span className="spl-card-meta-empty">לא הוזנו פרטי קשר</span>}
+          </p>
+        </div>
+
+        <div className="spl-card-flags">
+          {!s.active && <span className="spl-flag">לא פעיל</span>}
+          {s.open_order_lines > 0 && (
+            <span className="spl-flag spl-flag--live">
+              <i aria-hidden />
+              {s.open_order_lines} פתוחות
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Price-list preview */}
+      <div className="spl-strip" data-empty={thumbs.length === 0}>
+        {thumbs.length === 0 ? (
+          <span className="spl-strip-empty">
+            <Icon name="sell" size={15} />
+            עדיין אין מחירון לספק הזה
+          </span>
+        ) : (
+          <>
+            <span className="spl-strip-thumbs">
+              {thumbs.map((t) => (
+                <span key={t.id} className="spl-thumb" title={t.name}>
+                  {t.url ? <img src={t.url} alt="" loading="lazy" /> : <Icon name="inventory_2" size={14} />}
+                </span>
+              ))}
+              {rest > 0 && <span className="spl-thumb spl-thumb--more">+{rest}</span>}
+            </span>
+            {meta && meta.total > 0 && <span className="spl-strip-sum">{formatCurrency(meta.total)}</span>}
+          </>
+        )}
+      </div>
+
+      <div className="spl-card-foot">
+        <div className="spl-facts">
+          <span>
+            <b>{s.product_count}</b>
+            מוצרים
+          </span>
+          <span>
+            <b>{s.open_order_lines}</b>
+            שורות פתוחות
+          </span>
+          <span>
+            <b>{s.receipt_count}</b>
+            מסמכים
+          </span>
+        </div>
+
+        <div className="spl-card-actions">
+          {s.phone && (
+            <a
+              href={`tel:${s.phone}`}
+              className="spl-act"
+              onClick={(e) => e.stopPropagation()}
+              aria-label={`חיוג ל${s.name}`}
+              title="חיוג"
+            >
+              <Icon name="call" size={16} />
+            </a>
+          )}
+          <button
+            type="button"
+            className="spl-act"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit();
+            }}
+            aria-label={`עריכת ${s.name}`}
+            title="עריכה"
+          >
+            <Icon name="edit" size={16} />
+          </button>
+          <button
+            type="button"
+            className="spl-act spl-act--danger"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            aria-label={`מחיקת ${s.name}`}
+            title="מחיקה"
+          >
+            <Icon name="delete" size={16} />
+          </button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+/* ---------------------------------------------------------------- */
+/* Detail modal                                                      */
+/* ---------------------------------------------------------------- */
+type DetailTab = "products" | "orders" | "receipts";
+
 function SupplierDetailModal({
   supplier,
+  meta,
   businessId,
   onClose,
   onEdit,
   onDelete,
 }: {
   supplier: SupplierWithStats | null;
+  meta: SupplierMeta | undefined;
   businessId: string;
   onClose: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const [tab, setTab] = useState<DetailTab>("products");
   const { data: batches, isLoading: ordersLoading } = useSupplierOrderBatches(businessId, supplier?.id ?? null, !!supplier);
   const { data: receipts, isLoading: receiptsLoading } = useSupplierReceipts(businessId, supplier?.id ?? null, !!supplier);
   const { data: linkedProducts, isLoading: productsLoading } = useSupplierItems(businessId, supplier?.id ?? null, !!supplier);
 
   if (!supplier) return null;
 
+  const tabs: { key: DetailTab; label: string; icon: string; count: number }[] = [
+    { key: "products", label: "מחירון", icon: "sell", count: supplier.product_count },
+    { key: "orders", label: "הזמנות", icon: "local_shipping", count: batches?.length ?? 0 },
+    { key: "receipts", label: "מסמכים", icon: "receipt_long", count: supplier.receipt_count },
+  ];
+
   return (
     <Modal
       open
       onClose={onClose}
-      title={supplier.name}
-      subtitle={supplier.active ? "ספק פעיל" : "ספק לא פעיל"}
-      icon="store"
-      maxWidth={560}
-    >
-      <div className="space-y-5">
-        {(supplier.phone || supplier.tax_id || supplier.notes) && (
-          <div className="rounded-[12px] border border-border bg-surface-2 p-3 text-[13px] text-text-2">
-            {supplier.phone && (
-              <p>
-                <Icon name="call" size={15} className="ml-1 inline" />
-                {supplier.phone}
+      maxWidth={620}
+      hero={
+        <div className="spl-mhero">
+          <span className="spf-glow spf-glow--1" aria-hidden />
+          <span className="spf-grid-lines" aria-hidden />
+          <div className="spl-mhero-id">
+            <span className="spl-mono spl-mono--lg" aria-hidden>
+              {monogram(supplier.name)}
+            </span>
+            <div className="min-w-0">
+              <h3 className="spl-mhero-name">{supplier.name}</h3>
+              <p className="spl-mhero-facts">
+                <span className="spl-mhero-state" data-active={supplier.active}>
+                  <i aria-hidden />
+                  {supplier.active ? "פעיל" : "לא פעיל"}
+                </span>
+                {supplier.phone && (
+                  <a href={`tel:${supplier.phone}`} className="spf-hero-fact">
+                    <Icon name="call" size={13} />
+                    {supplier.phone}
+                  </a>
+                )}
+                {supplier.tax_id && (
+                  <span className="spf-hero-fact">
+                    <Icon name="badge" size={13} />
+                    {supplier.tax_id}
+                  </span>
+                )}
               </p>
-            )}
-            {supplier.tax_id && <p className="mt-1">ח.פ / ע.מ {supplier.tax_id}</p>}
-            {supplier.notes && <p className="mt-1 text-text-3">{supplier.notes}</p>}
+            </div>
           </div>
-        )}
 
-        <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" icon="edit" className="!px-3 !py-2 text-[12px]" onClick={onEdit}>
-            עריכה
+          <div className="spf-hero-stats">
+            <div className="spf-stat">
+              <span className="spf-stat-label">מוצרים</span>
+              <b className="spf-stat-value">{supplier.product_count}</b>
+            </div>
+            <div className="spf-stat">
+              <span className="spf-stat-label">סה״כ מחירון</span>
+              <b className="spf-stat-value">{formatCurrency(meta?.total ?? 0)}</b>
+            </div>
+            <div className="spf-stat" data-tone={supplier.open_order_lines > 0 ? "warn" : undefined}>
+              <span className="spf-stat-label">שורות פתוחות</span>
+              <b className="spf-stat-value">{supplier.open_order_lines}</b>
+            </div>
+          </div>
+        </div>
+      }
+      footer={
+        <>
+          <Button variant="secondary" icon="edit" onClick={onEdit}>
+            עריכת ספק
           </Button>
           <Link to={`/inventory?tab=orders&supplier=${supplier.id}`} className="inline-flex">
-            <Button variant="secondary" icon="inventory_2" className="!px-3 !py-2 text-[12px]">
+            <Button variant="secondary" icon="inventory_2">
               הזמנות במלאי
             </Button>
           </Link>
-          <Button variant="ghost" icon="delete" className="!px-3 !py-2 text-[12px] text-danger" onClick={onDelete}>
+          <Button variant="ghost" icon="delete" className="!text-danger" onClick={onDelete}>
             מחיקה
           </Button>
-        </div>
+        </>
+      }
+    >
+      {supplier.notes && (
+        <p className="spl-notes">
+          <Icon name="sticky_note_2" size={16} />
+          {supplier.notes}
+        </p>
+      )}
 
-        <section>
-          <h4 className="mb-2 flex items-center gap-1.5 text-[13px] font-extrabold text-text">
-            <Icon name="inventory_2" size={16} />
-            מוצרים ומחירים
-          </h4>
-          {productsLoading ? (
-            <p className="text-[13px] text-text-3">טוען...</p>
+      <div className="spl-tabs" role="tablist">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.key}
+            className="spl-tab"
+            data-active={tab === t.key}
+            onClick={() => setTab(t.key)}
+          >
+            <Icon name={t.icon} size={16} />
+            {t.label}
+            <span className="spl-tab-count">{t.count}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="spl-tabpanel" key={tab}>
+        {tab === "products" &&
+          (productsLoading ? (
+            <SkeletonRows />
           ) : !linkedProducts?.length ? (
-            <p className="text-[13px] text-text-3">לא שויכו מוצרים. ניתן להוסיף בעריכת הספק.</p>
+            <EmptyLine text="לא שויכו מוצרים. ניתן להוסיף בעריכת הספק." />
           ) : (
-            <ul className="space-y-2">
+            <ul className="spl-list">
               {linkedProducts.map((p) => (
-                <li
-                  key={p.item_id}
-                  className="flex items-center gap-2.5 rounded-[11px] border border-border bg-surface px-3 py-2"
-                >
-                  <div className="sup-product-line-thumb !h-10 !w-10 !rounded-[9px]">
+                <li key={p.item_id} className="spl-row">
+                  <span className="spl-row-thumb">
                     {p.item_image_url ? (
-                      <img src={p.item_image_url} alt="" />
+                      <img src={p.item_image_url} alt="" loading="lazy" />
                     ) : (
-                      <Icon name="inventory_2" size={18} className="text-text-3" />
+                      <Icon name="inventory_2" size={17} className="text-text-3" />
                     )}
-                  </div>
-                  <span className="min-w-0 flex-1 truncate text-[13px] font-bold">{p.item_name}</span>
-                  <span className="shrink-0 text-[13px] font-extrabold tabular-nums text-text">
-                    {formatCurrency(Number(p.unit_price))}
-                    {p.item_unit ? ` / ${p.item_unit}` : ""}
+                  </span>
+                  <span className="spl-row-main">
+                    <b>{p.item_name}</b>
+                    <em>{p.item_unit || "יחידה"}</em>
+                  </span>
+                  <span className="spl-row-price">{formatCurrency(Number(p.unit_price))}</span>
+                </li>
+              ))}
+            </ul>
+          ))}
+
+        {tab === "orders" &&
+          (ordersLoading ? (
+            <SkeletonRows />
+          ) : !batches?.length ? (
+            <EmptyLine text="אין הזמנות מקושרות לספק זה." />
+          ) : (
+            <ul className="spl-list">
+              {batches.slice(0, 10).map((b) => (
+                <li key={b.batch_key} className="spl-row spl-row--stack">
+                  <span className="spl-row-main">
+                    <b>
+                      {b.preview_item_names.join(", ")}
+                      {b.line_count > b.preview_item_names.length
+                        ? ` +${b.line_count - b.preview_item_names.length}`
+                        : ""}
+                    </b>
+                    <em>
+                      {formatWhen(b.created_at)} · {b.line_count} פריטים
+                    </em>
+                  </span>
+                  <span className={`spl-pill${b.pending_count > 0 ? " spl-pill--warn" : " spl-pill--ok"}`}>
+                    {b.pending_count > 0 ? `${b.pending_count} ממתין` : "התקבל"}
                   </span>
                 </li>
               ))}
             </ul>
-          )}
-        </section>
+          ))}
 
-        <section>
-          <h4 className="mb-2 flex items-center gap-1.5 text-[13px] font-extrabold text-text">
-            <Icon name="local_shipping" size={16} />
-            הזמנות אחרונות
-          </h4>
-          {ordersLoading ? (
-            <p className="text-[13px] text-text-3">טוען...</p>
-          ) : !batches?.length ? (
-            <p className="text-[13px] text-text-3">אין הזמנות מקושרות לספק זה.</p>
-          ) : (
-            <ul className="space-y-2">
-              {batches.slice(0, 8).map((b) => (
-                <li key={b.batch_key} className="rounded-[11px] border border-border bg-surface px-3 py-2.5">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-[13px] font-bold text-text">
-                      {b.preview_item_names.join(", ")}
-                      {b.line_count > b.preview_item_names.length ? ` (+${b.line_count - b.preview_item_names.length})` : ""}
-                    </span>
-                    {b.pending_count > 0 ? (
-                      <Badge tone="warning">{b.pending_count} ממתין</Badge>
-                    ) : (
-                      <Badge tone="success">התקבל</Badge>
-                    )}
-                  </div>
-                  <p className="mt-0.5 text-[12px] text-text-3">{formatWhen(b.created_at)} · {b.line_count} פריטים</p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section>
-          <h4 className="mb-2 flex items-center gap-1.5 text-[13px] font-extrabold text-text">
-            <Icon name="receipt_long" size={16} />
-            מסמכים פיננסיים
-          </h4>
-          {receiptsLoading ? (
-            <p className="text-[13px] text-text-3">טוען...</p>
+        {tab === "receipts" &&
+          (receiptsLoading ? (
+            <SkeletonRows />
           ) : !receipts?.length ? (
-            <p className="text-[13px] text-text-3">אין מסמכים מקושרים. ניתן לקשר בעת העלאת חשבונית במסמכים.</p>
+            <EmptyLine text="אין מסמכים מקושרים. ניתן לקשר בעת העלאת חשבונית במסמכים." />
           ) : (
-            <ul className="space-y-2">
-              {receipts.slice(0, 6).map((r) => (
-                <li key={r.id} className="flex items-center justify-between gap-2 rounded-[11px] border border-border bg-surface px-3 py-2">
-                  <div className="min-w-0">
-                    <p className="truncate text-[13px] font-bold">{RECEIPT_TYPE_LABELS[r.type as keyof typeof RECEIPT_TYPE_LABELS]}</p>
-                    <p className="text-[12px] text-text-3">{formatWhen(r.created_at)}</p>
-                  </div>
-                  <span className="shrink-0 text-[13px] font-extrabold tabular-nums">{formatCurrency(Number(r.amount))}</span>
+            <ul className="spl-list">
+              {receipts.slice(0, 10).map((r) => (
+                <li key={r.id} className="spl-row">
+                  <span className="spl-row-thumb spl-row-thumb--doc">
+                    <Icon name="receipt_long" size={17} />
+                  </span>
+                  <span className="spl-row-main">
+                    <b>{RECEIPT_TYPE_LABELS[r.type as keyof typeof RECEIPT_TYPE_LABELS]}</b>
+                    <em>{formatWhen(r.created_at)}</em>
+                  </span>
+                  <span className="spl-row-price">{formatCurrency(Number(r.amount))}</span>
                 </li>
               ))}
             </ul>
-          )}
-        </section>
+          ))}
       </div>
     </Modal>
+  );
+}
+
+function EmptyLine({ text }: { text: string }) {
+  return (
+    <p className="spl-empty-line">
+      <Icon name="info" size={16} />
+      {text}
+    </p>
+  );
+}
+
+function SkeletonRows() {
+  return (
+    <div className="spl-list">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="skeleton spl-skel" />
+      ))}
+    </div>
   );
 }

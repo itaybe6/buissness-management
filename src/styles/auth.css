@@ -198,6 +198,7 @@
 .auth-input {
   width: 100%;
   height: 56px;
+  /* top | right (lock/@ icon) | bottom | left */
   padding: 21px 44px 7px 44px;
   border-radius: 15px;
   border: 1px solid var(--border);
@@ -227,16 +228,22 @@
   box-shadow: 0 0 0 4px var(--focus-ring);
 }
 
+/* Password field: the reveal button lives on the physical-left edge, so the
+   text needs a wider channel there to never sit under the button. */
+.auth-input--reveal {
+  padding-left: 54px;
+}
+
+/* The app is RTL-only — icons and labels are pinned to physical edges so the
+   layout can't flip or overlap on any logical-property quirk. */
 .auth-label {
   position: absolute;
-  inset-inline-start: 44px;
+  right: 44px;
   top: 17px;
   pointer-events: none;
   font-size: 15px;
   font-weight: 500;
   color: var(--text-3);
-  /* The app is RTL-only, so the inline start edge is the right one.
-     `transform-origin` has no logical keywords — this must stay physical. */
   transform-origin: right top;
   transition:
     transform 260ms var(--ease-spring),
@@ -255,7 +262,7 @@
 
 .auth-field-icon {
   position: absolute;
-  inset-inline-start: 14px;
+  right: 14px;
   top: 50%;
   translate: 0 -50%;
   pointer-events: none;
@@ -271,7 +278,8 @@
 /* Underline that draws out from the centre on focus */
 .auth-field-underline {
   position: absolute;
-  inset-inline: 14px;
+  left: 14px;
+  right: 14px;
   bottom: 0;
   height: 2px;
   border-radius: 2px;
@@ -292,31 +300,42 @@
   opacity: 1;
 }
 
+/* Reveal button — its own control on the physical-left edge of the field.
+   Sits at left 8 → 8+40 = 48px, inside the input's 54px reveal padding so it
+   never overlaps the typed text. */
 .auth-eye {
   position: absolute;
-  inset-inline-end: 8px;
+  left: 8px;
   top: 50%;
   translate: 0 -50%;
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   border: 0;
-  border-radius: 10px;
+  border-radius: 12px;
   background: transparent;
   color: var(--text-3);
   cursor: pointer;
   transition: color 200ms, background-color 200ms, transform 220ms var(--ease-spring);
 }
 
-.auth-eye:hover {
-  color: var(--text);
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
+@media (hover: hover) {
+  .auth-eye:hover {
+    color: var(--text);
+    background: color-mix(in srgb, var(--accent) 9%, transparent);
+  }
 }
 
 /* Vertical centring lives on `translate`, so `transform` only scales. */
 .auth-eye:active {
   transform: scale(0.88);
+}
+
+.auth-eye:focus-visible {
+  outline: none;
+  color: var(--text);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 /* Caps-lock hint */

@@ -224,7 +224,7 @@ export function Login() {
                 <div className="auth-field">
                   <input
                     id="auth-password"
-                    className="auth-input"
+                    className="auth-input auth-input--reveal"
                     type={showPw ? "text" : "password"}
                     required
                     autoComplete="current-password"

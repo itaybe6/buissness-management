@@ -22,7 +22,7 @@ const STATUS_META: Record<OccStatus, { label: string; icon: string; rank: number
   done: { label: "בוצע", icon: "check_circle", rank: 3 },
 };
 
-type StatusFilter = "all" | "done" | "in_progress" | "todo" | "media";
+type StatusFilter = "all" | "done" | "in_progress" | "todo";
 
 interface Performer {
   id: string;
@@ -146,8 +146,6 @@ function matchesFilter(occ: Occurrence, filter: StatusFilter): boolean {
       return occ.status === "in_progress";
     case "todo":
       return occ.status === "pending" || occ.status === "missed";
-    case "media":
-      return occ.media.length > 0;
     default:
       return true;
   }
@@ -246,15 +244,32 @@ function PerformerChip({ performer }: { performer: Performer }) {
 
 /* ============================== row ============================== */
 
+function occurrenceSummary(occ: Occurrence, lead: Performer | undefined): string {
+  const time = timeOf(occ.at);
+  if (occ.status === "done") {
+    if (occ.performers.length > 1) {
+      return `${occ.performers.length} עובדים דיווחו${time ? ` · הושלם ב-${time}` : ""}`;
+    }
+    return `דווח על ידי ${lead?.name ?? "עובד"}${time ? ` · ${time}` : ""}`;
+  }
+  if (occ.status === "in_progress") return `בטיפול${lead ? ` · ${lead.name}` : ""}`;
+  if (occ.status === "missed") return "היום הסתיים ללא דיווח ביצוע";
+  return "טרם התקבל דיווח מהעובדים";
+}
+
 function OccurrenceRow({
   occ,
   index,
+  deptName,
+  deptTone,
   expanded,
   onToggle,
   onPreview,
 }: {
   occ: Occurrence;
   index: number;
+  deptName: string;
+  deptTone: string;
   expanded: boolean;
   onToggle: () => void;
   onPreview: (url: string) => void;
@@ -263,6 +278,7 @@ function OccurrenceRow({
   const cover = occ.media.slice(0, 2);
   const extra = occ.media.length - cover.length;
   const lead = occ.performers[0];
+  const summary = occurrenceSummary(occ, lead);
 
   return (
     <article
@@ -294,20 +310,23 @@ function OccurrenceRow({
           </span>
         </span>
 
-        {cover.length > 0 && (
-          <span className="rtb-row-media" aria-label={`${occ.media.length} קבצי תיעוד`}>
-            {cover.map((url) => (
-              <span key={url} className="rtb-row-media-thumb">
-                {isVideoUrl(url) ? (
-                  <video src={url} muted playsInline preload="metadata" />
-                ) : (
-                  <img src={url} alt="" loading="lazy" />
-                )}
-              </span>
-            ))}
-            {extra > 0 && <span className="rtb-row-media-more">+{extra}</span>}
-          </span>
-        )}
+        {/* Always rendered on desktop so the chevron column stays aligned. */}
+        <span
+          className="rtb-row-media"
+          data-empty={cover.length === 0 || undefined}
+          aria-label={occ.media.length > 0 ? `${occ.media.length} קבצי תיעוד` : undefined}
+        >
+          {cover.map((url) => (
+            <span key={url} className="rtb-row-media-thumb">
+              {isVideoUrl(url) ? (
+                <video src={url} muted playsInline preload="metadata" />
+              ) : (
+                <img src={url} alt="" loading="lazy" />
+              )}
+            </span>
+          ))}
+          {extra > 0 && <span className="rtb-row-media-more">+{extra}</span>}
+        </span>
 
         <span className="rtb-row-chevron" aria-hidden="true">
           <Icon name="expand_more" size={19} />
@@ -316,86 +335,151 @@ function OccurrenceRow({
 
       <div className="rtb-row-panel">
         <div className="rtb-row-panel-inner">
-          <div className="rtb-row-details">
-            <div className="rtb-facts">
-              <span className="rtb-fact">
-                <Icon name="event_repeat" size={14} />
-                {formatRecurrenceWeekday(occ.template.recurrence_weekday)}
+          <div className="rtb-detail">
+            <div className="rtb-detail-banner">
+              <span className="rtb-detail-banner-mark" aria-hidden="true">
+                <Icon name={meta.icon} size={24} />
               </span>
-              {occ.at && (
-                <span className="rtb-fact">
-                  <Icon name="schedule" size={14} />
-                  {timeOf(occ.at)}
+              <span className="rtb-detail-banner-copy">
+                <span className="rtb-detail-banner-label">{meta.label}</span>
+                <span className="rtb-detail-banner-sub">{summary}</span>
+              </span>
+              {occ.performers.length > 0 && (
+                <span className="rtb-stack">
+                  {occ.performers.slice(0, 4).map((p) => (
+                    <span key={p.id} className="rtb-stack-item">
+                      <UserAvatar
+                        userId={p.id}
+                        name={p.name}
+                        avatarUrl={p.avatarUrl}
+                        size={30}
+                        rounded="circle"
+                      />
+                    </span>
+                  ))}
+                  {occ.performers.length > 4 && (
+                    <span className="rtb-stack-more">+{occ.performers.length - 4}</span>
+                  )}
                 </span>
               )}
-              <span className="rtb-fact">
-                <Icon name="photo_library" size={14} />
-                {occ.media.length > 0 ? `${occ.media.length} קבצי תיעוד` : "ללא תיעוד"}
-              </span>
             </div>
 
-            {occ.template.description && (
-              <p className="rtb-row-desc">{occ.template.description}</p>
-            )}
+            <div className="rtb-detail-grid">
+              <aside className="rtb-detail-side">
+                <ul className="rtb-specs">
+                  <li className="rtb-spec">
+                    <span className="rtb-spec-ic">
+                      <Icon name="event_repeat" size={15} />
+                    </span>
+                    <span className="rtb-spec-key">תדירות</span>
+                    <span className="rtb-spec-val">
+                      {formatRecurrenceWeekday(occ.template.recurrence_weekday)}
+                    </span>
+                  </li>
+                  <li className="rtb-spec">
+                    <span className="rtb-spec-ic">
+                      <span className="rtb-spec-dot" style={{ background: deptTone }} />
+                    </span>
+                    <span className="rtb-spec-key">מחלקה</span>
+                    <span className="rtb-spec-val">{deptName}</span>
+                  </li>
+                  <li className="rtb-spec">
+                    <span className="rtb-spec-ic">
+                      <Icon name="schedule" size={15} />
+                    </span>
+                    <span className="rtb-spec-key">דווח לאחרונה</span>
+                    <span className="rtb-spec-val">{timeOf(occ.at) ?? "—"}</span>
+                  </li>
+                  <li className="rtb-spec">
+                    <span className="rtb-spec-ic">
+                      <Icon name="perm_media" size={15} />
+                    </span>
+                    <span className="rtb-spec-key">קבצי תיעוד</span>
+                    <span className="rtb-spec-val">
+                      {occ.media.length > 0 ? occ.media.length : "—"}
+                    </span>
+                  </li>
+                </ul>
+              </aside>
 
-            {occ.performers.length > 0 || occ.orphanMedia.length > 0 ? (
-              <div className="rtb-block">
-                <span className="rtb-block-label">
-                  <Icon name="how_to_reg" size={14} />
-                  ביצוע ותיעוד
-                </span>
-                <div className="rtb-log">
-                  {occ.performers.map((p) => (
-                    <div key={p.id} className="rtb-log-entry" data-status={p.status}>
-                      <div className="rtb-log-head">
-                        <UserAvatar
-                          userId={p.id}
-                          name={p.name}
-                          avatarUrl={p.avatarUrl}
-                          size={26}
-                          rounded="circle"
-                        />
-                        <span className="rtb-log-name">{p.name}</span>
-                        <span className="rtb-log-status">{PERSON_STATUS[p.status]}</span>
-                        {timeOf(p.at) && <span className="rtb-log-time">{timeOf(p.at)}</span>}
+              <div className="rtb-detail-main">
+                <section className="rtb-block">
+                  <span className="rtb-block-label">
+                    <Icon name="notes" size={14} />
+                    הוראות ביצוע
+                  </span>
+                  {occ.template.description ? (
+                    <p className="rtb-row-desc">{occ.template.description}</p>
+                  ) : (
+                    <span className="rtb-block-empty">לא נוספו הוראות למשימה זו.</span>
+                  )}
+                </section>
+
+                <section className="rtb-block">
+                  <span className="rtb-block-label">
+                    <Icon name="how_to_reg" size={14} />
+                    ביצוע ותיעוד
+                  </span>
+                  {occ.performers.length > 0 || occ.orphanMedia.length > 0 ? (
+                  <div className="rtb-log">
+                    {occ.performers.map((p) => (
+                      <div key={p.id} className="rtb-log-entry" data-status={p.status}>
+                        <div className="rtb-log-head">
+                          <UserAvatar
+                            userId={p.id}
+                            name={p.name}
+                            avatarUrl={p.avatarUrl}
+                            size={26}
+                            rounded="circle"
+                          />
+                          <span className="rtb-log-name">{p.name}</span>
+                          <span className="rtb-log-status">{PERSON_STATUS[p.status]}</span>
+                          {timeOf(p.at) && <span className="rtb-log-time">{timeOf(p.at)}</span>}
+                        </div>
+                        {p.media.length > 0 ? (
+                          <div className="rtb-media-grid">
+                            {p.media.map((url) => (
+                              <MediaTile key={url} url={url} onOpen={() => onPreview(url)} />
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="rtb-log-nomedia">לא צירף תמונה או סרטון</span>
+                        )}
                       </div>
-                      {p.media.length > 0 ? (
+                    ))}
+
+                    {occ.orphanMedia.length > 0 && (
+                      <div className="rtb-log-entry">
+                        <div className="rtb-log-head">
+                          <span className="rtb-log-anon" aria-hidden="true">
+                            <Icon name="perm_media" size={15} />
+                          </span>
+                          <span className="rtb-log-name">תיעוד ללא שיוך</span>
+                        </div>
                         <div className="rtb-media-grid">
-                          {p.media.map((url) => (
+                          {occ.orphanMedia.map((url) => (
                             <MediaTile key={url} url={url} onOpen={() => onPreview(url)} />
                           ))}
                         </div>
-                      ) : (
-                        <span className="rtb-log-nomedia">לא צירף תמונה או סרטון</span>
-                      )}
-                    </div>
-                  ))}
-
-                  {occ.orphanMedia.length > 0 && (
-                    <div className="rtb-log-entry">
-                      <div className="rtb-log-head">
-                        <span className="rtb-log-anon" aria-hidden="true">
-                          <Icon name="perm_media" size={15} />
-                        </span>
-                        <span className="rtb-log-name">תיעוד ללא שיוך</span>
                       </div>
-                      <div className="rtb-media-grid">
-                        {occ.orphanMedia.map((url) => (
-                          <MediaTile key={url} url={url} onOpen={() => onPreview(url)} />
-                        ))}
-                      </div>
-                    </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="rtb-log-empty">
+                    <Icon name={occ.status === "missed" ? "person_off" : "hourglass_empty"} size={22} />
+                    <span className="rtb-log-empty-title">
+                      {occ.status === "missed" ? "לא דווח ביצוע" : "טרם דווח ביצוע"}
+                    </span>
+                    <span className="rtb-log-empty-sub">
+                      {occ.status === "missed"
+                        ? "אף עובד לא סימן את המשימה הזו ביום זה."
+                        : "כשעובד יסמן את המשימה, שמו, השעה והתיעוד יופיעו כאן."}
+                    </span>
+                  </div>
                   )}
-                </div>
+                </section>
               </div>
-            ) : (
-              <span className="rtb-row-hint">
-                <Icon name="info" size={15} />
-                {occ.status === "missed"
-                  ? "אף עובד לא דיווח על המשימה הזו ביום זה."
-                  : "עדיין לא דווח ביצוע למשימה זו."}
-              </span>
-            )}
+            </div>
           </div>
         </div>
       </div>
@@ -478,15 +562,13 @@ export function RecurringTasksBoard({
     let done = 0;
     let inProgress = 0;
     let todo = 0;
-    let media = 0;
     dayOccurrences.forEach((o) => {
       if (o.status === "done") done++;
       else if (o.status === "in_progress") inProgress++;
       else todo++;
-      if (o.media.length > 0) media++;
     });
     const total = dayOccurrences.length;
-    return { done, inProgress, todo, media, total, pct: total ? Math.round((done / total) * 100) : 0 };
+    return { done, inProgress, todo, total, pct: total ? Math.round((done / total) * 100) : 0 };
   }, [dayOccurrences]);
 
   const weekProgress = useMemo(
@@ -552,7 +634,6 @@ export function RecurringTasksBoard({
     { key: "done", label: "בוצעו", count: counts.done, icon: "check_circle" },
     { key: "in_progress", label: "בטיפול", count: counts.inProgress, icon: "timelapse" },
     { key: "todo", label: date < today ? "לא בוצעו" : "ממתינות", count: counts.todo, icon: "radio_button_unchecked" },
-    { key: "media", label: "עם תיעוד", count: counts.media, icon: "perm_media" },
   ];
 
   function toggleSection(id: string) {
@@ -753,6 +834,8 @@ export function RecurringTasksBoard({
                           key={key}
                           occ={occ}
                           index={i}
+                          deptName={section.name}
+                          deptTone={section.tone}
                           expanded={expandedId === key}
                           onToggle={() => setExpandedId((cur) => (cur === key ? null : key))}
                           onPreview={setPreview}

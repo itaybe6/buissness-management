@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { Badge, Button, EmptyState, Field, Icon, Input, ErrorState, InlineLoader, LoadingOverlay, PageLoader, SectionLoader, Select, MultiSelect } from "@/components/ui";
 import { useQueryClient } from "@tanstack/react-query";
@@ -33,14 +33,15 @@ import {
   inventoryLineTotal,
   orderLineBillableQty,
   orderBatchTotal,
+  batchHasActivePartialDelivery,
 } from "@/api/inventory";
+import { usePartialDeliveryOrderCount, type PartialBatchUiState } from "@/hooks/usePartialDeliveryOrderCount";
 import { useDepartments } from "@/api/departments";
 import {
   useInventoryCategories,
   inventoryCategoryById,
 } from "@/api/inventoryCategories";
 import { useSuppliers, useSupplierItemPriceIndex, supplierPricesFor, type SupplierItemPriceIndex } from "@/api/suppliers";
-import { useIsMdUp } from "@/hooks/useMediaQuery";
 import { useWaste } from "@/api/waste";
 import type { Department, InventoryAction, InventoryCategory, InventoryWaste } from "@/types/database";
 
@@ -709,14 +710,14 @@ function matchesCatalogFilters(
   return true;
 }
 
-type OrderFilter = "all" | "today" | "week";
+type OrderFilter = "open" | "closed" | "partial";
 type WasteFilter = "all" | "deducted" | "not_deducted";
 type StockFilter = "all" | "low";
 
 const ORDER_FILTERS: { key: OrderFilter; label: string }[] = [
-  { key: "all", label: "הכל" },
-  { key: "today", label: "היום" },
-  { key: "week", label: "השבוע" },
+  { key: "open", label: "פתוחות" },
+  { key: "closed", label: "סגורות" },
+  { key: "partial", label: "חלקיות" },
 ];
 
 const WASTE_FILTERS: { key: WasteFilter; label: string }[] = [
@@ -730,17 +731,10 @@ const STOCK_FILTERS: { key: StockFilter; label: string }[] = [
   { key: "low", label: "מלאי נמוך" },
 ];
 
-function isWithinDays(iso: string, days: number): boolean {
-  const d = new Date(iso);
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1));
-  return d >= start;
-}
-
-function isToday(iso: string): boolean {
-  const d = new Date(iso);
-  const now = new Date();
-  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+function batchMatchesOrderStatusFilter(batch: OrderBatch, filter: OrderFilter): boolean {
+  if (filter === "open") return batchHasPendingLines(batch);
+  if (filter === "closed") return batchIsFullyReceived(batch);
+  return batchHasActivePartialDelivery(batch.lines);
 }
 
 function filterWasteRecords(
@@ -770,8 +764,7 @@ function filterOrderBatches(
 ): OrderBatch[] {
   const q = query.trim().toLowerCase();
   return batches.filter((batch) => {
-    if (filter === "today" && !isToday(batch.created_at)) return false;
-    if (filter === "week" && !isWithinDays(batch.created_at, 7)) return false;
+    if (!batchMatchesOrderStatusFilter(batch, filter)) return false;
     if (supplierId === "__none__" && batch.supplier_id) return false;
     if (supplierId && supplierId !== "__none__" && batch.supplier_id !== supplierId) return false;
     if (q) {
@@ -1650,6 +1643,7 @@ function OrderBatchRow({
   onDetails,
   onEdit,
   onDelete,
+  partialUiState = "none",
 }: {
   batch: OrderBatch;
   index: number;
@@ -1660,6 +1654,7 @@ function OrderBatchRow({
   onDetails: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  partialUiState?: PartialBatchUiState;
 }) {
   const pendingQty = batch.lines
     .filter((l) => l.status !== "received")
@@ -1672,6 +1667,12 @@ function OrderBatchRow({
   const supplierPrices = supplierPricesFor(supplierPriceIndex, batch.supplier_id);
   const batchTotal = canSeePrices ? orderBatchTotal(batch.lines, supplierPrices) : 0;
   const showBatchTotal = canSeePrices && batchTotal > 0;
+  const statusLabel = received ? "התקבל" : partialUiState === "handled" ? "טופל" : "בהזמנה";
+  const statusModifier = received
+    ? " inventory-order-status--received"
+    : partialUiState === "handled"
+      ? " inventory-order-status--handled"
+      : "";
 
   return (
     <article
@@ -1686,12 +1687,16 @@ function OrderBatchRow({
         <div className="inventory-order-heading">
           <div className="inventory-order-title-row">
             <h3 className="inventory-order-title">{orderPreviewLabel(batch.lines)}</h3>
-            <span
-              className={`inventory-order-status${received ? " inventory-order-status--received" : ""}`}
-            >
+            <span className={`inventory-order-status${statusModifier}`}>
               <span className="inventory-order-status-dot" aria-hidden />
-              {received ? "התקבל" : "בהזמנה"}
+              {statusLabel}
             </span>
+            {partialUiState === "needs_attention" ? (
+              <span className="inventory-order-partial-chip" title="הגיעה כמות חלקית — נדרשת התייחסות">
+                <Icon name="priority_high" size={12} />
+                לא במלואה
+              </span>
+            ) : null}
           </div>
           <p className="inventory-order-sub">
             <b>{batch.lines.length}</b> פריטים · <b>{totalQty}</b> יח׳
@@ -1766,6 +1771,7 @@ function OrderBatchListSection({
   onDetails,
   onEdit,
   onDelete,
+  getBatchPartialUiState,
 }: {
   title: string;
   icon: string;
@@ -1777,6 +1783,7 @@ function OrderBatchListSection({
   onDetails: (batch: OrderBatch) => void;
   onEdit: (batch: OrderBatch) => void;
   onDelete: (batch: OrderBatch) => void;
+  getBatchPartialUiState?: (batch: OrderBatch) => PartialBatchUiState;
 }) {
   if (batches.length === 0) return null;
   return (
@@ -1801,6 +1808,7 @@ function OrderBatchListSection({
             onDetails={() => onDetails(batch)}
             onEdit={() => onEdit(batch)}
             onDelete={() => onDelete(batch)}
+            partialUiState={getBatchPartialUiState?.(batch) ?? "none"}
           />
         ))}
       </div>
@@ -1817,6 +1825,8 @@ function OrderDetailsModal({
   onClose,
   onReceive,
   onNotArrived,
+  partialUiState = "none",
+  onAcknowledgePartial,
 }: {
   batch: OrderBatch | null;
   open: boolean;
@@ -1826,6 +1836,8 @@ function OrderDetailsModal({
   onClose: () => void;
   onReceive: (line: OrderLine, receivedQty: number) => void;
   onNotArrived: (line: OrderLine) => void;
+  partialUiState?: PartialBatchUiState;
+  onAcknowledgePartial?: () => void;
 }) {
   if (!batch) return null;
 
@@ -1870,6 +1882,33 @@ function OrderDetailsModal({
           </div>
         ))}
       </div>
+      {partialUiState === "needs_attention" && batchHasActivePartialDelivery(batch.lines) ? (
+        <div className="inventory-order-partial-banner">
+          <div className="inventory-order-partial-banner-text">
+            <Icon name="local_shipping" size={18} style={{ color: "var(--warning)", flexShrink: 0 }} />
+            <span>
+              חלק מהפריטים סומנו כ«הגיע חלקית». יתרת ההזמנה עדיין פתוחה — סמנו כטופל כדי להסיר את הסימון
+              מהתפריט.
+            </span>
+          </div>
+          <Button
+            variant="secondary"
+            icon="done_all"
+            onClick={onAcknowledgePartial}
+            className="shrink-0 !py-2 !px-3 !text-[12px]"
+          >
+            סמן כטופל
+          </Button>
+        </div>
+      ) : null}
+      {partialUiState === "handled" && batchHasActivePartialDelivery(batch.lines) ? (
+        <div className="inventory-order-partial-banner inventory-order-partial-banner--handled">
+          <div className="inventory-order-partial-banner-text">
+            <Icon name="check_circle" size={18} style={{ color: "var(--success)", flexShrink: 0 }} />
+            <span>ההזמנה סומנה כ<strong>טופל</strong>. היתרה עדיין פתוחה במלאי עד קבלה מלאה.</span>
+          </div>
+        </div>
+      ) : null}
       {pendingCount > 0 && (
         <p className="mb-3 text-[12px] font-medium text-text-3">
           {pendingCount} פריטים ממתינים לקבלה במלאי
@@ -2073,6 +2112,11 @@ export function Inventory() {
     [departments],
   );
   const canManageOrders = !!(profile && ["manager", "office_manager"].includes(profile.role));
+  const { getPartialBatchUiState, acknowledgeBatch } = usePartialDeliveryOrderCount();
+  const resolveBatchPartialUiState = useCallback(
+    (batch: OrderBatch) => getPartialBatchUiState(batch.id, batch.lines),
+    [getPartialBatchUiState],
+  );
   /** Managers / office / shift managers may mark orders as arrived / not arrived from the product card. */
   const canUpdateOrderArrival = !!(
     profile && ["manager", "office_manager", "shift_manager"].includes(profile.role)
@@ -2090,7 +2134,6 @@ export function Inventory() {
   const receiveOrder = useReceiveOrder(businessId);
   const markOrderNotArrived = useMarkOrderNotArrived(businessId);
   const navigate = useNavigate();
-  const isMdUp = useIsMdUp();
   const [searchParams, setSearchParams] = useSearchParams();
   const [wasteReportOpen, setWasteReportOpen] = useState(false);
 
@@ -2125,7 +2168,7 @@ export function Inventory() {
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilterValue>(null);
   const [departmentFilter, setDepartmentFilter] = useState<DepartmentFilterValue>(null);
   const [orderSearchQuery, setOrderSearchQuery] = useState("");
-  const [orderFilter, setOrderFilter] = useState<OrderFilter>("all");
+  const [orderFilter, setOrderFilter] = useState<OrderFilter>("open");
   const [orderSupplierFilter, setOrderSupplierFilter] = useState<string | null>(
     () => searchParams.get("supplier") || null,
   );
@@ -2255,22 +2298,32 @@ export function Inventory() {
   const allOrderBatches = useMemo(() => groupOrderBatches(orderList, list), [orderList, list]);
   const openBatches = useMemo(() => allOrderBatches.filter(batchHasPendingLines), [allOrderBatches]);
   const receivedBatches = useMemo(() => allOrderBatches.filter(batchIsFullyReceived), [allOrderBatches]);
+  const partialBatches = useMemo(
+    () => allOrderBatches.filter((b) => batchHasActivePartialDelivery(b.lines)),
+    [allOrderBatches],
+  );
   const filteredOrderBatches = useMemo(
-    () => filterOrderBatches(openBatches, orderSearchQuery, orderFilter, orderSupplierFilter),
-    [openBatches, orderSearchQuery, orderFilter, orderSupplierFilter],
+    () => filterOrderBatches(allOrderBatches, orderSearchQuery, orderFilter, orderSupplierFilter),
+    [allOrderBatches, orderSearchQuery, orderFilter, orderSupplierFilter],
   );
-  const filteredReceivedBatches = useMemo(
-    () => filterOrderBatches(receivedBatches, orderSearchQuery, orderFilter, orderSupplierFilter),
-    [receivedBatches, orderSearchQuery, orderFilter, orderSupplierFilter],
-  );
+  const orderListSectionMeta = useMemo(() => {
+    if (orderFilter === "closed") {
+      return { title: "הזמנות סגורות", icon: "check_circle", received: true as const };
+    }
+    if (orderFilter === "partial") {
+      return { title: "הזמנות חלקיות", icon: "priority_high", received: false as const };
+    }
+    return { title: "הזמנות פתוחות", icon: "local_shipping", received: false as const };
+  }, [orderFilter]);
   const detailBatch = detailBatchId
     ? allOrderBatches.find((b) => b.id === detailBatchId) ?? null
     : null;
-  const showReceivedOrdersOnTab = !isMdUp;
-  const visibleOrderResultCount =
-    filteredOrderBatches.length + (showReceivedOrdersOnTab ? filteredReceivedBatches.length : 0);
-  const visibleOrderTotalCount =
-    openBatches.length + (showReceivedOrdersOnTab ? receivedBatches.length : 0);
+  const visibleOrderResultCount = filteredOrderBatches.length;
+  const visibleOrderTotalCount = useMemo(() => {
+    if (orderFilter === "open") return openBatches.length;
+    if (orderFilter === "closed") return receivedBatches.length;
+    return partialBatches.length;
+  }, [orderFilter, openBatches.length, receivedBatches.length, partialBatches.length]);
   const pending = orderList.filter((o) => o.status !== "received").length;
   const wasteCount = wasteRecords?.length ?? 0;
   const filteredWasteRecords = useMemo(
@@ -2562,15 +2615,26 @@ export function Inventory() {
               ) : null
             }
           />
-          {visibleOrderTotalCount === 0 ? (
+          {allOrderBatches.length === 0 ? (
             <OrdersEmptyState onCreate={() => openNewOrder()} />
           ) : visibleOrderResultCount === 0 ? (
             <EmptyState
               icon="search_off"
               title="לא נמצאו הזמנות"
-              description="נסו מילת חיפוש אחרת או שנו את הסינון."
+              description={
+                visibleOrderTotalCount === 0
+                  ? `אין הזמנות ${orderFilter === "closed" ? "סגורות" : orderFilter === "partial" ? "חלקיות" : "פתוחות"} כרגע.`
+                  : "נסו מילת חיפוש אחרת או שנו את הסינון."
+              }
               action={
-                <Button variant="secondary" onClick={() => { setOrderSearchQuery(""); setOrderFilter("all"); setOrderSupplierFilter(null); }}>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setOrderSearchQuery("");
+                    setOrderFilter("open");
+                    setOrderSupplierFilter(null);
+                  }}
+                >
                   ניקוי סינון
                 </Button>
               }
@@ -2578,30 +2642,18 @@ export function Inventory() {
           ) : (
             <div className="flex flex-col gap-5 md:gap-0">
               <OrderBatchListSection
-                title="הזמנות פתוחות"
-                icon="local_shipping"
+                title={orderListSectionMeta.title}
+                icon={orderListSectionMeta.icon}
                 batches={filteredOrderBatches}
                 canManageOrders={canManageOrders}
                 canSeePrices={canSeePrices}
                 supplierPriceIndex={supplierPriceIndex}
+                received={orderListSectionMeta.received}
                 onDetails={(batch) => setDetailBatchId(batch.id)}
                 onEdit={openEditOrder}
                 onDelete={handleDeleteOrder}
+                getBatchPartialUiState={orderFilter !== "closed" ? resolveBatchPartialUiState : undefined}
               />
-              {showReceivedOrdersOnTab && (
-                <OrderBatchListSection
-                  title="הזמנות שהתקבלו"
-                  icon="check_circle"
-                  batches={filteredReceivedBatches}
-                  canManageOrders={canManageOrders}
-                  canSeePrices={canSeePrices}
-                  supplierPriceIndex={supplierPriceIndex}
-                  received
-                  onDetails={(batch) => setDetailBatchId(batch.id)}
-                  onEdit={openEditOrder}
-                  onDelete={handleDeleteOrder}
-                />
-              )}
             </div>
           )}
         </>
@@ -2934,6 +2986,10 @@ export function Inventory() {
         onClose={() => setDetailBatchId(null)}
         onReceive={(line, receivedQty) => handleReceive(line, receivedQty)}
         onNotArrived={(line) => handleMarkNotArrived(line)}
+        partialUiState={detailBatch ? resolveBatchPartialUiState(detailBatch) : "none"}
+        onAcknowledgePartial={() => {
+          if (detailBatch) acknowledgeBatch(detailBatch.id);
+        }}
       />
 
       <LoadingOverlay show={qtySaving && !detailItemLive} label="מעדכן מלאי..." />

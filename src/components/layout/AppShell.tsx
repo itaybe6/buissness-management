@@ -21,6 +21,7 @@ import { NavItemBadge } from "@/components/layout/NavItemBadge";
 import { NAV_ITEMS, ROLE_LABELS, groupNavItems } from "@/lib/constants";
 
 import { useMaintenanceNewFaultCount } from "@/hooks/useMaintenanceNewFaultCount";
+import { usePartialDeliveryOrderCount } from "@/hooks/usePartialDeliveryOrderCount";
 
 import type { NavItem } from "@/lib/constants";
 
@@ -44,6 +45,7 @@ export function AppShell() {
   const [menuOpen, setMenuOpen] = useState(false);
 
   const { count: newFaultCount } = useMaintenanceNewFaultCount();
+  const { count: partialDeliveryOrderCount } = usePartialDeliveryOrderCount();
 
   const role = profile?.role ?? "employee";
 
@@ -216,7 +218,16 @@ export function AppShell() {
                       <span className="flex-1 text-right">{item.label}</span>
 
                       {role === "maintenance" && item.key === "faults" ? (
-                        <NavItemBadge count={newFaultCount} />
+                        <NavItemBadge
+                          count={newFaultCount}
+                          ariaLabel={`${newFaultCount} תקלות חדשות`}
+                        />
+                      ) : null}
+                      {role === "office_manager" && item.key === "inventory" ? (
+                        <NavItemBadge
+                          count={partialDeliveryOrderCount}
+                          ariaLabel={`${partialDeliveryOrderCount} הזמנות שלא הגיעו במלואן`}
+                        />
                       ) : null}
 
                     </NavLink>
@@ -375,6 +386,7 @@ export function AppShell() {
         onLogout={handleLogout}
 
         newFaultCount={newFaultCount}
+        partialDeliveryOrderCount={partialDeliveryOrderCount}
 
       />
 
