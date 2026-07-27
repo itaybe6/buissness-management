@@ -68,7 +68,7 @@ export function EmployeeIdCardUploadPanel({
       data-busy={busy || undefined}
     >
       <div className="id-card-panel__head">
-        <span className="id-card-panel__icon" data-tone={uploaded ? "success" : "warning"} aria-hidden>
+        <span className="id-card-panel__icon" data-tone={uploaded ? "success" : "accent"} aria-hidden>
           <Icon name="badge" size={22} />
         </span>
         <div className="id-card-panel__copy">
@@ -79,7 +79,7 @@ export function EmployeeIdCardUploadPanel({
               : "חובה להעלות צילום ברור של תעודת הזהות (שני הצדדים בתמונה אחת או PDF)"}
           </p>
         </div>
-        {uploaded ? <Badge tone="success">הועלה</Badge> : <Badge tone="warning">חסר</Badge>}
+        {uploaded ? <Badge tone="success">הועלה</Badge> : <Badge tone="violet">חסר</Badge>}
       </div>
 
       {uploaded && card && !busy && (

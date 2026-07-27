@@ -287,7 +287,7 @@ export function MobileSideDrawer({
 
               {navGroups.map((group) => (
 
-                <div key={group.id} className="side-nav-group">
+                <div key={group.id} className="side-nav-group" data-labeled={!!group.label}>
 
                   {group.label ? (
 

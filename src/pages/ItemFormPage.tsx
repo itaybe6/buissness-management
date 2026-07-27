@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   Button,
@@ -30,7 +30,7 @@ import {
   BASE_UNIT,
   type ItemWithQty,
 } from "@/api/inventory";
-import { useWarehouses, defaultWarehouse } from "@/api/warehouses";
+import { useWarehouses } from "@/api/warehouses";
 import { useDepartments } from "@/api/departments";
 import { useInventoryCategories } from "@/api/inventoryCategories";
 import {
@@ -55,11 +55,22 @@ type ItemFormState = {
   file: File | null;
 };
 
-/** One warehouse row of the form. `stocked` = the product is kept in this warehouse. */
-type WarehouseDraft = { qty: number; stocked: boolean };
+/** Quantity held in each warehouse, keyed by warehouse id. Zero = not stocked there. */
+type StockDraft = Record<string, number>;
 
 /** One supplier link: a price per main unit and/or per single piece. */
 type SupplierLine = { supplierId: string; mainPrice: string; piecePrice: string };
+
+type StepId = "basics" | "unit" | "stock" | "suppliers" | "review";
+
+type StepDef = {
+  id: StepId;
+  /** Short label for the stepper rail. */
+  label: string;
+  icon: string;
+  title: string;
+  sub: string;
+};
 
 const EMPTY_FORM: ItemFormState = {
   name: "",
@@ -89,14 +100,9 @@ function formFromItem(item: ItemWithQty): ItemFormState {
   };
 }
 
-/** A warehouse holds the product when it carries stock there. */
-function draftsFromItem(warehouses: Warehouse[], item: ItemWithQty | null): Record<string, WarehouseDraft> {
-  const map: Record<string, WarehouseDraft> = {};
-  const fallbackId = defaultWarehouse(warehouses)?.id ?? warehouses[0]?.id ?? null;
-  for (const w of warehouses) {
-    const qty = item ? itemWarehouseQty(item, w.id) : 0;
-    map[w.id] = { qty, stocked: item ? qty > 0 : w.id === fallbackId };
-  }
+function draftsFromItem(warehouses: Warehouse[], item: ItemWithQty | null): StockDraft {
+  const map: StockDraft = {};
+  for (const w of warehouses) map[w.id] = item ? itemWarehouseQty(item, w.id) : 0;
   return map;
 }
 
@@ -166,90 +172,67 @@ function IpfField({
 }
 
 /* ---------------------------------------------------------------- */
-/* Warehouse row — presence switch + quantity + share of total       */
+/* Warehouse row — quantity is always editable, in every warehouse   */
 /* ---------------------------------------------------------------- */
 function WarehouseRow({
   warehouse,
-  draft,
+  qty,
   unit,
   unitsPerPackage,
   totalQty,
   lastUpdatedAt,
   lastUpdatedBy,
-  onToggle,
   onQty,
 }: {
   warehouse: Warehouse;
-  draft: WarehouseDraft;
+  qty: number;
   unit: string;
   unitsPerPackage: number | null;
   totalQty: number;
   lastUpdatedAt: string | null;
   lastUpdatedBy: string | null;
-  onToggle: () => void;
   onQty: (qty: number) => void;
 }) {
-  const share = totalQty > 0 ? Math.round((draft.qty / totalQty) * 100) : 0;
+  const share = totalQty > 0 ? Math.round((qty / totalQty) * 100) : 0;
   const when = relativeWhen(lastUpdatedAt);
-  const sub = draft.stocked
-    ? when
-      ? `עודכן ${when}${lastUpdatedBy ? ` · ${lastUpdatedBy}` : ""}`
-      : "טרם נספר במחסן הזה"
-    : "לא מוחזק במחסן הזה";
+  const sub = when ? `עודכן ${when}${lastUpdatedBy ? ` · ${lastUpdatedBy}` : ""}` : "טרם נספר במחסן הזה";
 
   return (
-    <article className="ipf-wh" data-on={draft.stocked}>
-      <div className="ipf-wh-head">
-        <span className="ipf-wh-icon" aria-hidden>
-          <Icon name="warehouse" size={17} />
-        </span>
-        <span className="ipf-wh-id">
-          <b className="ipf-wh-name">
-            {warehouse.name}
-            {warehouse.is_default && <em className="ipf-wh-tag">ראשי</em>}
-          </b>
-          <span className="ipf-wh-sub">{sub}</span>
-        </span>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={draft.stocked}
-          aria-label={`${draft.stocked ? "הסרת המוצר מ" : "שיוך המוצר ל"}${warehouse.name}`}
-          className="ipf-switch"
-          onClick={onToggle}
-        >
-          <i aria-hidden />
-        </button>
+    <article className="iwz-wh" data-on={qty > 0}>
+      <span className="iwz-wh-icon" aria-hidden>
+        <Icon name="warehouse" size={17} />
+      </span>
+      <span className="iwz-wh-id">
+        <b className="iwz-wh-name">
+          {warehouse.name}
+          {warehouse.is_default && <em className="iwz-wh-tag">ראשי</em>}
+        </b>
+        <span className="iwz-wh-sub">{sub}</span>
+      </span>
+      <div className="iwz-wh-qty">
+        <DualUnitQtyInput
+          value={qty}
+          mainUnit={unit}
+          unitsPerPackage={unitsPerPackage}
+          onCommit={onQty}
+          variant="stepper"
+        />
       </div>
-
-      {draft.stocked && (
-        <div className="ipf-wh-body">
-          <div className="ipf-wh-qty">
-            <DualUnitQtyInput
-              value={draft.qty}
-              mainUnit={unit}
-              unitsPerPackage={unitsPerPackage}
-              onCommit={onQty}
-              variant="stepper"
-            />
-          </div>
-          <div className="ipf-wh-share">
-            <span className="ipf-wh-bar" aria-hidden>
-              <i style={{ width: `${Math.min(100, share)}%` }} />
-            </span>
-            <span className="ipf-wh-share-text">
-              {draft.qty > 0 ? (
-                <>
-                  {formatQtyWithPieces(draft.qty, unit, unitsPerPackage)}
-                  {totalQty > 0 && <em>{share}% מהמלאי</em>}
-                </>
-              ) : (
-                <em data-empty="true">אזל במחסן הזה</em>
-              )}
-            </span>
-          </div>
-        </div>
-      )}
+      <div className="iwz-wh-meter">
+        <span className="iwz-wh-bar" aria-hidden>
+          <i style={{ width: `${Math.min(100, share)}%` }} />
+        </span>
+        <span className="iwz-wh-meta">
+          {qty > 0 ? (
+            <>
+              {formatQtyWithPieces(qty, unit, unitsPerPackage)}
+              {totalQty > 0 && <em>{share}% מהמלאי</em>}
+            </>
+          ) : (
+            <em data-empty="true">אין מלאי במחסן הזה</em>
+          )}
+        </span>
+      </div>
     </article>
   );
 }
@@ -389,6 +372,23 @@ function SupplierRow({
 }
 
 /* ---------------------------------------------------------------- */
+/* Review row — one summary line with a jump-back button             */
+/* ---------------------------------------------------------------- */
+function ReviewFact({ icon, label, value }: { icon: string; label: string; value: React.ReactNode }) {
+  return (
+    <div className="iwz-fact">
+      <span className="iwz-fact-icon" aria-hidden>
+        <Icon name={icon} size={16} />
+      </span>
+      <span className="iwz-fact-body">
+        <span className="iwz-fact-label">{label}</span>
+        <b className="iwz-fact-value">{value}</b>
+      </span>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------- */
 /* Page                                                              */
 /* ---------------------------------------------------------------- */
 export function ItemFormPage() {
@@ -424,7 +424,7 @@ export function ItemFormPage() {
   );
 
   const [form, setForm] = useState<ItemFormState>(EMPTY_FORM);
-  const [drafts, setDrafts] = useState<Record<string, WarehouseDraft>>({});
+  const [drafts, setDrafts] = useState<StockDraft>({});
   const [supplierLines, setSupplierLines] = useState<SupplierLine[]>([]);
   const [hydrated, setHydrated] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -432,6 +432,11 @@ export function ItemFormPage() {
   const [busy, setBusy] = useState(false);
   const [supplierQuery, setSupplierQuery] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
+
+  /* Wizard navigation */
+  const [stepIndex, setStepIndex] = useState(0);
+  const [maxVisited, setMaxVisited] = useState(0);
+  const [dir, setDir] = useState<"next" | "prev">("next");
 
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferFrom, setTransferFrom] = useState("");
@@ -441,7 +446,7 @@ export function ItemFormPage() {
 
   const fileRef = useRef<HTMLInputElement>(null);
   const priceRefs = useRef<Map<string, HTMLInputElement>>(new Map());
-  const suppliersCardRef = useRef<HTMLElement>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
 
   /* Hydrate once the reference data (and, when editing, the item) is in. */
   useEffect(() => {
@@ -480,17 +485,13 @@ export function ItemFormPage() {
   const unitsPerPackage = supportsPieceInput(form.unit) ? Number(form.unitsPerPackage) || null : null;
   const dualUnit = canUsePieceInput(form.unit, unitsPerPackage);
 
-  const stockedIds = useMemo(
-    () => warehouses.filter((w) => drafts[w.id]?.stocked).map((w) => w.id),
+  const totalQty = useMemo(
+    () => warehouses.reduce((sum, w) => sum + (drafts[w.id] ?? 0), 0),
     [warehouses, drafts],
   );
-  const totalQty = useMemo(
-    () => stockedIds.reduce((sum, id) => sum + (drafts[id]?.qty ?? 0), 0),
-    [stockedIds, drafts],
-  );
   const stockedCount = useMemo(
-    () => stockedIds.filter((id) => (drafts[id]?.qty ?? 0) > 0).length,
-    [stockedIds, drafts],
+    () => warehouses.filter((w) => (drafts[w.id] ?? 0) > 0).length,
+    [warehouses, drafts],
   );
 
   const lineMap = useMemo(() => new Map(supplierLines.map((l) => [l.supplierId, l])), [supplierLines]);
@@ -537,7 +538,58 @@ export function ItemFormPage() {
     [departments],
   );
 
-  const transferMax = transferFrom ? drafts[transferFrom]?.qty ?? 0 : 0;
+  const transferMax = transferFrom ? drafts[transferFrom] ?? 0 : 0;
+
+  /* ── Steps ── */
+  const steps = useMemo<StepDef[]>(() => {
+    const list: StepDef[] = [
+      {
+        id: "basics",
+        label: "פרטים",
+        icon: "label",
+        title: "פרטי המוצר",
+        sub: "השם, הברקוד והשיוך — כך המוצר יזוהה בכל המערכת.",
+      },
+      {
+        id: "unit",
+        label: "מידות",
+        icon: "straighten",
+        title: "יחידת מידה וסף התראה",
+        sub: "איך סופרים את המוצר, ומתי להתריע שהוא עומד להיגמר.",
+      },
+      {
+        id: "stock",
+        label: "מלאי",
+        icon: "warehouse",
+        title: "מלאי במחסנים",
+        sub: "הזינו כמות לכל מחסן שבו המוצר מוחזק — אפשר בכמה מחסנים במקביל.",
+      },
+    ];
+    if (canEditSuppliers) {
+      list.push({
+        id: "suppliers",
+        label: "ספקים",
+        icon: "local_shipping",
+        title: "ספקים ומחירי רכש",
+        sub: "שייכו ספקים למוצר והזינו את המחיר אצל כל אחד מהם.",
+      });
+    }
+    if (!isEdit) {
+      list.push({
+        id: "review",
+        label: "סיכום",
+        icon: "task_alt",
+        title: "סיכום לפני הוספה",
+        sub: "עברו על הפרטים — אפשר לחזור ולתקן כל שלב.",
+      });
+    }
+    return list;
+  }, [canEditSuppliers, isEdit]);
+
+  const safeIndex = Math.min(stepIndex, steps.length - 1);
+  const step = steps[safeIndex];
+  const isFirst = safeIndex === 0;
+  const isLast = safeIndex === steps.length - 1;
 
   const loading =
     !businessId ||
@@ -550,16 +602,8 @@ export function ItemFormPage() {
     else navigate("/inventory");
   }
 
-  function toggleWarehouse(id: string) {
-    setError(null);
-    setDrafts((d) => {
-      const current = d[id] ?? { qty: 0, stocked: false };
-      return { ...d, [id]: { ...current, stocked: !current.stocked } };
-    });
-  }
-
   function setWarehouseQty(id: string, qty: number) {
-    setDrafts((d) => ({ ...d, [id]: { qty: Math.max(0, qty), stocked: true } }));
+    setDrafts((d) => ({ ...d, [id]: Math.max(0, qty) }));
   }
 
   function openTransfer() {
@@ -567,7 +611,7 @@ export function ItemFormPage() {
     const nextOpen = !transferOpen;
     setTransferOpen(nextOpen);
     if (nextOpen) {
-      const from = stockedIds.find((id) => (drafts[id]?.qty ?? 0) > 0) ?? "";
+      const from = warehouses.find((w) => (drafts[w.id] ?? 0) > 0)?.id ?? "";
       setTransferFrom(from);
       setTransferTo(warehouses.find((w) => w.id !== from)?.id ?? "");
       setTransferQty(0);
@@ -580,23 +624,18 @@ export function ItemFormPage() {
       setTransferNote("בחרו מחסן מקור ומחסן יעד שונים");
       return;
     }
-    const amount = Math.min(transferQty, drafts[transferFrom]?.qty ?? 0);
+    const amount = Math.min(transferQty, drafts[transferFrom] ?? 0);
     if (amount <= 0) {
       setTransferNote("אין כמות להעברה מהמחסן שנבחר");
       return;
     }
     const fromName = warehouses.find((w) => w.id === transferFrom)?.name ?? "מחסן";
     const toName = warehouses.find((w) => w.id === transferTo)?.name ?? "מחסן";
-    setDrafts((d) => {
-      const from = d[transferFrom] ?? { qty: 0, stocked: false };
-      const to = d[transferTo] ?? { qty: 0, stocked: false };
-      const remaining = Math.round((from.qty - amount) * 10000) / 10000;
-      return {
-        ...d,
-        [transferFrom]: { qty: remaining, stocked: remaining > 0 },
-        [transferTo]: { qty: Math.round((to.qty + amount) * 10000) / 10000, stocked: true },
-      };
-    });
+    setDrafts((d) => ({
+      ...d,
+      [transferFrom]: Math.round(((d[transferFrom] ?? 0) - amount) * 10000) / 10000,
+      [transferTo]: Math.round(((d[transferTo] ?? 0) + amount) * 10000) / 10000,
+    }));
     setTransferQty(0);
     setTransferNote(
       `הועברו ${formatQtyWithPieces(amount, form.unit, unitsPerPackage)} מ${fromName} ל${toName} — יישמר בלחיצה על «שמירה»`,
@@ -618,26 +657,75 @@ export function ItemFormPage() {
     setSupplierLines((ls) => ls.map((l) => (l.supplierId === id ? { ...l, [field]: price } : l)));
   }
 
-  function revealSupplierPrice(id: string) {
+  function focusSupplierPrice(id: string) {
     setSupplierQuery("");
-    window.setTimeout(() => {
-      suppliersCardRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
-      window.setTimeout(() => priceRefs.current.get(id)?.focus(), 240);
-    }, 30);
+    window.setTimeout(() => priceRefs.current.get(id)?.focus(), 260);
+  }
+
+  /* ── Step navigation ── */
+  /** Returns the blocking message for a step, or null when it may be left. */
+  function validateStep(id: StepId): string | null {
+    if (id === "basics" && !form.name.trim()) return "נא להזין שם מוצר";
+    if (id === "unit") {
+      const raw = form.unitsPerPackage.trim();
+      if (supportsPieceInput(form.unit) && raw !== "" && (Number(raw) || 0) < 1) {
+        return `נא להזין כמה יחידות יש ב${form.unit} — מספר מ-1 ומעלה`;
+      }
+      if ((Number(form.minQty) || 0) < 0) return "כמות מינימום לא יכולה להיות שלילית";
+    }
+    if (id === "suppliers") {
+      const firstMissing = supplierLines.find((l) => !lineHasValidPrice(l, dualUnit));
+      if (firstMissing) {
+        focusSupplierPrice(firstMissing.supplierId);
+        return "לכל ספק משויך יש להזין מחיר תקין";
+      }
+    }
+    return null;
+  }
+
+  function jumpTo(index: number, direction: "next" | "prev") {
+    setDir(direction);
+    setStepIndex(index);
+    setMaxVisited((m) => Math.max(m, index));
+    pageRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }
+
+  function goPrev() {
+    if (isFirst) return goBack();
+    setError(null);
+    setAttempted(false);
+    jumpTo(safeIndex - 1, "prev");
+  }
+
+  function goNext() {
+    setAttempted(true);
+    const problem = validateStep(step.id);
+    if (problem) return setError(problem);
+    setError(null);
+    if (isLast) return void submit();
+    setAttempted(false);
+    jumpTo(safeIndex + 1, "next");
+  }
+
+  function goToStep(index: number) {
+    if (index === safeIndex) return;
+    if (!isEdit && index > maxVisited) return;
+    setError(null);
+    setAttempted(false);
+    jumpTo(index, index > safeIndex ? "next" : "prev");
   }
 
   async function submit() {
-    setError(null);
     setAttempted(true);
-    if (!form.name.trim()) return setError("נא להזין שם מוצר");
-
-    if (canEditSuppliers) {
-      const firstMissing = supplierLines.find((l) => !lineHasValidPrice(l, dualUnit));
-      if (firstMissing) {
-        revealSupplierPrice(firstMissing.supplierId);
-        return setError("לכל ספק משויך יש להזין מחיר תקין");
+    for (let i = 0; i < steps.length; i++) {
+      const problem = validateStep(steps[i].id);
+      if (problem) {
+        setError(problem);
+        if (i !== safeIndex) jumpTo(i, i > safeIndex ? "next" : "prev");
+        return;
       }
     }
+    setError(null);
 
     setBusy(true);
     try {
@@ -709,10 +797,8 @@ export function ItemFormPage() {
         });
 
         for (const w of warehouses) {
-          const draft = drafts[w.id];
-          if (!draft) continue;
+          const nextQty = drafts[w.id] ?? 0;
           const prevQty = itemWarehouseQty(editing, w.id);
-          const nextQty = draft.stocked ? draft.qty : 0;
           if (nextQty === prevQty) continue;
           await setCount.mutateAsync({
             business_id: businessId!,
@@ -744,8 +830,8 @@ export function ItemFormPage() {
           category_id,
           department_ids,
           warehouse_quantities: warehouses
-            .filter((w) => drafts[w.id]?.stocked && (drafts[w.id]?.qty ?? 0) > 0)
-            .map((w) => ({ warehouse_id: w.id, quantity: drafts[w.id]!.qty })),
+            .filter((w) => (drafts[w.id] ?? 0) > 0)
+            .map((w) => ({ warehouse_id: w.id, quantity: drafts[w.id]! })),
           employee_id: profile?.id ?? null,
         });
 
@@ -791,12 +877,562 @@ export function ItemFormPage() {
   const categoryLabel = form.categoryId
     ? (inventoryCategories ?? []).find((c) => c.id === form.categoryId)?.name ?? null
     : null;
-  const lowStock = Number(form.minQty) > 0 && totalQty <= Number(form.minQty);
+  const minQtyValue = Math.max(0, Number(form.minQty) || 0);
+  const lowStock = minQtyValue > 0 && totalQty <= minQtyValue;
   const saving = busy || createItem.isPending || updateItem.isPending || saveItemSuppliers.isPending;
 
+  /* ── Step bodies ── */
+
+  function renderBasics() {
+    return (
+      <>
+        <div className="ipf-photo-row">
+          <button
+            type="button"
+            className="ipf-photo-thumb"
+            data-empty={!imageSrc}
+            onClick={() => fileRef.current?.click()}
+            aria-label={imageSrc ? "החלפת תמונת מוצר" : "העלאת תמונת מוצר"}
+          >
+            {imageSrc ? <img src={imageSrc} alt="" /> : <Icon name="add_a_photo" size={22} />}
+          </button>
+          <div className="ipf-photo-meta">
+            <span className="spf-field-label">תמונת מוצר</span>
+            <p>עוזרת לזהות את המוצר במלאי, בהזמנות ובדיווחי בלאי.</p>
+            <div className="ipf-photo-actions">
+              <button type="button" onClick={() => fileRef.current?.click()}>
+                <Icon name="upload" size={14} />
+                {imageSrc ? "החלפה" : "העלאה"}
+              </button>
+              {imageSrc && (
+                <button
+                  type="button"
+                  data-danger="true"
+                  onClick={() => setForm((f) => ({ ...f, file: null, imageUrl: null }))}
+                >
+                  <Icon name="delete" size={14} />
+                  הסרה
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="spf-fields">
+          <IpfField icon="label" label="שם המוצר" hint="חובה">
+            <Input
+              className="spf-input"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="לדוגמה: חלב 3%"
+              autoFocus={!isEdit && maxVisited === 0}
+              required
+            />
+          </IpfField>
+
+          <IpfField icon="barcode" label="ברקוד" note="ייחודי לעסק — ניתן לחפש לפיו במלאי ובהזמנות">
+            <Input
+              className="spf-input font-mono"
+              value={form.barcode}
+              onChange={(e) => setForm({ ...form, barcode: e.target.value })}
+              placeholder="7290000000000"
+              inputMode="numeric"
+              dir="ltr"
+            />
+          </IpfField>
+
+          <IpfField
+            icon="category"
+            label="קטגוריה"
+            note={
+              !(inventoryCategories?.length) ? (
+                <>
+                  הוסיפו קטגוריות ב
+                  <Link to="/settings" className="ipf-link">
+                    הגדרות העסק
+                  </Link>
+                </>
+              ) : undefined
+            }
+          >
+            <Select
+              className="ipf-select"
+              value={form.categoryId}
+              onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
+            >
+              <option value="">ללא קטגוריה</option>
+              {(inventoryCategories ?? []).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </Select>
+          </IpfField>
+
+          <IpfField
+            icon="groups"
+            label="מחלקות"
+            note={
+              departmentOptions.length === 0
+                ? "הוסיפו מחלקות בהגדרות העסק כדי לשייך מוצרים."
+                : "ללא בחירה — המוצר יוצג לכל המחלקות."
+            }
+          >
+            <MultiSelect
+              className="ipf-select"
+              values={form.departmentIds}
+              onChange={(departmentIds) => setForm({ ...form, departmentIds })}
+              options={departmentOptions}
+              placeholder="כל המחלקות"
+              disabled={!departmentOptions.length}
+            />
+          </IpfField>
+        </div>
+      </>
+    );
+  }
+
+  function renderUnit() {
+    return (
+      <div className="spf-fields">
+        <IpfField icon="straighten" label="יחידת מידה" note="באיזו יחידה סופרים ומזמינים את המוצר">
+          <Select
+            className="ipf-select"
+            value={form.unit}
+            onChange={(e) => {
+              const unit = e.target.value;
+              setForm((f) => ({
+                ...f,
+                unit,
+                unitsPerPackage: unit === BASE_UNIT ? "" : f.unitsPerPackage,
+              }));
+            }}
+          >
+            {INVENTORY_UNITS.map((u) => (
+              <option key={u.value} value={u.value}>
+                {u.label}
+              </option>
+            ))}
+          </Select>
+        </IpfField>
+
+        {supportsPieceInput(form.unit) && (
+          <>
+            <IpfField
+              icon="widgets"
+              label={`יחידים ב${form.unit}`}
+              note="מאפשר להזין ולספור כמויות גם ביחידים בודדים"
+            >
+              <Input
+                className="spf-input"
+                type="number"
+                min={1}
+                value={form.unitsPerPackage}
+                onChange={(e) => setForm({ ...form, unitsPerPackage: e.target.value })}
+                placeholder="לדוגמה: 24"
+              />
+            </IpfField>
+
+            {dualUnit && (
+              <div className="iwz-conv" aria-hidden>
+                <span className="iwz-conv-side">
+                  <b>1</b>
+                  {form.unit}
+                </span>
+                <span className="iwz-conv-eq">=</span>
+                <span className="iwz-conv-side">
+                  <b>{unitsPerPackage}</b>
+                  {BASE_UNIT}
+                </span>
+              </div>
+            )}
+          </>
+        )}
+
+        <div className="spf-fields-row">
+          <IpfField icon="low_priority" label="כמות מינימום" note="מתחת לסף — מלאי נמוך">
+            <Input
+              className="spf-input"
+              type="number"
+              min={0}
+              value={form.minQty}
+              onChange={(e) => setForm({ ...form, minQty: e.target.value })}
+              placeholder="0"
+            />
+          </IpfField>
+
+          <IpfField icon="local_shipping" label="יום אספקה" note="ביום זה הסחורה אמורה להגיע">
+            <Select
+              className="ipf-select"
+              value={form.deliveryDay}
+              onChange={(e) => setForm({ ...form, deliveryDay: e.target.value })}
+            >
+              <option value="">לא הוגדר</option>
+              {HE_DAYS.map((d, i) => (
+                <option key={i} value={String(i)}>
+                  יום {d}
+                </option>
+              ))}
+            </Select>
+          </IpfField>
+        </div>
+      </div>
+    );
+  }
+
+  function renderStock() {
+    if (warehouses.length === 0) {
+      return (
+        <div className="ipf-empty">
+          <span className="ipf-empty-icon" aria-hidden>
+            <Icon name="warehouse" size={22} />
+          </span>
+          <p>
+            לא הוגדרו מחסנים לעסק
+            <em>
+              הוסיפו מחסנים ב
+              <Link to="/settings" className="ipf-link">
+                הגדרות העסק
+              </Link>{" "}
+              כדי לנהל כמות נפרדת בכל מחסן.
+            </em>
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <>
+        <div className="iwz-wh-list">
+          {warehouses.map((w) => {
+            const stock = editing?.warehouse_stocks.find((s) => s.warehouse_id === w.id);
+            return (
+              <WarehouseRow
+                key={w.id}
+                warehouse={w}
+                qty={drafts[w.id] ?? 0}
+                unit={form.unit}
+                unitsPerPackage={unitsPerPackage}
+                totalQty={totalQty}
+                lastUpdatedAt={stock?.last_updated_at ?? null}
+                lastUpdatedBy={stock?.last_updated_by_name ?? null}
+                onQty={(qty) => setWarehouseQty(w.id, qty)}
+              />
+            );
+          })}
+        </div>
+
+        <div className="iwz-total">
+          <span>
+            סה״כ {isEdit ? "במלאי" : "מלאי התחלתי"}
+            {stockedCount > 0 && <em>ב-{stockedCount} מחסנים</em>}
+          </span>
+          <b>{formatQtyWithPieces(totalQty, form.unit, unitsPerPackage)}</b>
+        </div>
+
+        <p className="ipf-hint">
+          <Icon name="info" size={14} />
+          אפשר להזין כמות בכל מחסן בנפרד. מחסן שנשאר על 0 פשוט לא יחזיק את המוצר.
+        </p>
+
+        {isEdit && warehouses.length > 1 && (
+          <div className="ipf-transfer" data-open={transferOpen}>
+            <button
+              type="button"
+              className="ipf-transfer-toggle"
+              aria-expanded={transferOpen}
+              onClick={openTransfer}
+            >
+              <Icon name="swap_horiz" size={16} />
+              העברת כמות בין מחסנים
+              <Icon
+                name={transferOpen ? "expand_less" : "expand_more"}
+                size={16}
+                className="ipf-transfer-caret"
+              />
+            </button>
+
+            {transferOpen && (
+              <div className="ipf-transfer-body">
+                <div className="ipf-transfer-row">
+                  <label className="ipf-transfer-cell">
+                    <span>מהמחסן</span>
+                    <Select value={transferFrom} onChange={(e) => setTransferFrom(e.target.value)}>
+                      <option value="">בחרו מחסן</option>
+                      {warehouses.map((w) => (
+                        <option key={w.id} value={w.id}>
+                          {w.name} · {drafts[w.id] ?? 0}
+                        </option>
+                      ))}
+                    </Select>
+                  </label>
+                  <span className="ipf-transfer-arrow" aria-hidden>
+                    <Icon name="arrow_back" size={16} />
+                  </span>
+                  <label className="ipf-transfer-cell">
+                    <span>למחסן</span>
+                    <Select value={transferTo} onChange={(e) => setTransferTo(e.target.value)}>
+                      <option value="">בחרו מחסן</option>
+                      {warehouses
+                        .filter((w) => w.id !== transferFrom)
+                        .map((w) => (
+                          <option key={w.id} value={w.id}>
+                            {w.name}
+                          </option>
+                        ))}
+                    </Select>
+                  </label>
+                </div>
+
+                <div className="ipf-transfer-row ipf-transfer-row--end">
+                  <label className="ipf-transfer-cell">
+                    <span>כמות להעברה</span>
+                    <DualUnitQtyInput
+                      value={transferQty}
+                      mainUnit={form.unit}
+                      unitsPerPackage={unitsPerPackage}
+                      onCommit={setTransferQty}
+                      variant="input"
+                    />
+                  </label>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    icon="swap_horiz"
+                    className="!py-2.5"
+                    disabled={!transferFrom || !transferTo || transferMax <= 0}
+                    onClick={runTransfer}
+                  >
+                    העברה
+                  </Button>
+                </div>
+
+                {transferFrom && (
+                  <p className="ipf-transfer-max">
+                    זמין להעברה: {formatQtyWithPieces(transferMax, form.unit, unitsPerPackage)}
+                    {dualUnit && transferMax > 0 && (
+                      <> ({mainUnitToPieces(transferMax, unitsPerPackage!)} יח׳)</>
+                    )}
+                  </p>
+                )}
+                {transferNote && <p className="ipf-transfer-note">{transferNote}</p>}
+              </div>
+            )}
+          </div>
+        )}
+      </>
+    );
+  }
+
+  function renderSuppliers() {
+    if ((supplierList ?? []).length === 0) {
+      return (
+        <div className="ipf-empty">
+          <span className="ipf-empty-icon" aria-hidden>
+            <Icon name="local_shipping" size={22} />
+          </span>
+          <p>
+            עדיין אין ספקים בעסק
+            <em>
+              הוסיפו ספקים ב
+              <Link to="/suppliers" className="ipf-link">
+                עמוד הספקים
+              </Link>{" "}
+              ואז שייכו אותם למוצר עם מחיר. אפשר גם לדלג ולהשלים בהמשך.
+            </em>
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <>
+        {(supplierList ?? []).length > 6 && (
+          <div className="spf-search ipf-sup-search">
+            <Icon name="search" size={18} className="spf-search-icon" />
+            <input
+              value={supplierQuery}
+              onChange={(e) => setSupplierQuery(e.target.value)}
+              placeholder="חיפוש ספק..."
+              className="spf-search-input"
+              aria-label="חיפוש ספק"
+            />
+            {supplierQuery && (
+              <button
+                type="button"
+                className="spf-search-x"
+                onClick={() => setSupplierQuery("")}
+                aria-label="ניקוי חיפוש"
+              >
+                <Icon name="close" size={15} />
+              </button>
+            )}
+          </div>
+        )}
+
+        <div className="ipf-sup-list">
+          {visibleSuppliers.map((s) => {
+            const line = lineMap.get(s.id);
+            return (
+              <SupplierRow
+                key={s.id}
+                supplier={s}
+                line={line}
+                unit={form.unit}
+                dual={dualUnit}
+                cheapest={!!cheapest && cheapest.id === s.id && effectivePrices.size > 1}
+                missing={attempted && !!line && !lineHasValidPrice(line, dualUnit)}
+                onToggle={() => toggleSupplier(s.id)}
+                onFocusPrice={() => priceRefs.current.get(s.id)?.focus()}
+                onMainPrice={(v) => setSupplierPrice(s.id, "mainPrice", v)}
+                onPiecePrice={(v) => setSupplierPrice(s.id, "piecePrice", v)}
+                registerMainPrice={(el) => {
+                  if (el) priceRefs.current.set(s.id, el);
+                  else priceRefs.current.delete(s.id);
+                }}
+              />
+            );
+          })}
+          {visibleSuppliers.length === 0 && <p className="ipf-sup-none">לא נמצא ספק בשם הזה.</p>}
+        </div>
+
+        <p className="ipf-hint">
+          <Icon name="info" size={14} />
+          {dualUnit
+            ? `אפשר להזין מחיר ל${form.unit} וגם ליחידה בודדת — המחיר משמש בהזמנות מהספק.`
+            : `המחיר נשמר לספק הזה בלבד, ל${form.unit || "יחידה"} אחת — ומשמש בהזמנות.`}
+        </p>
+      </>
+    );
+  }
+
+  function renderReview() {
+    const stocked = warehouses.filter((w) => (drafts[w.id] ?? 0) > 0);
+    const linked = supplierLines
+      .map((l) => ({ line: l, supplier: (supplierList ?? []).find((s) => s.id === l.supplierId) }))
+      .filter((x) => x.supplier);
+    const stepIndexOf = (id: StepId) => steps.findIndex((s) => s.id === id);
+
+    return (
+      <div className="iwz-review">
+        <div className="iwz-rev-id">
+          <span className="iwz-rev-photo" data-empty={!imageSrc} aria-hidden>
+            {imageSrc ? <img src={imageSrc} alt="" /> : <Icon name="inventory_2" size={26} />}
+          </span>
+          <div className="min-w-0">
+            <b className="iwz-rev-name">{displayName || "מוצר ללא שם"}</b>
+            <span className="iwz-rev-tags">
+              {categoryLabel && <em>{categoryLabel}</em>}
+              <em>{form.unit}</em>
+              {dualUnit && <em>{unitsPerPackage} יח׳ ליחידה</em>}
+              {form.barcode.trim() && (
+                <em dir="ltr" className="font-mono">
+                  {form.barcode.trim()}
+                </em>
+              )}
+            </span>
+          </div>
+        </div>
+
+        <div className="iwz-facts">
+          <ReviewFact
+            icon="inventory"
+            label="מלאי התחלתי"
+            value={formatQtyWithPieces(totalQty, form.unit, unitsPerPackage)}
+          />
+          <ReviewFact icon="warehouse" label="מחסנים" value={`${stocked.length} מתוך ${warehouses.length}`} />
+          <ReviewFact icon="low_priority" label="סף התראה" value={minQtyValue > 0 ? `${minQtyValue}` : "לא הוגדר"} />
+          <ReviewFact
+            icon="local_shipping"
+            label="יום אספקה"
+            value={form.deliveryDay === "" ? "לא הוגדר" : `יום ${HE_DAYS[Number(form.deliveryDay)]}`}
+          />
+        </div>
+
+        <section className="iwz-rev-block">
+          <h3>
+            <Icon name="warehouse" size={15} />
+            פירוט לפי מחסן
+            <button type="button" onClick={() => goToStep(stepIndexOf("stock"))}>
+              <Icon name="edit" size={13} />
+              עריכה
+            </button>
+          </h3>
+          {stocked.length === 0 ? (
+            <p className="iwz-rev-none">המוצר ייווצר ללא מלאי התחלתי.</p>
+          ) : (
+            <ul className="iwz-rev-list">
+              {stocked.map((w) => (
+                <li key={w.id}>
+                  <span>{w.name}</span>
+                  <b>{formatQtyWithPieces(drafts[w.id] ?? 0, form.unit, unitsPerPackage)}</b>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        {canEditSuppliers && (
+          <section className="iwz-rev-block">
+            <h3>
+              <Icon name="local_shipping" size={15} />
+              ספקים
+              <button type="button" onClick={() => goToStep(stepIndexOf("suppliers"))}>
+                <Icon name="edit" size={13} />
+                עריכה
+              </button>
+            </h3>
+            {linked.length === 0 ? (
+              <p className="iwz-rev-none">לא שויכו ספקים — אפשר להוסיף בהמשך מדף המוצר.</p>
+            ) : (
+              <ul className="iwz-rev-list">
+                {linked.map(({ line, supplier }) => {
+                  const price = effectivePrices.get(line.supplierId);
+                  return (
+                    <li key={line.supplierId}>
+                      <span>
+                        {supplier!.name}
+                        {cheapest?.id === line.supplierId && effectivePrices.size > 1 && (
+                          <em className="ipf-sup-best">הזול ביותר</em>
+                        )}
+                      </span>
+                      <b>{price ? `${formatCurrency(price)} / ${form.unit}` : "—"}</b>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+        )}
+
+        {lowStock && totalQty > 0 && (
+          <p className="iwz-rev-warn">
+            <Icon name="warning" size={15} />
+            המלאי ההתחלתי נמצא מתחת לסף ההתראה שהגדרתם ({minQtyValue}).
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  function renderStep() {
+    switch (step.id) {
+      case "basics":
+        return renderBasics();
+      case "unit":
+        return renderUnit();
+      case "stock":
+        return renderStock();
+      case "suppliers":
+        return renderSuppliers();
+      case "review":
+        return renderReview();
+    }
+  }
+
   return (
-    <div className="spf-page page-enter">
-      {/* ── Ink hero — the product identity, live ── */}
+    <div className="spf-page iwz-page page-enter" ref={pageRef}>
+      {/* ── Ink hero — identity + step rail ── */}
       <header className="spf-hero">
         <span className="spf-glow spf-glow--1" aria-hidden />
         <span className="spf-glow spf-glow--2" aria-hidden />
@@ -843,13 +1479,11 @@ export function ItemFormPage() {
                   {form.unit}
                   {dualUnit ? ` · ${unitsPerPackage} יח׳` : ""}
                 </span>
-                {form.barcode.trim() && (
-                  <span className="spf-hero-fact" dir="ltr">
-                    <Icon name="barcode" size={13} />
-                    {form.barcode.trim()}
-                  </span>
-                )}
-                {lowStock && (
+                <span className="spf-hero-fact">
+                  <Icon name="inventory" size={13} />
+                  {formatQtyWithPieces(totalQty, form.unit, unitsPerPackage)}
+                </span>
+                {lowStock && totalQty > 0 && (
                   <span className="spf-hero-fact ipf-hero-warn">
                     <Icon name="warning" size={13} />
                     מתחת למינימום
@@ -859,29 +1493,30 @@ export function ItemFormPage() {
             </div>
           </div>
 
-          <div className="spf-hero-stats">
-            <div className="spf-stat">
-              <span className="spf-stat-label">סה״כ במלאי</span>
-              <b className="spf-stat-value" key={`q${totalQty}`}>
-                {formatQtyWithPieces(totalQty, form.unit, unitsPerPackage)}
-              </b>
-            </div>
-            <div className="spf-stat">
-              <span className="spf-stat-label">מחסנים</span>
-              <b className="spf-stat-value" key={`w${stockedCount}`}>
-                {stockedCount}
-                {warehouses.length > 0 && <span className="ipf-stat-of">/{warehouses.length}</span>}
-              </b>
-            </div>
-            <div className="spf-stat">
-              <span className="spf-stat-label">
-                {canEditSuppliers && cheapest ? "המחיר הזול ביותר" : "ספקים"}
-              </span>
-              <b className="spf-stat-value" key={`s${supplierLines.length}`}>
-                {canEditSuppliers && cheapest ? formatCurrency(cheapest.price) : supplierLines.length}
-              </b>
-            </div>
-          </div>
+          <nav className="iwz-rail" aria-label="שלבי הוספת מוצר">
+            {steps.map((s, i) => {
+              const state = i < safeIndex ? "done" : i === safeIndex ? "active" : "todo";
+              const reachable = isEdit || i <= maxVisited;
+              return (
+                <Fragment key={s.id}>
+                  {i > 0 && <span className="iwz-rail-gap" data-done={i <= safeIndex} aria-hidden />}
+                  <button
+                    type="button"
+                    className="iwz-rail-step"
+                    data-state={state}
+                    disabled={!reachable}
+                    aria-current={state === "active" ? "step" : undefined}
+                    onClick={() => goToStep(i)}
+                  >
+                    <span className="iwz-rail-dot" aria-hidden>
+                      <Icon name={state === "done" ? "check" : s.icon} size={15} />
+                    </span>
+                    <span className="iwz-rail-label">{s.label}</span>
+                  </button>
+                </Fragment>
+              );
+            })}
+          </nav>
         </div>
       </header>
 
@@ -893,483 +1528,68 @@ export function ItemFormPage() {
         onChange={(e) => setForm((f) => ({ ...f, file: e.target.files?.[0] ?? null }))}
       />
 
-      <div className="spf-body">
-        <div className="spf-layout">
-          {/* ── Product details ── */}
-          <aside className="spf-aside">
-            <section className="spf-card">
-              <h2 className="spf-card-title">
-                <span className="spf-card-icon">
-                  <Icon name="inventory_2" size={17} />
-                </span>
-                פרטי המוצר
-              </h2>
+      <div className="iwz-body">
+        <form
+          className="iwz-stage"
+          key={step.id}
+          data-dir={dir}
+          onSubmit={(e) => {
+            e.preventDefault();
+            goNext();
+          }}
+        >
+          <div className="iwz-head">
+            <span className="iwz-head-eyebrow">
+              שלב {safeIndex + 1} מתוך {steps.length}
+            </span>
+            <h2 className="iwz-head-title">{step.title}</h2>
+            <p className="iwz-head-sub">{step.sub}</p>
+          </div>
 
-              <div className="ipf-photo-row">
-                <button
-                  type="button"
-                  className="ipf-photo-thumb"
-                  data-empty={!imageSrc}
-                  onClick={() => fileRef.current?.click()}
-                  aria-label={imageSrc ? "החלפת תמונת מוצר" : "העלאת תמונת מוצר"}
-                >
-                  {imageSrc ? <img src={imageSrc} alt="" /> : <Icon name="add_a_photo" size={22} />}
-                </button>
-                <div className="ipf-photo-meta">
-                  <span className="spf-field-label">תמונת מוצר</span>
-                  <p>עוזרת לזהות את המוצר במלאי, בהזמנות ובדיווחי בלאי.</p>
-                  <div className="ipf-photo-actions">
-                    <button type="button" onClick={() => fileRef.current?.click()}>
-                      <Icon name="upload" size={14} />
-                      {imageSrc ? "החלפה" : "העלאה"}
-                    </button>
-                    {imageSrc && (
-                      <button
-                        type="button"
-                        data-danger="true"
-                        onClick={() => setForm((f) => ({ ...f, file: null, imageUrl: null }))}
-                      >
-                        <Icon name="delete" size={14} />
-                        הסרה
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
+          <section className="iwz-card">{renderStep()}</section>
 
-              <div className="spf-fields">
-                <IpfField icon="label" label="שם המוצר" hint="חובה">
-                  <Input
-                    className="spf-input"
-                    value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    placeholder="לדוגמה: חלב 3%"
-                    autoFocus={!isEdit}
-                    required
-                  />
-                </IpfField>
+          {error && (
+            <p className="spf-alert" role="alert">
+              <Icon name="error" size={17} />
+              {error}
+            </p>
+          )}
 
-                <IpfField icon="barcode" label="ברקוד" note="ייחודי לעסק — ניתן לחפש לפיו במלאי ובהזמנות">
-                  <Input
-                    className="spf-input font-mono"
-                    value={form.barcode}
-                    onChange={(e) => setForm({ ...form, barcode: e.target.value })}
-                    placeholder="7290000000000"
-                    inputMode="numeric"
-                    dir="ltr"
-                  />
-                </IpfField>
-
-                <IpfField
-                  icon="category"
-                  label="קטגוריה"
-                  note={
-                    !(inventoryCategories?.length) ? (
-                      <>
-                        הוסיפו קטגוריות ב
-                        <Link to="/settings" className="ipf-link">
-                          הגדרות העסק
-                        </Link>
-                      </>
-                    ) : undefined
-                  }
-                >
-                  <Select
-                    className="ipf-select"
-                    value={form.categoryId}
-                    onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
-                  >
-                    <option value="">ללא קטגוריה</option>
-                    {(inventoryCategories ?? []).map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </Select>
-                </IpfField>
-
-                <IpfField
-                  icon="groups"
-                  label="מחלקות"
-                  note={
-                    departmentOptions.length === 0
-                      ? "הוסיפו מחלקות בהגדרות העסק כדי לשייך מוצרים."
-                      : "ללא בחירה — המוצר יוצג לכל המחלקות."
-                  }
-                >
-                  <MultiSelect
-                    className="ipf-select"
-                    values={form.departmentIds}
-                    onChange={(departmentIds) => setForm({ ...form, departmentIds })}
-                    options={departmentOptions}
-                    placeholder="כל המחלקות"
-                    disabled={!departmentOptions.length}
-                  />
-                </IpfField>
-
-                <div className="spf-fields-row">
-                  <IpfField icon="straighten" label="יחידת מידה">
-                    <Select
-                      className="ipf-select"
-                      value={form.unit}
-                      onChange={(e) => {
-                        const unit = e.target.value;
-                        setForm((f) => ({
-                          ...f,
-                          unit,
-                          unitsPerPackage: unit === BASE_UNIT ? "" : f.unitsPerPackage,
-                        }));
-                      }}
-                    >
-                      {INVENTORY_UNITS.map((u) => (
-                        <option key={u.value} value={u.value}>
-                          {u.label}
-                        </option>
-                      ))}
-                    </Select>
-                  </IpfField>
-
-                  {supportsPieceInput(form.unit) ? (
-                    <IpfField
-                      icon="widgets"
-                      label={`יחידים ב${form.unit}`}
-                      note={
-                        dualUnit
-                          ? `1 ${form.unit} = ${unitsPerPackage} יחידות`
-                          : "מאפשר להזין כמויות גם ביחידים בודדים"
-                      }
-                    >
-                      <Input
-                        className="spf-input"
-                        type="number"
-                        min={1}
-                        value={form.unitsPerPackage}
-                        onChange={(e) => setForm({ ...form, unitsPerPackage: e.target.value })}
-                        placeholder="לדוגמה: 24"
-                      />
-                    </IpfField>
-                  ) : (
-                    <IpfField icon="low_priority" label="כמות מינימום" note="מתחת לסף — מלאי נמוך">
-                      <Input
-                        className="spf-input"
-                        type="number"
-                        min={0}
-                        value={form.minQty}
-                        onChange={(e) => setForm({ ...form, minQty: e.target.value })}
-                        placeholder="0"
-                      />
-                    </IpfField>
-                  )}
-                </div>
-
-                {supportsPieceInput(form.unit) && (
-                  <IpfField
-                    icon="low_priority"
-                    label="כמות מינימום"
-                    note="מתחת לסף זה הפריט יסומן כמלאי נמוך"
-                  >
-                    <Input
-                      className="spf-input"
-                      type="number"
-                      min={0}
-                      value={form.minQty}
-                      onChange={(e) => setForm({ ...form, minQty: e.target.value })}
-                      placeholder="0"
-                    />
-                  </IpfField>
-                )}
-
-                <IpfField
-                  icon="local_shipping"
-                  label="יום אספקה מהספק"
-                  note="ביום זה הסחורה אמורה להגיע לאחר הזמנה"
-                >
-                  <Select
-                    className="ipf-select"
-                    value={form.deliveryDay}
-                    onChange={(e) => setForm({ ...form, deliveryDay: e.target.value })}
-                  >
-                    <option value="">לא הוגדר</option>
-                    {HE_DAYS.map((d, i) => (
-                      <option key={i} value={String(i)}>
-                        יום {d}
-                      </option>
-                    ))}
-                  </Select>
-                </IpfField>
-              </div>
-
-              {error && (
-                <p className="spf-alert" role="alert">
-                  <Icon name="error" size={17} />
-                  {error}
-                </p>
-              )}
-            </section>
-          </aside>
-
-          {/* ── Warehouses + suppliers ── */}
-          <main className="spf-main ipf-stack">
-            <section className="spf-card">
-              <h2 className="spf-card-title">
-                <span className="spf-card-icon">
-                  <Icon name="warehouse" size={17} />
-                </span>
-                מחסנים
-                {stockedCount > 0 && <span className="spf-count">{stockedCount}</span>}
-              </h2>
-
-              {warehouses.length === 0 ? (
-                <div className="ipf-empty">
-                  <span className="ipf-empty-icon" aria-hidden>
-                    <Icon name="warehouse" size={22} />
-                  </span>
-                  <p>
-                    לא הוגדרו מחסנים לעסק
-                    <em>
-                      הוסיפו מחסנים ב
-                      <Link to="/settings" className="ipf-link">
-                        הגדרות העסק
-                      </Link>{" "}
-                      כדי לנהל כמות נפרדת בכל מחסן.
-                    </em>
-                  </p>
-                </div>
-              ) : (
-                <>
-                  <div className="ipf-wh-list">
-                    {warehouses.map((w) => {
-                      const stock = editing?.warehouse_stocks.find((s) => s.warehouse_id === w.id);
-                      return (
-                        <WarehouseRow
-                          key={w.id}
-                          warehouse={w}
-                          draft={drafts[w.id] ?? { qty: 0, stocked: false }}
-                          unit={form.unit}
-                          unitsPerPackage={unitsPerPackage}
-                          totalQty={totalQty}
-                          lastUpdatedAt={stock?.last_updated_at ?? null}
-                          lastUpdatedBy={stock?.last_updated_by_name ?? null}
-                          onToggle={() => toggleWarehouse(w.id)}
-                          onQty={(qty) => setWarehouseQty(w.id, qty)}
-                        />
-                      );
-                    })}
-                  </div>
-
-                  <p className="ipf-hint">
-                    <Icon name="info" size={14} />
-                    כיבוי המתג מאפס את הכמות במחסן — המוצר מופיע במחסן כל עוד יש בו כמות.
-                  </p>
-
-                  {warehouses.length > 1 && (
-                    <div className="ipf-transfer" data-open={transferOpen}>
-                      <button
-                        type="button"
-                        className="ipf-transfer-toggle"
-                        aria-expanded={transferOpen}
-                        onClick={openTransfer}
-                      >
-                        <Icon name="swap_horiz" size={16} />
-                        העברת כמות בין מחסנים
-                        <Icon
-                          name={transferOpen ? "expand_less" : "expand_more"}
-                          size={16}
-                          className="ipf-transfer-caret"
-                        />
-                      </button>
-
-                      {transferOpen && (
-                        <div className="ipf-transfer-body">
-                          <div className="ipf-transfer-row">
-                            <label className="ipf-transfer-cell">
-                              <span>מהמחסן</span>
-                              <Select
-                                value={transferFrom}
-                                onChange={(e) => setTransferFrom(e.target.value)}
-                              >
-                                <option value="">בחרו מחסן</option>
-                                {warehouses.map((w) => (
-                                  <option key={w.id} value={w.id}>
-                                    {w.name} · {drafts[w.id]?.qty ?? 0}
-                                  </option>
-                                ))}
-                              </Select>
-                            </label>
-                            <span className="ipf-transfer-arrow" aria-hidden>
-                              <Icon name="arrow_back" size={16} />
-                            </span>
-                            <label className="ipf-transfer-cell">
-                              <span>למחסן</span>
-                              <Select value={transferTo} onChange={(e) => setTransferTo(e.target.value)}>
-                                <option value="">בחרו מחסן</option>
-                                {warehouses
-                                  .filter((w) => w.id !== transferFrom)
-                                  .map((w) => (
-                                    <option key={w.id} value={w.id}>
-                                      {w.name}
-                                    </option>
-                                  ))}
-                              </Select>
-                            </label>
-                          </div>
-
-                          <div className="ipf-transfer-row ipf-transfer-row--end">
-                            <label className="ipf-transfer-cell">
-                              <span>כמות להעברה</span>
-                              <DualUnitQtyInput
-                                value={transferQty}
-                                mainUnit={form.unit}
-                                unitsPerPackage={unitsPerPackage}
-                                onCommit={setTransferQty}
-                                variant="input"
-                              />
-                            </label>
-                            <Button
-                              variant="secondary"
-                              icon="swap_horiz"
-                              className="!py-2.5"
-                              disabled={!transferFrom || !transferTo || transferMax <= 0}
-                              onClick={runTransfer}
-                            >
-                              העברה
-                            </Button>
-                          </div>
-
-                          {transferFrom && (
-                            <p className="ipf-transfer-max">
-                              זמין להעברה: {formatQtyWithPieces(transferMax, form.unit, unitsPerPackage)}
-                              {dualUnit && transferMax > 0 && (
-                                <> ({mainUnitToPieces(transferMax, unitsPerPackage!)} יח׳)</>
-                              )}
-                            </p>
-                          )}
-                          {transferNote && <p className="ipf-transfer-note">{transferNote}</p>}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </>
-              )}
-            </section>
-
-            <section className="spf-card" ref={suppliersCardRef}>
-              <h2 className="spf-card-title">
-                <span className="spf-card-icon">
-                  <Icon name="local_shipping" size={17} />
-                </span>
-                ספקים של המוצר
-                {supplierLines.length > 0 && <span className="spf-count">{supplierLines.length}</span>}
-              </h2>
-
-              {!canEditSuppliers ? (
-                <div className="ipf-empty">
-                  <span className="ipf-empty-icon" aria-hidden>
-                    <Icon name="lock" size={22} />
-                  </span>
-                  <p>
-                    שיוך ספקים ומחירים
-                    <em>רק מנהל עסק או מנהל משרד יכולים לשייך ספקים ולעדכן מחירי רכש.</em>
-                  </p>
-                </div>
-              ) : (supplierList ?? []).length === 0 ? (
-                <div className="ipf-empty">
-                  <span className="ipf-empty-icon" aria-hidden>
-                    <Icon name="local_shipping" size={22} />
-                  </span>
-                  <p>
-                    עדיין אין ספקים בעסק
-                    <em>
-                      הוסיפו ספקים ב
-                      <Link to="/suppliers" className="ipf-link">
-                        עמוד הספקים
-                      </Link>{" "}
-                      ואז שייכו אותם למוצר עם מחיר.
-                    </em>
-                  </p>
-                </div>
-              ) : (
-                <>
-                  {(supplierList ?? []).length > 6 && (
-                    <div className="spf-search ipf-sup-search">
-                      <Icon name="search" size={18} className="spf-search-icon" />
-                      <input
-                        value={supplierQuery}
-                        onChange={(e) => setSupplierQuery(e.target.value)}
-                        placeholder="חיפוש ספק..."
-                        className="spf-search-input"
-                        aria-label="חיפוש ספק"
-                      />
-                      {supplierQuery && (
-                        <button
-                          type="button"
-                          className="spf-search-x"
-                          onClick={() => setSupplierQuery("")}
-                          aria-label="ניקוי חיפוש"
-                        >
-                          <Icon name="close" size={15} />
-                        </button>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="ipf-sup-list">
-                    {visibleSuppliers.map((s) => {
-                      const line = lineMap.get(s.id);
-                      return (
-                        <SupplierRow
-                          key={s.id}
-                          supplier={s}
-                          line={line}
-                          unit={form.unit}
-                          dual={dualUnit}
-                          cheapest={!!cheapest && cheapest.id === s.id && effectivePrices.size > 1}
-                          missing={attempted && !!line && !lineHasValidPrice(line, dualUnit)}
-                          onToggle={() => toggleSupplier(s.id)}
-                          onFocusPrice={() => priceRefs.current.get(s.id)?.focus()}
-                          onMainPrice={(v) => setSupplierPrice(s.id, "mainPrice", v)}
-                          onPiecePrice={(v) => setSupplierPrice(s.id, "piecePrice", v)}
-                          registerMainPrice={(el) => {
-                            if (el) priceRefs.current.set(s.id, el);
-                            else priceRefs.current.delete(s.id);
-                          }}
-                        />
-                      );
-                    })}
-                    {visibleSuppliers.length === 0 && (
-                      <p className="ipf-sup-none">לא נמצא ספק בשם הזה.</p>
-                    )}
-                  </div>
-
-                  <p className="ipf-hint">
-                    <Icon name="info" size={14} />
-                    {dualUnit
-                      ? `אפשר להזין מחיר ל${form.unit} וגם ליחידה בודדת — המחיר משמש בהזמנות מהספק.`
-                      : `המחיר נשמר לספק הזה בלבד, ל${form.unit || "יחידה"} אחת — ומשמש בהזמנות.`}
-                  </p>
-                </>
-              )}
-            </section>
-          </main>
-        </div>
+          <button type="submit" className="hidden" tabIndex={-1} aria-hidden />
+        </form>
       </div>
 
-      {/* ── Sticky save bar ── */}
+      {/* ── Sticky action bar ── */}
       <div className="spf-foot">
-        <div className="spf-foot-info">
-          <b>{formatQtyWithPieces(totalQty, form.unit, unitsPerPackage)}</b>
-          <span>
-            ב-{stockedCount} מחסנים
-            {canEditSuppliers && supplierLines.length > 0 ? ` · ${supplierLines.length} ספקים` : ""}
-          </span>
+        <div className="spf-foot-info iwz-foot-info">
+          <b>
+            {safeIndex + 1}
+            <span className="iwz-foot-of">/{steps.length}</span>
+          </b>
+          <span>{step.title}</span>
         </div>
         <div className="spf-foot-actions">
-          <Button variant="secondary" onClick={goBack} className="!py-2.5">
-            ביטול
+          <Button variant="secondary" icon="arrow_forward" onClick={goPrev} className="!py-2.5">
+            {isFirst ? "ביטול" : "הקודם"}
           </Button>
-          <Button loading={saving} onClick={submit} icon="check" className="!py-2.5">
-            {isEdit ? "שמירה" : "הוספת מוצר"}
-          </Button>
+          {isEdit && !isLast && (
+            <Button variant="secondary" onClick={goNext} className="!py-2.5">
+              הבא
+            </Button>
+          )}
+          {isEdit ? (
+            <Button loading={saving} onClick={submit} icon="check" className="!py-2.5">
+              שמירה
+            </Button>
+          ) : isLast ? (
+            <Button loading={saving} onClick={submit} icon="check" className="!py-2.5">
+              הוספת מוצר
+            </Button>
+          ) : (
+            <Button onClick={goNext} icon="arrow_back" className="!py-2.5">
+              המשך
+            </Button>
+          )}
         </div>
       </div>
     </div>

@@ -98,14 +98,23 @@ export const ALL_FEATURES: { key: FeatureKey; label: string; icon: string; desc:
 );
 
 /** Sidebar section ids — order is defined by NAV_GROUP_ORDER. */
-export type NavGroupId = "overview" | "platform" | "team" | "shifts" | "ops" | "settings";
+export type NavGroupId =
+  | "overview"
+  | "platform"
+  | "shifts"
+  | "ops"
+  | "inventory"
+  | "team"
+  | "settings";
 
+/** Sections run from the most frequently used (daily work) down to admin. */
 export const NAV_GROUP_ORDER: NavGroupId[] = [
   "overview",
   "platform",
-  "team",
   "shifts",
   "ops",
+  "inventory",
+  "team",
   "settings",
 ];
 
@@ -113,9 +122,10 @@ export const NAV_GROUP_ORDER: NavGroupId[] = [
 export const NAV_GROUP_LABELS: Record<NavGroupId, string> = {
   overview: "",
   platform: "פלטפורמה",
-  team: "צוות",
   shifts: "משמרות ונוכחות",
   ops: "תפעול",
+  inventory: "מלאי ורכש",
+  team: "צוות ושכר",
   settings: "הגדרות",
 };
 
@@ -138,7 +148,12 @@ export interface NavGroup {
   items: NavItem[];
 }
 
-/** Group filtered nav items into ordered sections (skips empty groups). */
+/**
+ * Group filtered nav items into ordered sections (skips empty groups).
+ *
+ * A section header only earns its space when it actually groups something, so a
+ * section that a role sees just one item of is rendered without a label.
+ */
 export function groupNavItems(items: NavItem[], options?: { flat?: boolean }): NavGroup[] {
   if (options?.flat) {
     // Keep relative order, but pin מסמכים last in the flat (employee) menu.
@@ -153,11 +168,14 @@ export function groupNavItems(items: NavItem[], options?: { flat?: boolean }): N
     if (list) list.push(item);
     else byGroup.set(item.group, [item]);
   }
-  return NAV_GROUP_ORDER.filter((id) => (byGroup.get(id)?.length ?? 0) > 0).map((id) => ({
-    id,
-    label: NAV_GROUP_LABELS[id],
-    items: byGroup.get(id)!,
-  }));
+  return NAV_GROUP_ORDER.filter((id) => (byGroup.get(id)?.length ?? 0) > 0).map((id) => {
+    const groupItems = byGroup.get(id)!;
+    return {
+      id,
+      label: groupItems.length > 1 ? NAV_GROUP_LABELS[id] : "",
+      items: groupItems,
+    };
+  });
 }
 
 /**
@@ -173,20 +191,21 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "businesses", label: "עסקים", icon: "store", group: "platform", roles: ["super_admin"] },
   { key: "platform-users", label: "משתמשים", icon: "group", group: "platform", roles: ["super_admin"] },
 
-  { key: "users", label: "משתמשים", icon: "group", group: "team", roles: ["manager", "office_manager"] },
-  { key: "agreements", label: "מסמכים", icon: "draw", group: "team", roles: ["manager", "shift_manager", "office_manager", "employee"], feature: "agreements" },
-  { key: "payroll", label: "שכר", icon: "payments", group: "team", roles: ["manager", "office_manager"], feature: "payroll" },
-
   { key: "shifts", label: "משמרות", icon: "calendar_month", group: "shifts", roles: ["manager", "shift_manager", "employee"], feature: "shifts" },
   { key: "shift-reports", label: "דוח משמרת", icon: "receipt_long", group: "shifts", roles: ["manager", "shift_manager"], feature: "shift_reports" },
   { key: "attendance", label: "שעון נוכחות", icon: "schedule", group: "shifts", roles: ["manager"], feature: "attendance" },
   { key: "my-shifts", label: "מעקב שכר", icon: "event_available", group: "shifts", roles: ["manager", "shift_manager", "office_manager", "employee", "maintenance"] },
 
   { key: "tasks", label: "משימות", icon: "checklist", group: "ops", roles: ["manager", "shift_manager", "office_manager"], feature: "tasks" },
-  { key: "inventory", label: "סחורות", icon: "inventory_2", group: "ops", roles: ["manager", "shift_manager", "office_manager", "employee"], feature: "inventory" },
-  { key: "suppliers", label: "ספקים", icon: "local_shipping", group: "ops", roles: ["manager", "office_manager"], feature: "inventory" },
   { key: "faults", label: "תקלות", icon: "build", group: "ops", roles: ["manager", "shift_manager"], feature: "faults" },
   { key: "events", label: "אירועים", icon: "celebration", group: "ops", roles: ["manager", "event_manager", "shift_manager", "office_manager", "employee"], feature: "events" },
+
+  { key: "inventory", label: "סחורות", icon: "inventory_2", group: "inventory", roles: ["manager", "shift_manager", "office_manager", "employee"], feature: "inventory" },
+  { key: "suppliers", label: "ספקים", icon: "local_shipping", group: "inventory", roles: ["manager", "office_manager"], feature: "inventory" },
+
+  { key: "users", label: "משתמשים", icon: "group", group: "team", roles: ["manager", "office_manager"] },
+  { key: "payroll", label: "שכר", icon: "payments", group: "team", roles: ["manager", "office_manager"], feature: "payroll" },
+  { key: "agreements", label: "מסמכים", icon: "draw", group: "team", roles: ["manager", "shift_manager", "office_manager", "employee"], feature: "agreements" },
 
   { key: "settings", label: "הגדרות עסק", icon: "settings", group: "settings", roles: ["manager"] },
 ];

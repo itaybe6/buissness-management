@@ -6,6 +6,8 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  NAV_GROUP_LABELS,
+  NAV_GROUP_ORDER,
   NAV_ITEMS,
   getHomePath,
   groupNavItems,
@@ -114,11 +116,47 @@ describe("סידור התפריט לעובד (תצוגה שטוחה)", () => {
   it("במצב לא-שטוח הפריטים מקובצים לפי מקטעים בסדר קבוע", () => {
     const groups = groupNavItems(visibleNavItems("manager", ALL_ON));
     const ids = groups.map((g) => g.id);
-    expect(ids).toEqual([...ids].sort((a, b) => {
-      const order = ["overview", "platform", "team", "shifts", "ops", "settings"];
-      return order.indexOf(a) - order.indexOf(b);
-    }));
+    expect(ids).toEqual(
+      [...ids].sort((a, b) => NAV_GROUP_ORDER.indexOf(a) - NAV_GROUP_ORDER.indexOf(b)),
+    );
     expect(groups.every((g) => g.items.length > 0)).toBe(true);
+  });
+});
+
+describe("כותרות המקטעים בתפריט", () => {
+  it("מקטע עם פריט בודד לא מקבל כותרת — הכותרת מיותרת כשאין מה לקבץ", () => {
+    const groups = groupNavItems(visibleNavItems("manager", ALL_ON));
+    for (const group of groups) {
+      if (group.items.length === 1) expect(group.label, group.id).toBe("");
+    }
+  });
+
+  it("מקטע עם כמה פריטים מקבל את הכותרת מהקטלוג", () => {
+    const groups = groupNavItems(visibleNavItems("manager", ALL_ON));
+    const labeled = groups.filter((g) => g.items.length > 1);
+    expect(labeled.length).toBeGreaterThan(0);
+    for (const group of labeled) {
+      expect(group.label, group.id).toBe(NAV_GROUP_LABELS[group.id]);
+    }
+  });
+
+  it("אף מקטע לא גדול מדי — עד ארבעה פריטים למנהל עם כל המודולים", () => {
+    const groups = groupNavItems(visibleNavItems("manager", ALL_ON));
+    for (const group of groups) {
+      expect(group.items.length, group.id).toBeLessThanOrEqual(4);
+    }
+  });
+
+  it("סחורות וספקים יושבים יחד במקטע המלאי, לא בתוך «תפעול»", () => {
+    for (const key of ["inventory", "suppliers"]) {
+      expect(NAV_ITEMS.find((i) => i.key === key)?.group, key).toBe("inventory");
+    }
+  });
+
+  it("שכר, משתמשים ומסמכים יושבים יחד במקטע הצוות", () => {
+    for (const key of ["users", "payroll", "agreements"]) {
+      expect(NAV_ITEMS.find((i) => i.key === key)?.group, key).toBe("team");
+    }
   });
 });
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button, Field, Icon, Input, Select } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useBusinessId } from "@/lib/db";
@@ -65,8 +65,10 @@ export function AgreementEditorModal({
   const [type, setType] = useState<AgreementType>(template?.type ?? VARIANT_DEFAULTS[variant].type);
   const [employeeId, setEmployeeId] = useState(template?.employee_id ?? "");
   const [fileUrl, setFileUrl] = useState(template?.file_url ?? "");
-  const [fields, setFields] = useState<SignatureField[]>(template?.signature_fields ?? []);
-  const [tool, setTool] = useState<FormFieldKind>(isForm101 ? "text" : "signature");
+  const [fields, setFields] = useState<SignatureField[]>(
+    isForm101 ? [] : (template?.signature_fields ?? [])
+  );
+  const [tool, setTool] = useState<FormFieldKind>("signature");
   const [uploading, setUploading] = useState(false);
   const [detecting, setDetecting] = useState(false);
   const [detectNote, setDetectNote] = useState("");
@@ -124,7 +126,7 @@ export function AgreementEditorModal({
   const newTitle = isGlobalType ? "הסכם מניעת הטרדה מינית" : isForm101 ? "העלאת טופס 101" : "הסכם חדש";
   const editTitle = isGlobalType ? "עריכת הסכם הטרדה" : isForm101 ? "עריכת טופס 101" : "עריכת הסכם";
   const editorSubtitle = isForm101
-    ? "סימון תיבות מילוי על הטופס — העובדים מקלידים ישירות עליו"
+    ? "העובדים מורידים את הטופס, ממלאים וחותמים ידנית, ומעלים סריקה"
     : "העלאת PDF וסימון מקומות החתימה";
 
   return (
@@ -149,7 +151,7 @@ export function AgreementEditorModal({
                 type,
                 content: "",
                 file_url: (isForm101 ? fileUrl || FORM_101_BLANK_URL : fileUrl) || null,
-                signature_fields: fields,
+                signature_fields: isForm101 ? [] : fields,
                 employee_id: isGlobalDoc ? null : employeeId || null,
               })
             }
@@ -171,7 +173,7 @@ export function AgreementEditorModal({
           <>
             <Field label="כותרת"><Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="טופס 101" /></Field>
             <div className="flex items-center gap-2 rounded-[11px] bg-surface-2 px-3 py-2.5 text-[12.5px] font-semibold text-text-2">
-              <Icon name="groups" size={18} /> טופס אחד לכל העובדים — כל עובד ממלא אותו במקלדת ישירות במערכת וחותם דיגיטלית.
+              <Icon name="groups" size={18} /> טופס אחד לכל העובדים — כל עובד מוריד, ממלא וחותם ידנית, ומעלה PDF סרוק.
             </div>
           </>
         ) : (
@@ -201,11 +203,11 @@ export function AgreementEditorModal({
         </Field>
         {isForm101 && !fileUrl && (
           <p className="text-[12px] text-text-3">
-            אם לא תועלה גרסה מותאמת, תיבות המילוי ייסומנו על טופס 101 ברירת המחדל של המערכת.
+            אם לא תועלה גרסה מותאמת, העובדים יורידו את טופס 101 ברירת המחדל של המערכת.
           </p>
         )}
 
-        {editorUrl && (
+        {editorUrl && !isForm101 && (
           <div>
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <span className="label-text">סוג התיבה שתסמנו:</span>
@@ -299,6 +301,10 @@ export function AgreementEditorModal({
   );
 }
 
+function isImageUrl(url: string) {
+  return /\.(png|jpe?g|webp|gif|heic|heif)(\?|$)/i.test(url);
+}
+
 function Form101UploadModal({
   agreement,
   employeeId,
@@ -314,20 +320,28 @@ function Form101UploadModal({
 }) {
   const businessId = useBusinessId();
   const sign = useSignAgreement(businessId);
-  const alreadySigned = !!signature?.agreed;
+  const fileInput = useRef<HTMLInputElement>(null);
   const blankUrl = agreement.file_url ?? FORM_101_BLANK_URL;
-  const viewUrl = alreadySigned && signature?.signed_file_url ? signature.signed_file_url : null;
   const [uploading, setUploading] = useState(false);
+  const [uploadedUrl, setUploadedUrl] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [fileName, setFileName] = useState("");
   const [err, setErr] = useState("");
 
-  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file || !businessId || !canSign || alreadySigned) return;
-    if (file.type !== "application/pdf") {
-      setErr("יש להעלות קובץ PDF בלבד.");
+  const done = !!signature?.agreed || !!uploadedUrl;
+  const uploadAllowed = canSign && !done;
+  const viewUrl = signature?.signed_file_url ?? uploadedUrl;
+
+  async function handleFile(file: File | null | undefined) {
+    if (!file || !businessId || !canSign || done || uploading) return;
+    const isPdf = file.type === "application/pdf";
+    const isImage = file.type.startsWith("image/");
+    if (!isPdf && !isImage) {
+      setErr("יש להעלות קובץ PDF או תמונה של הטופס.");
       return;
     }
     setUploading(true);
+    setFileName(file.name);
     setErr("");
     try {
       const signedUrl = await uploadAgreementFile(businessId, file);
@@ -339,14 +353,14 @@ function Form101UploadModal({
         signed_file_url: signedUrl,
       });
       await notifyForm101Signed(agreement.id, employeeId);
-      onClose();
+      setUploadedUrl(signedUrl);
     } catch {
       setErr("שגיאה בהעלאת הקובץ. נסו שוב.");
+    } finally {
       setUploading(false);
+      if (fileInput.current) fileInput.current.value = "";
     }
   }
-
-  const uploadAllowed = canSign && !alreadySigned;
 
   return (
     <Modal
@@ -354,53 +368,154 @@ function Form101UploadModal({
       onClose={onClose}
       title={agreement.title || "טופס 101"}
       subtitle={
-        alreadySigned
-          ? "הטופס הועלה"
-          : uploadAllowed
-            ? "הורידו את הטופס, מלאו וחתמו ידנית, סרקו והעלו PDF"
-            : "ממתין להעלאת העובד/ת"
+        done ? "הטופס נשמר במערכת" : uploadAllowed ? "שלושה שלבים והטופס אצלנו" : "ממתין להעלאת העובד/ת"
       }
       icon="description"
-      maxWidth={840}
-      footer={<Button className="flex-1" onClick={onClose}>סגירה</Button>}
+      maxWidth={560}
+      fullScreenMobile
+      footer={
+        uploadAllowed ? (
+          <>
+            <Button variant="secondary" onClick={onClose}>ביטול</Button>
+            <Button className="flex-1" icon="upload" loading={uploading} onClick={() => fileInput.current?.click()}>
+              בחירת הטופס החתום
+            </Button>
+          </>
+        ) : (
+          <Button className="flex-1" onClick={onClose}>סגירה</Button>
+        )
+      }
     >
-      {!alreadySigned && (
-        <a
-          href={blankUrl}
-          target="_blank"
-          rel="noreferrer"
-          download
-          className="mb-3 flex items-center gap-2 rounded-[11px] border border-border bg-surface-2 px-3 py-2.5 text-[13px] font-semibold text-link"
-        >
-          <Icon name="download" size={18} /> הורדת טופס 101 (ריק)
-        </a>
-      )}
-      {alreadySigned && signature?.signed_file_url && (
-        <a
-          href={signature.signed_file_url}
-          target="_blank"
-          rel="noreferrer"
-          className="mb-3 flex items-center gap-2 rounded-[11px] border border-border bg-surface-2 px-3 py-2.5 text-[13px] font-semibold text-link"
-        >
-          <Icon name="download" size={18} /> הורדת העותק שהועלה
-        </a>
-      )}
-      {uploadAllowed && (
-        <Field label="העלאת טופס 101 חתום (PDF)">
-          <Input type="file" accept="application/pdf" onChange={handleFile} disabled={uploading} />
-        </Field>
-      )}
-      {!canSign && !alreadySigned && (
-        <div className="mb-3 flex items-center gap-2 rounded-[11px] border border-border bg-surface-2 px-3 py-2.5 text-[12.5px] font-semibold text-text-2">
-          <Icon name="schedule" size={18} /> העובד/ת עדיין לא העלה/תה את הטופס החתום.
-        </div>
-      )}
-      {viewUrl && (
-        <div className="max-h-[58vh] overflow-auto rounded-[12px] border border-border bg-surface-2 p-3">
-          <PdfDocViewer url={viewUrl} />
-        </div>
-      )}
-      {err && <p className="mt-2 text-[12px] font-semibold text-danger">{err}</p>}
+      <div className="docs-upload">
+        {done ? (
+          <>
+            <div className="docs-upload__done">
+              <span className="docs-upload__done-icon" aria-hidden>
+                <Icon name="check" size={26} />
+              </span>
+              <div className="docs-upload__done-copy">
+                <span className="docs-upload__done-title">הטופס הועלה</span>
+                <span className="docs-upload__done-sub">
+                  {signature?.signed_at
+                    ? `נשלח · ${new Date(signature.signed_at).toLocaleDateString("he-IL", { day: "numeric", month: "long", year: "numeric" })}`
+                    : "העותק החתום נשמר ונשלח למשרד"}
+                </span>
+              </div>
+            </div>
+
+            {viewUrl && (
+              <div className="docs-upload__actions">
+                <a className="docs-upload__btn" href={viewUrl} target="_blank" rel="noreferrer">
+                  <Icon name="visibility" size={18} /> צפייה בטופס
+                </a>
+                <a className="docs-upload__btn" href={viewUrl} download target="_blank" rel="noreferrer">
+                  <Icon name="download" size={18} /> הורדת העותק
+                </a>
+              </div>
+            )}
+
+            {viewUrl && (
+              <div className="docs-upload__preview">
+                {isImageUrl(viewUrl) ? (
+                  <img src={viewUrl} alt="הטופס שהועלה" className="docs-upload__preview-img" />
+                ) : (
+                  <PdfDocViewer url={viewUrl} />
+                )}
+              </div>
+            )}
+          </>
+        ) : uploadAllowed ? (
+          <ol className="docs-upload__steps">
+            <li className="docs-upload-step">
+              <span className="docs-upload-step__num">1</span>
+              <div className="docs-upload-step__body">
+                <span className="docs-upload-step__title">הורדת הטופס הריק</span>
+                <span className="docs-upload-step__desc">שמרו את ה־PDF במכשיר או הדפיסו אותו</span>
+                <a className="docs-upload-step__cta" href={blankUrl} target="_blank" rel="noreferrer" download>
+                  <Icon name="download" size={18} /> הורדת טופס 101
+                </a>
+              </div>
+            </li>
+
+            <li className="docs-upload-step">
+              <span className="docs-upload-step__num">2</span>
+              <div className="docs-upload-step__body">
+                <span className="docs-upload-step__title">מילוי וחתימה ידנית</span>
+                <span className="docs-upload-step__desc">
+                  מלאו את כל הפרטים, חתמו בעט, ואז צלמו או סרקו את הטופס
+                </span>
+              </div>
+            </li>
+
+            <li className="docs-upload-step">
+              <span className="docs-upload-step__num">3</span>
+              <div className="docs-upload-step__body">
+                <span className="docs-upload-step__title">העלאת הטופס החתום</span>
+                <span className="docs-upload-step__desc">תמונה מהמצלמה או קובץ PDF</span>
+                <div
+                  className={`docs-upload-drop${dragOver ? " docs-upload-drop--over" : ""}${uploading ? " docs-upload-drop--busy" : ""}`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => !uploading && fileInput.current?.click()}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      if (!uploading) fileInput.current?.click();
+                    }
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setDragOver(true);
+                  }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDragOver(false);
+                    void handleFile(e.dataTransfer.files[0]);
+                  }}
+                >
+                  {uploading ? (
+                    <>
+                      <span className="docs-upload-drop__spinner" aria-hidden />
+                      <span className="docs-upload-drop__label">מעלה ושומר...</span>
+                      {fileName && <span className="docs-upload-drop__hint">{fileName}</span>}
+                    </>
+                  ) : (
+                    <>
+                      <span className="docs-upload-drop__glyph" aria-hidden>
+                        <Icon name="add_a_photo" size={26} />
+                      </span>
+                      <span className="docs-upload-drop__label">לחצו לצילום או לבחירת קובץ</span>
+                      <span className="docs-upload-drop__hint">אפשר גם לגרור לכאן · נשמר אוטומטית</span>
+                    </>
+                  )}
+                </div>
+              </div>
+            </li>
+          </ol>
+        ) : (
+          <div className="docs-upload__waiting">
+            <span className="docs-upload__waiting-icon" aria-hidden>
+              <Icon name="schedule" size={24} />
+            </span>
+            <span className="docs-upload__waiting-text">העובד/ת עדיין לא העלה/תה את הטופס החתום.</span>
+          </div>
+        )}
+
+        <input
+          ref={fileInput}
+          type="file"
+          accept="application/pdf,image/*"
+          className="hidden"
+          onChange={(e) => void handleFile(e.target.files?.[0])}
+        />
+
+        {err && (
+          <p className="docs-upload__error" role="alert">
+            <Icon name="error" size={16} /> {err}
+          </p>
+        )}
+      </div>
     </Modal>
   );
 }
@@ -423,11 +538,9 @@ export function ReadSignModal({
   const alreadySigned = !!signature?.agreed;
   const fields = agreement.signature_fields ?? [];
   const isForm101 = agreement.type === "form_101";
-  // Form 101 with marked boxes is filled in place; without them it falls back
-  // to the legacy download-fill-scan-upload flow.
-  const isPdfFlow = !!agreement.file_url && fields.length > 0;
+  const isPdfFlow = !isForm101 && !!agreement.file_url && fields.length > 0;
 
-  if (isForm101 && !isPdfFlow) {
+  if (isForm101) {
     return (
       <Form101UploadModal
         agreement={agreement}

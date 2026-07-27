@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { Badge, Icon } from "@/components/ui";
 import type { AgreementTemplate } from "@/types/database";
 import type { DocsMgmtCategory } from "./types";
@@ -296,54 +296,107 @@ export function DocsStatsBar({ pending, signed, total }: { pending: number; sign
   );
 }
 
-const DOC_ROW_TONES: Record<AgreementTemplate["type"], "accent" | "info"> = {
-  work: "accent",
-  sexual_harassment: "accent",
-  other: "info",
-  form_101: "info",
-};
+/* ── Employee view: progress header, grouped sections, document rows ── */
+
+export function DocsProgressHeader({ done, total }: { done: number; total: number }) {
+  const pct = total > 0 ? Math.round((done / total) * 100) : 100;
+  const left = Math.max(total - done, 0);
+
+  return (
+    <section className="docs-summary" data-complete={left === 0 || undefined}>
+      <span className="docs-summary__ring" style={{ "--docs-p": pct } as CSSProperties} aria-hidden>
+        <span className="docs-summary__ring-face">
+          {left === 0 ? (
+            <Icon name="check" size={22} className="docs-summary__ring-check" />
+          ) : (
+            <span className="docs-summary__ring-val">
+              {done}
+              <span className="docs-summary__ring-total">/{total}</span>
+            </span>
+          )}
+        </span>
+      </span>
+      <div className="docs-summary__copy">
+        <h2 className="docs-summary__title">המסמכים שלי</h2>
+        <p className="docs-summary__sub">
+          {left === 0
+            ? "הכל מעודכן — לא נשארו מסמכים להשלמה"
+            : left === 1
+              ? "נותר מסמך אחד להשלמה"
+              : `נותרו ${left} מסמכים להשלמה`}
+        </p>
+      </div>
+    </section>
+  );
+}
+
+export function DocsGroup({
+  label,
+  count,
+  tone = "neutral",
+  children,
+}: {
+  label: string;
+  count: number;
+  tone?: "pending" | "neutral";
+  children: ReactNode;
+}) {
+  return (
+    <section className="docs-group">
+      <header className="docs-group__head">
+        <span className="docs-group__label" data-tone={tone}>
+          {label}
+        </span>
+        <span className="docs-group__count">{count}</span>
+      </header>
+      <div className="docs-group__list">{children}</div>
+    </section>
+  );
+}
 
 export function EmployeeDocRow({
   title,
   type,
   signed,
   onOpen,
-  last,
+  index = 0,
 }: {
   title: string;
   type: AgreementTemplate["type"];
   signed: boolean;
   onOpen: () => void;
-  last?: boolean;
+  index?: number;
 }) {
-  const icon = TYPE_ICONS[type];
-  const tone: "accent" | "info" | "warning" = signed ? DOC_ROW_TONES[type] : "warning";
+  const desc = signed
+    ? type === "form_101"
+      ? "הועלה — אפשר לצפות בעותק"
+      : "נחתם — אפשר לצפות במסמך"
+    : type === "form_101"
+      ? "הורידו את הטופס, מלאו והעלו סריקה"
+      : "ממתין לחתימה דיגיטלית";
 
   return (
     <button
       type="button"
-      className={`profile-action-row ${last ? "profile-action-row--last" : ""}`}
+      className="docs-item doc-card--enter"
+      data-signed={signed || undefined}
+      style={{ "--doc-delay": `${Math.min(index, 8) * 45}ms` } as CSSProperties}
       onClick={onOpen}
     >
-      <span className="profile-action-row-icon" data-tone={tone}>
-        <Icon name={icon} size={20} />
+      <span className="docs-item__icon" aria-hidden>
+        <Icon name={TYPE_ICONS[type]} size={20} />
       </span>
-      <span className="profile-action-row-text">
-        <span className="profile-action-row-title">
-          {title}
-          {!signed && <span className="docs-pending-dot" aria-hidden />}
+      <span className="docs-item__copy">
+        <span className="docs-item__top">
+          <span className="docs-item__title">{title}</span>
+          <span className="docs-item__pill">
+            {signed ? <Icon name="check" size={13} /> : null}
+            {signed ? "הושלם" : "לביצוע"}
+          </span>
         </span>
-        <span className="profile-action-row-desc" data-pending={!signed || undefined}>
-          {signed
-            ? type === "form_101"
-              ? "הועלה"
-              : TYPE_LABELS[type]
-            : type === "form_101"
-              ? "הורידו, מלאו והעלו סריקה"
-              : "ממתין לחתימה"}
-        </span>
+        <span className="docs-item__desc">{desc}</span>
       </span>
-      <Icon name="chevron_left" size={22} className="profile-action-row-chevron" />
+      <Icon name="chevron_left" size={20} className="docs-item__chevron" />
     </button>
   );
 }

@@ -18,7 +18,7 @@ export const TYPE_ACCENTS: Record<AgreementType, string> = {
   work: "success",
   sexual_harassment: "violet",
   other: "info",
-  form_101: "warning",
+  form_101: "violet",
 };
 
 export const TAX_YEAR = new Date().getFullYear();

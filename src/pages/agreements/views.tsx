@@ -18,10 +18,12 @@ import { AgreementEditorModal, ReadSignModal, type EditorVariant } from "./Agree
 import {
   DocsEmployeeEmpty,
   DocsEmptyBox,
+  DocsGroup,
   DocsListEmpty,
   DocsMgmtStats,
   DocsMgmtToolbar,
   DocsPageTabs,
+  DocsProgressHeader,
   DocsSearchBar,
   DocsTabs,
   EmployeeDocRow,
@@ -90,8 +92,10 @@ export function TemplatesPanel({
     } else {
       parts.push("לכל העובדים");
     }
-    const boxes = a.signature_fields?.length ?? 0;
-    if (boxes > 0) parts.push(`${boxes} תיבות מילוי`);
+    if (a.type !== "form_101") {
+      const boxes = a.signature_fields?.length ?? 0;
+      if (boxes > 0) parts.push(`${boxes} תיבות מילוי`);
+    }
     return parts.join(" · ");
   }
 
@@ -294,7 +298,6 @@ export function ManagerDocumentsView({
   const globalForm101 = useMemo(() => globalForm101Template(agreements), [agreements]);
   const seededForm101 = useRef(false);
   const [editForm101, setEditForm101] = useState(false);
-  const form101Boxes = globalForm101?.signature_fields?.length ?? 0;
 
   useEffect(() => {
     if (!canEdit || globalForm101 || seededForm101.current) return;
@@ -355,19 +358,15 @@ export function ManagerDocumentsView({
             <>
               {canEdit && globalForm101 && (
                 <div className="form101-setup">
-                  <Icon name={form101Boxes > 0 ? "check_circle" : "edit_document"} size={20} />
+                  <Icon name="info" size={20} />
                   <div className="form101-setup__text">
-                    <span className="form101-setup__title">
-                      {form101Boxes > 0 ? "מילוי במקלדת פעיל" : "מילוי במקלדת — עוד לא הוגדר"}
-                    </span>
+                    <span className="form101-setup__title">הורדה והעלאת סריקה</span>
                     <span className="form101-setup__sub">
-                      {form101Boxes > 0
-                        ? `${form101Boxes} תיבות מסומנות על הטופס. העובדים מקלידים ישירות עליו וחותמים דיגיטלית.`
-                        : "סמנו על הטופס איפה כל פרט נכתב, וכל העובדים ימלאו אותו במקלדת במקום להדפיס ולסרוק."}
+                      העובדים מורידים את הטופס, ממלאים וחותמים ידנית, ומעלים PDF סרוק.
                     </span>
                   </div>
                   <Button variant="secondary" onClick={() => setEditForm101(true)}>
-                    {form101Boxes > 0 ? "עריכת התיבות" : "סימון תיבות מילוי"}
+                    עריכת טופס ריק
                   </Button>
                 </div>
               )}
@@ -423,8 +422,11 @@ export function EmployeeDocumentsView({
   const [pageTab, setPageTab] = useState<"mine" | "manage">(canEditTemplates ? "manage" : "mine");
   const signedSet = new Set((signatures ?? []).filter((s) => s.agreed).map((s) => s.agreement_id));
 
-  const pending =
-    myAgreements.filter((a) => !signedSet.has(a.id)).length + (myIdCard ? 0 : 1);
+  const pendingDocs = myAgreements.filter((a) => !signedSet.has(a.id));
+  const doneDocs = myAgreements.filter((a) => signedSet.has(a.id));
+  const pending = pendingDocs.length + (myIdCard ? 0 : 1);
+  // The ID card counts as one more required document alongside the agreements.
+  const total = myAgreements.length + 1;
   const showTabs = Boolean(canEditTemplates && profileId);
 
   return (
@@ -440,31 +442,48 @@ export function EmployeeDocumentsView({
 
       {(!showTabs || pageTab === "mine") && (
         <>
+          <DocsProgressHeader done={total - pending} total={total} />
+
           <EmployeeIdCardUploadPanel businessId={businessId} employeeId={employeeId} />
 
-          {myAgreements.length > 0 ? (
-            <div className="profile-card">
-              {myAgreements.map((a, i) => {
-                const signedDoc = signedSet.has(a.id);
-                return (
-                  <EmployeeDocRow
-                    key={a.id}
-                    title={a.title}
-                    type={a.type}
-                    signed={signedDoc}
-                    last={i === myAgreements.length - 1}
-                    onOpen={() => setReading(a)}
-                  />
-                );
-              })}
-            </div>
-          ) : myIdCard ? (
-            <DocsEmployeeEmpty name={employeeName} />
-          ) : (
-            <p className="docs-id-card-only-hint text-center text-[13px] font-semibold text-text-3">
-              לאחר העלאת תעודת הזהות — יופיעו כאן גם הסכמים לחתימה, אם יש.
-            </p>
+          {pendingDocs.length > 0 && (
+            <DocsGroup label="ממתין לך" count={pendingDocs.length} tone="pending">
+              {pendingDocs.map((a, i) => (
+                <EmployeeDocRow
+                  key={a.id}
+                  title={a.title}
+                  type={a.type}
+                  signed={false}
+                  index={i}
+                  onOpen={() => setReading(a)}
+                />
+              ))}
+            </DocsGroup>
           )}
+
+          {doneDocs.length > 0 && (
+            <DocsGroup label="הושלמו" count={doneDocs.length}>
+              {doneDocs.map((a, i) => (
+                <EmployeeDocRow
+                  key={a.id}
+                  title={a.title}
+                  type={a.type}
+                  signed
+                  index={i}
+                  onOpen={() => setReading(a)}
+                />
+              ))}
+            </DocsGroup>
+          )}
+
+          {myAgreements.length === 0 &&
+            (myIdCard ? (
+              <DocsEmployeeEmpty name={employeeName} />
+            ) : (
+              <p className="docs-id-card-only-hint text-center text-[13px] font-semibold text-text-3">
+                לאחר העלאת תעודת הזהות — יופיעו כאן גם הסכמים לחתימה, אם יש.
+              </p>
+            ))}
 
           {reading && (
             <ReadSignModal agreement={reading} employeeId={employeeId} signature={signatureOf(signatures ?? [], reading.id, employeeId)} onClose={() => setReading(null)} />

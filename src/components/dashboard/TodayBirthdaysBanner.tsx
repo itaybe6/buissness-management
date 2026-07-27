@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { Icon } from "@/components/ui";
 import { EASE_OUT, SPRING } from "@/components/motion/shared-motion";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId, colorForDepartment, initialsOf } from "@/lib/db";
@@ -9,42 +8,91 @@ import { useProfiles } from "@/api/users";
 import { useDepartments } from "@/api/departments";
 import type { Profile } from "@/types/database";
 
-const CONFETTI_COLORS = ["#d97706", "#db2777", "#2563eb", "#16a34a", "#7c3aed", "#0891b2"] as const;
+const CONFETTI_COLORS = ["#bf7419", "#c2557b", "#3f72c4", "#3f9a72"] as const;
 
-function ConfettiRain({ seed }: { seed: number }) {
-  const pieces = useMemo(
+function CakeGlyph({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M4.2 20.6h15.6" />
+      <path d="M5.9 20.6v-5.1a1.8 1.8 0 0 1 1.8-1.8h8.6a1.8 1.8 0 0 1 1.8 1.8v5.1" />
+      <path d="M12 13.7V8.2" />
+      <circle cx="12" cy="6.1" r="1.3" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function SparkGlyph({ size = 12 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M12 1.6l1.75 7.15a1 1 0 0 0 .72.72L21.6 11.2a.85.85 0 0 1 0 1.6l-7.13 1.73a1 1 0 0 0-.72.72L12 22.4a.85.85 0 0 1-1.6 0L8.65 15.25a1 1 0 0 0-.72-.72L.8 12.8a.85.85 0 0 1 0-1.6l7.13-1.73a1 1 0 0 0 .72-.72Z" />
+    </svg>
+  );
+}
+
+function CardDeco() {
+  return (
+    <span className="tbday-card__deco" aria-hidden>
+      <svg viewBox="0 0 160 92" fill="none">
+        <g stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeDasharray="4 8">
+          <path d="M-2 4c26 16 36 40 31 70" />
+          <path d="M22-8c33 18 47 40 43 68" />
+          <path d="M50-12c35 16 49 32 53 54" />
+        </g>
+        <g fill="currentColor">
+          <circle cx="112" cy="16" r="2.2" />
+          <circle cx="90" cy="58" r="1.5" />
+          <circle cx="134" cy="41" r="1.9" />
+          <circle cx="146" cy="12" r="1.4" />
+        </g>
+      </svg>
+    </span>
+  );
+}
+
+function Confetti({ seed }: { seed: number }) {
+  const bits = useMemo(
     () =>
-      Array.from({ length: 14 }, (_, i) => ({
+      Array.from({ length: 10 }, (_, i) => ({
         id: i,
-        left: `${8 + ((seed * 17 + i * 23) % 84)}%`,
-        delay: `${(i * 0.18) % 2.4}s`,
-        duration: `${2.8 + (i % 4) * 0.35}s`,
+        left: `${6 + ((seed * 13 + i * 29) % 88)}%`,
+        delay: `${((seed + i * 7) % 26) / 10}s`,
+        duration: `${3.2 + (i % 4) * 0.45}s`,
         color: CONFETTI_COLORS[(seed + i) % CONFETTI_COLORS.length],
-        size: 4 + (i % 3) * 2,
-        rotate: (seed + i * 41) % 360,
+        width: 5 + (i % 3) * 3,
+        rotate: (seed * 11 + i * 47) % 180,
       })),
     [seed],
   );
 
   return (
-    <div className="tbday-confetti" aria-hidden>
-      {pieces.map((p) => (
+    <span className="tbday-confetti" aria-hidden>
+      {bits.map((b) => (
         <span
-          key={p.id}
+          key={b.id}
           className="tbday-confetti__bit"
           style={
             {
-              "--left": p.left,
-              "--delay": p.delay,
-              "--dur": p.duration,
-              "--color": p.color,
-              "--size": `${p.size}px`,
-              "--rot": `${p.rotate}deg`,
+              "--left": b.left,
+              "--delay": b.delay,
+              "--dur": b.duration,
+              "--color": b.color,
+              "--w": `${b.width}px`,
+              "--rot": `${b.rotate}deg`,
             } as React.CSSProperties
           }
         />
       ))}
-    </div>
+    </span>
   );
 }
 
@@ -62,111 +110,91 @@ function BirthdayCard({
   index: number;
 }) {
   const reduce = useReducedMotion();
-  const age = profile.birth_date ? birthdayAge(profile.birth_date) : null;
+  const age = profile.birth_date ? birthdayAge(profile.birth_date) : 0;
   const avatarColor = colorForDepartment(profile.department_id, departmentColor);
-  const firstName = (profile.full_name ?? "").trim().split(/\s+/)[0] || "חבר/ה";
-  const seed = profile.id.charCodeAt(0) + profile.id.charCodeAt(1);
+  const fullName = profile.full_name?.trim() || "עובד/ת";
+  const firstName = fullName.split(/\s+/)[0];
+  const seed = (profile.id.charCodeAt(0) || 7) + (profile.id.charCodeAt(3) || 3);
 
   return (
     <motion.article
       className="tbday-card"
       data-self={isSelf || undefined}
-      style={{ "--tbday-accent": isSelf ? "var(--accent)" : "#d97706" } as React.CSSProperties}
-      initial={reduce ? false : { opacity: 0, transform: "translateY(18px) scale(0.97)" }}
-      animate={{ opacity: 1, transform: "translateY(0) scale(1)" }}
-      transition={{ ...SPRING, delay: index * 0.08 }}
-      whileHover={reduce ? undefined : { transform: "translateY(-3px)" }}
+      initial={reduce ? false : { opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ ...SPRING, delay: index * 0.07 }}
     >
-      <span className="tbday-card__texture" aria-hidden />
-      <ConfettiRain seed={seed} />
+      <CardDeco />
+      {!reduce && <Confetti seed={seed} />}
 
-      <div className="tbday-card__ribbon">
-        <span className="tbday-card__ribbon-icon" aria-hidden>
-          <Icon name={isSelf ? "stars" : "cake"} size={14} />
-        </span>
-        <span className="tbday-card__ribbon-text">
-          {isSelf ? "היום שלך!" : "יום הולדת שמח"}
-        </span>
-        <span className="tbday-card__ribbon-shine" aria-hidden />
-      </div>
+      <div className="tbday-card__body">
+        <div className="tbday-card__portrait">
+          <span className="tbday-card__ring" aria-hidden />
+          <span className="tbday-card__ring tbday-card__ring--outer" aria-hidden />
 
-      <div className="tbday-card__inner">
-        <div className="tbday-card__visual">
-          <span className="tbday-card__orbit" aria-hidden />
-          <span className="tbday-card__orbit tbday-card__orbit--2" aria-hidden />
-
-          <div className="tbday-card__avatar-frame">
-            {profile.avatar_url ? (
-              <img src={profile.avatar_url} alt="" className="tbday-card__avatar" loading="lazy" />
-            ) : (
-              <span
-                className="tbday-card__avatar tbday-card__avatar--initials"
-                style={{ background: avatarColor }}
-              >
-                {initialsOf(profile.full_name)}
-              </span>
-            )}
-          </div>
-
-          {age != null && age > 0 && (
-            <motion.span
-              className="tbday-card__age"
-              initial={reduce ? false : { scale: 0.6, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ ...SPRING, delay: 0.2 + index * 0.08 }}
+          {profile.avatar_url ? (
+            <img src={profile.avatar_url} alt="" className="tbday-card__avatar" loading="lazy" />
+          ) : (
+            <span
+              className="tbday-card__avatar tbday-card__avatar--initials"
+              style={{ background: avatarColor }}
+              aria-hidden
             >
-              <b>{age}</b>
-              <i>שנים</i>
-            </motion.span>
+              {initialsOf(fullName)}
+            </span>
           )}
 
-          <span className="tbday-card__cake-badge" aria-hidden>
-            <Icon name="cake" size={16} />
+          <span className="tbday-card__twinkle tbday-card__twinkle--a" aria-hidden>
+            <SparkGlyph size={13} />
+          </span>
+          <span className="tbday-card__twinkle tbday-card__twinkle--b" aria-hidden>
+            <SparkGlyph size={9} />
           </span>
         </div>
 
         <div className="tbday-card__copy">
-          <p className="tbday-card__wish">
-            {isSelf ? "מזל טוב!" : "מאחלים ל"}
-          </p>
-          <h3 className="tbday-card__name">
-            {isSelf ? firstName : profile.full_name ?? "עובד/ת"}
-          </h3>
-          <p className="tbday-card__sub">
-            {isSelf
-              ? "כל הצוות מאחל לך יום מלא בשמחה, אהבה, והרבה רגעים טובים."
-              : age
-                ? `חוגג/ת ${age} היום — בואו נאחל יום מושלם!`
-                : "בואו נאחל יום מושלם!"}
+          <p className="tbday-card__eyebrow">
+            <SparkGlyph size={10} />
+            {isSelf ? "יום הולדת שמח לך" : "חוגגים היום"}
           </p>
 
-          <div className="tbday-card__meta">
+          <h3 className="tbday-card__name" title={fullName}>
+            {isSelf ? firstName : fullName}
+          </h3>
+
+          <p className="tbday-card__msg">
+            {isSelf
+              ? "כל הצוות מאחל לך שנה מלאה בבריאות, בהצלחה והרבה רגעים טובים."
+              : `אפשר לעצור לרגע ולאחל ל${firstName} מזל טוב.`}
+          </p>
+
+          <div className="tbday-card__chips">
             {departmentName && (
-              <span className="tbday-card__dept">
-                <span className="tbday-card__dept-dot" style={{ background: avatarColor }} aria-hidden />
+              <span className="tbday-card__chip">
+                <span
+                  className="tbday-card__chip-dot"
+                  style={{ background: avatarColor }}
+                  aria-hidden
+                />
                 {departmentName}
               </span>
             )}
-            <span className="tbday-card__today">
-              <Icon name="celebration" size={13} />
-              היום
-            </span>
+            {age > 0 && <span className="tbday-card__chip tbday-card__chip--age">גיל {age}</span>}
           </div>
         </div>
-      </div>
 
-      <div className="tbday-card__footer" aria-hidden>
-        {["🎈", "🎉", "✨", "🎂", "🎈"].map((emoji, i) => (
-          <span key={i} className="tbday-card__emoji" style={{ "--i": i } as React.CSSProperties}>
-            {emoji}
-          </span>
-        ))}
+        {age > 0 && (
+          <div className="tbday-card__age" aria-hidden>
+            <span className="tbday-card__age-num">{age}</span>
+            <span className="tbday-card__age-label">שנים</span>
+          </div>
+        )}
       </div>
     </motion.article>
   );
 }
 
-/** Employees celebrating a birthday today — shown on home dashboards. */
+/** Employees celebrating a birthday today — shown on the home dashboards. */
 export function TodayBirthdaysBanner() {
   const businessId = useBusinessId();
   const { profile } = useAuth();
@@ -174,35 +202,29 @@ export function TodayBirthdaysBanner() {
   const { data: departments = [] } = useDepartments(businessId);
   const reduce = useReducedMotion();
 
-  const deptById = useMemo(
-    () => new Map(departments.map((d) => [d.id, d] as const)),
-    [departments],
-  );
-
+  const deptById = useMemo(() => new Map(departments.map((d) => [d.id, d] as const)), [departments]);
   const birthdays = useMemo(() => profilesWithBirthdayToday(profiles), [profiles]);
 
   if (birthdays.length === 0) return null;
 
+  const today = new Date().toLocaleDateString("he-IL", { day: "numeric", month: "long" });
+
   return (
-    <section
-      className="tbday"
-      aria-label={birthdays.length === 1 ? "יום הולדת היום" : "ימי הולדת היום"}
-    >
+    <section className="tbday" aria-label="ימי הולדת היום">
       <motion.header
         className="tbday-head"
-        initial={reduce ? false : { opacity: 0, transform: "translateY(6px)" }}
-        animate={{ opacity: 1, transform: "translateY(0)" }}
-        transition={{ duration: 0.28, ease: EASE_OUT }}
+        initial={reduce ? false : { opacity: 0, y: 5 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, ease: EASE_OUT }}
       >
-        <span className="tbday-head__icon" aria-hidden>
-          <Icon name="cake" size={16} />
+        <span className="tbday-head__mark">
+          <CakeGlyph size={15} />
         </span>
-        <div>
-          <p className="tbday-head__title">
-            {birthdays.length === 1 ? "יום הולדת היום" : `${birthdays.length} חוגגים היום`}
-          </p>
-          <p className="tbday-head__sub">הגיע הזמן לאיחולים חמים</p>
-        </div>
+        <span className="tbday-head__title">
+          {birthdays.length === 1 ? "יום הולדת היום" : `${birthdays.length} ימי הולדת היום`}
+        </span>
+        <span className="tbday-head__rule" aria-hidden />
+        <span className="tbday-head__date">{today}</span>
       </motion.header>
 
       <div className="tbday-list">

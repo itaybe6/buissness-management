@@ -56,6 +56,12 @@ describe("אילו הסכמים העובד רואה", () => {
     expect(list).toEqual(["agr-101"]);
   });
 
+  it("שני טפסי 101 גלובליים — מוצג רק הראשון, בלי כפילות ברשימה", () => {
+    const duplicate = makeAgreement({ id: "agr-101-dup", type: "form_101", employee_id: null });
+    const list = agreementsForEmployee([globalForm101, duplicate], USER.employee).map((a) => a.id);
+    expect(list).toEqual(["agr-101"]);
+  });
+
   it("בלי 101 גלובלי — עותק אישי כן מוצג (עסק ישן)", () => {
     const personal101 = makeAgreement({ id: "agr-101-mine", type: "form_101", employee_id: USER.employee });
     expect(agreementsForEmployee([personal101], USER.employee).map((a) => a.id)).toEqual(["agr-101-mine"]);

@@ -74,8 +74,8 @@ describe("תפריט מנהלת המשרד", () => {
     expect(keys).not.toContain("suppliers");
   });
 
-  it("כשכל המודולים כבויים נשארים רק דשבורד, משתמשים ומעקב שכר אישי", () => {
-    expect(officeKeys(() => false)).toEqual(["dashboard", "users", "my-shifts"]);
+  it("כשכל המודולים כבויים נשארים רק דשבורד, מעקב שכר אישי ומשתמשים", () => {
+    expect(officeKeys(() => false)).toEqual(["dashboard", "my-shifts", "users"]);
   });
 });
 

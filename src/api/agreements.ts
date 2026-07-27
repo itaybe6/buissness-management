@@ -159,7 +159,9 @@ export function agreementsForEmployee(
 ): AgreementTemplate[] {
   const global101 = globalForm101Template(templates);
   return templates.filter((t) => {
-    if (global101 && t.type === "form_101" && t.employee_id) return false;
+    // Only one Form 101 per employee — the global template wins over personal
+    // copies and over any duplicate global rows created by older versions.
+    if (global101 && t.type === "form_101" && t.id !== global101.id) return false;
     return !t.employee_id || t.employee_id === employeeId;
   });
 }
