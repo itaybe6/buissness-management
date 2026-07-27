@@ -642,9 +642,40 @@ function SupplierProductRow({
           </>
         )}
       </span>
-      <button type="button" className="spd-pact spd-pact--icon" onClick={onOrder} title="הזמנת המוצר" aria-label="הזמנת המוצר">
-        <Icon name="add_shopping_cart" size={16} />
-      </button>
+      {item && draft ? (
+        <span className="ordc-step spd-pstep">
+          <button
+            type="button"
+            className="ordc-step-btn"
+            onClick={() => onStep(-1)}
+            aria-label={`הפחתת ${product.item_name} מההזמנה`}
+          >
+            <Icon name="remove" size={15} />
+          </button>
+          <b className="spd-pstep-val" key={draft.packs}>
+            {draft.packs}
+          </b>
+          <button
+            type="button"
+            className="ordc-step-btn ordc-step-btn--add"
+            onClick={() => onStep(1)}
+            aria-label={`הוספת ${product.item_name} להזמנה`}
+          >
+            <Icon name="add" size={15} />
+          </button>
+        </span>
+      ) : (
+        <button
+          type="button"
+          className="spd-pact spd-pact--icon"
+          onClick={() => onStep(1)}
+          disabled={!item}
+          title={item ? "הוספה להזמנה מהספק" : "המוצר אינו פעיל במלאי"}
+          aria-label="הוספה להזמנה מהספק"
+        >
+          <Icon name="add_shopping_cart" size={16} />
+        </button>
+      )}
     </li>
   );
 }
@@ -670,6 +701,13 @@ export function SupplierDetailPage() {
   const [productView, setProductView] = useState<ProductView>("grid");
   const [productSort, setProductSort] = useState<ProductSort>("name");
 
+  /** Order composed in place — every line belongs to the supplier being viewed. */
+  const [cart, setCart] = useState<Record<string, QtyDraft>>({});
+  const [cartOpen, setCartOpen] = useState(false);
+  const [orderBusy, setOrderBusy] = useState(false);
+  const [orderError, setOrderError] = useState<string | null>(null);
+  const [orderSent, setOrderSent] = useState<number | null>(null);
+
   const [editField, setEditField] = useState<EditField | null>(null);
   const [copied, setCopied] = useState<"phone" | "tax" | null>(null);
   const [flash, setFlash] = useState(false);
@@ -677,6 +715,7 @@ export function SupplierDetailPage() {
   const timers = useRef<number[]>([]);
 
   const update = useUpdateSupplier(businessId);
+  const createOrdersBatch = useCreateOrdersBatch(businessId);
 
   const { data: linkedProducts, isLoading: productsLoading } = useSupplierItems(
     businessId,
@@ -760,6 +799,36 @@ export function SupplierDetailPage() {
     [groupedProducts],
   );
 
+  const productById = useMemo(
+    () => new Map(groupedProducts.map((p) => [p.item_id, p])),
+    [groupedProducts],
+  );
+
+  /** Only products that still exist in the active catalog can be ordered. */
+  const cartLines = useMemo(() => {
+    const lines: { product: SupplierProduct; item: ItemWithQty; draft: QtyDraft; qty: number; sum: number }[] = [];
+    for (const [itemId, draft] of Object.entries(cart)) {
+      const product = productById.get(itemId);
+      if (!product?.item) continue;
+      const qty = draftTotal(product.item, draft);
+      if (qty <= 0) continue;
+      lines.push({
+        product,
+        item: product.item,
+        draft,
+        qty,
+        sum: inventoryLineTotal(
+          product.item,
+          qty,
+          effectiveMainUnitPrice(product.prices, product.item_units_per_package),
+        ),
+      });
+    }
+    return lines;
+  }, [cart, productById]);
+
+  const cartTotal = useMemo(() => cartLines.reduce((sum, l) => sum + l.sum, 0), [cartLines]);
+
   useEffect(() => () => timers.current.forEach((t) => window.clearTimeout(t)), []);
 
   function later(fn: () => void, ms: number) {
@@ -769,6 +838,65 @@ export function SupplierDetailPage() {
   function flashSaved() {
     setFlash(true);
     later(() => setFlash(false), 2200);
+  }
+
+  function patchCart(itemId: string, patch: Partial<QtyDraft>) {
+    setOrderError(null);
+    setOrderSent(null);
+    setCart((prev) => {
+      const cur = prev[itemId] ?? { packs: 0, pieces: 0 };
+      const next = {
+        packs: Math.max(0, patch.packs ?? cur.packs),
+        pieces: Math.max(0, patch.pieces ?? cur.pieces),
+      };
+      if (next.packs <= 0 && next.pieces <= 0) {
+        const rest = { ...prev };
+        delete rest[itemId];
+        return rest;
+      }
+      return { ...prev, [itemId]: next };
+    });
+  }
+
+  function stepCart(itemId: string, delta: number) {
+    patchCart(itemId, { packs: (cart[itemId]?.packs ?? 0) + delta });
+  }
+
+  function dropFromCart(itemId: string) {
+    setOrderError(null);
+    setCart((prev) => {
+      const rest = { ...prev };
+      delete rest[itemId];
+      return rest;
+    });
+  }
+
+  /** The supplier is the page context — the order needs no supplier picker. */
+  async function submitOrder() {
+    if (!supplier || orderBusy) return;
+    setOrderError(null);
+    if (!cartLines.length) {
+      setOrderError("נא לבחור לפחות מוצר אחד עם כמות");
+      return;
+    }
+    setOrderBusy(true);
+    try {
+      await createOrdersBatch.mutateAsync({
+        business_id: businessId!,
+        ordered_by: profile?.id ?? null,
+        supplier_id: supplier.id,
+        lines: cartLines.map((l) => ({ item_id: l.product.item_id, quantity: l.qty })),
+      });
+      setOrderSent(cartLines.length);
+      setCart({});
+      setCartOpen(false);
+      setTab("orders");
+      later(() => setOrderSent(null), 5000);
+    } catch (e) {
+      setOrderError(inventorySaveError(e));
+    } finally {
+      setOrderBusy(false);
+    }
   }
 
   function copyFact(kind: "phone" | "tax", value: string) {
@@ -844,7 +972,7 @@ export function SupplierDetailPage() {
   ];
 
   return (
-    <div className="spf-page spd-page page-enter">
+    <div className={`spf-page spd-page page-enter${cartLines.length ? " spd-page--cart" : ""}`}>
       <header className="spf-hero spd-hero">
         <span className="spf-glow spf-glow--1" aria-hidden />
         <span className="spf-glow spf-glow--2" aria-hidden />
@@ -993,6 +1121,15 @@ export function SupplierDetailPage() {
       </header>
 
       <div className="spf-body spd-body">
+        {orderSent != null && (
+          <p className="spd-sent" role="status">
+            <Icon name="check_circle" size={17} />
+            <span>
+              ההזמנה נשלחה ל{supplier.name} — <b>{orderSent}</b> מוצרים ממתינים לאספקה
+            </span>
+          </p>
+        )}
+
         {/* Notes double as a shortcut into the details sheet */}
         <button
           type="button"
@@ -1135,9 +1272,10 @@ export function SupplierDetailPage() {
                       product={p}
                       index={i}
                       stockKnown={stockKnown}
+                      draft={cart[p.item_id]}
                       onOpenItem={() => navigate(`/inventory/items/${p.item_id}/edit`)}
                       onEditPrice={() => navigate(`/suppliers/${supplier.id}/edit`)}
-                      onOrder={() => navigate(`/inventory/order?item=${p.item_id}`)}
+                      onStep={(delta) => stepCart(p.item_id, delta)}
                     />
                   ))}
                 </ul>
@@ -1148,8 +1286,9 @@ export function SupplierDetailPage() {
                       key={p.item_id}
                       product={p}
                       stockKnown={stockKnown}
+                      draft={cart[p.item_id]}
                       onOpenItem={() => navigate(`/inventory/items/${p.item_id}/edit`)}
-                      onOrder={() => navigate(`/inventory/order?item=${p.item_id}`)}
+                      onStep={(delta) => stepCart(p.item_id, delta)}
                     />
                   ))}
                 </ul>
@@ -1217,6 +1356,148 @@ export function SupplierDetailPage() {
             ))}
         </div>
       </div>
+
+      {cartLines.length > 0 && (
+        <div className="ordc-bar spd-cartbar">
+          {orderError && (
+            <p className="spd-cart-alert" role="alert">
+              <Icon name="error" size={15} />
+              {orderError}
+            </p>
+          )}
+          <div className="ordc-bar-row">
+            <button type="button" className="ordc-bar-summary" onClick={() => setCartOpen(true)}>
+              <span className="ordc-bar-thumbs">
+                {cartLines.slice(0, 3).map((l) => (
+                  <span key={l.product.item_id} className="ordc-bar-thumb">
+                    {l.product.item_image_url ? (
+                      <img src={l.product.item_image_url} alt="" />
+                    ) : (
+                      <Icon name="inventory_2" size={14} />
+                    )}
+                  </span>
+                ))}
+              </span>
+              <span className="ordc-bar-meta">
+                <b key={cartLines.length}>
+                  {cartLines.length} מוצרים{cartTotal > 0 ? ` · ${formatCurrency(cartTotal)}` : ""}
+                </b>
+                <span>הזמנה מ־{supplier.name} · לצפייה ועריכה</span>
+              </span>
+              <Icon name="expand_less" size={18} className="text-text-3" />
+            </button>
+            <Button
+              className="shrink-0 !bg-ink !px-5"
+              icon="send"
+              loading={orderBusy}
+              onClick={() => void submitOrder()}
+            >
+              שליחה
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <Modal
+        open={cartOpen}
+        onClose={() => setCartOpen(false)}
+        title="הזמנה מהספק"
+        subtitle={supplier.name}
+        icon="shopping_cart"
+        maxWidth={520}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setCartOpen(false)}>
+              המשך בחירה
+            </Button>
+            <Button
+              className="flex-1 !bg-ink"
+              icon="send"
+              loading={orderBusy}
+              disabled={!cartLines.length}
+              onClick={() => void submitOrder()}
+            >
+              שליחת הזמנה ({cartLines.length})
+            </Button>
+          </>
+        }
+      >
+        <div className="spd-cart">
+          <div className="spd-cart-supplier">
+            <span className="spd-cart-supplier-ico" aria-hidden>
+              <Icon name="local_shipping" size={17} />
+            </span>
+            <span className="spd-cart-supplier-body">
+              <b>{supplier.name}</b>
+              <span>אספקה: {formatDeliveryDay(supplier.delivery_day)}</span>
+            </span>
+            <span className="spd-cart-supplier-tag">
+              <Icon name="lock" size={12} />
+              ספק ההזמנה
+            </span>
+          </div>
+
+          {cartLines.map((l) => (
+            <div key={l.product.item_id} className="spd-cart-line">
+              <div className="spd-cart-line-head">
+                <span className="ordc-cart-thumb">
+                  {l.product.item_image_url ? (
+                    <img src={l.product.item_image_url} alt="" />
+                  ) : (
+                    <Icon name="inventory_2" size={16} />
+                  )}
+                </span>
+                <span className="spd-cart-line-info">
+                  <b>{l.product.item_name}</b>
+                  <span>
+                    במלאי {formatQtyWithPieces(l.item.current_qty, l.item.unit, l.item.units_per_package)}
+                    {l.product.prices.main != null
+                      ? ` · ${formatPrice(l.product.prices.main)} ל${supplierPriceUnitLabel("main", l.product.item_unit)}`
+                      : ""}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  className="ordc-cart-remove"
+                  onClick={() => dropFromCart(l.product.item_id)}
+                  aria-label={`הסרת ${l.product.item_name}`}
+                >
+                  <Icon name="delete" size={16} />
+                </button>
+              </div>
+              <QtyEditor
+                dense
+                item={l.item}
+                draft={l.draft}
+                onPatch={(patch) => patchCart(l.product.item_id, patch)}
+              />
+              {l.sum > 0 && (
+                <p className="spd-cart-line-sum">
+                  סה״כ שורה: <b>{formatCurrency(l.sum)}</b>
+                </p>
+              )}
+            </div>
+          ))}
+
+          {cartTotal > 0 && (
+            <div className="spd-cart-total">
+              <span>סה״כ הזמנה</span>
+              <b>{formatCurrency(cartTotal)}</b>
+            </div>
+          )}
+
+          {orderError && (
+            <p className="spd-cart-alert" role="alert">
+              <Icon name="error" size={15} />
+              {orderError}
+            </p>
+          )}
+
+          <button type="button" className="ordc-clear" onClick={() => setCart({})}>
+            ניקוי ההזמנה
+          </button>
+        </div>
+      </Modal>
 
       <SupplierDetailsSheet
         supplier={supplier}

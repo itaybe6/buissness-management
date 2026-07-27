@@ -189,7 +189,7 @@ export function useDailyTaskActions(
   };
 }
 
-function tasksHeroSummary(open: number, inProgress: number, total: number) {
+export function tasksHeroSummary(open: number, inProgress: number, total: number) {
   if (total === 0) return "אין משימות להיום";
   if (!open && !inProgress) return "הכל בוצע · כל הכבוד";
   const parts: string[] = [];
@@ -717,6 +717,7 @@ export function DailyTasksChecklist({
   onMedia,
   onDelete,
   variant = "default",
+  embedded = false,
   emptyTitle = "אין משימות להיום",
   emptyDescription = "לא שויכו אליך משימות קבועות או חד־פעמיות ליום זה.",
 }: {
@@ -726,6 +727,7 @@ export function DailyTasksChecklist({
   onMedia: (id: string, media_urls: string[]) => void;
   onDelete?: (id: string) => void;
   variant?: ChecklistVariant;
+  embedded?: boolean;
   emptyTitle?: string;
   emptyDescription?: string;
 }) {
@@ -743,6 +745,8 @@ export function DailyTasksChecklist({
   const wrapped = isEmployee || isDashboard;
 
   if (tasks.length === 0) {
+    if (embedded) return null;
+
     if (wrapped) {
       return (
         <section className="task-checklist">
@@ -771,6 +775,35 @@ export function DailyTasksChecklist({
     );
   }
 
+  const taskList = (
+    <div className={`task-checklist-list${embedded ? " task-checklist-list--embedded" : ""}`}>
+      {tasks.map((t, i) => {
+        const expandKey = taskExpansionKey(t);
+        return (
+          <DailyTaskRow
+            key={expandKey}
+            task={t}
+            index={i}
+            businessId={businessId}
+            onStatus={onStatus}
+            onMedia={onMedia}
+            onDelete={onDelete}
+            variant={variant}
+            expanded={expandedKey === expandKey}
+            documenterName={firstName(
+              t.last_documented_by ? userById.get(t.last_documented_by) : null,
+            )}
+            onToggle={() => setExpandedKey((prev) => (prev === expandKey ? null : expandKey))}
+          />
+        );
+      })}
+    </div>
+  );
+
+  if (embedded) {
+    return taskList;
+  }
+
   if (wrapped) {
     return (
       <section className="task-checklist">
@@ -778,32 +811,7 @@ export function DailyTasksChecklist({
           <p className="task-hero__sub">{tasksHeroSummary(openCount, inProgressCount, tasks.length)}</p>
         </header>
 
-        <div className="task-checklist-body">
-          <div className="task-checklist-list">
-            {tasks.map((t, i) => {
-              const expandKey = taskExpansionKey(t);
-              return (
-                <DailyTaskRow
-                  key={expandKey}
-                  task={t}
-                  index={i}
-                  businessId={businessId}
-                  onStatus={onStatus}
-                  onMedia={onMedia}
-                  onDelete={onDelete}
-                  variant={variant}
-                  expanded={expandedKey === expandKey}
-                  documenterName={firstName(
-                    t.last_documented_by ? userById.get(t.last_documented_by) : null,
-                  )}
-                  onToggle={() =>
-                    setExpandedKey((prev) => (prev === expandKey ? null : expandKey))
-                  }
-                />
-              );
-            })}
-          </div>
-        </div>
+        <div className="task-checklist-body">{taskList}</div>
       </section>
     );
   }

@@ -3,6 +3,7 @@ import { Button, Icon, PageLoader } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { AttendancePunchStation } from "@/components/attendance/AttendancePunchStation";
 import { DailyTasksChecklist, useDailyTaskActions } from "@/components/tasks/DailyTasksChecklist";
+import { EventTasksGroupedChecklist } from "@/components/tasks/EventTasksGroupedChecklist";
 import { PageEnter } from "@/components/motion/shared-motion";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId } from "@/lib/db";
@@ -320,21 +321,27 @@ export function WorkerHome({
                       </button>
                     </div>
                   )}
-                  <DailyTasksChecklist
-                    tasks={visibleTasks}
-                    businessId={businessId}
-                    onStatus={setStatus}
-                    onMedia={setMedia}
-                    variant={variant === "shift_manager" ? "dashboard" : "employee"}
-                    emptyTitle={
-                      taskScope === "events" ? "אין משימות אירוע פתוחות" : "אין משימות להיום"
-                    }
-                    emptyDescription={
-                      taskScope === "events"
-                        ? "כשישייכו אליך או למחלקה שלך משימות לאירוע — הן יופיעו כאן."
-                        : "לא שויכו אליך משימות קבועות או חד־פעמיות ליום זה."
-                    }
-                  />
+                  {taskScope === "events" ? (
+                    <EventTasksGroupedChecklist
+                      tasks={visibleTasks}
+                      businessId={businessId}
+                      onStatus={setStatus}
+                      onMedia={setMedia}
+                      variant={variant === "shift_manager" ? "dashboard" : "employee"}
+                      emptyTitle="אין משימות אירוע פתוחות"
+                      emptyDescription="כשישייכו אליך או למחלקה שלך משימות לאירוע — הן יופיעו כאן."
+                    />
+                  ) : (
+                    <DailyTasksChecklist
+                      tasks={visibleTasks}
+                      businessId={businessId}
+                      onStatus={setStatus}
+                      onMedia={setMedia}
+                      variant={variant === "shift_manager" ? "dashboard" : "employee"}
+                      emptyTitle="אין משימות להיום"
+                      emptyDescription="לא שויכו אליך משימות קבועות או חד־פעמיות ליום זה."
+                    />
+                  )}
                 </div>
               </div>
             )}
