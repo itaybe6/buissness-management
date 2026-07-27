@@ -10,12 +10,13 @@ import {
   useSuppliers,
   useUpdateSupplier,
   supplierSaveError,
+  supplierPriceUnitLabel,
 } from "@/api/suppliers";
-import { useInventory, type ItemWithQty } from "@/api/inventory";
+import { useInventory, type ItemWithQty, supportsPieceInput, BASE_UNIT } from "@/api/inventory";
 import { useInventoryCategories } from "@/api/inventoryCategories";
-import type { Supplier } from "@/types/database";
+import type { Supplier, SupplierPriceUnit } from "@/types/database";
 
-type ProductLineDraft = { itemId: string; price: string };
+type ProductLineDraft = { itemId: string; mainPrice: string; piecePrice: string };
 
 type SupplierForm = {
   name: string;
@@ -51,6 +52,21 @@ function priceValue(raw: string): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+function lineHasValidPrice(line: ProductLineDraft, dual: boolean): boolean {
+  if (priceValue(line.mainPrice) != null) return true;
+  if (dual && priceValue(line.piecePrice) != null) return true;
+  return false;
+}
+
+function linePriceSum(line: ProductLineDraft): number {
+  let sum = 0;
+  const main = priceValue(line.mainPrice);
+  const piece = priceValue(line.piecePrice);
+  if (main != null) sum += main;
+  if (piece != null) sum += piece;
+  return sum;
+}
+
 /* ---------------------------------------------------------------- */
 /* Detail field — icon + label + borderless input inside one shell   */
 /* ---------------------------------------------------------------- */
@@ -81,6 +97,42 @@ function SpfField({
   );
 }
 
+function PriceField({
+  value,
+  unitLabel,
+  itemName,
+  selected,
+  onChange,
+  registerPrice,
+}: {
+  value: string;
+  unitLabel: string;
+  itemName: string;
+  selected: boolean;
+  onChange: (v: string) => void;
+  registerPrice?: (el: HTMLInputElement | null) => void;
+}) {
+  return (
+    <div className="spf-tile-price-row">
+      <span className="spf-tile-currency">₪</span>
+      <input
+        ref={registerPrice}
+        type="number"
+        min={0}
+        step="0.01"
+        inputMode="decimal"
+        tabIndex={selected ? 0 : -1}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="spf-price-input"
+        placeholder="0.00"
+        aria-label={`מחיר ל${unitLabel} — ${itemName}`}
+      />
+      <span className="spf-tile-per">/ {unitLabel}</span>
+    </div>
+  );
+}
+
 /* ---------------------------------------------------------------- */
 /* Catalog tile                                                      */
 /* ---------------------------------------------------------------- */
@@ -91,8 +143,9 @@ function ProductTile({
   onAdd,
   onRemove,
   onFocusPrice,
-  onPrice,
-  registerPrice,
+  onMainPrice,
+  onPiecePrice,
+  registerMainPrice,
   registerTile,
 }: {
   item: ItemWithQty;
@@ -101,17 +154,23 @@ function ProductTile({
   onAdd: () => void;
   onRemove: () => void;
   onFocusPrice: () => void;
-  onPrice: (v: string) => void;
-  registerPrice: (el: HTMLInputElement | null) => void;
+  onMainPrice: (v: string) => void;
+  onPiecePrice: (v: string) => void;
+  registerMainPrice: (el: HTMLInputElement | null) => void;
   registerTile: (el: HTMLElement | null) => void;
 }) {
   const selected = !!line;
+  const dual = supportsPieceInput(item.unit);
+  const mainUnitLabel = item.unit?.trim() || BASE_UNIT;
+  const pieceUnitLabel = supplierPriceUnitLabel("piece", item.unit);
+
   return (
     <article
       ref={registerTile}
       className="spf-tile"
       data-selected={selected}
       data-missing={selected && missing}
+      data-dual={dual}
     >
       {/* Body adds the product; once picked it just jumps to the price box,
           so a stray click can never wipe a price that was already typed. */}
@@ -145,22 +204,24 @@ function ProductTile({
         {selected && <Icon name="close" size={15} className="spf-mark-glyph-off" />}
       </button>
 
-      <div className="spf-tile-price" aria-hidden={!selected}>
-        <span className="spf-tile-currency">₪</span>
-        <input
-          ref={registerPrice}
-          type="number"
-          min={0}
-          step="0.01"
-          inputMode="decimal"
-          tabIndex={selected ? 0 : -1}
-          value={line?.price ?? ""}
-          onChange={(e) => onPrice(e.target.value)}
-          className="spf-price-input"
-          placeholder="0.00"
-          aria-label={`מחיר ל${item.unit || "יחידה"} — ${item.name}`}
+      <div className="spf-tile-prices" aria-hidden={!selected}>
+        <PriceField
+          value={line?.mainPrice ?? ""}
+          unitLabel={mainUnitLabel}
+          itemName={item.name}
+          selected={selected}
+          onChange={onMainPrice}
+          registerPrice={registerMainPrice}
         />
-        <span className="spf-tile-per">/ {item.unit || "יח׳"}</span>
+        {dual && (
+          <PriceField
+            value={line?.piecePrice ?? ""}
+            unitLabel={pieceUnitLabel}
+            itemName={item.name}
+            selected={selected}
+            onChange={onPiecePrice}
+          />
+        )}
       </div>
     </article>
   );
@@ -217,12 +278,17 @@ export function SupplierFormPage() {
 
   useEffect(() => {
     if (!isEdit || hydrated || !existingItems) return;
-    setProductLines(
-      existingItems.map((r) => ({
-        itemId: r.item_id,
-        price: String(r.unit_price),
-      })),
-    );
+    const byItem = new Map<string, ProductLineDraft>();
+    for (const r of existingItems) {
+      let line = byItem.get(r.item_id);
+      if (!line) {
+        line = { itemId: r.item_id, mainPrice: "", piecePrice: "" };
+        byItem.set(r.item_id, line);
+      }
+      if (r.price_unit === "piece") line.piecePrice = String(r.unit_price);
+      else line.mainPrice = String(r.unit_price);
+    }
+    setProductLines([...byItem.values()]);
     setHydrated(true);
   }, [isEdit, hydrated, existingItems]);
 
@@ -237,12 +303,13 @@ export function SupplierFormPage() {
     let sum = 0;
     let missing = 0;
     for (const l of productLines) {
-      const v = priceValue(l.price);
-      if (v == null) missing += 1;
-      else sum += v;
+      const item = inventoryList.find((i) => i.id === l.itemId);
+      const dual = item ? supportsPieceInput(item.unit) : false;
+      if (!lineHasValidPrice(l, dual)) missing += 1;
+      else sum += linePriceSum(l);
     }
     return { sum, missing };
-  }, [productLines]);
+  }, [productLines, inventoryList]);
 
   /** Category chips — only those that actually hold items, with live counts. */
   const categoryChips = useMemo(() => {
@@ -292,13 +359,17 @@ export function SupplierFormPage() {
       setProductLines((ls) => ls.filter((l) => l.itemId !== id));
       priceRefs.current.delete(id);
     } else {
-      setProductLines((ls) => [...ls, { itemId: id, price: "" }]);
+      setProductLines((ls) => [...ls, { itemId: id, mainPrice: "", piecePrice: "" }]);
       window.setTimeout(() => priceRefs.current.get(id)?.focus(), 90);
     }
   }
 
-  function setPrice(id: string, price: string) {
-    setProductLines((ls) => ls.map((l) => (l.itemId === id ? { ...l, price } : l)));
+  function setMainPrice(id: string, price: string) {
+    setProductLines((ls) => ls.map((l) => (l.itemId === id ? { ...l, mainPrice: price } : l)));
+  }
+
+  function setPiecePrice(id: string, price: string) {
+    setProductLines((ls) => ls.map((l) => (l.itemId === id ? { ...l, piecePrice: price } : l)));
   }
 
   /** Jump from the basket (or the error banner) straight to a product's price box. */
@@ -311,13 +382,14 @@ export function SupplierFormPage() {
     }, 30);
   }
 
-  function parseProductLines(): { item_id: string; unit_price: number }[] {
-    const out: { item_id: string; unit_price: number }[] = [];
+  function parseProductLines(): { item_id: string; unit_price: number; price_unit: SupplierPriceUnit }[] {
+    const out: { item_id: string; unit_price: number; price_unit: SupplierPriceUnit }[] = [];
     for (const line of productLines) {
       if (!line.itemId) continue;
-      const price = priceValue(line.price);
-      if (price == null) continue;
-      out.push({ item_id: line.itemId, unit_price: price });
+      const main = priceValue(line.mainPrice);
+      const piece = priceValue(line.piecePrice);
+      if (main != null) out.push({ item_id: line.itemId, unit_price: main, price_unit: "main" });
+      if (piece != null) out.push({ item_id: line.itemId, unit_price: piece, price_unit: "piece" });
     }
     return out;
   }
@@ -326,11 +398,15 @@ export function SupplierFormPage() {
     setFormError(null);
     setAttempted(true);
     if (!form.name.trim()) return setFormError("נא להזין שם ספק");
-    const firstMissing = productLines.find((l) => priceValue(l.price) == null);
+    const firstMissing = productLines.find((l) => {
+      const item = inventoryList.find((i) => i.id === l.itemId);
+      const dual = item ? supportsPieceInput(item.unit) : false;
+      return !lineHasValidPrice(l, dual);
+    });
     if (firstMissing) {
       setOnlySelected(true);
       revealPrice(firstMissing.itemId);
-      return setFormError("לכל מוצר משויך יש להזין מחיר תקין");
+      return setFormError("לכל מוצר משויך יש להזין לפחות מחיר אחד תקין");
     }
     const itemLines = parseProductLines();
     try {
@@ -361,7 +437,7 @@ export function SupplierFormPage() {
           lines: itemLines,
         });
       }
-      navigate("/suppliers", { replace: true });
+      navigate(isEdit && supplierId ? `/suppliers/${supplierId}` : "/suppliers", { replace: true });
     } catch (e) {
       setFormError(supplierSaveError(e));
     }
@@ -558,14 +634,29 @@ export function SupplierFormPage() {
                   </span>
                   <p>
                     בחרו מוצרים מהקטלוג
-                    <em>המחירים שתזינו נשמרים לספק הזה בלבד, ליחידת המידה הראשית.</em>
+                    <em>ניתן לקבוע מחיר ליחידת מידה ראשית ו/או ליחידה בודדת — לפי מה שהספק מציע.</em>
                   </p>
                 </div>
               ) : (
                 <>
                   <ul className="spf-basket-list">
                     {selectedItems.map(({ line, item }) => {
-                      const value = priceValue(line.price);
+                      const dual = supportsPieceInput(item.unit);
+                      const mainVal = priceValue(line.mainPrice);
+                      const pieceVal = priceValue(line.piecePrice);
+                      const hasPrice = lineHasValidPrice(line, dual);
+                      const priceLabel = !hasPrice
+                        ? "הזינו מחיר"
+                        : [
+                            mainVal != null
+                              ? `${formatCurrency(mainVal)} / ${supplierPriceUnitLabel("main", item.unit)}`
+                              : null,
+                            pieceVal != null
+                              ? `${formatCurrency(pieceVal)} / ${supplierPriceUnitLabel("piece", item.unit)}`
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ");
                       return (
                         <li key={line.itemId}>
                           <button type="button" className="spf-basket-row" onClick={() => revealPrice(line.itemId)}>
@@ -577,8 +668,8 @@ export function SupplierFormPage() {
                               )}
                             </span>
                             <span className="spf-basket-name">{item.name}</span>
-                            <span className="spf-basket-price" data-empty={value == null}>
-                              {value == null ? "הזינו מחיר" : formatCurrency(value)}
+                            <span className="spf-basket-price" data-empty={!hasPrice}>
+                              {priceLabel}
                             </span>
                           </button>
                           <button
@@ -705,12 +796,17 @@ export function SupplierFormPage() {
                       <ProductTile
                         item={item}
                         line={line}
-                        missing={attempted && !!line && priceValue(line.price) == null}
+                        missing={
+                          attempted &&
+                          !!line &&
+                          !lineHasValidPrice(line, supportsPieceInput(item.unit))
+                        }
                         onAdd={() => toggleItem(item.id)}
                         onRemove={() => toggleItem(item.id)}
                         onFocusPrice={() => priceRefs.current.get(item.id)?.focus()}
-                        onPrice={(v) => setPrice(item.id, v)}
-                        registerPrice={(el) => {
+                        onMainPrice={(v) => setMainPrice(item.id, v)}
+                        onPiecePrice={(v) => setPiecePrice(item.id, v)}
+                        registerMainPrice={(el) => {
                           if (el) priceRefs.current.set(item.id, el);
                           else priceRefs.current.delete(item.id);
                         }}

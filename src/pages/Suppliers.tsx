@@ -7,15 +7,12 @@ import { useAuth } from "@/lib/auth";
 import {
   useDeleteSupplier,
   useSupplierItemPriceIndex,
-  useSupplierItems,
-  useSupplierOrderBatches,
-  useSupplierReceipts,
   useSuppliers,
   supplierSaveError,
+  supplierPriceListTotal,
   type SupplierWithStats,
 } from "@/api/suppliers";
 import { useInventory } from "@/api/inventory";
-import { RECEIPT_TYPE_LABELS } from "@/pages/agreements/types";
 
 type StatusFilter = "all" | "active" | "inactive";
 type SortKey = "name" | "products" | "orders";
@@ -41,15 +38,6 @@ type SupplierMeta = {
   thumbs: { id: string; url: string | null; name: string }[];
 };
 
-function formatWhen(iso: string) {
-  return new Date(iso).toLocaleDateString("he-IL", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 function monogram(name: string) {
   const t = name.trim();
@@ -70,7 +58,6 @@ export function Suppliers() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
   const [sort, setSort] = useState<SortKey>("name");
-  const [detail, setDetail] = useState<SupplierWithStats | null>(null);
   const [toDelete, setToDelete] = useState<SupplierWithStats | null>(null);
 
   const itemMeta = useMemo(() => new Map((inventory ?? []).map((i) => [i.id, i])), [inventory]);
@@ -82,8 +69,8 @@ export function Suppliers() {
     for (const [sid, lines] of priceIndex) {
       let total = 0;
       const all: { id: string; url: string | null; name: string }[] = [];
-      for (const [itemId, price] of lines) {
-        total += price;
+      for (const [itemId, prices] of lines) {
+        total += supplierPriceListTotal(prices);
         const it = itemMeta.get(itemId);
         if (it) all.push({ id: itemId, url: it.image_url, name: it.name });
       }
@@ -140,7 +127,6 @@ export function Suppliers() {
     try {
       await del.mutateAsync(toDelete.id);
       setToDelete(null);
-      if (detail?.id === toDelete.id) setDetail(null);
     } catch (e) {
       window.alert(supplierSaveError(e));
     }
@@ -293,7 +279,7 @@ export function Suppliers() {
                 supplier={s}
                 meta={supplierMeta.get(s.id)}
                 index={i}
-                onOpen={() => setDetail(s)}
+                onOpen={() => navigate(`/suppliers/${s.id}`)}
                 onEdit={() => navigate(`/suppliers/${s.id}/edit`)}
                 onDelete={() => setToDelete(s)}
               />
@@ -301,20 +287,6 @@ export function Suppliers() {
           </div>
         )}
       </div>
-
-      <SupplierDetailModal
-        supplier={detail}
-        meta={detail ? supplierMeta.get(detail.id) : undefined}
-        businessId={businessId}
-        onClose={() => setDetail(null)}
-        onEdit={() => {
-          if (!detail) return;
-          const id = detail.id;
-          setDetail(null);
-          navigate(`/suppliers/${id}/edit`);
-        }}
-        onDelete={() => detail && setToDelete(detail)}
-      />
 
       <Modal open={!!toDelete} onClose={() => setToDelete(null)} title="מחיקת ספק" icon="delete" maxWidth={400}>
         <p className="text-[14px] leading-relaxed text-text-2">
@@ -484,231 +456,5 @@ function SupplierCard({
         </div>
       </div>
     </article>
-  );
-}
-
-/* ---------------------------------------------------------------- */
-/* Detail modal                                                      */
-/* ---------------------------------------------------------------- */
-type DetailTab = "products" | "orders" | "receipts";
-
-function SupplierDetailModal({
-  supplier,
-  meta,
-  businessId,
-  onClose,
-  onEdit,
-  onDelete,
-}: {
-  supplier: SupplierWithStats | null;
-  meta: SupplierMeta | undefined;
-  businessId: string;
-  onClose: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
-}) {
-  const [tab, setTab] = useState<DetailTab>("products");
-  const { data: batches, isLoading: ordersLoading } = useSupplierOrderBatches(businessId, supplier?.id ?? null, !!supplier);
-  const { data: receipts, isLoading: receiptsLoading } = useSupplierReceipts(businessId, supplier?.id ?? null, !!supplier);
-  const { data: linkedProducts, isLoading: productsLoading } = useSupplierItems(businessId, supplier?.id ?? null, !!supplier);
-
-  if (!supplier) return null;
-
-  const tabs: { key: DetailTab; label: string; icon: string; count: number }[] = [
-    { key: "products", label: "מחירון", icon: "sell", count: supplier.product_count },
-    { key: "orders", label: "הזמנות", icon: "local_shipping", count: batches?.length ?? 0 },
-    { key: "receipts", label: "מסמכים", icon: "receipt_long", count: supplier.receipt_count },
-  ];
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      maxWidth={620}
-      hero={
-        <div className="spl-mhero">
-          <span className="spf-glow spf-glow--1" aria-hidden />
-          <span className="spf-grid-lines" aria-hidden />
-          <div className="spl-mhero-id">
-            <span className="spl-mono spl-mono--lg" aria-hidden>
-              {monogram(supplier.name)}
-            </span>
-            <div className="min-w-0">
-              <h3 className="spl-mhero-name">{supplier.name}</h3>
-              <p className="spl-mhero-facts">
-                <span className="spl-mhero-state" data-active={supplier.active}>
-                  <i aria-hidden />
-                  {supplier.active ? "פעיל" : "לא פעיל"}
-                </span>
-                {supplier.phone && (
-                  <a href={`tel:${supplier.phone}`} className="spf-hero-fact">
-                    <Icon name="call" size={13} />
-                    {supplier.phone}
-                  </a>
-                )}
-                {supplier.tax_id && (
-                  <span className="spf-hero-fact">
-                    <Icon name="badge" size={13} />
-                    {supplier.tax_id}
-                  </span>
-                )}
-              </p>
-            </div>
-          </div>
-
-          <div className="spf-hero-stats">
-            <div className="spf-stat">
-              <span className="spf-stat-label">מוצרים</span>
-              <b className="spf-stat-value">{supplier.product_count}</b>
-            </div>
-            <div className="spf-stat">
-              <span className="spf-stat-label">סה״כ מחירון</span>
-              <b className="spf-stat-value">{formatCurrency(meta?.total ?? 0)}</b>
-            </div>
-            <div className="spf-stat" data-tone={supplier.open_order_lines > 0 ? "warn" : undefined}>
-              <span className="spf-stat-label">שורות פתוחות</span>
-              <b className="spf-stat-value">{supplier.open_order_lines}</b>
-            </div>
-          </div>
-        </div>
-      }
-      footer={
-        <>
-          <Button variant="secondary" icon="edit" onClick={onEdit}>
-            עריכת ספק
-          </Button>
-          <Link to={`/inventory?tab=orders&supplier=${supplier.id}`} className="inline-flex">
-            <Button variant="secondary" icon="inventory_2">
-              הזמנות במלאי
-            </Button>
-          </Link>
-          <Button variant="ghost" icon="delete" className="!text-danger" onClick={onDelete}>
-            מחיקה
-          </Button>
-        </>
-      }
-    >
-      {supplier.notes && (
-        <p className="spl-notes">
-          <Icon name="sticky_note_2" size={16} />
-          {supplier.notes}
-        </p>
-      )}
-
-      <div className="spl-tabs" role="tablist">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            role="tab"
-            aria-selected={tab === t.key}
-            className="spl-tab"
-            data-active={tab === t.key}
-            onClick={() => setTab(t.key)}
-          >
-            <Icon name={t.icon} size={16} />
-            {t.label}
-            <span className="spl-tab-count">{t.count}</span>
-          </button>
-        ))}
-      </div>
-
-      <div className="spl-tabpanel" key={tab}>
-        {tab === "products" &&
-          (productsLoading ? (
-            <SkeletonRows />
-          ) : !linkedProducts?.length ? (
-            <EmptyLine text="לא שויכו מוצרים. ניתן להוסיף בעריכת הספק." />
-          ) : (
-            <ul className="spl-list">
-              {linkedProducts.map((p) => (
-                <li key={p.item_id} className="spl-row">
-                  <span className="spl-row-thumb">
-                    {p.item_image_url ? (
-                      <img src={p.item_image_url} alt="" loading="lazy" />
-                    ) : (
-                      <Icon name="inventory_2" size={17} className="text-text-3" />
-                    )}
-                  </span>
-                  <span className="spl-row-main">
-                    <b>{p.item_name}</b>
-                    <em>{p.item_unit || "יחידה"}</em>
-                  </span>
-                  <span className="spl-row-price">{formatCurrency(Number(p.unit_price))}</span>
-                </li>
-              ))}
-            </ul>
-          ))}
-
-        {tab === "orders" &&
-          (ordersLoading ? (
-            <SkeletonRows />
-          ) : !batches?.length ? (
-            <EmptyLine text="אין הזמנות מקושרות לספק זה." />
-          ) : (
-            <ul className="spl-list">
-              {batches.slice(0, 10).map((b) => (
-                <li key={b.batch_key} className="spl-row spl-row--stack">
-                  <span className="spl-row-main">
-                    <b>
-                      {b.preview_item_names.join(", ")}
-                      {b.line_count > b.preview_item_names.length
-                        ? ` +${b.line_count - b.preview_item_names.length}`
-                        : ""}
-                    </b>
-                    <em>
-                      {formatWhen(b.created_at)} · {b.line_count} פריטים
-                    </em>
-                  </span>
-                  <span className={`spl-pill${b.pending_count > 0 ? " spl-pill--warn" : " spl-pill--ok"}`}>
-                    {b.pending_count > 0 ? `${b.pending_count} ממתין` : "התקבל"}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ))}
-
-        {tab === "receipts" &&
-          (receiptsLoading ? (
-            <SkeletonRows />
-          ) : !receipts?.length ? (
-            <EmptyLine text="אין מסמכים מקושרים. ניתן לקשר בעת העלאת חשבונית במסמכים." />
-          ) : (
-            <ul className="spl-list">
-              {receipts.slice(0, 10).map((r) => (
-                <li key={r.id} className="spl-row">
-                  <span className="spl-row-thumb spl-row-thumb--doc">
-                    <Icon name="receipt_long" size={17} />
-                  </span>
-                  <span className="spl-row-main">
-                    <b>{RECEIPT_TYPE_LABELS[r.type as keyof typeof RECEIPT_TYPE_LABELS]}</b>
-                    <em>{formatWhen(r.created_at)}</em>
-                  </span>
-                  <span className="spl-row-price">{formatCurrency(Number(r.amount))}</span>
-                </li>
-              ))}
-            </ul>
-          ))}
-      </div>
-    </Modal>
-  );
-}
-
-function EmptyLine({ text }: { text: string }) {
-  return (
-    <p className="spl-empty-line">
-      <Icon name="info" size={16} />
-      {text}
-    </p>
-  );
-}
-
-function SkeletonRows() {
-  return (
-    <div className="spl-list">
-      {[0, 1, 2].map((i) => (
-        <div key={i} className="skeleton spl-skel" />
-      ))}
-    </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
-import type { InventoryOrder, Supplier, SupplierItem } from "@/types/database";
+import type { InventoryOrder, Supplier, SupplierItem, SupplierPriceUnit } from "@/types/database";
 
 function throwDbError(error: { message: string } | null): void {
   if (error) throw new Error(error.message);
@@ -34,10 +34,45 @@ export interface SupplierWithStats extends Supplier {
 export interface SupplierItemRow extends SupplierItem {
   item_name: string;
   item_unit: string | null;
+  item_units_per_package: number | null;
   item_image_url: string | null;
 }
 
-export type SupplierItemPriceIndex = Map<string, Map<string, number>>;
+/** מחירים לפי יחידה — main = יחידת מידה ראשית, piece = יחידה בודדת */
+export interface SupplierItemPrices {
+  main?: number;
+  piece?: number;
+}
+
+export type SupplierItemPriceIndex = Map<string, Map<string, SupplierItemPrices>>;
+
+/** item_id → set of supplier_ids that carry this product in their price list */
+export type ItemSupplierIndex = Map<string, Set<string>>;
+
+export function buildItemSupplierIndex(priceIndex: SupplierItemPriceIndex): ItemSupplierIndex {
+  const index: ItemSupplierIndex = new Map();
+  for (const [supplierId, items] of priceIndex) {
+    for (const itemId of items.keys()) {
+      let linked = index.get(itemId);
+      if (!linked) {
+        linked = new Set();
+        index.set(itemId, linked);
+      }
+      linked.add(supplierId);
+    }
+  }
+  return index;
+}
+
+export function itemMatchesSupplierFilter(
+  itemId: string,
+  supplierFilter: string | null,
+  itemSupplierIndex: ItemSupplierIndex,
+): boolean {
+  if (!supplierFilter) return true;
+  if (supplierFilter === "__none__") return !itemSupplierIndex.has(itemId);
+  return itemSupplierIndex.get(itemId)?.has(supplierFilter) ?? false;
+}
 
 export function useSuppliers(businessId: string | null, options?: { activeOnly?: boolean }) {
   const activeOnly = options?.activeOnly ?? false;
@@ -85,12 +120,16 @@ export function useSuppliers(businessId: string | null, options?: { activeOnly?:
 
         const { data: productRows, error: productStatsError } = await supabase
           .from("supplier_items")
-          .select("supplier_id")
+          .select("supplier_id, item_id")
           .eq("business_id", businessId!)
           .in("supplier_id", ids);
         if (!productStatsError) {
+          const seen = new Set<string>();
           for (const row of productRows ?? []) {
             const sid = row.supplier_id as string;
+            const key = `${sid}:${row.item_id}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
             productCounts.set(sid, (productCounts.get(sid) ?? 0) + 1);
           }
         }
@@ -174,7 +213,7 @@ export function useSupplierItems(businessId: string | null, supplierId: string |
     queryFn: async (): Promise<SupplierItemRow[]> => {
       const { data, error } = await supabase
         .from("supplier_items")
-        .select("business_id, supplier_id, item_id, unit_price, created_at, updated_at")
+        .select("business_id, supplier_id, item_id, unit_price, price_unit, created_at, updated_at")
         .eq("business_id", businessId!)
         .eq("supplier_id", supplierId!)
         .order("created_at", { ascending: true });
@@ -184,24 +223,34 @@ export function useSupplierItems(businessId: string | null, supplierId: string |
       }
       const rows = (data ?? []) as SupplierItem[];
       const itemIds = [...new Set(rows.map((r) => r.item_id))];
-      const names = new Map<string, { name: string; unit: string | null; image_url: string | null }>();
+      const names = new Map<string, { name: string; unit: string | null; units_per_package: number | null; image_url: string | null }>();
       if (itemIds.length) {
-        const { data: items } = await supabase.from("inventory_items").select("id, name, unit, image_url").in("id", itemIds);
+        const { data: items } = await supabase
+          .from("inventory_items")
+          .select("id, name, unit, units_per_package, image_url")
+          .in("id", itemIds);
         (items ?? []).forEach((i) =>
-          names.set(i.id, { name: i.name, unit: i.unit, image_url: i.image_url ?? null }),
+          names.set(i.id, {
+            name: i.name,
+            unit: i.unit,
+            units_per_package: i.units_per_package,
+            image_url: i.image_url ?? null,
+          }),
         );
       }
       return rows.map((r) => ({
         ...r,
+        price_unit: (r.price_unit ?? "main") as SupplierPriceUnit,
         item_name: names.get(r.item_id)?.name ?? "פריט",
         item_unit: names.get(r.item_id)?.unit ?? null,
+        item_units_per_package: names.get(r.item_id)?.units_per_package ?? null,
         item_image_url: names.get(r.item_id)?.image_url ?? null,
       }));
     },
   });
 }
 
-/** supplier_id → (item_id → unit_price) */
+/** supplier_id → (item_id → prices by unit) */
 export function useSupplierItemPriceIndex(businessId: string | null) {
   return useQuery({
     queryKey: ["supplier_items", businessId, "index"],
@@ -209,7 +258,7 @@ export function useSupplierItemPriceIndex(businessId: string | null) {
     queryFn: async (): Promise<SupplierItemPriceIndex> => {
       const { data, error } = await supabase
         .from("supplier_items")
-        .select("supplier_id, item_id, unit_price")
+        .select("supplier_id, item_id, unit_price, price_unit")
         .eq("business_id", businessId!);
       if (error) {
         if (/supplier_items/i.test(error.message)) return new Map();
@@ -218,8 +267,13 @@ export function useSupplierItemPriceIndex(businessId: string | null) {
       const index: SupplierItemPriceIndex = new Map();
       for (const row of data ?? []) {
         const sid = row.supplier_id as string;
+        const itemId = row.item_id as string;
+        const unit = (row.price_unit ?? "main") as SupplierPriceUnit;
         if (!index.has(sid)) index.set(sid, new Map());
-        index.get(sid)!.set(row.item_id as string, Number(row.unit_price));
+        const items = index.get(sid)!;
+        const prices = items.get(itemId) ?? {};
+        prices[unit] = Number(row.unit_price);
+        items.set(itemId, prices);
       }
       return index;
     },
@@ -229,9 +283,106 @@ export function useSupplierItemPriceIndex(businessId: string | null) {
 export function supplierPricesFor(
   index: SupplierItemPriceIndex | undefined,
   supplierId: string | null | undefined,
-): Map<string, number> | null {
+): Map<string, SupplierItemPrices> | null {
   if (!supplierId || !index) return null;
   return index.get(supplierId) ?? null;
+}
+
+/** Effective per-main-unit price for order totals (prefers main; falls back to piece × pack size). */
+export function effectiveMainUnitPrice(
+  prices: SupplierItemPrices | undefined,
+  unitsPerPackage: number | null | undefined,
+): number {
+  if (!prices) return 0;
+  if (prices.main != null && prices.main > 0) return prices.main;
+  const pack = unitsPerPackage ?? 0;
+  if (prices.piece != null && prices.piece > 0 && pack > 0) {
+    return Math.round(prices.piece * pack * 100) / 100;
+  }
+  return 0;
+}
+
+/** Sum all configured prices for display totals (main + piece when both exist). */
+export function supplierPriceListTotal(prices: SupplierItemPrices): number {
+  let sum = 0;
+  if (prices.main != null && prices.main > 0) sum += prices.main;
+  if (prices.piece != null && prices.piece > 0) sum += prices.piece;
+  return sum;
+}
+
+export function supplierPriceUnitLabel(
+  priceUnit: SupplierPriceUnit,
+  itemUnit: string | null | undefined,
+): string {
+  if (priceUnit === "piece") return "יחידה";
+  return itemUnit?.trim() || "יחידה";
+}
+
+/** One supplier that carries a given item, from the item's point of view. */
+export interface ItemSupplierRow {
+  supplier_id: string;
+  unit_price: number;
+  price_unit: SupplierPriceUnit;
+}
+
+/** Suppliers linked to a single inventory item (item side of supplier_items). */
+export function useItemSuppliers(businessId: string | null, itemId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: ["item_suppliers", businessId, itemId],
+    enabled: !!businessId && !!itemId && enabled,
+    queryFn: async (): Promise<ItemSupplierRow[]> => {
+      const { data, error } = await supabase
+        .from("supplier_items")
+        .select("supplier_id, unit_price, price_unit")
+        .eq("business_id", businessId!)
+        .eq("item_id", itemId!);
+      if (error) {
+        if (/supplier_items/i.test(error.message)) return [];
+        throwDbError(error);
+      }
+      return (data ?? []).map((r) => ({
+        supplier_id: r.supplier_id as string,
+        unit_price: Number(r.unit_price),
+        price_unit: (r.price_unit ?? "main") as SupplierPriceUnit,
+      }));
+    },
+  });
+}
+
+/** Replace every supplier link of one item — mirror of useSaveSupplierItems, item side. */
+export function useSaveItemSuppliers(businessId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      business_id: string;
+      item_id: string;
+      lines: { supplier_id: string; unit_price: number; price_unit?: SupplierPriceUnit }[];
+    }) => {
+      const { error: delError } = await supabase
+        .from("supplier_items")
+        .delete()
+        .eq("business_id", input.business_id)
+        .eq("item_id", input.item_id);
+      throwDbError(delError);
+
+      if (!input.lines.length) return;
+
+      const rows = input.lines.map((l) => ({
+        business_id: input.business_id,
+        supplier_id: l.supplier_id,
+        item_id: input.item_id,
+        unit_price: l.unit_price,
+        price_unit: l.price_unit ?? "main",
+      }));
+      const { error } = await supabase.from("supplier_items").insert(rows);
+      throwDbError(error);
+    },
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ["item_suppliers", businessId, variables.item_id] });
+      qc.invalidateQueries({ queryKey: ["supplier_items", businessId] });
+      qc.invalidateQueries({ queryKey: ["suppliers", businessId] });
+    },
+  });
 }
 
 export function useSaveSupplierItems(businessId: string | null) {
@@ -240,7 +391,7 @@ export function useSaveSupplierItems(businessId: string | null) {
     mutationFn: async (input: {
       business_id: string;
       supplier_id: string;
-      lines: { item_id: string; unit_price: number }[];
+      lines: { item_id: string; unit_price: number; price_unit?: SupplierPriceUnit }[];
     }) => {
       const { error: delError } = await supabase
         .from("supplier_items")
@@ -255,6 +406,7 @@ export function useSaveSupplierItems(businessId: string | null) {
         supplier_id: input.supplier_id,
         item_id: l.item_id,
         unit_price: l.unit_price,
+        price_unit: l.price_unit ?? "main",
       }));
       const { error } = await supabase.from("supplier_items").insert(rows);
       throwDbError(error);

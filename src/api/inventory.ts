@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { compressImage } from "@/lib/compressImage";
 import { supabase } from "@/lib/supabase";
-import type { InventoryAction, InventoryItem, InventoryLog, InventoryOrder, OrderStatus } from "@/types/database";
+import { effectiveMainUnitPrice, type SupplierItemPrices } from "@/api/suppliers";
+import type { InventoryAction, InventoryItem, InventoryLog, InventoryOrder, OrderStatus, WarehouseStock } from "@/types/database";
 
 function throwDbError(error: { message: string } | null): void {
   if (error) throw new Error(error.message);
@@ -39,6 +40,15 @@ export function inventorySaveError(e: unknown): string {
   if (msg.includes("inventory_item_departments")) {
     return "טבלת «שיוך מוצרים למחלקות» חסרה. ב-Supabase: SQL Editor → הריצו את supabase/patches/041_inventory_item_departments.sql";
   }
+  if (msg.includes("warehouses") || msg.includes("warehouse_id")) {
+    return "טבלת «מחסנים» חסרה. ב-Supabase: SQL Editor → הריצו את supabase/patches/052_warehouses.sql";
+  }
+  if (msg.includes("barcode") && msg.includes("inventory_items")) {
+    return "עמודת «ברקוד» חסרה במוצרים. ב-Supabase: SQL Editor → הריצו את supabase/patches/053_inventory_item_barcode.sql";
+  }
+  if (msg.includes("idx_inv_items_business_barcode") || (msg.includes("barcode") && msg.includes("duplicate"))) {
+    return "ברקוד זה כבר משויך למוצר אחר בעסק.";
+  }
   if (msg.includes("supplier_id") || msg.includes("suppliers")) {
     return "טבלת «ספקים» חסרה. ב-Supabase: SQL Editor → הריצו את supabase/patches/046_suppliers.sql";
   }
@@ -51,6 +61,8 @@ export function inventorySaveError(e: unknown): string {
 export interface ItemWithQty extends InventoryItem {
   /** Empty = visible to all departments (legacy / unset). */
   department_ids: string[];
+  /** Per-warehouse stock levels (latest count per warehouse). */
+  warehouse_stocks: WarehouseStock[];
   current_qty: number;
   /** Sum of quantities in open orders (status ≠ received) */
   ordered_qty: number;
@@ -58,6 +70,28 @@ export interface ItemWithQty extends InventoryItem {
   last_updated_by: string | null;
   last_updated_at: string | null;
   last_updated_by_name: string | null;
+}
+
+export function itemWarehouseQty(item: ItemWithQty, warehouseId: string): number {
+  return item.warehouse_stocks.find((s) => s.warehouse_id === warehouseId)?.quantity ?? 0;
+}
+
+/** Trim barcode; empty string becomes null. */
+export function normalizeInventoryBarcode(raw: string | null | undefined): string | null {
+  const trimmed = raw?.trim() ?? "";
+  return trimmed || null;
+}
+
+/** Match inventory catalog search by product name or barcode. */
+export function inventoryItemMatchesQuery(
+  item: Pick<InventoryItem, "name" | "barcode">,
+  query: string,
+): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  if (item.name.toLowerCase().includes(q)) return true;
+  if (item.barcode?.toLowerCase().includes(q)) return true;
+  return false;
 }
 
 export function isTrackedLowStock(item: ItemWithQty): boolean {
@@ -76,12 +110,17 @@ export function inventoryLineTotal(
 }
 
 export function resolveItemUnitPrice(
-  _item: unknown,
+  item: { units_per_package?: number | null } | unknown,
   itemId: string,
-  supplierPrices?: Map<string, number> | null,
+  supplierPrices?: Map<string, SupplierItemPrices> | null,
 ): number {
   const sp = supplierPrices?.get(itemId);
-  return sp != null && sp > 0 ? sp : 0;
+  if (!sp) return 0;
+  const pack =
+    item && typeof item === "object" && item !== null && "units_per_package" in item
+      ? (item as { units_per_package?: number | null }).units_per_package
+      : null;
+  return effectiveMainUnitPrice(sp, pack);
 }
 
 export function orderLineBillableQty(line: Pick<InventoryOrder, "quantity" | "received_quantity" | "status">): number {
@@ -129,14 +168,15 @@ export function orderBatchTotal(
     quantity: number;
     received_quantity?: number | null;
     status: InventoryOrder["status"];
-    item?: Pick<ItemWithQty, "id"> | null;
+    item?: Pick<ItemWithQty, "id" | "units_per_package"> | null;
   }[],
-  supplierPrices?: Map<string, number> | null,
+  supplierPrices?: Map<string, SupplierItemPrices> | null,
 ): number {
   return lines.reduce((sum, line) => {
     const qty = orderLineBillableQty(line as InventoryOrder);
     const sp = supplierPrices?.get(line.item_id);
-    return sum + inventoryLineTotal(line.item, qty, sp);
+    const unitPrice = effectiveMainUnitPrice(sp, line.item?.units_per_package);
+    return sum + inventoryLineTotal(line.item, qty, unitPrice);
   }, 0);
 }
 
@@ -153,6 +193,7 @@ export interface ItemLog extends InventoryLog {
 export async function logInventory(input: {
   business_id: string;
   item_id: string;
+  warehouse_id?: string | null;
   employee_id: string | null;
   action: InventoryAction;
   previous_qty?: number | null;
@@ -163,6 +204,7 @@ export async function logInventory(input: {
     const { error } = await supabase.from("inventory_logs").insert({
       business_id: input.business_id,
       item_id: input.item_id,
+      warehouse_id: input.warehouse_id ?? null,
       employee_id: input.employee_id ?? null,
       action: input.action,
       previous_qty: input.previous_qty ?? null,
@@ -243,6 +285,44 @@ export function formatQtyWithPieces(
   return unitLabel ? `${packages} ${unitLabel} + ${pieces} יח׳` : `${packages} + ${pieces} יח׳`;
 }
 
+/** Integer piece delta between two main-unit quantities (avoids float drift). */
+export function qtyChangeInPieces(
+  previousQty: number,
+  newQty: number,
+  unitsPerPackage: number,
+): number {
+  return (
+    Math.round(mainUnitToPieces(newQty, unitsPerPackage)) -
+    Math.round(mainUnitToPieces(previousQty, unitsPerPackage))
+  );
+}
+
+/**
+ * Format a quantity change for logs — e.g. "+13 יח׳" or "+1 ארגז + 3 יח׳" (never decimals).
+ */
+export function formatQtyChangeWithPieces(
+  previousQty: number,
+  newQty: number,
+  unit: string | null,
+  unitsPerPackage: number | null | undefined,
+): string {
+  if (!canUsePieceInput(unit, unitsPerPackage)) {
+    const delta = Math.round((newQty - previousQty) * 10000) / 10000;
+    if (delta === 0) return "0";
+    return delta > 0 ? `+${delta}` : String(delta);
+  }
+  const deltaPieces = qtyChangeInPieces(previousQty, newQty, unitsPerPackage!);
+  if (deltaPieces === 0) return "0";
+  const sign = deltaPieces > 0 ? "+" : "-";
+  const abs = Math.abs(deltaPieces);
+  const pkg = Math.floor(abs / unitsPerPackage!);
+  const pcs = abs % unitsPerPackage!;
+  const unitLabel = unit?.trim() || "";
+  if (pkg === 0) return `${sign}${pcs} יח׳`;
+  if (pcs === 0) return unitLabel ? `${sign}${pkg} ${unitLabel}` : `${sign}${pkg}`;
+  return unitLabel ? `${sign}${pkg} ${unitLabel} + ${pcs} יח׳` : `${sign}${pkg} + ${pcs} יח׳`;
+}
+
 async function fetchItemDepartmentMap(businessId: string): Promise<Map<string, string[]>> {
   const { data, error } = await supabase
     .from("inventory_item_departments")
@@ -296,29 +376,62 @@ export function useInventory(businessId: string | null) {
     queryKey: ["inventory", businessId],
     enabled: !!businessId,
     queryFn: async (): Promise<ItemWithQty[]> => {
-      const [{ data: items, error }, { data: counts }, { data: orderRows }, deptMap] = await Promise.all([
+      const [{ data: items, error }, { data: counts }, { data: orderRows }, { data: warehouses }, deptMap] =
+        await Promise.all([
         supabase.from("inventory_items").select("*").eq("business_id", businessId).eq("active", true).order("name"),
         supabase
           .from("inventory_counts")
-          .select("item_id, quantity, counted_at, employee_id")
+          .select("item_id, warehouse_id, quantity, counted_at, employee_id")
           .eq("business_id", businessId)
           .order("counted_at", { ascending: false }),
         supabase.from("inventory_orders").select("item_id, quantity, status").eq("business_id", businessId),
+        supabase
+          .from("warehouses")
+          .select("id, name")
+          .eq("business_id", businessId)
+          .eq("active", true),
         fetchItemDepartmentMap(businessId!),
       ]);
       throwDbError(error);
-      const latest = new Map<
+      const warehouseNames = new Map<string, string>();
+      (warehouses ?? []).forEach((w: { id: string; name: string }) => warehouseNames.set(w.id, w.name));
+
+      const latestByItemWarehouse = new Map<
         string,
-        { qty: number; employee_id: string | null; counted_at: string }
+        Map<string, { qty: number; employee_id: string | null; counted_at: string }>
       >();
       (counts ?? []).forEach((c) => {
-        if (!latest.has(c.item_id)) {
-          latest.set(c.item_id, {
+        if (!c.warehouse_id) return;
+        let itemMap = latestByItemWarehouse.get(c.item_id);
+        if (!itemMap) {
+          itemMap = new Map();
+          latestByItemWarehouse.set(c.item_id, itemMap);
+        }
+        if (!itemMap.has(c.warehouse_id)) {
+          itemMap.set(c.warehouse_id, {
             qty: Number(c.quantity),
             employee_id: c.employee_id ?? null,
             counted_at: c.counted_at,
           });
         }
+      });
+
+      const latestOverall = new Map<
+        string,
+        { qty: number; employee_id: string | null; counted_at: string }
+      >();
+      latestByItemWarehouse.forEach((whMap, itemId) => {
+        let totalQty = 0;
+        let latestAt = "";
+        let latestEmployee: string | null = null;
+        whMap.forEach((v) => {
+          totalQty += v.qty;
+          if (!latestAt || v.counted_at > latestAt) {
+            latestAt = v.counted_at;
+            latestEmployee = v.employee_id;
+          }
+        });
+        latestOverall.set(itemId, { qty: totalQty, employee_id: latestEmployee, counted_at: latestAt });
       });
       const pending = new Map<string, number>();
       (orderRows ?? []).forEach((o) => {
@@ -327,7 +440,7 @@ export function useInventory(businessId: string | null) {
       });
 
       const updaterIds = [
-        ...new Set([...latest.values()].map((v) => v.employee_id).filter((id): id is string => !!id)),
+        ...new Set([...latestOverall.values()].map((v) => v.employee_id).filter((id): id is string => !!id)),
       ];
       const updaterNames = new Map<string, string | null>();
       if (updaterIds.length) {
@@ -336,11 +449,26 @@ export function useInventory(businessId: string | null) {
       }
 
       return (items ?? []).map((it) => {
-        const count = latest.get(it.id);
+        const count = latestOverall.get(it.id);
         const updaterId = count?.employee_id ?? null;
+        const whMap = latestByItemWarehouse.get(it.id);
+        const warehouse_stocks: WarehouseStock[] = [];
+        whMap?.forEach((v, warehouseId) => {
+          const whEmployee = v.employee_id;
+          warehouse_stocks.push({
+            warehouse_id: warehouseId,
+            warehouse_name: warehouseNames.get(warehouseId) ?? "מחסן",
+            quantity: v.qty,
+            last_updated_at: v.counted_at,
+            last_updated_by: whEmployee,
+            last_updated_by_name: whEmployee ? updaterNames.get(whEmployee) ?? null : null,
+          });
+        });
+        warehouse_stocks.sort((a, b) => a.warehouse_name.localeCompare(b.warehouse_name, "he"));
         return {
           ...(it as InventoryItem),
           department_ids: deptMap.get(it.id) ?? [],
+          warehouse_stocks,
           current_qty: count?.qty ?? 0,
           ordered_qty: pending.get(it.id) ?? 0,
           last_updated_by: updaterId,
@@ -358,6 +486,7 @@ export function useCreateItem(businessId: string | null) {
     mutationFn: async (input: {
       business_id: string;
       name: string;
+      barcode?: string | null;
       unit?: string;
       units_per_package?: number | null;
       image_url?: string | null;
@@ -366,31 +495,75 @@ export function useCreateItem(businessId: string | null) {
       category_id?: string | null;
       department_ids?: string[];
       quantity?: number;
+      warehouse_quantities?: { warehouse_id: string; quantity: number }[];
       employee_id?: string | null;
-    }) => {
-      const { quantity, employee_id, department_ids, ...itemInput } = input;
+    }): Promise<string> => {
+      const { quantity, warehouse_quantities, employee_id, department_ids, ...itemInput } = input;
       const { data, error } = await supabase.from("inventory_items").insert(itemInput).select("id").single();
       throwDbError(error);
       if (!data) throw new Error("שמירת המוצר נכשלה");
       if (department_ids?.length) {
         await replaceItemDepartments(input.business_id, data.id, department_ids);
       }
-      if (quantity != null && quantity >= 0) {
-        const { error: countError } = await supabase.from("inventory_counts").insert({
+      const countRows: { warehouse_id?: string; quantity: number }[] =
+        warehouse_quantities?.length
+          ? warehouse_quantities.filter((w) => w.quantity >= 0)
+          : quantity != null && quantity >= 0
+            ? [{ quantity }]
+            : [];
+      if (countRows.length) {
+        let defaultWarehouseId: string | null = null;
+        if (countRows.some((r) => !r.warehouse_id)) {
+          const { data: wh } = await supabase
+            .from("warehouses")
+            .select("id")
+            .eq("business_id", input.business_id)
+            .eq("is_default", true)
+            .maybeSingle();
+          defaultWarehouseId = wh?.id ?? null;
+          if (!defaultWarehouseId) {
+            const { data: firstWh } = await supabase
+              .from("warehouses")
+              .select("id")
+              .eq("business_id", input.business_id)
+              .eq("active", true)
+              .order("sort_order")
+              .limit(1)
+              .maybeSingle();
+            defaultWarehouseId = firstWh?.id ?? null;
+          }
+        }
+        for (const row of countRows) {
+          const warehouse_id = row.warehouse_id ?? defaultWarehouseId;
+          if (!warehouse_id) continue;
+          const qty = row.quantity ?? quantity ?? 0;
+          const { error: countError } = await supabase.from("inventory_counts").insert({
+            business_id: input.business_id,
+            item_id: data.id,
+            warehouse_id,
+            employee_id: employee_id ?? null,
+            quantity: qty,
+          });
+          throwDbError(countError);
+          await logInventory({
+            business_id: input.business_id,
+            item_id: data.id,
+            warehouse_id,
+            employee_id: employee_id ?? null,
+            action: "created",
+            new_qty: qty,
+          });
+        }
+      } else {
+        await logInventory({
           business_id: input.business_id,
           item_id: data.id,
           employee_id: employee_id ?? null,
-          quantity,
+          action: "created",
+          new_qty: null,
         });
-        throwDbError(countError);
       }
-      await logInventory({
-        business_id: input.business_id,
-        item_id: data.id,
-        employee_id: employee_id ?? null,
-        action: "created",
-        new_qty: quantity != null && quantity >= 0 ? quantity : null,
-      });
+      return data.id as string;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["inventory", businessId] }),
   });
@@ -432,6 +605,7 @@ export function useSetCount(businessId: string | null) {
     mutationFn: async (input: {
       business_id: string;
       item_id: string;
+      warehouse_id: string;
       employee_id: string | null;
       quantity: number;
       /** Stock level before this update — recorded on the audit log. */
@@ -443,6 +617,7 @@ export function useSetCount(businessId: string | null) {
       await logInventory({
         business_id: input.business_id,
         item_id: input.item_id,
+        warehouse_id: input.warehouse_id,
         employee_id: input.employee_id,
         action: "count",
         previous_qty: previous_qty ?? null,
@@ -664,7 +839,9 @@ export function useReceiveOrder(businessId: string | null) {
       item_id: string;
       ordered_quantity: number;
       received_quantity: number;
+      /** @deprecated use warehouse lookup inside mutation */
       current_qty: number;
+      warehouse_id?: string | null;
       employee_id: string | null;
       batch_id: string | null;
       ordered_by: string | null;
@@ -695,10 +872,44 @@ export function useReceiveOrder(businessId: string | null) {
         .eq("id", input.order_id);
       throwDbError(orderError);
 
-      const newQty = input.current_qty + received;
+      let warehouseId = input.warehouse_id ?? null;
+      if (!warehouseId) {
+        const { data: wh } = await supabase
+          .from("warehouses")
+          .select("id")
+          .eq("business_id", input.business_id)
+          .eq("is_default", true)
+          .maybeSingle();
+        warehouseId = wh?.id ?? null;
+        if (!warehouseId) {
+          const { data: firstWh } = await supabase
+            .from("warehouses")
+            .select("id")
+            .eq("business_id", input.business_id)
+            .eq("active", true)
+            .order("sort_order")
+            .limit(1)
+            .maybeSingle();
+          warehouseId = firstWh?.id ?? null;
+        }
+      }
+      if (!warehouseId) throw new Error("לא נמצא מחסן לעדכון המלאי");
+
+      const { data: latestCount } = await supabase
+        .from("inventory_counts")
+        .select("quantity")
+        .eq("business_id", input.business_id)
+        .eq("item_id", input.item_id)
+        .eq("warehouse_id", warehouseId)
+        .order("counted_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const warehouseCurrentQty = Number(latestCount?.quantity ?? 0);
+      const newQty = warehouseCurrentQty + received;
       const { error: countError } = await supabase.from("inventory_counts").insert({
         business_id: input.business_id,
         item_id: input.item_id,
+        warehouse_id: warehouseId,
         employee_id: input.employee_id,
         quantity: newQty,
       });
@@ -712,9 +923,10 @@ export function useReceiveOrder(businessId: string | null) {
       await logInventory({
         business_id: input.business_id,
         item_id: input.item_id,
+        warehouse_id: warehouseId,
         employee_id: input.employee_id,
         action: "order",
-        previous_qty: input.current_qty,
+        previous_qty: warehouseCurrentQty,
         new_qty: newQty,
         note,
       });

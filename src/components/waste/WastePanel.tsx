@@ -4,6 +4,7 @@ import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId, addDays, todayISO, toISODate } from "@/lib/db";
 import type { ItemWithQty } from "@/api/inventory";
+import { inventoryItemMatchesQuery } from "@/api/inventory";
 import { mainUnitToPieces, supportsPieceInput } from "@/api/inventory";
 import { DualUnitQtyInput } from "@/components/inventory/DualUnitQtyInput";
 import { useWaste, useCreateWaste } from "@/api/waste";
@@ -116,9 +117,9 @@ function WasteItemPicker({
   const [query, setQuery] = useState("");
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = query.trim();
     if (!q) return items;
-    return items.filter((it) => it.name.toLowerCase().includes(q));
+    return items.filter((it) => inventoryItemMatchesQuery(it, q));
   }, [items, query]);
 
   const selected = items.find((it) => it.id === value);

@@ -144,7 +144,7 @@ function ManagerTasksView({ businessId, profileId }: { businessId: string; profi
   if (tasksLoading || tplLoading || deptLoading) return <PageLoader />;
   if (tasksError || tplError) return <ErrorState onRetry={() => { refetchTasks(); refetchTpl(); }} />;
 
-  const oneTimeAssigned = (tasks ?? []).filter((t) => t.type === "one_time");
+  const oneTimeAssigned = (tasks ?? []).filter((t) => t.type === "one_time" && !t.event_id);
 
   // אישור מנהל: רק מנהל מאשר, ורק כשהמתג של העסק דלוק
   const approvalEnabled = !!business?.maintenance_task_approval;

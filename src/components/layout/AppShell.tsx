@@ -18,7 +18,7 @@ import { MobileSideDrawer } from "@/components/layout/MobileSideDrawer";
 
 import { NavItemBadge } from "@/components/layout/NavItemBadge";
 
-import { NAV_ITEMS, ROLE_LABELS, groupNavItems } from "@/lib/constants";
+import { ROLE_LABELS, groupNavItems, visibleNavItems } from "@/lib/constants";
 
 import { useMaintenanceNewFaultCount } from "@/hooks/useMaintenanceNewFaultCount";
 import { usePartialDeliveryOrderCount } from "@/hooks/usePartialDeliveryOrderCount";
@@ -51,25 +51,7 @@ export function AppShell() {
 
 
 
-  const navItems: NavItem[] = useMemo(() => {
-
-    const seen = new Set<string>();
-
-    return NAV_ITEMS.filter((item) => {
-
-      if (!item.roles.includes(role)) return false;
-
-      if (item.feature && !hasFeature(item.feature)) return false;
-
-      if (seen.has(item.key)) return false;
-
-      seen.add(item.key);
-
-      return true;
-
-    });
-
-  }, [role, hasFeature]);
+  const navItems: NavItem[] = useMemo(() => visibleNavItems(role, hasFeature), [role, hasFeature]);
 
 
 

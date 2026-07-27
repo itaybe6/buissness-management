@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
 import { compressImage } from "@/lib/compressImage";
 import { todayISO } from "@/lib/db";
 import { supabase } from "@/lib/supabase";
@@ -71,6 +72,7 @@ export function useCreateTask() {
       description?: string | null;
       type: TaskType;
       template_id?: string | null;
+      event_id?: string | null;
       assigned_to?: string | null;
       assigned_by?: string | null;
       due_date?: string | null;
@@ -149,4 +151,92 @@ export function useDeleteTask(businessId: string | null) {
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["tasks", businessId] }),
   });
+}
+
+/** Tasks assigned to a specific event. */
+export function useEventTasks(businessId: string | null, eventId: string | null | undefined) {
+  const { data: tasks = [], ...rest } = useTasks(businessId);
+  const eventTasks = eventId ? tasks.filter((t) => t.event_id === eventId) : [];
+  return { data: eventTasks, allTasks: tasks, ...rest };
+}
+
+/** Status/media updates for tasks assigned to the current user on a specific event. */
+export function useAssignedEventTaskActions(
+  businessId: string,
+  eventId: string,
+  profileId: string,
+) {
+  const { data: tasks = [], isLoading } = useTasks(businessId);
+  const update = useUpdateTask(businessId);
+  const [overrides, setOverrides] = useState<
+    Record<
+      string,
+      Partial<
+        Pick<Task, "status" | "completed_at" | "media_urls" | "last_documented_by" | "last_documented_at">
+      >
+    >
+  >({});
+
+  const assignedEventTasks = useMemo(() => {
+    return tasks
+      .filter(
+        (t) =>
+          t.event_id === eventId &&
+          t.assigned_to === profileId &&
+          t.approval_status !== "pending",
+      )
+      .map((t) => {
+        const patch = overrides[t.id];
+        return patch ? { ...t, ...patch } : t;
+      })
+      .sort((a, b) => {
+        if ((a.status === "done") !== (b.status === "done")) return a.status === "done" ? 1 : -1;
+        return a.created_at.localeCompare(b.created_at);
+      });
+  }, [tasks, eventId, profileId, overrides]);
+
+  useEffect(() => {
+    setOverrides((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const id of Object.keys(prev)) {
+        const server = tasks.find((t) => t.id === id);
+        const patch = prev[id];
+        if (!server || !patch) continue;
+        const statusOk = patch.status == null || server.status === patch.status;
+        const mediaOk =
+          patch.media_urls == null ||
+          JSON.stringify(server.media_urls ?? []) === JSON.stringify(patch.media_urls);
+        const docOk =
+          patch.last_documented_by == null || server.last_documented_by === patch.last_documented_by;
+        if (statusOk && mediaOk && docOk) {
+          delete next[id];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [tasks]);
+
+  function documentedPatch(): Pick<Task, "last_documented_by" | "last_documented_at"> {
+    return {
+      last_documented_by: profileId,
+      last_documented_at: new Date().toISOString(),
+    };
+  }
+
+  function setStatus(id: string, status: TaskStatus) {
+    const completed_at = status === "done" ? new Date().toISOString() : null;
+    const patch = { status, completed_at, ...documentedPatch() };
+    setOverrides((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
+    update.mutate({ id, ...patch });
+  }
+
+  function setMedia(id: string, media_urls: string[]) {
+    const patch = { media_urls, ...documentedPatch() };
+    setOverrides((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
+    update.mutate({ id, ...patch });
+  }
+
+  return { tasks: assignedEventTasks, setStatus, setMedia, isLoading };
 }

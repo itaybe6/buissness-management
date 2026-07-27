@@ -18,6 +18,12 @@ import {
   nextInventoryCategoryColor,
 } from "@/api/inventoryCategories";
 import {
+  useWarehouses,
+  useCreateWarehouse,
+  useUpdateWarehouse,
+  useDeleteWarehouse,
+} from "@/api/warehouses";
+import {
   useShiftTemplates,
   useCreateShiftTemplate,
   useUpdateShiftTemplate,
@@ -38,13 +44,14 @@ import type { UserRole } from "@/types/database";
 
 const SHIFT_COLORS = ["#eab308", "#fdab3d", "#ef4444", "#7c3aed", "#0d9488", "#2563eb"];
 
-type SettingsPanel = "name" | "location" | "maintenance" | "deadline" | "minimum" | "departments" | "inventoryCategories" | "shifts";
+type SettingsPanel = "name" | "location" | "maintenance" | "deadline" | "minimum" | "departments" | "inventoryCategories" | "warehouses" | "shifts";
 
 export function Settings() {
   const businessId = useBusinessId();
   const { data: biz, isLoading, isError, refetch } = useBusiness(businessId);
   const { data: departments } = useDepartments(businessId);
   const { data: inventoryCategories } = useInventoryCategories(businessId);
+  const { data: warehouses } = useWarehouses(businessId);
   const { data: templates } = useShiftTemplates(businessId);
   const [panel, setPanel] = useState<SettingsPanel | null>(null);
   const close = () => setPanel(null);
@@ -65,6 +72,7 @@ export function Settings() {
   const activeShifts = (templates ?? []).filter((t) => t.active).length;
   const deptCount = departments?.length ?? 0;
   const invCatCount = inventoryCategories?.length ?? 0;
+  const warehouseCount = warehouses?.length ?? 0;
   const exemptCount = biz.attendance_geofence_exempt_roles?.length ?? 0;
   const locationSub = !biz.attendance_geofence_enabled
     ? "בדיקת GPS כבויה"
@@ -170,6 +178,20 @@ export function Settings() {
             onEdit={() => setPanel("inventoryCategories")}
           />
           <SettingsItem
+            icon="warehouse"
+            label="מחסנים"
+            value={warehouseCount > 0 ? `${warehouseCount} מחסנים` : "אין מחסנים"}
+            sub={
+              warehouseCount > 0
+                ? (warehouses ?? [])
+                    .slice(0, 2)
+                    .map((w) => w.name)
+                    .join(" · ")
+                : "מחסן ראשי, מחסן משני…"
+            }
+            onEdit={() => setPanel("warehouses")}
+          />
+          <SettingsItem
             icon="schedule"
             label="שעות משמרת"
             value={`${activeShifts} פעילות`}
@@ -186,6 +208,7 @@ export function Settings() {
       <ShiftPrefsMinimumModal businessId={businessId} open={panel === "minimum"} onClose={close} />
       <DepartmentsModal businessId={businessId} open={panel === "departments"} onClose={close} />
       <InventoryCategoriesModal businessId={businessId} open={panel === "inventoryCategories"} onClose={close} />
+      <WarehousesModal businessId={businessId} open={panel === "warehouses"} onClose={close} />
       <ShiftTemplatesModal businessId={businessId} open={panel === "shifts"} onClose={close} />
     </PageEnter>
   );
@@ -1117,6 +1140,89 @@ function InventoryCategoriesModal({
           </Button>
         </div>
         <p className="text-[12px] text-text-3">מחיקת קטגוריה תשאיר מוצרים משויכים אליה ללא קטגוריה.</p>
+      </ModalBody>
+    </Modal>
+  );
+}
+
+function WarehousesModal({
+  businessId,
+  open,
+  onClose,
+}: {
+  businessId: string;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const { data: warehouses } = useWarehouses(businessId);
+  const create = useCreateWarehouse();
+  const update = useUpdateWarehouse(businessId);
+  const del = useDeleteWarehouse(businessId);
+  const [name, setName] = useState("");
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="מחסנים"
+      subtitle="הגדירו מחסנים לעסק — לכל מוצר ניתן לשמור כמות נפרדת בכל מחסן"
+      icon="warehouse"
+      maxWidth={560}
+      footer={<Button onClick={onClose}>סגירה</Button>}
+    >
+      <ModalBody>
+        <div className="flex flex-col gap-2">
+          {(warehouses ?? []).map((w) => (
+            <div key={w.id} className="settings-dept-row">
+              <Icon name="warehouse" size={18} className="shrink-0 text-text-3" />
+              <Input
+                className="flex-1 !bg-surface"
+                defaultValue={w.name}
+                onBlur={(e) => e.target.value !== w.name && update.mutate({ id: w.id, name: e.target.value.trim() })}
+              />
+              {w.is_default ? (
+                <Badge tone="neutral" className="shrink-0 text-[11px]">
+                  ברירת מחדל
+                </Badge>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => del.mutate(w.id)}
+                  className="grid h-9 w-9 place-items-center rounded-lg text-text-3 transition hover:[background:var(--danger-bg)] hover:text-danger"
+                  aria-label="מחק מחסן"
+                >
+                  <Icon name="delete" size={20} />
+                </button>
+              )}
+            </div>
+          ))}
+          {warehouses && warehouses.length === 0 && (
+            <div className="py-4 text-center text-[13px] text-text-3">עדיין אין מחסנים. הוסיפו את הראשון למטה.</div>
+          )}
+        </div>
+        <div className="flex gap-2.5">
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="שם מחסן חדש" />
+          <Button
+            icon="add"
+            loading={create.isPending}
+            onClick={() => {
+              const trimmed = name.trim();
+              if (!trimmed) return;
+              create.mutate({
+                business_id: businessId,
+                name: trimmed,
+                sort_order: warehouses?.length ?? 0,
+                is_default: (warehouses?.length ?? 0) === 0,
+              });
+              setName("");
+            }}
+          >
+            הוספה
+          </Button>
+        </div>
+        <p className="text-[12px] text-text-3">
+          {"לא ניתן למחוק את מחסן ברירת המחדל. מחיקת מחסן אפשרית רק אם אין בו רשומות מלאי."}
+        </p>
       </ModalBody>
     </Modal>
   );

@@ -56,6 +56,7 @@ export function virtualRecurringTask(t: TaskTemplate, profileId: string, busines
     id: `${VIRTUAL_TASK_PREFIX}${t.id}`,
     business_id: businessId,
     template_id: t.id,
+    event_id: null,
     title: t.title,
     description: t.description,
     type: "recurring",

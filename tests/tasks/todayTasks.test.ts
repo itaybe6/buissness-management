@@ -41,6 +41,7 @@ function recurringTask(overrides: Partial<Task> = {}): Task {
     id: "task-yesterday",
     business_id: BUSINESS_ID,
     template_id: TEMPLATE_ID,
+    event_id: null,
     title: "פחים",
     description: "לפנות את הפחים",
     type: "recurring",

@@ -538,7 +538,7 @@ function DailyTaskRow({
                     <span className="task-row-card__meta-sep" aria-hidden>
                       ·
                     </span>
-                    <span className="task-row-card__meta-type">{task.type === "recurring" ? "קבועה" : "חד־פעמית"}</span>
+                    <span className="task-row-card__meta-type">{task.event_id ? "משימת אירוע" : task.type === "recurring" ? "קבועה" : "חד־פעמית"}</span>
                     {documenterName && (
                       <>
                         <span className="task-row-card__meta-sep" aria-hidden>
@@ -629,7 +629,7 @@ function DailyTaskRow({
                 {task.title}
               </h3>
               <span className={`task-type-pill ${task.type === "recurring" ? "task-type-pill--recurring" : ""}`}>
-                {task.type === "recurring" ? "קבועה" : "חד־פעמית"}
+                {task.event_id ? "משימת אירוע" : task.type === "recurring" ? "קבועה" : "חד־פעמית"}
               </span>
             </div>
             {task.description && (
@@ -671,12 +671,16 @@ export function DailyTasksChecklist({
   onStatus,
   onMedia,
   variant = "default",
+  emptyTitle = "אין משימות להיום",
+  emptyDescription = "לא שויכו אליך משימות קבועות או חד־פעמיות ליום זה.",
 }: {
   tasks: Task[];
   businessId: string;
   onStatus: (id: string, status: TaskStatus) => void;
   onMedia: (id: string, media_urls: string[]) => void;
   variant?: ChecklistVariant;
+  emptyTitle?: string;
+  emptyDescription?: string;
 }) {
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const { data: users = [] } = useProfiles(businessId);
@@ -702,8 +706,8 @@ export function DailyTasksChecklist({
             <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-success-bg">
               <Icon name="task_alt" size={28} style={{ color: "var(--success)" }} />
             </div>
-            <div className="text-[15px] font-extrabold text-text">אין משימות להיום</div>
-            <div className="mt-1 text-[13px] text-text-2">לא שויכו אליך משימות קבועות או חד־פעמיות ליום זה.</div>
+            <div className="text-[15px] font-extrabold text-text">{emptyTitle}</div>
+            <div className="mt-1 text-[13px] text-text-2">{emptyDescription}</div>
           </div>
         </section>
       );
@@ -714,8 +718,8 @@ export function DailyTasksChecklist({
         <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-success-bg">
           <Icon name="task_alt" size={28} style={{ color: "var(--success)" }} />
         </div>
-        <div className="text-[16px] font-extrabold">אין משימות להיום</div>
-        <div className="mt-1 text-[13px] text-text-2">לא שויכו אליך משימות קבועות או חד־פעמיות ליום זה.</div>
+        <div className="text-[16px] font-extrabold">{emptyTitle}</div>
+        <div className="mt-1 text-[13px] text-text-2">{emptyDescription}</div>
       </div>
     );
   }

@@ -32,14 +32,19 @@ export const HE_MONTHS = [
   "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר",
 ];
 
+/** Current month as YYYY-MM in local time — toISOString would roll back a month at 00:00–03:00. */
+function localMonthKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
 export function monthNow() {
-  return new Date().toISOString().slice(0, 7);
+  return localMonthKey(new Date());
 }
 
 export function shiftMonth(m: string, delta: number) {
   const d = new Date(m + "-01T12:00:00");
   d.setMonth(d.getMonth() + delta);
-  return d.toISOString().slice(0, 7);
+  return localMonthKey(d);
 }
 
 export function monthLabel(m: string) {

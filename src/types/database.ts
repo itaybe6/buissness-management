@@ -110,6 +110,8 @@ export interface Profile {
   bonus_pct: number;
   /** Whether the employee has active pension enrollment. */
   pension_active: boolean;
+  /** Optional birth date (YYYY-MM-DD). */
+  birth_date: string | null;
   active: boolean;
   created_at: string;
   updated_at: string;
@@ -243,12 +245,16 @@ export interface Supplier {
   updated_at: string;
 }
 
-/** מחיר מוצר אצל ספק (ליחידת המידה הראשית של הפריט) */
+/** יחידת המידה שעבורה נקבע המחיר */
+export type SupplierPriceUnit = "main" | "piece";
+
+/** מחיר מוצר אצל ספק — ליחידת מידה ספציפית */
 export interface SupplierItem {
   business_id: string;
   supplier_id: string;
   item_id: string;
   unit_price: number;
+  price_unit: SupplierPriceUnit;
   created_at: string;
   updated_at: string;
 }
@@ -441,10 +447,31 @@ export interface InventoryCategory {
   created_at: string;
 }
 
+export interface Warehouse {
+  id: string;
+  business_id: string;
+  name: string;
+  sort_order: number;
+  is_default: boolean;
+  active: boolean;
+  created_at: string;
+}
+
+export interface WarehouseStock {
+  warehouse_id: string;
+  warehouse_name: string;
+  quantity: number;
+  last_updated_at: string | null;
+  last_updated_by: string | null;
+  last_updated_by_name: string | null;
+}
+
 export interface InventoryItem {
   id: string;
   business_id: string;
   name: string;
+  /** Optional product barcode (unique per business when set). */
+  barcode: string | null;
   unit: string | null;
   /** Individual pieces per main unit (e.g. 24 units per box). null when unit is יחידות. */
   units_per_package: number | null;
@@ -462,6 +489,7 @@ export interface InventoryCount {
   id: string;
   business_id: string;
   item_id: string;
+  warehouse_id: string;
   employee_id: string | null;
   quantity: number;
   counted_at: string;
@@ -497,6 +525,7 @@ export interface InventoryLog {
   id: string;
   business_id: string;
   item_id: string;
+  warehouse_id: string | null;
   employee_id: string | null;
   action: InventoryAction;
   previous_qty: number | null;
@@ -556,6 +585,7 @@ export interface Task {
   id: string;
   business_id: string;
   template_id: string | null;
+  event_id: string | null;
   title: string;
   description: string | null;
   type: TaskType;

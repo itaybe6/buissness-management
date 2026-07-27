@@ -80,6 +80,9 @@ export function canForceEmployeeClockOut(role: UserRole | string | null | undefi
 /** Roles that can create fixed templates and assign one-time tasks. */
 export const TASK_CREATE_ROLES: UserRole[] = ["manager"];
 
+/** Roles that can create tasks tied to a specific event. */
+export const EVENT_TASK_CREATE_ROLES: UserRole[] = ["manager", "event_manager"];
+
 /** Roles allowed to open the faults module (report, triage, or maintenance work). */
 export const FAULTS_PAGE_ROLES: UserRole[] = ["manager", "shift_manager", "maintenance"];
 
@@ -187,6 +190,25 @@ export const NAV_ITEMS: NavItem[] = [
 
   { key: "settings", label: "הגדרות עסק", icon: "settings", group: "settings", roles: ["manager"] },
 ];
+
+/**
+ * The sidebar items a user actually sees: filtered by role, then by the
+ * business's enabled modules. Duplicate keys are dropped so a role listed on two
+ * variants of the same route (e.g. dashboard) gets the first one only.
+ */
+export function visibleNavItems(
+  role: UserRole,
+  hasFeature: (key: FeatureKey) => boolean,
+): NavItem[] {
+  const seen = new Set<string>();
+  return NAV_ITEMS.filter((item) => {
+    if (!item.roles.includes(role)) return false;
+    if (item.feature && !hasFeature(item.feature)) return false;
+    if (seen.has(item.key)) return false;
+    seen.add(item.key);
+    return true;
+  });
+}
 
 /** Default landing route after login, per role. */
 export function getHomePath(role: UserRole): string {

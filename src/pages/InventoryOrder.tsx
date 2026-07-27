@@ -15,10 +15,11 @@ import {
   piecesToMainUnit,
   formatQtyWithPieces,
   isTrackedLowStock,
+  inventoryItemMatchesQuery,
   type ItemWithQty,
 } from "@/api/inventory";
 import { useInventoryCategories } from "@/api/inventoryCategories";
-import { useSuppliers, useSupplierItemPriceIndex, supplierPricesFor } from "@/api/suppliers";
+import { useSuppliers, useSupplierItemPriceIndex, supplierPricesFor, effectiveMainUnitPrice } from "@/api/suppliers";
 
 /** Quantity draft per product: whole packages in the item's main unit + loose single pieces. */
 type QtyDraft = { packs: number; pieces: number };
@@ -257,6 +258,11 @@ function ProductCard({
       <div className="ordc-card-body">
         <div>
           <h3 className="ordc-name">{item.name}</h3>
+          {item.barcode && (
+            <span className="ordc-cat font-mono tabular-nums" dir="ltr">
+              {item.barcode}
+            </span>
+          )}
           {category && <span className="ordc-cat">{category}</span>}
         </div>
 
@@ -452,7 +458,7 @@ export function InventoryOrder() {
       } else if (category !== "all" && it.category_id !== category) {
         return false;
       }
-      if (q && !it.name.toLowerCase().includes(q)) return false;
+      if (q && !inventoryItemMatchesQuery(it, q)) return false;
       return true;
     });
   }, [list, query, category]);
@@ -469,7 +475,12 @@ export function InventoryOrder() {
     () =>
       selectedItems.reduce(
         (sum, item) =>
-          sum + inventoryLineTotal(item, draftTotal(item, drafts[item.id]!), supplierPrices?.get(item.id)),
+          sum +
+          inventoryLineTotal(
+            item,
+            draftTotal(item, drafts[item.id]!),
+            effectiveMainUnitPrice(supplierPrices?.get(item.id), item.units_per_package),
+          ),
         0,
       ),
     [selectedItems, drafts, supplierPrices],
@@ -704,7 +715,7 @@ export function InventoryOrder() {
                   <Input
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
-                    placeholder="חיפוש מוצר..."
+                    placeholder="חיפוש לפי שם או ברקוד..."
                     className="!pr-10"
                   />
                   {query && (
@@ -820,7 +831,7 @@ export function InventoryOrder() {
                           const lineSum = inventoryLineTotal(
                             item,
                             draftTotal(item, drafts[item.id]!),
-                            supplierPrices?.get(item.id),
+                            effectiveMainUnitPrice(supplierPrices?.get(item.id), item.units_per_package),
                           );
                           return lineSum > 0 ? (
                             <span className="ordc-cart-qty tabular-nums text-text-2">

@@ -32,8 +32,9 @@ export function useCreateWaste(businessId: string | null) {
       deductFromInventory?: boolean;
       /** Current quantity in stock (used to compute the new count). */
       currentQty?: number;
+      warehouse_id?: string | null;
     }) => {
-      const { deductFromInventory, currentQty, ...wasteInput } = input;
+      const { deductFromInventory, currentQty, warehouse_id: inputWarehouseId, ...wasteInput } = input;
       const { error } = await supabase.from("inventory_waste").insert({
         business_id: wasteInput.business_id,
         item_id: wasteInput.item_id,
@@ -44,13 +45,38 @@ export function useCreateWaste(businessId: string | null) {
       });
       if (error) throw error;
 
-      const nextQty = deductFromInventory ? Math.max(0, (currentQty ?? 0) - wasteInput.quantity) : null;
+      let resolvedWarehouseId: string | null = null;
       if (deductFromInventory) {
+        resolvedWarehouseId = inputWarehouseId ?? null;
+        if (!resolvedWarehouseId) {
+          const { data: wh } = await supabase
+            .from("warehouses")
+            .select("id")
+            .eq("business_id", wasteInput.business_id)
+            .eq("is_default", true)
+            .maybeSingle();
+          resolvedWarehouseId = wh?.id ?? null;
+        }
+        if (!resolvedWarehouseId) throw new Error("לא נמצא מחסן להפחתת בלאי");
+
+        const { data: latestCount } = await supabase
+          .from("inventory_counts")
+          .select("quantity")
+          .eq("business_id", wasteInput.business_id)
+          .eq("item_id", wasteInput.item_id)
+          .eq("warehouse_id", resolvedWarehouseId)
+          .order("counted_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const warehouseCurrent = Number(latestCount?.quantity ?? 0);
+        const warehouseNext = Math.max(0, warehouseCurrent - wasteInput.quantity);
+
         const { error: countError } = await supabase.from("inventory_counts").insert({
           business_id: wasteInput.business_id,
           item_id: wasteInput.item_id,
+          warehouse_id: resolvedWarehouseId,
           employee_id: wasteInput.employee_id ?? null,
-          quantity: nextQty!,
+          quantity: warehouseNext,
         });
         if (countError) throw countError;
       }
@@ -58,10 +84,11 @@ export function useCreateWaste(businessId: string | null) {
       await logInventory({
         business_id: wasteInput.business_id,
         item_id: wasteInput.item_id,
+        warehouse_id: resolvedWarehouseId,
         employee_id: wasteInput.employee_id ?? null,
         action: "waste",
         previous_qty: deductFromInventory ? currentQty ?? null : null,
-        new_qty: wasteInput.quantity, // amount wasted
+        new_qty: wasteInput.quantity,
         note: [wasteInput.note, deductFromInventory ? "(הופחת מהמלאי)" : null].filter(Boolean).join(" ") || null,
       });
     },

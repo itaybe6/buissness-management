@@ -22499,6 +22499,150 @@ button.pd-stat[aria-expanded="true"] {
   color: #fff;
 }
 
+/* --- Event tasks section --- */
+.evtd-tasks-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 0.75rem;
+}
+
+.evtd-tasks-head .evtd-label {
+  flex: 1 1 auto;
+}
+
+.evtd-tasks-count {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-3);
+}
+
+.evtd-tasks-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.38rem 0.72rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.evtd-tasks-add:active {
+  transform: scale(0.97);
+}
+
+.evtd-tasks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-top: 0.35rem;
+}
+
+.evtd-task-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.72rem 0.78rem;
+  border-radius: calc(var(--radius) + 1px);
+  border: 1px solid var(--border-2);
+  background: var(--surface-2);
+}
+
+.evtd-task-row[data-done] {
+  opacity: 0.72;
+}
+
+.evtd-task-row__main {
+  min-width: 0;
+  flex: 1;
+}
+
+.evtd-task-row__title {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.evtd-task-row[data-done] .evtd-task-row__title {
+  color: var(--text-3);
+  text-decoration: line-through;
+}
+
+.evtd-task-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.evtd-task-row__desc {
+  margin: 0.35rem 0 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+
+.evtd-task-row__media {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex: none;
+}
+
+.evtd-task-row__thumb {
+  display: block;
+  width: 2.1rem;
+  height: 2.1rem;
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.evtd-task-row__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.evtd-task-row__media-more {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-3);
+}
+
+.evtd-task-row__delete {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 10px;
+  color: var(--text-3);
+}
+
+.evtd-task-row__delete:active {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.evtd-tasks-my .task-checklist {
+  margin-top: 0.35rem;
+  border-radius: calc(var(--radius) + 1px);
+  border: 1px solid var(--border-2);
+  overflow: hidden;
+}
+
+.evtd-tasks-my .task-hero {
+  padding: 0.85rem 1rem 0.65rem;
+}
+
 /* --- Footer --- */
 .evtd-foot {
   display: flex;
@@ -26285,6 +26429,41 @@ button.pd-stat[aria-expanded="true"] {
 }
 
 /* Price box — collapsed until the tile is picked */
+.spf-tile-prices {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-inline: 0.4rem;
+  padding-block: 0;
+  border-top: 1px solid transparent;
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition:
+    max-height 300ms var(--ease-spring),
+    padding-block 300ms var(--ease-spring),
+    margin-bottom 300ms var(--ease-spring),
+    opacity 220ms var(--ease-out);
+}
+
+.spf-tile[data-selected="true"] .spf-tile-prices {
+  max-height: 6.5rem;
+  padding-block: 0.35rem;
+  margin-bottom: 0.35rem;
+  border-top-color: var(--border-2);
+  opacity: 1;
+}
+
+.spf-tile[data-selected="true"][data-dual="true"] .spf-tile-prices {
+  max-height: 7.5rem;
+}
+
+.spf-tile-price-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
 .spf-tile-price {
   display: flex;
   align-items: center;

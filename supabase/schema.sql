@@ -633,9 +633,10 @@ create table public.supplier_items (
   supplier_id   uuid not null references public.suppliers(id) on delete cascade,
   item_id       uuid not null references public.inventory_items(id) on delete cascade,
   unit_price    numeric(12,2) not null check (unit_price >= 0),
+  price_unit    text not null check (price_unit in ('main', 'piece')),
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now(),
-  primary key (supplier_id, item_id)
+  primary key (supplier_id, item_id, price_unit)
 );
 
 create table public.inventory_item_departments (
@@ -763,6 +764,7 @@ create table public.tasks (
   id            uuid primary key default gen_random_uuid(),
   business_id   uuid not null references public.businesses(id) on delete cascade,
   template_id   uuid references public.task_templates(id) on delete set null,
+  event_id      uuid references public.events(id) on delete cascade,  -- משימת אירוע (null = רגילה)
   title         text not null,
   description   text,
   type          public.task_type not null default 'one_time',
@@ -1181,6 +1183,10 @@ create policy "tasks_insert" on public.tasks
     public.can_access(business_id)
     and (
       public.auth_role() = 'manager'
+      or (
+        public.auth_role() = 'event_manager'
+        and event_id is not null
+      )
       or (template_id is not null and assigned_to = auth.uid())
     )
   );
@@ -1194,7 +1200,14 @@ create policy "tasks_update" on public.tasks
   ) with check (public.can_access(business_id));
 create policy "tasks_delete" on public.tasks
   for delete using (
-    public.can_access(business_id) and public.auth_role() = 'manager'
+    public.can_access(business_id)
+    and (
+      public.auth_role() = 'manager'
+      or (
+        public.auth_role() = 'event_manager'
+        and event_id is not null
+      )
+    )
   );
 
 -- ----------------------------------------------------------------------------

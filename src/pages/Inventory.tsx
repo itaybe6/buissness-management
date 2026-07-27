@@ -34,16 +34,22 @@ import {
   orderLineBillableQty,
   orderBatchTotal,
   batchHasActivePartialDelivery,
+  itemWarehouseQty,
+  formatQtyWithPieces,
+  formatQtyChangeWithPieces,
+  normalizeInventoryBarcode,
+  inventoryItemMatchesQuery,
 } from "@/api/inventory";
+import { useWarehouses, defaultWarehouse } from "@/api/warehouses";
 import { usePartialDeliveryOrderCount, type PartialBatchUiState } from "@/hooks/usePartialDeliveryOrderCount";
 import { useDepartments } from "@/api/departments";
 import {
   useInventoryCategories,
   inventoryCategoryById,
 } from "@/api/inventoryCategories";
-import { useSuppliers, useSupplierItemPriceIndex, supplierPricesFor, type SupplierItemPriceIndex } from "@/api/suppliers";
+import { useSuppliers, useSupplierItemPriceIndex, supplierPricesFor, buildItemSupplierIndex, itemMatchesSupplierFilter, effectiveMainUnitPrice, type SupplierItemPriceIndex, type SupplierItemPrices, type ItemSupplierIndex } from "@/api/suppliers";
 import { useWaste } from "@/api/waste";
-import type { Department, InventoryAction, InventoryCategory, InventoryWaste } from "@/types/database";
+import type { Department, InventoryAction, InventoryCategory, InventoryWaste, Warehouse } from "@/types/database";
 
 type InventoryTab = "items" | "orders" | "waste";
 
@@ -103,10 +109,12 @@ function batchOrderedByLabel(batch: OrderBatch): string {
 
 type ItemForm = {
   name: string;
+  barcode: string;
   categoryId: string;
   unit: string;
   unitsPerPackage: string;
   qty: string;
+  warehouseQtys: Record<string, string>;
   minQty: string;
   deliveryDay: string;
   departmentIds: string[];
@@ -116,16 +124,46 @@ type ItemForm = {
 
 const EMPTY_FORM: ItemForm = {
   name: "",
+  barcode: "",
   categoryId: "",
   unit: "יחידות",
   unitsPerPackage: "",
   qty: "0",
+  warehouseQtys: {},
   minQty: "0",
   deliveryDay: "",
   departmentIds: [],
   imageUrl: null,
   file: null,
 };
+
+function initWarehouseQtys(warehouses: Warehouse[], item?: ItemWithQty | null): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const w of warehouses) {
+    const stock = item?.warehouse_stocks.find((s) => s.warehouse_id === w.id);
+    map[w.id] = String(stock?.quantity ?? 0);
+  }
+  return map;
+}
+
+function warehouseQuantitiesPreview(qtys: Record<string, string>): number {
+  return Object.values(qtys).reduce((sum, v) => sum + (Number(v) || 0), 0);
+}
+
+function ItemBarcodeLabel({
+  barcode,
+  className,
+}: {
+  barcode: string | null | undefined;
+  className?: string;
+}) {
+  if (!barcode) return null;
+  return (
+    <span className={`font-mono tabular-nums text-text-3 ${className ?? ""}`} dir="ltr">
+      {barcode}
+    </span>
+  );
+}
 
 function formatDeliveryDay(day: number | null | undefined): string {
   if (day == null || day < 0 || day > 6) return "לא הוגדר";
@@ -387,17 +425,27 @@ function TabSearchBar<T extends string>({
 
 const DEPT_FILTER_GENERAL = "__general__" as const;
 const CAT_FILTER_NONE = "__none__" as const;
+const SUPPLIER_FILTER_NONE = "__none__" as const;
 const FILTER_ALL_KEY = "__all__" as const;
 
 type CategoryFilterValue = string | null;
 type DepartmentFilterValue = string | null;
+type SupplierFilterValue = string | null;
+type WarehouseFilterValue = string | null;
 
 /** How many products each chip would yield, given the other rows' filters. */
 type CatalogFilterCounts = {
   stock: Record<string, number>;
   category: Record<string, number>;
   department: Record<string, number>;
+  supplier: Record<string, number>;
+  warehouse: Record<string, number>;
 };
+
+function itemMatchesWarehouseFilter(item: ItemWithQty, warehouseFilter: WarehouseFilterValue): boolean {
+  if (!warehouseFilter) return true;
+  return item.warehouse_stocks.some((s) => s.warehouse_id === warehouseFilter);
+}
 
 function FilterChip({
   label,
@@ -441,11 +489,19 @@ function InventoryCatalogFilterDeck({
   onCategoryChange,
   departmentFilter,
   onDepartmentChange,
+  supplierFilter,
+  onSupplierChange,
+  warehouseFilter,
+  onWarehouseChange,
   departments,
   inventoryCategories,
+  suppliers,
+  warehouses,
   onClearAll,
   showClear,
   showGeneralDeptFilter,
+  showSupplierFilter,
+  showWarehouseFilter,
   counts,
 }: {
   stockFilter: StockFilter;
@@ -454,11 +510,19 @@ function InventoryCatalogFilterDeck({
   onCategoryChange: (f: CategoryFilterValue) => void;
   departmentFilter: DepartmentFilterValue;
   onDepartmentChange: (f: DepartmentFilterValue) => void;
+  supplierFilter: SupplierFilterValue;
+  onSupplierChange: (f: SupplierFilterValue) => void;
+  warehouseFilter: WarehouseFilterValue;
+  onWarehouseChange: (f: WarehouseFilterValue) => void;
   departments: Department[];
   inventoryCategories: InventoryCategory[];
+  suppliers: { id: string; name: string; active: boolean }[];
+  warehouses: Warehouse[];
   onClearAll: () => void;
   showClear: boolean;
   showGeneralDeptFilter: boolean;
+  showSupplierFilter: boolean;
+  showWarehouseFilter: boolean;
   counts: CatalogFilterCounts;
 }) {
   const [open, setOpen] = useState(false);
@@ -485,7 +549,11 @@ function InventoryCatalogFilterDeck({
   }, [open]);
 
   const activeCount =
-    (stockFilter !== "all" ? 1 : 0) + (categoryFilter ? 1 : 0) + (departmentFilter ? 1 : 0);
+    (stockFilter !== "all" ? 1 : 0) +
+    (categoryFilter ? 1 : 0) +
+    (departmentFilter ? 1 : 0) +
+    (supplierFilter ? 1 : 0) +
+    (warehouseFilter ? 1 : 0);
 
   return (
     <div className="inv-filters-anchor">
@@ -599,6 +667,55 @@ function InventoryCatalogFilterDeck({
               ))}
             </FilterRow>
           ) : null}
+          {showSupplierFilter ? (
+            <FilterRow label="ספק">
+              <FilterChip
+                label="הכל"
+                active={supplierFilter === null}
+                count={counts.supplier[FILTER_ALL_KEY]}
+                onClick={() => onSupplierChange(null)}
+              />
+              <FilterChip
+                label="ללא"
+                icon="local_shipping"
+                active={supplierFilter === SUPPLIER_FILTER_NONE}
+                count={counts.supplier[SUPPLIER_FILTER_NONE]}
+                onClick={() =>
+                  onSupplierChange(supplierFilter === SUPPLIER_FILTER_NONE ? null : SUPPLIER_FILTER_NONE)
+                }
+              />
+              {suppliers.map((s) => (
+                <FilterChip
+                  key={s.id}
+                  label={s.name}
+                  icon="store"
+                  active={supplierFilter === s.id}
+                  count={counts.supplier[s.id]}
+                  onClick={() => onSupplierChange(supplierFilter === s.id ? null : s.id)}
+                />
+              ))}
+            </FilterRow>
+          ) : null}
+          {showWarehouseFilter ? (
+            <FilterRow label="מחסן">
+              <FilterChip
+                label="הכל"
+                active={warehouseFilter === null}
+                count={counts.warehouse[FILTER_ALL_KEY]}
+                onClick={() => onWarehouseChange(null)}
+              />
+              {warehouses.map((w) => (
+                <FilterChip
+                  key={w.id}
+                  label={w.name}
+                  icon="warehouse"
+                  active={warehouseFilter === w.id}
+                  count={counts.warehouse[w.id]}
+                  onClick={() => onWarehouseChange(warehouseFilter === w.id ? null : w.id)}
+                />
+              ))}
+            </FilterRow>
+          ) : null}
         </div>
       </div>
     </div>
@@ -622,8 +739,14 @@ function InventoryFilterTokens({
   onCategoryChange,
   departmentFilter,
   onDepartmentChange,
+  supplierFilter,
+  onSupplierChange,
+  warehouseFilter,
+  onWarehouseChange,
   departments,
   inventoryCategories,
+  suppliers,
+  warehouses,
 }: {
   stockFilter: StockFilter;
   onStockChange: (f: StockFilter) => void;
@@ -631,10 +754,18 @@ function InventoryFilterTokens({
   onCategoryChange: (f: CategoryFilterValue) => void;
   departmentFilter: DepartmentFilterValue;
   onDepartmentChange: (f: DepartmentFilterValue) => void;
+  supplierFilter: SupplierFilterValue;
+  onSupplierChange: (f: SupplierFilterValue) => void;
+  warehouseFilter: WarehouseFilterValue;
+  onWarehouseChange: (f: WarehouseFilterValue) => void;
   departments: Department[];
   inventoryCategories: InventoryCategory[];
+  suppliers: { id: string; name: string }[];
+  warehouses: Warehouse[];
 }) {
   const activeDept = departmentFilter ? departments.find((d) => d.id === departmentFilter) : undefined;
+  const activeSupplier = supplierFilter ? suppliers.find((s) => s.id === supplierFilter) : undefined;
+  const activeWarehouse = warehouseFilter ? warehouses.find((w) => w.id === warehouseFilter) : undefined;
   const tokens: { key: string; label: string; accent?: string; onRemove: () => void }[] = [];
 
   if (stockFilter !== "all") {
@@ -660,6 +791,20 @@ function InventoryFilterTokens({
       label: departmentFilter === DEPT_FILTER_GENERAL ? "כללי" : activeDept?.name ?? "מחלקה",
       accent: activeDept?.color ?? undefined,
       onRemove: () => onDepartmentChange(null),
+    });
+  }
+  if (supplierFilter) {
+    tokens.push({
+      key: "supplier",
+      label: supplierFilter === SUPPLIER_FILTER_NONE ? "ללא ספק" : activeSupplier?.name ?? "ספק",
+      onRemove: () => onSupplierChange(null),
+    });
+  }
+  if (warehouseFilter) {
+    tokens.push({
+      key: "warehouse",
+      label: activeWarehouse?.name ?? "מחסן",
+      onRemove: () => onWarehouseChange(null),
     });
   }
 
@@ -695,6 +840,9 @@ function matchesCatalogFilters(
   stockFilter: StockFilter,
   categoryFilter: CategoryFilterValue,
   departmentFilter: DepartmentFilterValue,
+  supplierFilter: SupplierFilterValue,
+  warehouseFilter: WarehouseFilterValue,
+  itemSupplierIndex: ItemSupplierIndex,
 ): boolean {
   if (stockFilter === "low" && !isTrackedLowStock(item)) return false;
   if (categoryFilter === CAT_FILTER_NONE) {
@@ -707,6 +855,8 @@ function matchesCatalogFilters(
   } else if (departmentFilter && !item.department_ids.includes(departmentFilter)) {
     return false;
   }
+  if (!itemMatchesSupplierFilter(item.id, supplierFilter, itemSupplierIndex)) return false;
+  if (!itemMatchesWarehouseFilter(item, warehouseFilter)) return false;
   return true;
 }
 
@@ -749,7 +899,8 @@ function filterWasteRecords(
     if (filter === "not_deducted" && w.deducted) return false;
     if (q) {
       const item = items.find((i) => i.id === w.item_id);
-      const haystack = [item?.name ?? "", w.note ?? ""].join(" ").toLowerCase();
+      if (item && inventoryItemMatchesQuery(item, q)) return true;
+      const haystack = [item?.name ?? "", item?.barcode ?? "", w.note ?? ""].join(" ").toLowerCase();
       if (!haystack.includes(q)) return false;
     }
     return true;
@@ -851,6 +1002,7 @@ function ItemDetailModal({
   pendingOrders,
   orderArrivalBusy,
   qtyUpdateBusy,
+  warehouses,
   onClose,
   onSetQty,
   onEdit,
@@ -869,8 +1021,9 @@ function ItemDetailModal({
   pendingOrders: InventoryOrderWithUser[];
   orderArrivalBusy: boolean;
   qtyUpdateBusy?: boolean;
+  warehouses: Warehouse[];
   onClose: () => void;
-  onSetQty: (qty: number) => void;
+  onSetQty: (warehouseId: string, quantity: number) => void;
   onEdit: () => void;
   onHistory: () => void;
   onOrder: () => void;
@@ -880,18 +1033,32 @@ function ItemDetailModal({
 }) {
   const [editingQty, setEditingQty] = useState(false);
   const [draftQty, setDraftQty] = useState(0);
+  const [activeWarehouseId, setActiveWarehouseId] = useState<string | null>(null);
   const [orderPanelOpen, setOrderPanelOpen] = useState(false);
+
+  const multiWarehouse = warehouses.length > 1;
+  const primaryWarehouseId = defaultWarehouse(warehouses)?.id ?? warehouses[0]?.id ?? null;
+  const selectedWarehouseId = activeWarehouseId ?? primaryWarehouseId;
+  const selectedWarehouseQty =
+    selectedWarehouseId && item ? itemWarehouseQty(item, selectedWarehouseId) : item?.current_qty ?? 0;
 
   useEffect(() => {
     if (!open || !item) {
       setEditingQty(false);
       setOrderPanelOpen(false);
+      setActiveWarehouseId(null);
       return;
     }
-    setDraftQty(item.current_qty);
+    setDraftQty(selectedWarehouseQty);
     setEditingQty(false);
     setOrderPanelOpen(false);
-  }, [open, item?.id]);
+  }, [open, item?.id, selectedWarehouseQty]);
+
+  useEffect(() => {
+    if (open && item && selectedWarehouseId) {
+      setDraftQty(itemWarehouseQty(item, selectedWarehouseId));
+    }
+  }, [open, item, selectedWarehouseId]);
 
   useEffect(() => {
     if (orderPanelOpen && pendingOrders.length === 0) setOrderPanelOpen(false);
@@ -912,18 +1079,24 @@ function ItemDetailModal({
     pieceUnit && (item.units_per_package ?? 0) > 0 ? item.units_per_package! : pieceUnit ? 12 : 0;
   const showPieces = pieceUnit && effectiveFactor > 0;
   const stockSplit = showPieces ? splitPackageQty(item.current_qty, effectiveFactor) : null;
-  const draftDirty = draftQty !== item.current_qty;
+  const orderedSplit = showPieces && item.ordered_qty > 0 ? splitPackageQty(item.ordered_qty, effectiveFactor) : null;
+  const draftDirty = draftQty !== selectedWarehouseQty;
   const orderCardInteractive = canUpdateOrderArrival && item.ordered_qty > 0;
 
   function handleSaveQty() {
-    if (draftDirty) onSetQty(draftQty);
+    if (draftDirty && selectedWarehouseId) onSetQty(selectedWarehouseId, draftQty);
     setEditingQty(false);
   }
 
   function handleCancelQty() {
-    setDraftQty(item!.current_qty);
+    setDraftQty(selectedWarehouseQty);
     setEditingQty(false);
   }
+
+  const qtyPanelItem: ItemWithQty =
+    item && selectedWarehouseId
+      ? { ...item, current_qty: selectedWarehouseQty }
+      : item!;
 
   const categoryLabel = item.category_id ? categoryNames[item.category_id] ?? null : null;
 
@@ -949,11 +1122,13 @@ function ItemDetailModal({
               {meta.label}
             </span>
             <h2 className="pd-hero-title">{item.name}</h2>
-            {(categoryLabel || item.unit) && (
+            {(categoryLabel || item.unit || item.barcode) && (
               <div className="pd-hero-sub">
                 {categoryLabel && <span>{categoryLabel}</span>}
-                {categoryLabel && item.unit && <span className="opacity-50">·</span>}
+                {categoryLabel && (item.unit || item.barcode) && <span className="opacity-50">·</span>}
                 {item.unit && <span>{item.unit}</span>}
+                {item.unit && item.barcode && <span className="opacity-50">·</span>}
+                {item.barcode && <ItemBarcodeLabel barcode={item.barcode} />}
               </div>
             )}
           </div>
@@ -1014,19 +1189,47 @@ function ItemDetailModal({
                 בהזמנה
                 <Icon name={orderPanelOpen ? "expand_less" : "expand_more"} size={13} />
               </span>
-              <span className="pd-stat-num text-[var(--info)]">+{item.ordered_qty}</span>
-              <span className="pd-stat-unit text-[var(--info)]">
-                {item.unit ? `${item.unit} · ` : ""}
-                {orderPanelOpen ? "סגירה" : "הגיע / לא הגיע"}
-              </span>
+              {orderedSplit ? (
+                <>
+                  <span className="pd-stat-num text-[var(--info)]">+{orderedSplit.packages}</span>
+                  <span className="pd-stat-unit text-[var(--info)]">
+                    {item.unit ?? "ארגז"}
+                    {orderedSplit.pieces > 0 ? ` + ${orderedSplit.pieces} יח׳` : ""}
+                    {" · "}
+                    {orderPanelOpen ? "סגירה" : "הגיע / לא הגיע"}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="pd-stat-num text-[var(--info)]">+{item.ordered_qty}</span>
+                  <span className="pd-stat-unit text-[var(--info)]">
+                    {item.unit ? `${item.unit} · ` : ""}
+                    {orderPanelOpen ? "סגירה" : "הגיע / לא הגיע"}
+                  </span>
+                </>
+              )}
             </button>
           ) : (
             <div className="pd-stat">
               <span className="pd-stat-label">בהזמנה</span>
-              <span className={`pd-stat-num ${item.ordered_qty > 0 ? "text-[var(--info)]" : "text-text-3"}`}>
-                {item.ordered_qty > 0 ? `+${item.ordered_qty}` : "—"}
-              </span>
-              {item.unit && item.ordered_qty > 0 && <span className="pd-stat-unit">{item.unit}</span>}
+              {item.ordered_qty > 0 ? (
+                orderedSplit ? (
+                  <>
+                    <span className="pd-stat-num text-[var(--info)]">+{orderedSplit.packages}</span>
+                    <span className="pd-stat-unit text-[var(--info)]">
+                      {item.unit ?? "ארגז"}
+                      {orderedSplit.pieces > 0 ? ` + ${orderedSplit.pieces} יח׳` : ""}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="pd-stat-num text-[var(--info)]">+{item.ordered_qty}</span>
+                    {item.unit && <span className="pd-stat-unit text-[var(--info)]">{item.unit}</span>}
+                  </>
+                )
+              ) : (
+                <span className="pd-stat-num text-text-3">—</span>
+              )}
             </div>
           )}
         </div>
@@ -1059,10 +1262,7 @@ function ItemDetailModal({
                   <div className="mb-2.5 flex items-center justify-between gap-2">
                     <div>
                       <div className="text-[15px] font-extrabold tabular-nums text-[var(--info)]">
-                        +{order.quantity}
-                        {item.unit ? (
-                          <span className="mr-1 text-[12px] font-semibold text-text-3">{item.unit}</span>
-                        ) : null}
+                        {formatQtyWithPieces(Number(order.quantity), item.unit, item.units_per_package)}
                       </div>
                       <div className="mt-0.5 text-[11px] text-text-3">
                         {new Date(order.created_at).toLocaleDateString("he-IL", {
@@ -1090,6 +1290,17 @@ function ItemDetailModal({
         )}
 
         <div className="pd-list">
+          {item.barcode && (
+            <div className="pd-list-row">
+              <span className="pd-list-icon">
+                <Icon name="barcode" size={17} />
+              </span>
+              <span className="pd-list-label">ברקוד</span>
+              <span className="pd-list-value">
+                <ItemBarcodeLabel barcode={item.barcode} className="text-[13px] font-semibold text-text" />
+              </span>
+            </div>
+          )}
           <div className="pd-list-row">
             <span className="pd-list-icon">
               <Icon name="local_shipping" size={17} />
@@ -1120,15 +1331,44 @@ function ItemDetailModal({
             </span>
           </div>
 
+          {multiWarehouse && (
+            <div className="mb-3 flex flex-col gap-2">
+              {warehouses.map((w) => {
+                const whQty = itemWarehouseQty(item, w.id);
+                const active = w.id === selectedWarehouseId;
+                return (
+                  <button
+                    key={w.id}
+                    type="button"
+                    onClick={() => {
+                      setActiveWarehouseId(w.id);
+                      setDraftQty(whQty);
+                      setEditingQty(false);
+                    }}
+                    className={`flex items-center justify-between rounded-[12px] border px-3 py-2 text-right transition ${
+                      active ? "border-accent bg-surface-2" : "border-border bg-surface"
+                    }`}
+                  >
+                    <span className="text-[13px] font-semibold text-text">{w.name}</span>
+                    <span className="text-[14px] font-extrabold tabular-nums text-text-2">
+                      {formatQtyWithPieces(whQty, item.unit, item.units_per_package)}
+                    </span>
+                  </button>
+                );
+              })}
+              <p className="text-[12px] text-text-3">בחרו מחסן לעדכון — הכמויות נשמרות בנפרד לכל מחסן.</p>
+            </div>
+          )}
+
           {canUpdateCount ? (
             <>
               <InventoryQtyUpdatePanel
-                key={`${item.id}-${editingQty ? "edit" : "view"}`}
-                item={item}
+                key={`${item.id}-${selectedWarehouseId}-${editingQty ? "edit" : "view"}`}
+                item={qtyPanelItem}
                 disabled={!editingQty}
                 autoCommit={false}
                 onDraftChange={setDraftQty}
-                onSetQty={onSetQty}
+                onSetQty={(q) => selectedWarehouseId && onSetQty(selectedWarehouseId, q)}
               />
               <div className="mt-3.5 flex gap-2">
                 {editingQty ? (
@@ -1154,12 +1394,14 @@ function ItemDetailModal({
                   <Button
                     icon="edit"
                     onClick={() => {
-                      setDraftQty(item.current_qty);
+                      setDraftQty(selectedWarehouseQty);
                       setEditingQty(true);
                     }}
                     className="flex-1 !bg-ink active:scale-[0.97]"
                   >
-                    עריכה
+                    {multiWarehouse && selectedWarehouseId
+                      ? `עריכה — ${warehouses.find((w) => w.id === selectedWarehouseId)?.name ?? "מחסן"}`
+                      : "עריכה"}
                   </Button>
                 )}
               </div>
@@ -1189,9 +1431,16 @@ function ItemDetailModal({
             <div className="pd-mini-log">
               {recentLogs.slice(0, 3).map((log) => {
                 const lm = LOG_META[log.action];
-                const delta =
-                  log.action === "count" && log.previous_qty != null && log.new_qty != null
-                    ? log.new_qty - log.previous_qty
+                const isCount =
+                  log.action === "count" && log.previous_qty != null && log.new_qty != null;
+                const deltaLabel =
+                  isCount
+                    ? formatQtyChangeWithPieces(
+                        log.previous_qty!,
+                        log.new_qty!,
+                        item.unit,
+                        item.units_per_package,
+                      )
                     : null;
                 return (
                   <div key={log.id} className="pd-mini-row">
@@ -1207,9 +1456,13 @@ function ItemDetailModal({
                     <div className="pd-mini-main">
                       <div className="pd-mini-title">
                         {lm.label}
-                        {delta != null && delta !== 0 && (
-                          <span className={`pd-delta ${delta > 0 ? "pd-delta--up" : "pd-delta--down"}`}>
-                            {delta > 0 ? `+${delta}` : delta}
+                        {deltaLabel != null && deltaLabel !== "0" && (
+                          <span
+                            className={`pd-delta ${
+                              deltaLabel.startsWith("+") ? "pd-delta--up" : "pd-delta--down"
+                            }`}
+                          >
+                            {deltaLabel}
                           </span>
                         )}
                       </div>
@@ -1218,9 +1471,13 @@ function ItemDetailModal({
                       </div>
                     </div>
                     {log.action === "count" && log.new_qty != null && (
-                      <span className="text-[13.5px] font-extrabold tabular-nums text-text-2">
-                        {log.new_qty}
-                      </span>
+                      <SplitQtyValue
+                        qty={log.new_qty}
+                        unit={item.unit}
+                        unitsPerPackage={item.units_per_package}
+                        numClassName="text-[13.5px] font-extrabold tabular-nums text-text-2"
+                        unitClassName="text-[10px] font-semibold text-text-3"
+                      />
                     )}
                   </div>
                 );
@@ -1255,6 +1512,8 @@ function ItemCard({
   onHistory,
   onOrder,
   onSetQty,
+  multiWarehouse,
+  primaryWarehouseId,
   categoryNames,
 }: {
   item: ItemWithQty;
@@ -1266,7 +1525,9 @@ function ItemCard({
   onEdit: () => void;
   onHistory: () => void;
   onOrder: () => void;
-  onSetQty: (qty: number) => void;
+  onSetQty: (warehouseId: string, qty: number) => void;
+  multiWarehouse: boolean;
+  primaryWarehouseId: string | null;
   categoryNames: Record<string, string>;
 }) {
   const status = stockStatus(item);
@@ -1275,6 +1536,10 @@ function ItemCard({
   const qtySplit =
     supportsPieceInput(item.unit) && (item.units_per_package ?? 0) > 0
       ? splitPackageQty(item.current_qty, item.units_per_package!)
+      : null;
+  const orderedSplit =
+    qtySplit && item.ordered_qty > 0
+      ? splitPackageQty(item.ordered_qty, item.units_per_package!)
       : null;
 
   return (
@@ -1306,7 +1571,9 @@ function ItemCard({
             </span>
             {item.ordered_qty > 0 && (
               <span className="absolute top-1.5 left-1.5 rounded-full bg-[var(--info)] px-1.5 py-0.5 text-[9px] font-extrabold text-white">
-                +{item.ordered_qty}
+                {orderedSplit
+                  ? `+${orderedSplit.packages}${orderedSplit.pieces > 0 ? `+${orderedSplit.pieces}` : ""}`
+                  : `+${item.ordered_qty}`}
               </span>
             )}
           </div>
@@ -1315,6 +1582,9 @@ function ItemCard({
             <div className="flex items-start justify-between gap-1.5">
               <div className="min-w-0 flex-1">
                 <h3 className="line-clamp-2 text-[12px] font-bold leading-snug tracking-tight">{item.name}</h3>
+                {item.barcode && (
+                  <ItemBarcodeLabel barcode={item.barcode} className="mt-0.5 block text-[9px]" />
+                )}
                 {categoryLabel && (
                   <span className="text-[10px] font-semibold text-text-3">{categoryLabel}</span>
                 )}
@@ -1341,14 +1611,18 @@ function ItemCard({
         </button>
 
         <div className="px-2 pb-2" onClick={(e) => e.stopPropagation()}>
-          <QtyStepper
-            value={item.current_qty}
-            unit={item.unit}
-            unitsPerPackage={item.units_per_package}
-            disabled={!canUpdateCount}
-            onCommit={onSetQty}
-            compact
-          />
+          {multiWarehouse ? (
+            <p className="py-1 text-center text-[11px] font-medium text-text-3">כמה מחסנים — לחצו לעדכון לפי מחסן</p>
+          ) : (
+            <QtyStepper
+              value={item.current_qty}
+              unit={item.unit}
+              unitsPerPackage={item.units_per_package}
+              disabled={!canUpdateCount || !primaryWarehouseId}
+              onCommit={(q) => primaryWarehouseId && onSetQty(primaryWarehouseId, q)}
+              compact
+            />
+          )}
 
           {isManager && (
             <div className="mt-1.5 flex gap-1 border-t border-border-2 pt-1.5">
@@ -1409,6 +1683,9 @@ function ItemCard({
           <div className="flex items-start justify-between gap-2">
             <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-right active:opacity-80">
               <h3 className="text-[15px] font-bold leading-snug tracking-tight">{item.name}</h3>
+              {item.barcode && (
+                <ItemBarcodeLabel barcode={item.barcode} className="mt-0.5 block text-[10px]" />
+              )}
               {categoryLabel && (
                 <span className="mt-0.5 block text-[11px] font-semibold text-text-3">{categoryLabel}</span>
               )}
@@ -1456,7 +1733,9 @@ function ItemCard({
                   <div className="mt-1 text-[22px] font-extrabold tabular-nums leading-none">{item.current_qty}</div>
                 )}
                 {item.ordered_qty > 0 && (
-                  <div className="mt-1 text-[12px] font-bold tabular-nums text-[var(--info)]">+{item.ordered_qty} בהזמנה</div>
+                  <div className="mt-1 text-[12px] font-bold tabular-nums text-[var(--info)]">
+                    +{formatQtyWithPieces(item.ordered_qty, item.unit, item.units_per_package)} בהזמנה
+                  </div>
                 )}
               </div>
               <div>
@@ -1473,8 +1752,8 @@ function ItemCard({
               value={item.current_qty}
               unit={item.unit}
               unitsPerPackage={item.units_per_package}
-              disabled={!canUpdateCount}
-              onCommit={onSetQty}
+              disabled={!canUpdateCount || multiWarehouse || !primaryWarehouseId}
+              onCommit={(q) => primaryWarehouseId && onSetQty(primaryWarehouseId, q)}
             />
           </div>
 
@@ -1536,7 +1815,7 @@ function OrderDetailLine({
   index: number;
   busy?: boolean;
   canSeePrices?: boolean;
-  supplierPrices?: Map<string, number> | null;
+  supplierPrices?: Map<string, SupplierItemPrices> | null;
   onReceive: (receivedQty: number) => void;
   onNotArrived: () => void;
 }) {
@@ -1551,7 +1830,11 @@ function OrderDetailLine({
   const [receiveOpen, setReceiveOpen] = useState(false);
   const lineTotal =
     canSeePrices && item
-      ? inventoryLineTotal(item, orderLineBillableQty(line), supplierPrices?.get(line.item_id))
+      ? inventoryLineTotal(
+          item,
+          orderLineBillableQty(line),
+          effectiveMainUnitPrice(supplierPrices?.get(line.item_id), item.units_per_package),
+        )
       : null;
 
   useEffect(() => {
@@ -1949,6 +2232,37 @@ function OrdersEmptyState({ onCreate }: { onCreate: () => void }) {
   );
 }
 
+function SplitQtyValue({
+  qty,
+  unit,
+  unitsPerPackage,
+  numClassName = "font-extrabold tabular-nums",
+  unitClassName = "text-[10px] font-semibold text-text-3",
+}: {
+  qty: number;
+  unit: string | null;
+  unitsPerPackage: number | null | undefined;
+  numClassName?: string;
+  unitClassName?: string;
+}) {
+  const split =
+    supportsPieceInput(unit) && (unitsPerPackage ?? 0) > 0
+      ? splitPackageQty(qty, unitsPerPackage!)
+      : null;
+  if (!split) {
+    return <span className={numClassName}>{qty}</span>;
+  }
+  return (
+    <span className="flex flex-col items-end leading-none">
+      <span className={numClassName}>{split.packages}</span>
+      <span className={unitClassName}>
+        {unit ?? "ארגז"}
+        {split.pieces > 0 ? ` + ${split.pieces} יח׳` : ""}
+      </span>
+    </span>
+  );
+}
+
 const LOG_META: Record<InventoryAction, { label: string; icon: string; color: string }> = {
   created: { label: "נוצר פריט", icon: "add_circle", color: "var(--success)" },
   count: { label: "עדכון כמות", icon: "inventory_2", color: "var(--info)" },
@@ -1996,22 +2310,27 @@ function HistoryModal({
   onClose: () => void;
 }) {
   const { data: logs, isLoading, isError } = useItemLogs(businessId, item?.id ?? null);
-  const unit = item?.unit ? ` ${item.unit}` : "";
+  const unit = item?.unit ?? null;
+  const unitsPerPackage = item?.units_per_package ?? null;
+
+  function formatLogQty(qty: number): string {
+    return formatQtyWithPieces(qty, unit, unitsPerPackage);
+  }
 
   function detail(log: ItemLog): string {
     switch (log.action) {
       case "count":
         return log.previous_qty != null
-          ? `כמות: ${log.previous_qty}${unit} ← ${log.new_qty}${unit}`
-          : `הכמות עודכנה ל-${log.new_qty}${unit}`;
+          ? `כמות: ${formatLogQty(log.previous_qty)} ← ${formatLogQty(log.new_qty!)}`
+          : `הכמות עודכנה ל-${formatLogQty(log.new_qty!)}`;
       case "created":
-        return log.new_qty != null ? `כמות התחלתית: ${log.new_qty}${unit}` : "הפריט נוצר";
+        return log.new_qty != null ? `כמות התחלתית: ${formatLogQty(log.new_qty)}` : "הפריט נוצר";
       case "edited":
         return log.note ?? "עודכנו פרטי הפריט";
       case "waste":
-        return `בלאי: ${log.new_qty}${unit}${log.note ? ` · ${log.note}` : ""}`;
+        return `בלאי: ${formatLogQty(log.new_qty!)}${log.note ? ` · ${log.note}` : ""}`;
       case "order":
-        return log.note ?? (log.new_qty != null ? `הוזמנו ${log.new_qty}${unit}` : "עדכון הזמנה");
+        return log.note ?? (log.new_qty != null ? `הוזמנו ${formatLogQty(log.new_qty)}` : "עדכון הזמנה");
       default:
         return "";
     }
@@ -2048,7 +2367,14 @@ function HistoryModal({
                   const meta = LOG_META[log.action];
                   const isCountFlow =
                     log.action === "count" && log.previous_qty != null && log.new_qty != null;
-                  const delta = isCountFlow ? log.new_qty! - log.previous_qty! : 0;
+                  const deltaLabel = isCountFlow
+                    ? formatQtyChangeWithPieces(
+                        log.previous_qty!,
+                        log.new_qty!,
+                        unit,
+                        unitsPerPackage,
+                      )
+                    : null;
                   return (
                     <div key={log.id} className="pd-tl-row">
                       <span
@@ -2067,12 +2393,16 @@ function HistoryModal({
                         </div>
                         {isCountFlow ? (
                           <span className="pd-qty-flow">
-                            <b>{log.previous_qty}</b>
+                            <b>{formatLogQty(log.previous_qty!)}</b>
                             <Icon name="west" size={14} className="text-text-3" />
-                            <b className="pd-qty-new">{log.new_qty}</b>
-                            {delta !== 0 && (
-                              <span className={`pd-delta ${delta > 0 ? "pd-delta--up" : "pd-delta--down"}`}>
-                                {delta > 0 ? `+${delta}` : delta}
+                            <b className="pd-qty-new">{formatLogQty(log.new_qty!)}</b>
+                            {deltaLabel != null && deltaLabel !== "0" && (
+                              <span
+                                className={`pd-delta ${
+                                  deltaLabel.startsWith("+") ? "pd-delta--up" : "pd-delta--down"
+                                }`}
+                              >
+                                {deltaLabel}
                               </span>
                             )}
                           </span>
@@ -2102,6 +2432,10 @@ export function Inventory() {
   const { data: items, isLoading, isError, refetch } = useInventory(businessId);
   const { data: departments } = useDepartments(businessId);
   const { data: inventoryCategories } = useInventoryCategories(businessId);
+  const { data: warehouseList } = useWarehouses(businessId);
+  const warehouses = warehouseList ?? [];
+  const multiWarehouse = warehouses.length > 1;
+  const primaryWarehouseId = defaultWarehouse(warehouses)?.id ?? warehouses[0]?.id ?? null;
   const categoryNameMap = useMemo(() => {
     const m: Record<string, string> = {};
     for (const c of inventoryCategories ?? []) m[c.id] = c.name;
@@ -2147,34 +2481,30 @@ export function Inventory() {
     return param === "low" ? "low" : "all";
   }
 
-  function inventorySearchParams(nextTab: InventoryTab, nextStock: StockFilter) {
+  function inventorySearchParams(nextTab: InventoryTab, nextStock: StockFilter, supplier?: string | null) {
     const params: Record<string, string> = {};
     if (nextTab !== "items") params.tab = nextTab;
     if (nextStock === "low") params.stock = "low";
+    if (supplier) params.supplier = supplier;
     return params;
   }
 
   const [tab, setTab] = useState<InventoryTab>(() => resolveTab(searchParams.get("tab")));
-  const [modalOpen, setModalOpen] = useState(false);
   const [detailBatchId, setDetailBatchId] = useState<string | null>(null);
-  const [editing, setEditing] = useState<ItemWithQty | null>(null);
   const [historyItem, setHistoryItem] = useState<ItemWithQty | null>(null);
   const [detailItem, setDetailItem] = useState<ItemWithQty | null>(null);
-  const [form, setForm] = useState<ItemForm>(EMPTY_FORM);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [stockFilter, setStockFilter] = useState<StockFilter>(() => resolveStockFilter(searchParams.get("stock")));
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilterValue>(null);
   const [departmentFilter, setDepartmentFilter] = useState<DepartmentFilterValue>(null);
+  const [warehouseFilter, setWarehouseFilter] = useState<WarehouseFilterValue>(null);
   const [orderSearchQuery, setOrderSearchQuery] = useState("");
   const [orderFilter, setOrderFilter] = useState<OrderFilter>("open");
-  const [orderSupplierFilter, setOrderSupplierFilter] = useState<string | null>(
+  const [supplierFilter, setSupplierFilter] = useState<string | null>(
     () => searchParams.get("supplier") || null,
   );
   const [wasteSearchQuery, setWasteSearchQuery] = useState("");
   const [wasteFilter, setWasteFilter] = useState<WasteFilter>("all");
-  const fileRef = useRef<HTMLInputElement>(null);
 
   const isManager = !!(profile && ["manager", "shift_manager", "office_manager"].includes(profile.role));
   const canSeePrices = canSeeInventoryPrices(profile?.role);
@@ -2182,12 +2512,17 @@ export function Inventory() {
 
   function changeTab(next: InventoryTab) {
     setTab(next);
-    setSearchParams(inventorySearchParams(next, stockFilter), { replace: true });
+    setSearchParams(inventorySearchParams(next, stockFilter, supplierFilter), { replace: true });
   }
 
   function changeStockFilter(next: StockFilter) {
     setStockFilter(next);
-    setSearchParams(inventorySearchParams(tab, next), { replace: true });
+    setSearchParams(inventorySearchParams(tab, next, supplierFilter), { replace: true });
+  }
+
+  function changeSupplierFilter(next: string | null) {
+    setSupplierFilter(next);
+    setSearchParams(inventorySearchParams(tab, stockFilter, next), { replace: true });
   }
 
   useEffect(() => {
@@ -2197,15 +2532,8 @@ export function Inventory() {
     if (nextStock !== stockFilter) setStockFilter(nextStock);
     const urlSupplier = searchParams.get("supplier");
     const nextSupplier = urlSupplier || null;
-    if (nextSupplier !== orderSupplierFilter) setOrderSupplierFilter(nextSupplier);
+    if (nextSupplier !== supplierFilter) setSupplierFilter(nextSupplier);
   }, [searchParams, showWaste, canManageOrders]);
-
-  useEffect(() => {
-    if (tab !== "orders") return;
-    const params: Record<string, string> = { tab: "orders" };
-    if (orderSupplierFilter) params.supplier = orderSupplierFilter;
-    setSearchParams(params, { replace: true });
-  }, [orderSupplierFilter, tab]);
 
   useEffect(() => {
     if (!canManageOrders && tab === "orders") changeTab("items");
@@ -2231,35 +2559,73 @@ export function Inventory() {
     () => isManager || list.some((item) => item.department_ids.length === 0),
     [isManager, list],
   );
+  const itemSupplierIndex = useMemo(
+    () => buildItemSupplierIndex(supplierPriceIndex ?? new Map()),
+    [supplierPriceIndex],
+  );
+  const suppliersForFilter = useMemo(
+    () =>
+      [...(supplierList ?? [])]
+        .filter((s) => s.active)
+        .sort((a, b) => a.name.localeCompare(b.name, "he")),
+    [supplierList],
+  );
+  const showSupplierFilter = suppliersForFilter.length > 0;
+  const showWarehouseFilter = warehouses.length > 1;
 
   const detailItemLive = detailItem ? list.find((i) => i.id === detailItem.id) ?? detailItem : null;
   const filteredList = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return list.filter((item) => {
-      if (!matchesCatalogFilters(item, stockFilter, categoryFilter, departmentFilter)) return false;
-      if (q && !item.name.toLowerCase().includes(q)) return false;
+      if (
+        !matchesCatalogFilters(
+          item,
+          stockFilter,
+          categoryFilter,
+          departmentFilter,
+          supplierFilter,
+          warehouseFilter,
+          itemSupplierIndex,
+        )
+      )
+        return false;
+      if (q && !inventoryItemMatchesQuery(item, q)) return false;
       return true;
     });
-  }, [list, searchQuery, stockFilter, categoryFilter, departmentFilter]);
+  }, [list, searchQuery, stockFilter, categoryFilter, departmentFilter, supplierFilter, warehouseFilter, itemSupplierIndex]);
 
   /** Live per-chip result counts: each row counts against the *other* rows' filters. */
   const catalogFilterCounts = useMemo<CatalogFilterCounts>(() => {
     const q = searchQuery.trim().toLowerCase();
-    const base = q ? list.filter((i) => i.name.toLowerCase().includes(q)) : list;
+    const base = q ? list.filter((i) => inventoryItemMatchesQuery(i, q)) : list;
     const byStock = (i: ItemWithQty, f: StockFilter) => f !== "low" || isTrackedLowStock(i);
     const byCat = (i: ItemWithQty, f: CategoryFilterValue) =>
       f === null || (f === CAT_FILTER_NONE ? !i.category_id : i.category_id === f);
     const byDept = (i: ItemWithQty, f: DepartmentFilterValue) =>
       f === null || (f === DEPT_FILTER_GENERAL ? i.department_ids.length === 0 : i.department_ids.includes(f));
+    const bySupplier = (i: ItemWithQty, f: SupplierFilterValue) =>
+      itemMatchesSupplierFilter(i.id, f, itemSupplierIndex);
+    const byWarehouse = (i: ItemWithQty, f: WarehouseFilterValue) => itemMatchesWarehouseFilter(i, f);
 
     const stock: Record<string, number> = {};
     for (const { key } of STOCK_FILTERS) {
       stock[key] = base.filter(
-        (i) => byStock(i, key) && byCat(i, categoryFilter) && byDept(i, departmentFilter),
+        (i) =>
+          byStock(i, key) &&
+          byCat(i, categoryFilter) &&
+          byDept(i, departmentFilter) &&
+          bySupplier(i, supplierFilter) &&
+          byWarehouse(i, warehouseFilter),
       ).length;
     }
 
-    const catPool = base.filter((i) => byStock(i, stockFilter) && byDept(i, departmentFilter));
+    const catPool = base.filter(
+      (i) =>
+        byStock(i, stockFilter) &&
+        byDept(i, departmentFilter) &&
+        bySupplier(i, supplierFilter) &&
+        byWarehouse(i, warehouseFilter),
+    );
     const category: Record<string, number> = {
       [FILTER_ALL_KEY]: catPool.length,
       [CAT_FILTER_NONE]: catPool.filter((i) => !i.category_id).length,
@@ -2268,7 +2634,13 @@ export function Inventory() {
       category[c.id] = catPool.filter((i) => i.category_id === c.id).length;
     }
 
-    const deptPool = base.filter((i) => byStock(i, stockFilter) && byCat(i, categoryFilter));
+    const deptPool = base.filter(
+      (i) =>
+        byStock(i, stockFilter) &&
+        byCat(i, categoryFilter) &&
+        bySupplier(i, supplierFilter) &&
+        byWarehouse(i, warehouseFilter),
+    );
     const department: Record<string, number> = {
       [FILTER_ALL_KEY]: deptPool.length,
       [DEPT_FILTER_GENERAL]: deptPool.filter((i) => i.department_ids.length === 0).length,
@@ -2277,17 +2649,65 @@ export function Inventory() {
       department[d.id] = deptPool.filter((i) => i.department_ids.includes(d.id)).length;
     }
 
-    return { stock, category, department };
-  }, [list, searchQuery, stockFilter, categoryFilter, departmentFilter, departmentsForFilter, inventoryCategories]);
+    const supplierPool = base.filter(
+      (i) =>
+        byStock(i, stockFilter) &&
+        byCat(i, categoryFilter) &&
+        byDept(i, departmentFilter) &&
+        byWarehouse(i, warehouseFilter),
+    );
+    const supplier: Record<string, number> = {
+      [FILTER_ALL_KEY]: supplierPool.length,
+      [SUPPLIER_FILTER_NONE]: supplierPool.filter((i) => !itemSupplierIndex.has(i.id)).length,
+    };
+    for (const s of suppliersForFilter) {
+      supplier[s.id] = supplierPool.filter((i) => itemSupplierIndex.get(i.id)?.has(s.id)).length;
+    }
+
+    const warehousePool = base.filter(
+      (i) =>
+        byStock(i, stockFilter) &&
+        byCat(i, categoryFilter) &&
+        byDept(i, departmentFilter) &&
+        bySupplier(i, supplierFilter),
+    );
+    const warehouse: Record<string, number> = {
+      [FILTER_ALL_KEY]: warehousePool.length,
+    };
+    for (const w of warehouses) {
+      warehouse[w.id] = warehousePool.filter((i) => itemMatchesWarehouseFilter(i, w.id)).length;
+    }
+
+    return { stock, category, department, supplier, warehouse };
+  }, [
+    list,
+    searchQuery,
+    stockFilter,
+    categoryFilter,
+    departmentFilter,
+    supplierFilter,
+    warehouseFilter,
+    departmentsForFilter,
+    inventoryCategories,
+    itemSupplierIndex,
+    suppliersForFilter,
+    warehouses,
+  ]);
 
   const catalogFiltersActive =
-    stockFilter !== "all" || categoryFilter !== null || departmentFilter !== null;
+    stockFilter !== "all" ||
+    categoryFilter !== null ||
+    departmentFilter !== null ||
+    supplierFilter !== null ||
+    warehouseFilter !== null;
 
   function clearCatalogFilters() {
     setSearchQuery("");
     changeStockFilter("all");
     setCategoryFilter(null);
     setDepartmentFilter(null);
+    changeSupplierFilter(null);
+    setWarehouseFilter(null);
   }
 
   const orderList = orders ?? [];
@@ -2303,8 +2723,8 @@ export function Inventory() {
     [allOrderBatches],
   );
   const filteredOrderBatches = useMemo(
-    () => filterOrderBatches(allOrderBatches, orderSearchQuery, orderFilter, orderSupplierFilter),
-    [allOrderBatches, orderSearchQuery, orderFilter, orderSupplierFilter],
+    () => filterOrderBatches(allOrderBatches, orderSearchQuery, orderFilter, supplierFilter),
+    [allOrderBatches, orderSearchQuery, orderFilter, supplierFilter],
   );
   const orderListSectionMeta = useMemo(() => {
     if (orderFilter === "closed") {
@@ -2334,11 +2754,9 @@ export function Inventory() {
   if (isLoading) return <PageLoader label="טוען מלאי..." />;
   if (isError) return <ErrorState onRetry={refetch} />;
 
+  /** Item create/edit live on a dedicated page — /inventory/items. */
   function openCreate() {
-    setEditing(null);
-    setForm(EMPTY_FORM);
-    setError(null);
-    setModalOpen(true);
+    navigate("/inventory/items/new");
   }
 
   function openItemDetail(item: ItemWithQty) {
@@ -2349,18 +2767,19 @@ export function Inventory() {
     setDetailItem(null);
   }
 
-  function handleSetQty(item: ItemWithQty, quantity: number) {
+  function handleSetQty(item: ItemWithQty, warehouseId: string, quantity: number) {
+    const previous_qty = itemWarehouseQty(item, warehouseId);
     setQtySaving(true);
     setCount.mutate(
       {
         business_id: businessId!,
         item_id: item.id,
+        warehouse_id: warehouseId,
         employee_id: profile?.id ?? null,
         quantity,
-        previous_qty: item.current_qty,
+        previous_qty,
       },
       {
-        // Keep the overlay up until the fresh quantities are actually on screen.
         onSettled: () => {
           qc.invalidateQueries({ queryKey: ["inventory", businessId] })
             .finally(() => setQtySaving(false));
@@ -2370,28 +2789,7 @@ export function Inventory() {
   }
 
   function openEdit(item: ItemWithQty) {
-    setEditing(item);
-    setForm({
-      name: item.name,
-      categoryId: item.category_id ?? "",
-      unit: item.unit ?? "יחידות",
-      unitsPerPackage: item.units_per_package != null ? String(item.units_per_package) : "",
-      qty: String(item.current_qty),
-      minQty: String(item.min_quantity),
-      deliveryDay: item.supplier_delivery_day != null ? String(item.supplier_delivery_day) : "",
-      departmentIds: [...item.department_ids],
-      imageUrl: item.image_url,
-      file: null,
-    });
-    setError(null);
-    setModalOpen(true);
-  }
-
-  function closeModal() {
-    setModalOpen(false);
-    setEditing(null);
-    setForm(EMPTY_FORM);
-    setError(null);
+    navigate(`/inventory/items/${item.id}/edit`);
   }
 
   /** Order composing moved to a dedicated page — /inventory/order. */
@@ -2460,82 +2858,6 @@ export function Inventory() {
     }
   }
 
-  async function submitItem() {
-    setError(null);
-    if (!form.name.trim()) return setError("נא להזין שם מוצר");
-    setBusy(true);
-    try {
-      let image_url = form.imageUrl;
-      if (form.file) image_url = await uploadItemImage(businessId!, form.file);
-      const quantity = Number(form.qty) || 0;
-      const min_quantity = Math.max(0, Number(form.minQty) || 0);
-      const supplier_delivery_day = form.deliveryDay === "" ? null : Number(form.deliveryDay);
-      const category_id = form.categoryId || null;
-      const units_per_package = supportsPieceInput(form.unit)
-        ? Math.max(0, Number(form.unitsPerPackage) || 0) || null
-        : null;
-      const department_ids = form.departmentIds;
-
-      if (editing) {
-        const changed: string[] = [];
-        if (form.name.trim() !== editing.name) changed.push("שם");
-        if (form.unit !== (editing.unit ?? "יחידות")) changed.push("יחידת מידה");
-        if (units_per_package !== editing.units_per_package) changed.push("יחידים ביחידת מידה");
-        if (min_quantity !== editing.min_quantity) changed.push("כמות מינימום");
-        if (supplier_delivery_day !== editing.supplier_delivery_day) changed.push("יום אספקה");
-        if (category_id !== editing.category_id) changed.push("קטגוריה");
-        if (image_url !== editing.image_url) changed.push("תמונה");
-        const prevDepts = [...editing.department_ids].sort().join(",");
-        const nextDepts = [...department_ids].sort().join(",");
-        if (prevDepts !== nextDepts) changed.push("מחלקות");
-        await updateItem.mutateAsync({
-          id: editing.id,
-          business_id: businessId!,
-          employee_id: profile?.id ?? null,
-          changes: {
-            name: form.name.trim(),
-            unit: form.unit,
-            units_per_package,
-            image_url,
-            min_quantity,
-            supplier_delivery_day,
-            category_id,
-          },
-          department_ids,
-          note: changed.length ? `עודכן: ${changed.join(", ")}` : null,
-        });
-        if (quantity !== editing.current_qty) {
-          await setCount.mutateAsync({
-            business_id: businessId!,
-            item_id: editing.id,
-            employee_id: profile?.id ?? null,
-            quantity,
-            previous_qty: editing.current_qty,
-          });
-        }
-      } else {
-        await createItem.mutateAsync({
-          business_id: businessId!,
-          name: form.name.trim(),
-          unit: form.unit,
-          units_per_package,
-          image_url,
-          min_quantity,
-          supplier_delivery_day,
-          category_id,
-          department_ids,
-          quantity,
-          employee_id: profile?.id ?? null,
-        });
-      }
-      closeModal();
-    } catch (e) {
-      setError(inventorySaveError(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
     <div className="w-full animate-fadeUp">
       <TabBar
@@ -2591,13 +2913,13 @@ export function Inventory() {
             showAdd
             addIcon="add_shopping_cart"
             addAriaLabel="הזמנה חדשה"
-            extraFilterActive={!!orderSupplierFilter}
+            extraFilterActive={!!supplierFilter}
             filterTokens={
               (supplierList?.length ?? 0) > 0 ? (
                 <Field label="סינון לפי ספק" className="!mb-0">
                   <Select
-                    value={orderSupplierFilter ?? ""}
-                    onChange={(e) => setOrderSupplierFilter(e.target.value || null)}
+                    value={supplierFilter ?? ""}
+                    onChange={(e) => changeSupplierFilter(e.target.value || null)}
                     searchable
                     searchPlaceholder="חיפוש ספק..."
                   >
@@ -2632,7 +2954,7 @@ export function Inventory() {
                   onClick={() => {
                     setOrderSearchQuery("");
                     setOrderFilter("open");
-                    setOrderSupplierFilter(null);
+                    changeSupplierFilter(null);
                   }}
                 >
                   ניקוי סינון
@@ -2672,7 +2994,7 @@ export function Inventory() {
               filter={stockFilter}
               onFilterChange={changeStockFilter}
               filters={[]}
-              placeholder="חיפוש מוצר..."
+              placeholder="חיפוש לפי שם או ברקוד..."
               resultCount={filteredList.length}
               totalCount={list.length}
               resultUnit="פריטים"
@@ -2689,11 +3011,19 @@ export function Inventory() {
                   onCategoryChange={setCategoryFilter}
                   departmentFilter={departmentFilter}
                   onDepartmentChange={setDepartmentFilter}
+                  supplierFilter={supplierFilter}
+                  onSupplierChange={changeSupplierFilter}
+                  warehouseFilter={warehouseFilter}
+                  onWarehouseChange={setWarehouseFilter}
                   departments={departmentsForFilter}
                   inventoryCategories={inventoryCategories ?? []}
+                  suppliers={suppliersForFilter}
+                  warehouses={warehouses}
                   onClearAll={clearCatalogFilters}
                   showClear={catalogFiltersActive || !!searchQuery.trim()}
                   showGeneralDeptFilter={showGeneralDeptFilter}
+                  showSupplierFilter={showSupplierFilter}
+                  showWarehouseFilter={showWarehouseFilter}
                   counts={catalogFilterCounts}
                 />
               }
@@ -2705,8 +3035,14 @@ export function Inventory() {
                   onCategoryChange={setCategoryFilter}
                   departmentFilter={departmentFilter}
                   onDepartmentChange={setDepartmentFilter}
+                  supplierFilter={supplierFilter}
+                  onSupplierChange={changeSupplierFilter}
+                  warehouseFilter={warehouseFilter}
+                  onWarehouseChange={setWarehouseFilter}
                   departments={departmentsForFilter}
                   inventoryCategories={inventoryCategories ?? []}
+                  suppliers={suppliersForFilter}
+                  warehouses={warehouses}
                 />
               }
             />
@@ -2766,7 +3102,9 @@ export function Inventory() {
                       closeItemDetail();
                       openNewOrder(it.id);
                     }}
-                    onSetQty={(quantity) => handleSetQty(it, quantity)}
+                    onSetQty={(warehouseId, quantity) => handleSetQty(it, warehouseId, quantity)}
+                    multiWarehouse={multiWarehouse}
+                    primaryWarehouseId={primaryWarehouseId}
                     categoryNames={categoryNameMap}
                   />
                 ))}
@@ -2828,6 +3166,18 @@ export function Inventory() {
             <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="לדוגמה: חלב 3%" />
           </Field>
 
+          <Field label="ברקוד (אופציונלי)">
+            <Input
+              value={form.barcode}
+              onChange={(e) => setForm((f) => ({ ...f, barcode: e.target.value }))}
+              placeholder="7290000000000"
+              inputMode="numeric"
+              dir="ltr"
+              className="font-mono"
+            />
+            <p className="mt-1 text-[12px] text-text-3">ברקוד ייחודי לעסק — ניתן לחפש לפיו ברשימת המוצרים ובהזמנות.</p>
+          </Field>
+
           <Field label="קטגוריה">
             <Select value={form.categoryId} onChange={(e) => setForm((f) => ({ ...f, categoryId: e.target.value }))}>
               <option value="">ללא קטגוריה</option>
@@ -2863,7 +3213,7 @@ export function Inventory() {
             </p>
           </Field>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className={`grid gap-3 ${multiWarehouse ? "grid-cols-1" : "grid-cols-2"}`}>
             <Field label="יחידת מידה">
               <Select
                 value={form.unit}
@@ -2883,16 +3233,53 @@ export function Inventory() {
                 ))}
               </Select>
             </Field>
-            <Field label="כמות נוכחית">
-              <DualUnitQtyInput
-                value={Number(form.qty) || 0}
-                mainUnit={form.unit}
-                unitsPerPackage={supportsPieceInput(form.unit) ? Number(form.unitsPerPackage) || null : null}
-                onCommit={(q) => setForm((f) => ({ ...f, qty: String(q) }))}
-                variant="input"
-              />
-            </Field>
+            {!multiWarehouse && (
+              <Field label="כמות נוכחית">
+                <DualUnitQtyInput
+                  value={Number(form.qty) || 0}
+                  mainUnit={form.unit}
+                  unitsPerPackage={supportsPieceInput(form.unit) ? Number(form.unitsPerPackage) || null : null}
+                  onCommit={(q) => {
+                    const whId = primaryWarehouseId;
+                    setForm((f) => ({
+                      ...f,
+                      qty: String(q),
+                      warehouseQtys: whId ? { ...f.warehouseQtys, [whId]: String(q) } : f.warehouseQtys,
+                    }));
+                  }}
+                  variant="input"
+                />
+              </Field>
+            )}
           </div>
+
+          {multiWarehouse && (
+            <Field label="כמויות לפי מחסן">
+              <div className="flex flex-col gap-2.5">
+                {warehouses.map((w) => (
+                  <div key={w.id} className="rounded-[12px] border border-border bg-surface-2 px-3 py-2.5">
+                    <div className="mb-2 text-[13px] font-semibold text-text">{w.name}</div>
+                    <DualUnitQtyInput
+                      value={Number(form.warehouseQtys[w.id]) || 0}
+                      mainUnit={form.unit}
+                      unitsPerPackage={supportsPieceInput(form.unit) ? Number(form.unitsPerPackage) || null : null}
+                      onCommit={(q) =>
+                        setForm((f) => ({
+                          ...f,
+                          warehouseQtys: { ...f.warehouseQtys, [w.id]: String(q) },
+                        }))
+                      }
+                      variant="input"
+                    />
+                  </div>
+                ))}
+              </div>
+              <p className="mt-1 text-[12px] text-text-3">
+                {"כל מחסן שומר כמות נפרדת — סה״כ במלאי: "}
+                {warehouseQuantitiesPreview(form.warehouseQtys)}
+              </p>
+            </Field>
+          )}
 
           {supportsPieceInput(form.unit) && (
             <Field label={`כמה ${form.unit === "ארגז" ? "יחידות" : "יחידים"} ב${form.unit}?`}>
@@ -2953,8 +3340,9 @@ export function Inventory() {
         pendingOrders={detailPendingOrders}
         orderArrivalBusy={receiveOrder.isPending || markOrderNotArrived.isPending}
         qtyUpdateBusy={qtySaving}
+        warehouses={warehouses}
         onClose={closeItemDetail}
-        onSetQty={(quantity) => detailItemLive && handleSetQty(detailItemLive, quantity)}
+        onSetQty={(warehouseId, quantity) => detailItemLive && handleSetQty(detailItemLive, warehouseId, quantity)}
         onEdit={() => {
           if (!detailItemLive) return;
           closeItemDetail();
