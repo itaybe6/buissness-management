@@ -16,6 +16,7 @@ import { AreaChart, BarChart, CountUp, DonutChart, RadialGauge } from "./charts"
 import { EmployeeCostPanel } from "./EmployeeCostPanel";
 import { ManagerAttendanceFeed } from "./ManagerAttendanceFeed";
 import { TodayEventsBanner } from "@/components/events/TodayEventsBanner";
+import { TodayBirthdaysBanner } from "@/components/dashboard/TodayBirthdaysBanner";
 
 /* ----------------------------- helpers ----------------------------- */
 function monthKey(d: Date): string {
@@ -421,6 +422,7 @@ export function ManagerDashboard() {
       </header>
 
       {/* ---------------- Events happening today ---------------- */}
+      <TodayBirthdaysBanner />
       <TodayEventsBanner />
 
       {/* ---------------- Employee labor costs ---------------- */}

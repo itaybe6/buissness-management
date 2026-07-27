@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { useNavigate, useSearchParams, Link } from "react-router-dom";
-import { Badge, Button, EmptyState, Field, Icon, Input, ErrorState, InlineLoader, LoadingOverlay, PageLoader, SectionLoader, Select, MultiSelect } from "@/components/ui";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { Badge, Button, EmptyState, Field, Icon, Input, ErrorState, InlineLoader, LoadingOverlay, PageLoader, SectionLoader, Select } from "@/components/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { Modal } from "@/components/ui/Modal";
 import { WastePanel } from "@/components/waste/WastePanel";
@@ -12,8 +12,6 @@ import { useBusinessId, HE_DAYS, formatCurrency } from "@/lib/db";
 import { canSeeInventoryPrices } from "@/lib/constants";
 import {
   useInventory,
-  useCreateItem,
-  useUpdateItem,
   useSetCount,
   useOrders,
   useDeleteOrdersBatch,
@@ -21,8 +19,6 @@ import {
   useMarkOrderNotArrived,
   type InventoryOrderWithUser,
   useItemLogs,
-  uploadItemImage,
-  INVENTORY_UNITS,
   inventorySaveError,
   supportsPieceInput,
   mainUnitToPieces,
@@ -37,7 +33,6 @@ import {
   itemWarehouseQty,
   formatQtyWithPieces,
   formatQtyChangeWithPieces,
-  normalizeInventoryBarcode,
   inventoryItemMatchesQuery,
 } from "@/api/inventory";
 import { useWarehouses, defaultWarehouse } from "@/api/warehouses";
@@ -105,49 +100,6 @@ function batchReceivedUnits(batch: OrderBatch): number {
 
 function batchOrderedByLabel(batch: OrderBatch): string {
   return batch.ordered_by_name ?? "לא ידוע";
-}
-
-type ItemForm = {
-  name: string;
-  barcode: string;
-  categoryId: string;
-  unit: string;
-  unitsPerPackage: string;
-  qty: string;
-  warehouseQtys: Record<string, string>;
-  minQty: string;
-  deliveryDay: string;
-  departmentIds: string[];
-  imageUrl: string | null;
-  file: File | null;
-};
-
-const EMPTY_FORM: ItemForm = {
-  name: "",
-  barcode: "",
-  categoryId: "",
-  unit: "יחידות",
-  unitsPerPackage: "",
-  qty: "0",
-  warehouseQtys: {},
-  minQty: "0",
-  deliveryDay: "",
-  departmentIds: [],
-  imageUrl: null,
-  file: null,
-};
-
-function initWarehouseQtys(warehouses: Warehouse[], item?: ItemWithQty | null): Record<string, string> {
-  const map: Record<string, string> = {};
-  for (const w of warehouses) {
-    const stock = item?.warehouse_stocks.find((s) => s.warehouse_id === w.id);
-    map[w.id] = String(stock?.quantity ?? 0);
-  }
-  return map;
-}
-
-function warehouseQuantitiesPreview(qtys: Record<string, string>): number {
-  return Object.values(qtys).reduce((sum, v) => sum + (Number(v) || 0), 0);
 }
 
 function ItemBarcodeLabel({
@@ -331,6 +283,7 @@ function TabSearchBar<T extends string>({
   extraFilterActive,
   filterTrigger,
   filterTokens,
+  topContent,
 }: {
   query: string;
   onQueryChange: (q: string) => void;
@@ -349,6 +302,7 @@ function TabSearchBar<T extends string>({
   extraFilterActive?: boolean;
   filterTrigger?: ReactNode;
   filterTokens?: ReactNode;
+  topContent?: ReactNode;
 }) {
   const hasFilter =
     query.trim() ||
@@ -357,6 +311,7 @@ function TabSearchBar<T extends string>({
 
   return (
     <div className="inventory-search mb-4 space-y-2.5">
+      {topContent}
       <div className="inv-searchrow">
         <div className="relative min-w-0 flex-1">
           <Icon
@@ -447,6 +402,50 @@ function itemMatchesWarehouseFilter(item: ItemWithQty, warehouseFilter: Warehous
   return item.warehouse_stocks.some((s) => s.warehouse_id === warehouseFilter);
 }
 
+function WarehouseFilterBar({
+  warehouses,
+  value,
+  onChange,
+  counts,
+}: {
+  warehouses: Warehouse[];
+  value: WarehouseFilterValue;
+  onChange: (v: WarehouseFilterValue) => void;
+  counts: Record<string, number>;
+}) {
+  return (
+    <div className="inv-warehouse-bar" role="tablist" aria-label="סינון לפי מחסן">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={value === null}
+        data-active={value === null}
+        className="inv-warehouse-btn"
+        onClick={() => onChange(null)}
+      >
+        <Icon name="warehouse" size={18} className="inv-warehouse-btn-icon" />
+        <span className="inv-warehouse-btn-label">כל המחסנים</span>
+        <span className="inv-warehouse-btn-count">{counts[FILTER_ALL_KEY] ?? 0}</span>
+      </button>
+      {warehouses.map((w) => (
+        <button
+          key={w.id}
+          type="button"
+          role="tab"
+          aria-selected={value === w.id}
+          data-active={value === w.id}
+          className="inv-warehouse-btn"
+          onClick={() => onChange(value === w.id ? null : w.id)}
+        >
+          <Icon name="warehouse" size={18} className="inv-warehouse-btn-icon" />
+          <span className="inv-warehouse-btn-label">{w.name}</span>
+          <span className="inv-warehouse-btn-count">{counts[w.id] ?? 0}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function FilterChip({
   label,
   active,
@@ -491,17 +490,13 @@ function InventoryCatalogFilterDeck({
   onDepartmentChange,
   supplierFilter,
   onSupplierChange,
-  warehouseFilter,
-  onWarehouseChange,
   departments,
   inventoryCategories,
   suppliers,
-  warehouses,
   onClearAll,
   showClear,
   showGeneralDeptFilter,
   showSupplierFilter,
-  showWarehouseFilter,
   counts,
 }: {
   stockFilter: StockFilter;
@@ -512,17 +507,13 @@ function InventoryCatalogFilterDeck({
   onDepartmentChange: (f: DepartmentFilterValue) => void;
   supplierFilter: SupplierFilterValue;
   onSupplierChange: (f: SupplierFilterValue) => void;
-  warehouseFilter: WarehouseFilterValue;
-  onWarehouseChange: (f: WarehouseFilterValue) => void;
   departments: Department[];
   inventoryCategories: InventoryCategory[];
   suppliers: { id: string; name: string; active: boolean }[];
-  warehouses: Warehouse[];
   onClearAll: () => void;
   showClear: boolean;
   showGeneralDeptFilter: boolean;
   showSupplierFilter: boolean;
-  showWarehouseFilter: boolean;
   counts: CatalogFilterCounts;
 }) {
   const [open, setOpen] = useState(false);
@@ -552,8 +543,7 @@ function InventoryCatalogFilterDeck({
     (stockFilter !== "all" ? 1 : 0) +
     (categoryFilter ? 1 : 0) +
     (departmentFilter ? 1 : 0) +
-    (supplierFilter ? 1 : 0) +
-    (warehouseFilter ? 1 : 0);
+    (supplierFilter ? 1 : 0);
 
   return (
     <div className="inv-filters-anchor">
@@ -696,26 +686,6 @@ function InventoryCatalogFilterDeck({
               ))}
             </FilterRow>
           ) : null}
-          {showWarehouseFilter ? (
-            <FilterRow label="מחסן">
-              <FilterChip
-                label="הכל"
-                active={warehouseFilter === null}
-                count={counts.warehouse[FILTER_ALL_KEY]}
-                onClick={() => onWarehouseChange(null)}
-              />
-              {warehouses.map((w) => (
-                <FilterChip
-                  key={w.id}
-                  label={w.name}
-                  icon="warehouse"
-                  active={warehouseFilter === w.id}
-                  count={counts.warehouse[w.id]}
-                  onClick={() => onWarehouseChange(warehouseFilter === w.id ? null : w.id)}
-                />
-              ))}
-            </FilterRow>
-          ) : null}
         </div>
       </div>
     </div>
@@ -741,12 +711,9 @@ function InventoryFilterTokens({
   onDepartmentChange,
   supplierFilter,
   onSupplierChange,
-  warehouseFilter,
-  onWarehouseChange,
   departments,
   inventoryCategories,
   suppliers,
-  warehouses,
 }: {
   stockFilter: StockFilter;
   onStockChange: (f: StockFilter) => void;
@@ -756,16 +723,12 @@ function InventoryFilterTokens({
   onDepartmentChange: (f: DepartmentFilterValue) => void;
   supplierFilter: SupplierFilterValue;
   onSupplierChange: (f: SupplierFilterValue) => void;
-  warehouseFilter: WarehouseFilterValue;
-  onWarehouseChange: (f: WarehouseFilterValue) => void;
   departments: Department[];
   inventoryCategories: InventoryCategory[];
   suppliers: { id: string; name: string }[];
-  warehouses: Warehouse[];
 }) {
   const activeDept = departmentFilter ? departments.find((d) => d.id === departmentFilter) : undefined;
   const activeSupplier = supplierFilter ? suppliers.find((s) => s.id === supplierFilter) : undefined;
-  const activeWarehouse = warehouseFilter ? warehouses.find((w) => w.id === warehouseFilter) : undefined;
   const tokens: { key: string; label: string; accent?: string; onRemove: () => void }[] = [];
 
   if (stockFilter !== "all") {
@@ -798,13 +761,6 @@ function InventoryFilterTokens({
       key: "supplier",
       label: supplierFilter === SUPPLIER_FILTER_NONE ? "ללא ספק" : activeSupplier?.name ?? "ספק",
       onRemove: () => onSupplierChange(null),
-    });
-  }
-  if (warehouseFilter) {
-    tokens.push({
-      key: "warehouse",
-      label: activeWarehouse?.name ?? "מחסן",
-      onRemove: () => onWarehouseChange(null),
     });
   }
 
@@ -2441,10 +2397,6 @@ export function Inventory() {
     for (const c of inventoryCategories ?? []) m[c.id] = c.name;
     return m;
   }, [inventoryCategories]);
-  const departmentOptions = useMemo(
-    () => (departments ?? []).map((d) => ({ value: d.id, label: d.name })),
-    [departments],
-  );
   const canManageOrders = !!(profile && ["manager", "office_manager"].includes(profile.role));
   const { getPartialBatchUiState, acknowledgeBatch } = usePartialDeliveryOrderCount();
   const resolveBatchPartialUiState = useCallback(
@@ -2459,8 +2411,6 @@ export function Inventory() {
   const { data: supplierList } = useSuppliers(businessId, { activeOnly: false });
   const { data: supplierPriceIndex } = useSupplierItemPriceIndex(businessId);
   const { data: wasteRecords } = useWaste(showWaste ? businessId : null);
-  const createItem = useCreateItem(businessId);
-  const updateItem = useUpdateItem(businessId);
   const setCount = useSetCount(businessId);
   const qc = useQueryClient();
   const [qtySaving, setQtySaving] = useState(false);
@@ -2698,8 +2648,9 @@ export function Inventory() {
     stockFilter !== "all" ||
     categoryFilter !== null ||
     departmentFilter !== null ||
-    supplierFilter !== null ||
-    warehouseFilter !== null;
+    supplierFilter !== null;
+
+  const listFiltersActive = catalogFiltersActive || warehouseFilter !== null;
 
   function clearCatalogFilters() {
     setSearchQuery("");
@@ -3002,7 +2953,17 @@ export function Inventory() {
               showAdd={isManager}
               addIcon="add"
               addAriaLabel="פריט חדש"
-              extraFilterActive={catalogFiltersActive}
+              extraFilterActive={listFiltersActive}
+              topContent={
+                showWarehouseFilter ? (
+                  <WarehouseFilterBar
+                    warehouses={warehouses}
+                    value={warehouseFilter}
+                    onChange={setWarehouseFilter}
+                    counts={catalogFilterCounts.warehouse}
+                  />
+                ) : null
+              }
               filterTrigger={
                 <InventoryCatalogFilterDeck
                   stockFilter={stockFilter}
@@ -3013,17 +2974,13 @@ export function Inventory() {
                   onDepartmentChange={setDepartmentFilter}
                   supplierFilter={supplierFilter}
                   onSupplierChange={changeSupplierFilter}
-                  warehouseFilter={warehouseFilter}
-                  onWarehouseChange={setWarehouseFilter}
                   departments={departmentsForFilter}
                   inventoryCategories={inventoryCategories ?? []}
                   suppliers={suppliersForFilter}
-                  warehouses={warehouses}
                   onClearAll={clearCatalogFilters}
                   showClear={catalogFiltersActive || !!searchQuery.trim()}
                   showGeneralDeptFilter={showGeneralDeptFilter}
                   showSupplierFilter={showSupplierFilter}
-                  showWarehouseFilter={showWarehouseFilter}
                   counts={catalogFilterCounts}
                 />
               }
@@ -3037,12 +2994,9 @@ export function Inventory() {
                   onDepartmentChange={setDepartmentFilter}
                   supplierFilter={supplierFilter}
                   onSupplierChange={changeSupplierFilter}
-                  warehouseFilter={warehouseFilter}
-                  onWarehouseChange={setWarehouseFilter}
                   departments={departmentsForFilter}
                   inventoryCategories={inventoryCategories ?? []}
                   suppliers={suppliersForFilter}
-                  warehouses={warehouses}
                 />
               }
             />
@@ -3052,15 +3006,17 @@ export function Inventory() {
                 title={
                   stockFilter === "low"
                     ? "אין מוצרים במלאי נמוך"
-                    : catalogFiltersActive
+                    : listFiltersActive
                       ? "אין מוצרים בסינון הזה"
                       : "לא נמצאו מוצרים"
                 }
                 description={
                   stockFilter === "low"
                     ? "כל המוצרים מעל סף המלאי שהוגדר."
-                    : catalogFiltersActive
-                      ? "נסו מחלקה או קטגוריה אחרת, או נקו את הסינון."
+                    : listFiltersActive
+                      ? warehouseFilter
+                        ? "אין מוצרים במחסן שנבחר — נסו מחסן אחר או נקו את הסינון."
+                        : "נסו מחלקה או קטגוריה אחרת, או נקו את הסינון."
                       : "נסו מילת חיפוש אחרת."
                 }
                 action={
@@ -3068,7 +3024,7 @@ export function Inventory() {
                     <Button variant="secondary" onClick={() => changeStockFilter("all")}>
                       הצג את כל המוצרים
                     </Button>
-                  ) : catalogFiltersActive || searchQuery.trim() ? (
+                  ) : listFiltersActive || searchQuery.trim() ? (
                     <Button variant="secondary" onClick={clearCatalogFilters}>
                       ניקוי סינון
                     </Button>
@@ -3113,222 +3069,6 @@ export function Inventory() {
           </>
         )
       }
-
-      <Modal
-        open={modalOpen}
-        onClose={closeModal}
-        title={editing ? "עריכת פריט" : "פריט מלאי חדש"}
-        icon="inventory_2"
-        footer={
-          <>
-            <Button variant="secondary" onClick={closeModal} className="active:scale-[0.97]">
-              ביטול
-            </Button>
-            <Button className="flex-1 !bg-ink active:scale-[0.97]" loading={busy} onClick={submitItem}>
-              {editing ? "שמירה" : "הוספה"}
-            </Button>
-          </>
-        }
-      >
-        <div className="flex flex-col gap-3.5">
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => setForm((f) => ({ ...f, file: e.target.files?.[0] ?? null }))}
-          />
-          <button
-            type="button"
-            onClick={() => fileRef.current?.click()}
-            className="group relative flex aspect-[16/10] flex-col items-center justify-center gap-2 overflow-hidden rounded-[12px] border border-dashed border-border bg-surface-2 text-text-3 transition-[border-color,color] duration-[180ms] [transition-timing-function:var(--ease-out)] hover:border-text-3 hover:text-text active:scale-[0.99]"
-          >
-            {form.file || form.imageUrl ? (
-              <>
-                <img
-                  src={form.file ? URL.createObjectURL(form.file) : form.imageUrl!}
-                  alt="תמונת מוצר"
-                  className="absolute inset-0 h-full w-full object-cover"
-                />
-                <span className="relative rounded-full bg-black/60 px-3 py-1 text-[12px] font-semibold text-white backdrop-blur-sm">
-                  החלפת תמונה
-                </span>
-              </>
-            ) : (
-              <>
-                <Icon name="add_a_photo" size={32} />
-                <span className="text-[13px] font-semibold">העלאת תמונת מוצר</span>
-              </>
-            )}
-          </button>
-
-          <Field label="שם המוצר">
-            <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="לדוגמה: חלב 3%" />
-          </Field>
-
-          <Field label="ברקוד (אופציונלי)">
-            <Input
-              value={form.barcode}
-              onChange={(e) => setForm((f) => ({ ...f, barcode: e.target.value }))}
-              placeholder="7290000000000"
-              inputMode="numeric"
-              dir="ltr"
-              className="font-mono"
-            />
-            <p className="mt-1 text-[12px] text-text-3">ברקוד ייחודי לעסק — ניתן לחפש לפיו ברשימת המוצרים ובהזמנות.</p>
-          </Field>
-
-          <Field label="קטגוריה">
-            <Select value={form.categoryId} onChange={(e) => setForm((f) => ({ ...f, categoryId: e.target.value }))}>
-              <option value="">ללא קטגוריה</option>
-              {(inventoryCategories ?? []).map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </Select>
-            {isManager && !(inventoryCategories?.length) && (
-              <p className="mt-1 text-[12px] text-text-3">
-                הוסיפו קטגוריות מוצרים ב{" "}
-                <Link to="/settings" className="font-semibold text-accent-2 hover:underline">
-                  הגדרות העסק
-                </Link>
-                .
-              </p>
-            )}
-          </Field>
-
-          <Field label="מחלקות">
-            <MultiSelect
-              values={form.departmentIds}
-              onChange={(departmentIds) => setForm((f) => ({ ...f, departmentIds }))}
-              options={departmentOptions}
-              placeholder="כל המחלקות"
-              disabled={!departmentOptions.length}
-            />
-            <p className="mt-1 text-[12px] text-text-3">
-              {departmentOptions.length === 0
-                ? "הוסיפו מחלקות בהגדרות העסק כדי לשייך מוצרים."
-                : "ללא בחירה — המוצר יוצג לכל המחלקות. ניתן לבחור כמה מחלקות (למשל מטבח ובר)."}
-            </p>
-          </Field>
-
-          <div className={`grid gap-3 ${multiWarehouse ? "grid-cols-1" : "grid-cols-2"}`}>
-            <Field label="יחידת מידה">
-              <Select
-                value={form.unit}
-                onChange={(e) => {
-                  const unit = e.target.value;
-                  setForm((f) => ({
-                    ...f,
-                    unit,
-                    unitsPerPackage: unit === "יחידות" ? "" : f.unitsPerPackage,
-                  }));
-                }}
-              >
-                {INVENTORY_UNITS.map((u) => (
-                  <option key={u.value} value={u.value}>
-                    {u.label}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            {!multiWarehouse && (
-              <Field label="כמות נוכחית">
-                <DualUnitQtyInput
-                  value={Number(form.qty) || 0}
-                  mainUnit={form.unit}
-                  unitsPerPackage={supportsPieceInput(form.unit) ? Number(form.unitsPerPackage) || null : null}
-                  onCommit={(q) => {
-                    const whId = primaryWarehouseId;
-                    setForm((f) => ({
-                      ...f,
-                      qty: String(q),
-                      warehouseQtys: whId ? { ...f.warehouseQtys, [whId]: String(q) } : f.warehouseQtys,
-                    }));
-                  }}
-                  variant="input"
-                />
-              </Field>
-            )}
-          </div>
-
-          {multiWarehouse && (
-            <Field label="כמויות לפי מחסן">
-              <div className="flex flex-col gap-2.5">
-                {warehouses.map((w) => (
-                  <div key={w.id} className="rounded-[12px] border border-border bg-surface-2 px-3 py-2.5">
-                    <div className="mb-2 text-[13px] font-semibold text-text">{w.name}</div>
-                    <DualUnitQtyInput
-                      value={Number(form.warehouseQtys[w.id]) || 0}
-                      mainUnit={form.unit}
-                      unitsPerPackage={supportsPieceInput(form.unit) ? Number(form.unitsPerPackage) || null : null}
-                      onCommit={(q) =>
-                        setForm((f) => ({
-                          ...f,
-                          warehouseQtys: { ...f.warehouseQtys, [w.id]: String(q) },
-                        }))
-                      }
-                      variant="input"
-                    />
-                  </div>
-                ))}
-              </div>
-              <p className="mt-1 text-[12px] text-text-3">
-                {"כל מחסן שומר כמות נפרדת — סה״כ במלאי: "}
-                {warehouseQuantitiesPreview(form.warehouseQtys)}
-              </p>
-            </Field>
-          )}
-
-          {supportsPieceInput(form.unit) && (
-            <Field label={`כמה ${form.unit === "ארגז" ? "יחידות" : "יחידים"} ב${form.unit}?`}>
-              <Input
-                type="number"
-                min={1}
-                value={form.unitsPerPackage}
-                onChange={(e) => setForm((f) => ({ ...f, unitsPerPackage: e.target.value }))}
-                placeholder="לדוגמה: 24"
-              />
-              <p className="mt-1 text-[12px] text-text-3">
-                מאפשר להזין כמויות גם ב{form.unit} וגם ביחידים בודדים בעדכון מלאי, הזמנות ובלאי
-              </p>
-            </Field>
-          )}
-
-          <Field label="כמות מינימום">
-            <Input type="number" min={0} value={form.minQty} onChange={(e) => setForm((f) => ({ ...f, minQty: e.target.value }))} placeholder="0" />
-            <p className="mt-1 text-[12px] text-text-3">מתחת לסף זה הפריט יסומן כמלאי נמוך</p>
-          </Field>
-
-          <Field label="יום אספקה מהספק">
-            <Select value={form.deliveryDay} onChange={(e) => setForm((f) => ({ ...f, deliveryDay: e.target.value }))}>
-              <option value="">לא הוגדר</option>
-              {HE_DAYS.map((d, i) => (
-                <option key={i} value={String(i)}>
-                  יום {d}
-                </option>
-              ))}
-            </Select>
-            <p className="mt-1 text-[12px] text-text-3">ביום זה הסחורה אמורה להגיע מהספק לאחר הזמנה</p>
-            {canSeePrices && (
-              <p className="mt-1 text-[12px] text-text-3">
-                מחירי רכש מוגדרים לפי ספק ב{" "}
-                <Link to="/suppliers" className="font-semibold text-accent-2 hover:underline">
-                  עמוד הספקים
-                </Link>
-                .
-              </p>
-            )}
-          </Field>
-
-          {error && (
-            <div className="flex items-start gap-2 rounded-[11px] [background:var(--danger-bg)] px-3 py-2.5 text-[13px] font-semibold text-danger">
-              <Icon name="error" size={18} /> {error}
-            </div>
-          )}
-        </div>
-      </Modal>
 
       <ItemDetailModal
         item={detailItemLive}

@@ -4,12 +4,14 @@ import { Button, Field, Icon, Input, PageLoader, ErrorState, Textarea } from "@/
 import { Modal } from "@/components/ui/Modal";
 import { EventCountdown } from "@/components/events/EventCountdown";
 import { EventMediaPicker, revokeEventMediaEntries, type MediaEntry } from "@/components/events/EventMediaPicker";
+import { EventsFilter, type EventPeriodFilter } from "@/components/events/EventsFilter";
 import { daysUntilEvent, daysUntilLabel, parseEventDay } from "@/components/events/eventTime";
 import { useAuth } from "@/lib/auth";
 import { EVENT_MANAGE_ROLES } from "@/lib/constants";
 import { useBusinessId, todayISO } from "@/lib/db";
 import { isVideoUrl } from "@/lib/media";
 import { useEvents, useCreateEvent, uploadEventMediaFiles } from "@/api/events";
+import { EventsSubNav } from "@/components/events/EventsSubNav";
 import type { EventRecord } from "@/types/database";
 
 export function Events() {
@@ -24,6 +26,8 @@ export function Events() {
   const [media, setMedia] = useState<MediaEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [periodFilter, setPeriodFilter] = useState<EventPeriodFilter>("all");
+  const [dateFilter, setDateFilter] = useState<string | null>(null);
 
   const canManage = !!(profile?.role && EVENT_MANAGE_ROLES.includes(profile.role));
 
@@ -31,11 +35,30 @@ export function Events() {
   if (isError) return <ErrorState onRetry={refetch} />;
 
   const now = todayISO();
-  const upcoming = (events ?? []).filter((e) => e.event_date.slice(0, 10) >= now);
-  const past = (events ?? []).filter((e) => e.event_date.slice(0, 10) < now).reverse();
+  const allEvents = events ?? [];
+  const upcomingAll = allEvents.filter((e) => e.event_date.slice(0, 10) >= now);
+  const pastAll = allEvents.filter((e) => e.event_date.slice(0, 10) < now).reverse();
+  const hasEvents = allEvents.length > 0;
+  const isDefaultView = periodFilter === "all" && !dateFilter;
+
+  let upcoming = upcomingAll;
+  let past = pastAll;
+
+  if (dateFilter) {
+    const onDate = allEvents.filter((e) => e.event_date.slice(0, 10) === dateFilter);
+    upcoming = onDate.filter((e) => e.event_date.slice(0, 10) >= now);
+    past = onDate.filter((e) => e.event_date.slice(0, 10) < now).reverse();
+  } else if (periodFilter === "upcoming") {
+    upcoming = upcomingAll;
+    past = [];
+  } else if (periodFilter === "past") {
+    upcoming = [];
+    past = pastAll;
+  }
+
   const featured = upcoming[0];
   const rest = upcoming.slice(1);
-  const hasEvents = (events ?? []).length > 0;
+  const hasFilteredResults = upcoming.length > 0 || past.length > 0;
 
   function resetForm() {
     setTitle("");
@@ -73,33 +96,25 @@ export function Events() {
 
   return (
     <div className="w-full page-enter">
-      {canManage && (
-        <header className="evt-header">
-          <div className="min-w-0 flex-1" aria-hidden />
-          <button type="button" className="evt-add" onClick={() => setOpen(true)}>
-            <Icon name="add" size={22} />
+      <div className="evt-toolbar">
+        <EventsSubNav active="list" />
+        {canManage && (
+          <button type="button" className="evt-add evt-add--toolbar" onClick={() => setOpen(true)}>
+            <Icon name="add" size={20} />
             <span className="evt-add-label">אירוע חדש</span>
           </button>
-        </header>
-      )}
+        )}
+      </div>
 
       {hasEvents && (
-        <div className="evt-stats">
-          <span className="evt-stat">
-            <strong>{upcoming.length}</strong> קרובים
-          </span>
-          {featured && (
-            <span className="evt-stat evt-stat--live">
-              <span className="evt-live-dot" aria-hidden />
-              הבא {daysUntilLabel(daysUntilEvent(featured.event_date))}
-            </span>
-          )}
-          {past.length > 0 && (
-            <span className="evt-stat">
-              <strong>{past.length}</strong> עברו
-            </span>
-          )}
-        </div>
+        <EventsFilter
+          period={periodFilter}
+          onPeriodChange={setPeriodFilter}
+          dateFilter={dateFilter}
+          onDateFilterChange={setDateFilter}
+          upcomingCount={upcomingAll.length}
+          pastCount={pastAll.length}
+        />
       )}
 
       {!hasEvents ? (
@@ -123,34 +138,65 @@ export function Events() {
             </Button>
           )}
         </div>
+      ) : !hasFilteredResults ? (
+        <div className="evt-filter-empty">
+          <Icon name="event_busy" size={28} />
+          <p className="evt-filter-empty-title">אין אירועים בסינון זה</p>
+          <p className="evt-filter-empty-sub">נסו תאריך אחר או שנו את תקופת הסינון.</p>
+          <Button
+            variant="secondary"
+            icon="filter_alt_off"
+            onClick={() => {
+              setPeriodFilter("all");
+              setDateFilter(null);
+            }}
+          >
+            ניקוי סינון
+          </Button>
+        </div>
       ) : (
         <div className="flex flex-col gap-6">
-          {featured ? (
-            <FeaturedEvent event={featured} />
-          ) : (
+          {upcoming.length > 0 && periodFilter !== "past" && (
+            <>
+              {featured && (isDefaultView || periodFilter === "upcoming" || dateFilter) && (
+                <FeaturedEvent event={featured} />
+              )}
+              {(isDefaultView ? rest : featured ? upcoming.slice(1) : upcoming).length > 0 && (
+                <section>
+                  <h2 className="page-section-label">
+                    {isDefaultView ? (
+                      <>בהמשך <span>({rest.length})</span></>
+                    ) : dateFilter ? (
+                      <>אירועים בתאריך <span>({upcoming.length})</span></>
+                    ) : (
+                      <>אירועים עתידיים <span>({upcoming.length})</span></>
+                    )}
+                  </h2>
+                  <div className="evt-rows">
+                    {(isDefaultView ? rest : featured ? upcoming.slice(1) : upcoming).map((e, i) => (
+                      <EventRow key={e.id} event={e} index={i} />
+                    ))}
+                  </div>
+                </section>
+              )}
+            </>
+          )}
+
+          {upcoming.length === 0 && periodFilter !== "past" && isDefaultView && (
             <div className="evt-none">
               <Icon name="event_upcoming" size={22} />
               <span>אין אירועים קרובים כרגע</span>
             </div>
           )}
 
-          {rest.length > 0 && (
+          {past.length > 0 && periodFilter !== "upcoming" && (
             <section>
               <h2 className="page-section-label">
-                בהמשך <span>({rest.length})</span>
-              </h2>
-              <div className="evt-rows">
-                {rest.map((e, i) => (
-                  <EventRow key={e.id} event={e} index={i} />
-                ))}
-              </div>
-            </section>
-          )}
-
-          {past.length > 0 && (
-            <section>
-              <h2 className="page-section-label">
-                היו כבר <span>({past.length})</span>
+                {periodFilter === "past" || dateFilter ? (
+                  <>אירועים שעברו <span>({past.length})</span></>
+                ) : (
+                  <>היו כבר <span>({past.length})</span></>
+                )}
               </h2>
               <div className="evt-past-strip">
                 {past.map((e) => (

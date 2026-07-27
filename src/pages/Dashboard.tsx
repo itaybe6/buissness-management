@@ -18,6 +18,7 @@ import { ManagerDashboard } from "@/components/dashboard/ManagerDashboard";
 import { WorkerHome } from "@/components/dashboard/WorkerHome";
 import { Icon, PageLoader, ErrorState } from "@/components/ui";
 import { TodayEventsBanner } from "@/components/events/TodayEventsBanner";
+import { TodayBirthdaysBanner } from "@/components/dashboard/TodayBirthdaysBanner";
 import { PageEnter, PressableCard, StaggerGrid, StaggerItem } from "@/components/motion/shared-motion";
 import { EASE_OUT } from "@/components/motion/shared-motion";
 import { NAV_ITEMS, ROLE_LABELS } from "@/lib/constants";
@@ -344,6 +345,7 @@ function BusinessDashboard() {
         </div>
       </header>
 
+      <TodayBirthdaysBanner />
       <TodayEventsBanner />
 
       {/* KPI Grid */}

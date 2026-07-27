@@ -36,6 +36,10 @@ export function measureBest<T>(fn: () => T, runs = 3): Measurement<T> {
  * זורק שגיאה רגילה כדי שהבדיקה תיכשל בלי לייבא expect לכאן.
  */
 export function assertWithinBudget(label: string, ms: number, budgetMs: number): void {
+  if (process.env.PERF_LOG) {
+    const pct = Math.round((ms / budgetMs) * 100);
+    console.log(`[perf] ${label}: ${ms.toFixed(1)}ms (תקציב ${budgetMs}ms · ${pct}%)`);
+  }
   if (ms > budgetMs) {
     throw new Error(
       `חריגה מתקציב זמן ב-«${label}»: ${ms.toFixed(1)}ms > ${budgetMs}ms. ` +

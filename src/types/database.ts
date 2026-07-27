@@ -568,6 +568,16 @@ export interface EventRecord {
   created_at: string;
 }
 
+export interface EventIdea {
+  id: string;
+  business_id: string;
+  created_by: string;
+  title: string;
+  body: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface TaskTemplate {
   id: string;
   business_id: string;

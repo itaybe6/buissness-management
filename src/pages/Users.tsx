@@ -410,6 +410,7 @@ function EditUserModal({
   const [role, setRole] = useState<UserRole>(user.role);
   const [departmentId, setDepartmentId] = useState(user.department_id ?? "");
   const [phone, setPhone] = useState(user.phone ?? "");
+  const [birthDate, setBirthDate] = useState(user.birth_date ?? "");
   const [wageType, setWageType] = useState<WageType>(user.wage_type ?? "hourly");
   const [hourly, setHourly] = useState(String(user.hourly_rate ?? 0));
   const [bonusPct, setBonusPct] = useState(String(user.bonus_pct ?? 0));
@@ -437,6 +438,7 @@ function EditUserModal({
                   role,
                   department_id: role === "employee" ? departmentId || null : null,
                   phone: phone.trim() || null,
+                  birth_date: birthDate || null,
                   hourly_rate: Number(hourly) || 0,
                   wage_type: wageType,
                   bonus_pct: BONUS_ELIGIBLE_ROLES.includes(role) ? Number(bonusPct) || 0 : 0,
@@ -479,6 +481,9 @@ function EditUserModal({
         )}
         <label className="block"><span className="label-text">טלפון</span>
           <Input className="mt-1.5" value={phone} onChange={(e) => setPhone(e.target.value)} style={{ direction: "ltr", textAlign: "right" }} placeholder="050-0000000" />
+        </label>
+        <label className="block"><span className="label-text">תאריך לידה</span>
+          <Input className="mt-1.5" type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} />
         </label>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="block"><span className="label-text">סוג שכר</span>

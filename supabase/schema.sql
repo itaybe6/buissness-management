@@ -16,7 +16,7 @@ drop trigger if exists on_auth_user_created on auth.users;
 
 -- מחיקת טבלאות (אם קיימות) בסדר תלות
 drop table if exists
-  public.tasks, public.task_templates, public.events, public.faults, public.inventory_logs,
+  public.tasks, public.task_templates, public.events, public.event_ideas, public.faults, public.inventory_logs,
   public.inventory_waste, public.inventory_orders, public.inventory_counts, public.inventory_item_departments,
   public.inventory_items, public.inventory_categories, public.suppliers, public.supplier_items,
   public.payroll_records, public.payroll_month_adjustments,
@@ -243,6 +243,7 @@ create table public.profiles (
   wage_type   text not null default 'hourly' check (wage_type in ('hourly', 'tips')), -- שעתי / טיפים
   bonus_pct   numeric(5,2) not null default 0,
   pension_active boolean not null default false, -- פנסיה פעילה / לא פעילה
+  birth_date       date,                          -- תאריך לידה (אופציונלי)
   active      boolean not null default true,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
@@ -737,6 +738,16 @@ create table public.events (
   created_at  timestamptz not null default now()
 );
 
+create table public.event_ideas (
+  id          uuid primary key default gen_random_uuid(),
+  business_id uuid not null references public.businesses(id) on delete cascade,
+  created_by  uuid not null references public.profiles(id) on delete cascade,
+  title       text not null,
+  body        text,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
 
 -- ----------------------------------------------------------------------------
 -- 13. מודול: משימות (משימות קבועות + שיוך חד-פעמי)
@@ -793,6 +804,7 @@ create trigger trg_form101_updated       before update on public.form_101       
 create trigger trg_shift_reports_updated before update on public.shift_reports        for each row execute function public.set_updated_at();
 create trigger trg_faults_updated        before update on public.faults              for each row execute function public.set_updated_at();
 create trigger trg_tasks_updated         before update on public.tasks               for each row execute function public.set_updated_at();
+create trigger trg_event_ideas_updated     before update on public.event_ideas          for each row execute function public.set_updated_at();
 
 -- משמרות ברירת מחדל לכל עסק חדש (בוקר / צהריים / ערב / לילה)
 create or replace function public.seed_default_shift_templates(p_business_id uuid)
@@ -879,6 +891,7 @@ create index idx_inv_logs_business          on public.inventory_logs(business_id
 create index idx_inv_logs_item              on public.inventory_logs(item_id, created_at desc);
 create index idx_faults_business            on public.faults(business_id);
 create index idx_events_business            on public.events(business_id);
+create index idx_event_ideas_business       on public.event_ideas(business_id, created_at desc);
 create index idx_task_templates_business    on public.task_templates(business_id);
 create index idx_task_templates_department  on public.task_templates(department_id);
 create index idx_tasks_business             on public.tasks(business_id);
@@ -920,6 +933,7 @@ alter table public.inventory_waste      enable row level security;
 alter table public.inventory_logs       enable row level security;
 alter table public.faults               enable row level security;
 alter table public.events               enable row level security;
+alter table public.event_ideas          enable row level security;
 alter table public.task_templates       enable row level security;
 alter table public.tasks                enable row level security;
 
@@ -1165,6 +1179,30 @@ create policy "events_delete" on public.events
   for delete using (
     public.can_access(business_id)
     and public.auth_role() in ('manager', 'event_manager')
+  );
+-- event_ideas — קריאה לכולם; כתיבה לכל עובד; עריכה/מחיקה ליוצר או מנהל/מנהלת אירועים
+create policy "event_ideas_read" on public.event_ideas
+  for select using (public.can_access(business_id));
+create policy "event_ideas_insert" on public.event_ideas
+  for insert with check (
+    public.can_access(business_id)
+    and created_by = auth.uid()
+  );
+create policy "event_ideas_update" on public.event_ideas
+  for update using (
+    public.can_access(business_id)
+    and (
+      created_by = auth.uid()
+      or public.auth_role() in ('manager', 'event_manager')
+    )
+  ) with check (public.can_access(business_id));
+create policy "event_ideas_delete" on public.event_ideas
+  for delete using (
+    public.can_access(business_id)
+    and (
+      created_by = auth.uid()
+      or public.auth_role() in ('manager', 'event_manager')
+    )
   );
 -- task_templates — קריאה לכולם, כתיבה למנהל בלבד
 create policy "task_templates_read" on public.task_templates

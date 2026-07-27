@@ -22,9 +22,12 @@ import {
   useEventTasks,
   notifyTaskAssigned,
 } from "@/api/tasks";
+import { useDepartments } from "@/api/departments";
 import { useProfiles } from "@/api/users";
 import { EVENT_TASK_CREATE_ROLES } from "@/lib/constants";
-import type { EventRecord, Task, UserRole } from "@/types/database";
+import type { Department, EventRecord, Task, UserRole } from "@/types/database";
+
+type AssignMode = "employee" | "department";
 
 function AssigneePicker({
   users,
@@ -43,10 +46,31 @@ function AssigneePicker({
       searchable
       searchPlaceholder="חיפוש עובד..."
     >
-      <option value="">לא משויך</option>
+      <option value="">בחר עובד</option>
       {users.map((u) => (
         <option key={u.id} value={u.id}>
           {u.full_name || "ללא שם"}
+        </option>
+      ))}
+    </Select>
+  );
+}
+
+function DepartmentPicker({
+  departments,
+  value,
+  onChange,
+}: {
+  departments: Department[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <Select aria-label="מחלקה" value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">בחר מחלקה</option>
+      {departments.map((d) => (
+        <option key={d.id} value={d.id}>
+          {d.name}
         </option>
       ))}
     </Select>
@@ -124,6 +148,7 @@ export function EventTasksPanel({
 }) {
   const canCreate = EVENT_TASK_CREATE_ROLES.includes(role);
   const { data: users = [] } = useProfiles(businessId);
+  const { data: departments = [] } = useDepartments(businessId);
   const { data: eventTasks = [], isLoading: tasksLoading } = useEventTasks(businessId, event.id);
   const createTask = useCreateTask();
   const deleteTask = useDeleteTask(businessId);
@@ -135,7 +160,9 @@ export function EventTasksPanel({
   } = useAssignedEventTaskActions(businessId, event.id, profileId);
 
   const [addOpen, setAddOpen] = useState(false);
+  const [assignMode, setAssignMode] = useState<AssignMode>("employee");
   const [assignedTo, setAssignedTo] = useState("");
+  const [departmentId, setDepartmentId] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [dueDate, setDueDate] = useState(event.event_date.slice(0, 10));
@@ -147,18 +174,35 @@ export function EventTasksPanel({
     [users],
   );
 
+  const deptEmployees = useMemo(
+    () =>
+      departmentId
+        ? users.filter((u) => u.active && u.department_id === departmentId)
+        : [],
+    [users, departmentId],
+  );
+
   const openCount = eventTasks.filter((t) => t.status !== "done").length;
   const doneCount = eventTasks.length - openCount;
   const showMyTasks = myEventTasks.length > 0;
-  const previewAssignee = assignedTo
-    ? users.find((u) => u.id === assignedTo)?.full_name || "העובד"
-    : "ללא שיוך";
+
+  const previewTarget =
+    assignMode === "department"
+      ? departmentId
+        ? `${deptEmployees.length} עובדים · ${departments.find((d) => d.id === departmentId)?.name ?? "מחלקה"}`
+        : "בחר מחלקה"
+      : assignedTo
+        ? users.find((u) => u.id === assignedTo)?.full_name || "העובד"
+        : "בחר עובד";
+
   const previewDue = dueDate
     ? new Date(dueDate + "T12:00:00").toLocaleDateString("he-IL")
     : "ללא תאריך יעד";
 
   function resetAddForm() {
+    setAssignMode("employee");
     setAssignedTo("");
+    setDepartmentId("");
     setTitle("");
     setDescription("");
     setDueDate(event.event_date.slice(0, 10));
@@ -176,23 +220,39 @@ export function EventTasksPanel({
       setAddError("נא להזין שם משימה");
       return;
     }
-    if (!assignedTo) {
-      setAddError("נא לשייך עובד למשימה");
+
+    const targets =
+      assignMode === "department"
+        ? deptEmployees
+        : assignedTo
+          ? users.filter((u) => u.id === assignedTo)
+          : [];
+
+    if (targets.length === 0) {
+      setAddError(
+        assignMode === "department"
+          ? "אין עובדים פעילים במחלקה שנבחרה"
+          : "נא לשייך עובד למשימה",
+      );
       return;
     }
+
     setSaving(true);
     try {
-      const taskId = await createTask.mutateAsync({
-        business_id: businessId,
-        event_id: event.id,
-        title: title.trim(),
-        description: description.trim() || null,
-        type: "one_time",
-        assigned_to: assignedTo,
-        assigned_by: profileId,
-        due_date: dueDate || event.event_date.slice(0, 10),
-      });
-      notifyTaskAssigned(taskId);
+      const due = dueDate || event.event_date.slice(0, 10);
+      for (const emp of targets) {
+        const taskId = await createTask.mutateAsync({
+          business_id: businessId,
+          event_id: event.id,
+          title: title.trim(),
+          description: description.trim() || null,
+          type: "one_time",
+          assigned_to: emp.id,
+          assigned_by: profileId,
+          due_date: due,
+        });
+        notifyTaskAssigned(taskId);
+      }
       closeAddModal();
     } catch {
       setAddError("שמירת המשימה נכשלה. נסו שוב.");
@@ -228,7 +288,7 @@ export function EventTasksPanel({
             <EmptyState
               icon="checklist"
               title="אין משימות לאירוע זה"
-              description="הוסיפו משימות ושייכו עובדים — הם יופיעו ברשימת המשימות שלהם ויוכלו לעדכן סטטוס ולהעלות תיעוד."
+              description="הוסיפו משימות ושייכו עובדים או מחלקה — הם יופיעו ברשימת המשימות ויוכלו לעדכן סטטוס ולהעלות תיעוד."
               action={
                 <Button icon="add" onClick={() => setAddOpen(true)}>
                   הוספת משימה ראשונה
@@ -272,7 +332,7 @@ export function EventTasksPanel({
         open={addOpen}
         onClose={closeAddModal}
         title="הוספת משימה לאירוע"
-        subtitle={`${event.title} · משויכת לעובד ומופיעה ברשימת המשימות שלו`}
+        subtitle={`${event.title} · שיוך לעובד או למחלקה`}
         icon="checklist"
         maxWidth={560}
         footer={
@@ -281,7 +341,9 @@ export function EventTasksPanel({
               ביטול
             </Button>
             <Button className="flex-1" icon="add" loading={saving} onClick={handleAdd}>
-              הוספת משימה
+              {assignMode === "department" && deptEmployees.length > 1
+                ? `הוספה ל-${deptEmployees.length} עובדים`
+                : "הוספת משימה"}
             </Button>
           </>
         }
@@ -296,8 +358,45 @@ export function EventTasksPanel({
             />
           </Field>
 
-          <Field label="שיוך לעובד">
-            <AssigneePicker users={users} value={assignedTo} onChange={setAssignedTo} />
+          <Field label="שיוך">
+            <div className="mb-2.5 flex gap-1 rounded-[12px] border border-border bg-surface-2 p-1">
+              {(
+                [
+                  ["employee", "עובד", "person"],
+                  ["department", "מחלקה", "groups"],
+                ] as const
+              ).map(([mode, label, icon]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  data-active={assignMode === mode}
+                  className="evtd-assign-seg press flex flex-1 items-center justify-center gap-1.5 rounded-[9px] py-2 text-[13px] font-bold"
+                  onClick={() => {
+                    setAssignMode(mode);
+                    setAddError(null);
+                  }}
+                >
+                  <Icon name={icon} size={16} />
+                  {label}
+                </button>
+              ))}
+            </div>
+            {assignMode === "employee" ? (
+              <AssigneePicker users={users} value={assignedTo} onChange={setAssignedTo} />
+            ) : (
+              <DepartmentPicker
+                departments={departments}
+                value={departmentId}
+                onChange={setDepartmentId}
+              />
+            )}
+            {assignMode === "department" && departmentId && (
+              <p className="mt-2 text-[12px] font-semibold text-text-2">
+                {deptEmployees.length > 0
+                  ? `תיווצר משימה נפרדת לכל אחד מ-${deptEmployees.length} העובדים במחלקה`
+                  : "אין עובדים פעילים במחלקה זו"}
+              </p>
+            )}
           </Field>
 
           <Field label="תאריך יעד">
@@ -317,7 +416,7 @@ export function EventTasksPanel({
           <div className="ftp-preview">
             <Icon name="auto_awesome" size={18} />
             <span>
-              המשימה תופיע אצל <b>{previewAssignee}</b> · <b>{previewDue}</b>
+              המשימה תופיע אצל <b>{previewTarget}</b> · <b>{previewDue}</b>
             </span>
           </div>
 

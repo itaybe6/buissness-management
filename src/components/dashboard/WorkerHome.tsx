@@ -13,6 +13,7 @@ import { useAttendanceToday } from "@/api/attendance";
 import { useBusiness } from "@/api/businesses";
 import { ManagerAttendanceFeed } from "@/components/dashboard/ManagerAttendanceFeed";
 import { TodayEventsBanner } from "@/components/events/TodayEventsBanner";
+import { TodayBirthdaysBanner } from "@/components/dashboard/TodayBirthdaysBanner";
 
 type WorkerPanel = "tasks" | "team";
 
@@ -221,6 +222,7 @@ export function WorkerHome({
         <WorkerClockStation time={timeStr} />
       </section>
 
+      <TodayBirthdaysBanner />
       <TodayEventsBanner />
 
       {(showTasks || showAttendance) && (
