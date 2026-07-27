@@ -8,8 +8,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   VIRTUAL_TASK_PREFIX,
+  buildEmployeeEventTasks,
   buildTodayTasks,
+  isDepartmentTask,
   isTaskVisibleInDailyChecklist,
+  taskBelongsToEmployee,
   taskExpansionKey,
   templateVisibleForDailyChecklist,
   virtualRecurringTask,
@@ -168,6 +171,100 @@ describe("בניית הצ׳ק־ליסט של היום", () => {
 
   it("רשימות ריקות מחזירות רשימה ריקה", () => {
     expect(args()).toEqual([]);
+  });
+});
+
+describe("משימה מחלקתית — שורה אחת לכל המחלקה", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(`${TODAY}T09:00:00`));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const deptTask = (over: Partial<ReturnType<typeof makeTask>> = {}) =>
+    makeTask({
+      title: "סידור שולחנות",
+      event_id: "event-1",
+      assigned_to: null,
+      department_id: DEPT.bar,
+      due_date: TODAY,
+      ...over,
+    });
+
+  const checklist = (tasks: ReturnType<typeof makeTask>[], deptId: string | null) =>
+    buildTodayTasks(BUSINESS_ID, tasks, [], USER.employee, deptId, TODAY, WEDNESDAY, "employee");
+
+  it("מוצגת לכל עובד במחלקה בלי שיוך אישי", () => {
+    expect(isDepartmentTask(deptTask())).toBe(true);
+    expect(taskBelongsToEmployee(deptTask(), USER.employee, DEPT.bar)).toBe(true);
+    expect(taskBelongsToEmployee(deptTask(), USER.employee2, DEPT.bar)).toBe(true);
+  });
+
+  it("לא מוצגת לעובדי מחלקה אחרת או לעובד בלי מחלקה", () => {
+    expect(taskBelongsToEmployee(deptTask(), USER.employee, DEPT.kitchen)).toBe(false);
+    expect(taskBelongsToEmployee(deptTask(), USER.employee, null)).toBe(false);
+  });
+
+  it("משימה עם שיוך אישי נשארת אישית גם אם יש לה מחלקה", () => {
+    const personal = deptTask({ assigned_to: USER.employee2 });
+    expect(isDepartmentTask(personal)).toBe(false);
+    expect(taskBelongsToEmployee(personal, USER.employee, DEPT.bar)).toBe(false);
+  });
+
+  it("מופיעה בצ׳ק־ליסט היומי של עובדי המחלקה בלבד", () => {
+    expect(checklist([deptTask()], DEPT.bar).map((t) => t.title)).toEqual(["סידור שולחנות"]);
+    expect(checklist([deptTask()], DEPT.kitchen)).toEqual([]);
+  });
+
+  it("סימון ביצוע סוגר אותה לכל המחלקה", () => {
+    const done = deptTask({ status: "done", completed_at: `${TODAY}T10:00:00` });
+    expect(checklist([done], DEPT.bar)[0].status).toBe("done");
+    expect(
+      pendingTasksForEmployee([done], [], USER.employee2, DEPT.bar, WEDNESDAY, "employee"),
+    ).toEqual([]);
+  });
+
+  it("כל עוד היא פתוחה — חוסמת יציאה ממשמרת לעובדי המחלקה", () => {
+    expect(
+      pendingTasksForEmployee([deptTask()], [], USER.employee, DEPT.bar, WEDNESDAY, "employee"),
+    ).toEqual([{ title: "סידור שולחנות", type: "one_time" }]);
+    expect(
+      pendingTasksForEmployee([deptTask()], [], USER.employee, DEPT.kitchen, WEDNESDAY, "employee"),
+    ).toEqual([]);
+  });
+});
+
+describe("משימות אירוע לעובד", () => {
+  const eventTask = (over: Partial<ReturnType<typeof makeTask>> = {}) =>
+    makeTask({
+      title: "סידור במה",
+      event_id: "event-1",
+      assigned_to: null,
+      department_id: DEPT.bar,
+      due_date: "2026-08-02",
+      status: "open",
+      ...over,
+    });
+
+  it("מציג משימות אירוע פתוחות של המחלקה גם אם תאריך היעד עתידי", () => {
+    const out = buildEmployeeEventTasks([eventTask()], USER.employee, DEPT.bar);
+    expect(out.map((t) => t.title)).toEqual(["סידור במה"]);
+  });
+
+  it("לא מציג משימות אירוע שהושלמו", () => {
+    expect(
+      buildEmployeeEventTasks(
+        [eventTask({ status: "done", completed_at: "2026-07-08T10:00:00" })],
+        USER.employee,
+        DEPT.bar,
+      ),
+    ).toEqual([]);
+  });
+
+  it("לא מציג משימות אירוע של מחלקה אחרת", () => {
+    expect(buildEmployeeEventTasks([eventTask()], USER.employee, DEPT.kitchen)).toEqual([]);
   });
 });
 

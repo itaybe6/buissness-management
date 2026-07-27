@@ -16,6 +16,7 @@ import { TodayEventsBanner } from "@/components/events/TodayEventsBanner";
 import { TodayBirthdaysBanner } from "@/components/dashboard/TodayBirthdaysBanner";
 
 type WorkerPanel = "tasks" | "team";
+type TaskScope = "all" | "events";
 
 type TimeOfDay = "morning" | "afternoon" | "evening" | "night";
 
@@ -140,12 +141,13 @@ export function WorkerHome({
   const { profile, hasFeature } = useAuth();
   const now = useLiveClock();
 
-  const { todayTasks, setStatus, setMedia, isLoading: tasksLoading } = useDailyTaskActions(
-    businessId ?? "",
-    profile?.id ?? "",
-    profile?.department_id ?? null,
-    profile?.role,
-  );
+  const { todayTasks, employeeEventTasks, hasEventTasks, setStatus, setMedia, isLoading: tasksLoading } =
+    useDailyTaskActions(
+      businessId ?? "",
+      profile?.id ?? "",
+      profile?.department_id ?? null,
+      profile?.role,
+    );
 
   const timeStr = now.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const clockStr = now.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
@@ -153,10 +155,15 @@ export function WorkerHome({
   const firstName = (profile?.full_name ?? "").split(/\s+/)[0];
   const role = profile?.role ?? "employee";
   const showTasks = hasFeature("tasks");
+  const showEvents = hasFeature("events");
   const showAttendance = hasFeature("attendance");
   const slot = timeOfDay(now.getHours());
   const isMdUp = useIsMdUp();
   const [activePanel, setActivePanel] = useState<WorkerPanel>("tasks");
+  const [taskScope, setTaskScope] = useState<TaskScope>("all");
+
+  const showEventTaskFilter = showTasks && showEvents && hasEventTasks;
+  const visibleTasks = taskScope === "events" ? employeeEventTasks : todayTasks;
 
   const showBothPanels = showTasks && showAttendance && !!businessId;
   const splitLayout = showBothPanels && isMdUp;
@@ -282,12 +289,51 @@ export function WorkerHome({
                 hidden={tabLayout && activePanel !== "tasks"}
               >
                 <div className="worker-home__panel-scroll">
+                  {showEventTaskFilter && (
+                    <div className="worker-home__task-scope" role="tablist" aria-label="סינון משימות">
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={taskScope === "all"}
+                        data-active={taskScope === "all"}
+                        className="worker-home__task-scope-btn seg-btn"
+                        onClick={() => setTaskScope("all")}
+                      >
+                        <Icon name="today" size={16} className="flex-none" />
+                        <span>היום</span>
+                      </button>
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={taskScope === "events"}
+                        data-active={taskScope === "events"}
+                        className="worker-home__task-scope-btn seg-btn"
+                        onClick={() => setTaskScope("events")}
+                      >
+                        <Icon name="celebration" size={16} className="flex-none" />
+                        <span>משימות אירוע</span>
+                        {employeeEventTasks.length > 0 && (
+                          <span className="worker-home__tab-badge" data-tone="accent">
+                            {employeeEventTasks.length}
+                          </span>
+                        )}
+                      </button>
+                    </div>
+                  )}
                   <DailyTasksChecklist
-                    tasks={todayTasks}
+                    tasks={visibleTasks}
                     businessId={businessId}
                     onStatus={setStatus}
                     onMedia={setMedia}
                     variant={variant === "shift_manager" ? "dashboard" : "employee"}
+                    emptyTitle={
+                      taskScope === "events" ? "אין משימות אירוע פתוחות" : "אין משימות להיום"
+                    }
+                    emptyDescription={
+                      taskScope === "events"
+                        ? "כשישייכו אליך או למחלקה שלך משימות לאירוע — הן יופיעו כאן."
+                        : "לא שויכו אליך משימות קבועות או חד־פעמיות ליום זה."
+                    }
                   />
                 </div>
               </div>

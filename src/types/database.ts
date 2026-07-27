@@ -240,6 +240,8 @@ export interface Supplier {
   phone: string | null;
   tax_id: string | null;
   notes: string | null;
+  /** 0=Sunday … 6=Saturday (JS getDay). null = not set */
+  delivery_day: number | null;
   active: boolean;
   created_at: string;
   updated_at: string;
@@ -447,6 +449,16 @@ export interface InventoryCategory {
   created_at: string;
 }
 
+export interface InventoryUnit {
+  id: string;
+  business_id: string;
+  name: string;
+  sort_order: number;
+  is_base: boolean;
+  active: boolean;
+  created_at: string;
+}
+
 export interface Warehouse {
   id: string;
   business_id: string;
@@ -477,8 +489,6 @@ export interface InventoryItem {
   units_per_package: number | null;
   image_url: string | null;
   min_quantity: number;
-  /** 0=Sunday … 6=Saturday (JS getDay). null = not set */
-  supplier_delivery_day: number | null;
   /** FK to inventory_categories; null = uncategorized */
   category_id: string | null;
   active: boolean;
@@ -596,6 +606,8 @@ export interface Task {
   business_id: string;
   template_id: string | null;
   event_id: string | null;
+  /** שיוך למחלקה — עם assigned_to null זו משימה אחת משותפת לכל המחלקה */
+  department_id: string | null;
   title: string;
   description: string | null;
   type: TaskType;

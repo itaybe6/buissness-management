@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
-import { Button, EmptyState, ErrorState, Icon, Input, PageLoader, Textarea } from "@/components/ui";
-import { useBusinessId, formatCurrency } from "@/lib/db";
+import { Button, EmptyState, ErrorState, Icon, Input, PageLoader, Select, Textarea } from "@/components/ui";
+import { useBusinessId, formatCurrency, HE_DAYS } from "@/lib/db";
 import { useAuth } from "@/lib/auth";
 import {
   useCreateSupplier,
@@ -23,6 +23,7 @@ type SupplierForm = {
   phone: string;
   taxId: string;
   notes: string;
+  deliveryDay: string;
   active: boolean;
 };
 
@@ -31,6 +32,7 @@ const EMPTY_FORM: SupplierForm = {
   phone: "",
   taxId: "",
   notes: "",
+  deliveryDay: "",
   active: true,
 };
 
@@ -42,6 +44,7 @@ function formFromSupplier(s: Supplier): SupplierForm {
     phone: s.phone ?? "",
     taxId: s.tax_id ?? "",
     notes: s.notes ?? "",
+    deliveryDay: s.delivery_day != null ? String(s.delivery_day) : "",
     active: s.active,
   };
 }
@@ -409,6 +412,7 @@ export function SupplierFormPage() {
       return setFormError("לכל מוצר משויך יש להזין לפחות מחיר אחד תקין");
     }
     const itemLines = parseProductLines();
+    const delivery_day = form.deliveryDay === "" ? null : Number(form.deliveryDay);
     try {
       let id = editing?.id;
       if (editing) {
@@ -418,6 +422,7 @@ export function SupplierFormPage() {
           phone: form.phone,
           tax_id: form.taxId,
           notes: form.notes,
+          delivery_day,
           active: form.active,
         });
       } else {
@@ -427,6 +432,7 @@ export function SupplierFormPage() {
           phone: form.phone,
           tax_id: form.taxId,
           notes: form.notes,
+          delivery_day,
         });
         id = created.id;
       }
@@ -575,13 +581,28 @@ export function SupplierFormPage() {
                   </SpfField>
                 </div>
 
+                <SpfField icon="local_shipping" label="יום אספקה" hint="ביום זה הסחורה אמורה להגיע מהספק">
+                  <Select
+                    className="spf-input spf-select"
+                    value={form.deliveryDay}
+                    onChange={(e) => setForm({ ...form, deliveryDay: e.target.value })}
+                  >
+                    <option value="">לא הוגדר</option>
+                    {HE_DAYS.map((d, i) => (
+                      <option key={i} value={String(i)}>
+                        יום {d}
+                      </option>
+                    ))}
+                  </Select>
+                </SpfField>
+
                 <SpfField icon="sticky_note_2" label="הערות">
                   <Textarea
                     className="spf-input spf-textarea"
                     rows={3}
                     value={form.notes}
                     onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                    placeholder="ימי אספקה, איש קשר, תנאי תשלום..."
+                    placeholder="איש קשר, תנאי תשלום..."
                   />
                 </SpfField>
 

@@ -19,9 +19,6 @@ export function inventorySaveError(e: unknown): string {
   if (msg.includes("batch_id")) {
     return "עמודת «קיבוץ הזמנות» חסרה במסד הנתונים. ב-Supabase: SQL Editor → הריצו את supabase/patches/021_inventory_order_batch.sql";
   }
-  if (msg.includes("supplier_delivery_day")) {
-    return "עמודת «יום אספקה מהספק» חסרה במסד הנתונים. ב-Supabase: SQL Editor → הריצו את supabase/patches/020_inventory_supplier_delivery_day.sql";
-  }
   if (msg.includes("min_quantity")) {
     return "עמודת «כמות מינימום» חסרה במסד הנתונים. ב-Supabase: SQL Editor → הריצו את supabase/patches/011_inventory_min_quantity.sql";
   }
@@ -491,7 +488,6 @@ export function useCreateItem(businessId: string | null) {
       units_per_package?: number | null;
       image_url?: string | null;
       min_quantity?: number;
-      supplier_delivery_day?: number | null;
       category_id?: string | null;
       department_ids?: string[];
       quantity?: number;
@@ -705,17 +701,19 @@ export function useCreateOrdersBatch(businessId: string | null) {
     mutationFn: async (input: {
       business_id: string;
       ordered_by: string | null;
-      supplier_id?: string | null;
+      /** Orders always belong to a supplier — there is no supplier-less order. */
+      supplier_id: string;
       lines: { item_id: string; quantity: number }[];
     }) => {
       if (!input.lines.length) throw new Error("נא לבחור לפחות מוצר אחד");
+      if (!input.supplier_id) throw new Error("כל הזמנה חייבת להיות משויכת לספק");
       const batch_id = crypto.randomUUID();
       const rows = input.lines.map((l) => ({
         business_id: input.business_id,
         item_id: l.item_id,
         quantity: l.quantity,
         ordered_by: input.ordered_by,
-        supplier_id: input.supplier_id ?? null,
+        supplier_id: input.supplier_id,
         batch_id,
         status: "requested" as const,
       }));
@@ -734,6 +732,8 @@ export function useCreateOrdersBatch(businessId: string | null) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["inventory_orders", businessId] });
       qc.invalidateQueries({ queryKey: ["inventory", businessId] });
+      qc.invalidateQueries({ queryKey: ["supplier_orders", businessId] });
+      qc.invalidateQueries({ queryKey: ["suppliers", businessId] });
     },
   });
 }
@@ -745,11 +745,13 @@ export function useUpdateOrdersBatch(businessId: string | null) {
       batch_id: string;
       business_id: string;
       ordered_by: string | null;
-      supplier_id?: string | null;
+      /** Orders always belong to a supplier — there is no supplier-less order. */
+      supplier_id: string;
       line_ids: string[];
       lines: { item_id: string; quantity: number }[];
     }) => {
       if (!input.lines.length) throw new Error("נא לבחור לפחות מוצר אחד עם כמות");
+      if (!input.supplier_id) throw new Error("כל הזמנה חייבת להיות משויכת לספק");
       const { error: delError } = await supabase.from("inventory_orders").delete().in("id", input.line_ids);
       throwDbError(delError);
 
@@ -758,7 +760,7 @@ export function useUpdateOrdersBatch(businessId: string | null) {
         item_id: l.item_id,
         quantity: l.quantity,
         ordered_by: input.ordered_by,
-        supplier_id: input.supplier_id ?? null,
+        supplier_id: input.supplier_id,
         batch_id: input.batch_id,
         status: "requested" as const,
       }));
@@ -779,6 +781,8 @@ export function useUpdateOrdersBatch(businessId: string | null) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["inventory_orders", businessId] });
       qc.invalidateQueries({ queryKey: ["inventory", businessId] });
+      qc.invalidateQueries({ queryKey: ["supplier_orders", businessId] });
+      qc.invalidateQueries({ queryKey: ["suppliers", businessId] });
     },
   });
 }
@@ -808,25 +812,9 @@ export function useDeleteOrdersBatch(businessId: string | null) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["inventory_orders", businessId] });
       qc.invalidateQueries({ queryKey: ["inventory", businessId] });
+      qc.invalidateQueries({ queryKey: ["supplier_orders", businessId] });
+      qc.invalidateQueries({ queryKey: ["suppliers", businessId] });
     },
-  });
-}
-
-export function useCreateOrder(businessId: string | null) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (input: { business_id: string; item_id: string; quantity: number; ordered_by?: string | null }) => {
-      const { error } = await supabase.from("inventory_orders").insert(input);
-      throwDbError(error);
-      await logInventory({
-        business_id: input.business_id,
-        item_id: input.item_id,
-        employee_id: input.ordered_by ?? null,
-        action: "order",
-        new_qty: input.quantity,
-      });
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["inventory_orders", businessId] }),
   });
 }
 
@@ -935,6 +923,8 @@ export function useReceiveOrder(businessId: string | null) {
       qc.invalidateQueries({ queryKey: ["inventory_orders", businessId] });
       qc.invalidateQueries({ queryKey: ["inventory", businessId] });
       qc.invalidateQueries({ queryKey: ["inventory_logs"] });
+      qc.invalidateQueries({ queryKey: ["supplier_orders", businessId] });
+      qc.invalidateQueries({ queryKey: ["suppliers", businessId] });
     },
   });
 }
@@ -965,6 +955,8 @@ export function useMarkOrderNotArrived(businessId: string | null) {
       qc.invalidateQueries({ queryKey: ["inventory_orders", businessId] });
       qc.invalidateQueries({ queryKey: ["inventory", businessId] });
       qc.invalidateQueries({ queryKey: ["inventory_logs"] });
+      qc.invalidateQueries({ queryKey: ["supplier_orders", businessId] });
+      qc.invalidateQueries({ queryKey: ["suppliers", businessId] });
     },
   });
 }

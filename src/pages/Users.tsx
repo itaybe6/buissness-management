@@ -15,7 +15,8 @@ import { Modal } from "@/components/ui/Modal";
 import { useProfiles, useUpdateProfile, useDeleteUser } from "@/api/users";
 import { useDepartments } from "@/api/departments";
 import { AddUserModal } from "@/components/AddUserModal";
-import { useBusinessId, colorFor, initialsOf, formatCurrency } from "@/lib/db";
+import { useBusinessId, formatCurrency } from "@/lib/db";
+import { UserAvatar } from "@/components/ui/UserAvatar";
 import { useAuth } from "@/lib/auth";
 import { ROLE_LABELS, WAGE_TYPE_LABELS, BONUS_ELIGIBLE_ROLES, USER_MANAGE_ROLES } from "@/lib/constants";
 import type { Profile, UserRole, WageType } from "@/types/database";
@@ -175,8 +176,14 @@ export function Users() {
                         aria-expanded={open}
                         onClick={() => setExpanded(open ? null : u.id)}
                       >
-                        <span className="user-cell-avatar person-chip" style={{ background: colorFor(u.id) }}>
-                          {initialsOf(u.full_name)}
+                        <span className="user-cell-avatar">
+                          <UserAvatar
+                            userId={u.id}
+                            name={u.full_name}
+                            avatarUrl={u.avatar_url}
+                            size={46}
+                            rounded="square"
+                          />
                           <span className="user-cell-dot" data-on={u.active} />
                         </span>
                         <span className="user-cell-info">
@@ -255,9 +262,13 @@ export function Users() {
                     style={{ "--rise-delay": `${Math.min(i, 10) * 25}ms` } as React.CSSProperties}
                   >
                     <span className="flex min-w-0 items-center gap-3 self-center">
-                      <span className="person-chip h-9 w-9 rounded-[10px] text-[13px]" style={{ background: colorFor(u.id) }}>
-                        {initialsOf(u.full_name)}
-                      </span>
+                      <UserAvatar
+                        userId={u.id}
+                        name={u.full_name}
+                        avatarUrl={u.avatar_url}
+                        size={36}
+                        rounded="square"
+                      />
                       <span className="truncate font-bold">{u.full_name}</span>
                     </span>
                     <span className="self-center"><Badge tone="neutral">{ROLE_LABELS[u.role]}</Badge></span>

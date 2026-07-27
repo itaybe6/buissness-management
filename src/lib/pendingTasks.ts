@@ -5,6 +5,7 @@ import {
   effectiveOneTimeDueDate,
   isRecurringTaskForDate,
   recurringMaterializedTemplateIds,
+  taskBelongsToEmployee,
   templateVisibleForDailyChecklist,
 } from "@/lib/todayTasks";
 
@@ -16,7 +17,7 @@ export interface PendingTask {
 /**
  * Tasks that are still open for an employee right now — mirrors the daily checklist:
  *  - today's recurring tasks for their department (or business-wide, department_id = null)
- *  - one-time tasks assigned to them that aren't done yet.
+ *  - one-time tasks assigned to them (or to their whole department) that aren't done yet.
  * Used both by the Tasks checklist and the clock-out reminder.
  */
 export function pendingTasksForEmployee(
@@ -43,9 +44,10 @@ export function pendingTasksForEmployee(
     }
   });
 
-  // Real rows assigned to the employee that aren't done (pending-approval rows haven't reached them).
+  // Real rows assigned to the employee (or to their department) that aren't done.
   tasks.forEach((t) => {
-    if (t.assigned_to !== profileId || t.approval_status === "pending" || t.status === "done") return;
+    if (!taskBelongsToEmployee(t, profileId, deptId)) return;
+    if (t.approval_status === "pending" || t.status === "done") return;
     if (t.type === "recurring") {
       if (isRecurringTaskForDate(t, today)) result.push({ title: t.title, type: "recurring" });
     } else {

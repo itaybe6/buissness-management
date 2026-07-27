@@ -26,6 +26,7 @@ export function Events() {
   const [media, setMedia] = useState<MediaEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const [periodFilter, setPeriodFilter] = useState<EventPeriodFilter>("all");
   const [dateFilter, setDateFilter] = useState<string | null>(null);
 
@@ -36,24 +37,34 @@ export function Events() {
 
   const now = todayISO();
   const allEvents = events ?? [];
+  const normalizedQuery = searchQuery.trim().toLocaleLowerCase("he");
+  const searchedEvents = normalizedQuery
+    ? allEvents.filter((event) =>
+        [event.title, event.description]
+          .filter(Boolean)
+          .some((value) => value!.toLocaleLowerCase("he").includes(normalizedQuery)),
+      )
+    : allEvents;
   const upcomingAll = allEvents.filter((e) => e.event_date.slice(0, 10) >= now);
   const pastAll = allEvents.filter((e) => e.event_date.slice(0, 10) < now).reverse();
+  const searchedUpcoming = searchedEvents.filter((e) => e.event_date.slice(0, 10) >= now);
+  const searchedPast = searchedEvents.filter((e) => e.event_date.slice(0, 10) < now).reverse();
   const hasEvents = allEvents.length > 0;
-  const isDefaultView = periodFilter === "all" && !dateFilter;
+  const isDefaultView = periodFilter === "all" && !dateFilter && !normalizedQuery;
 
-  let upcoming = upcomingAll;
-  let past = pastAll;
+  let upcoming = searchedUpcoming;
+  let past = searchedPast;
 
   if (dateFilter) {
-    const onDate = allEvents.filter((e) => e.event_date.slice(0, 10) === dateFilter);
+    const onDate = searchedEvents.filter((e) => e.event_date.slice(0, 10) === dateFilter);
     upcoming = onDate.filter((e) => e.event_date.slice(0, 10) >= now);
     past = onDate.filter((e) => e.event_date.slice(0, 10) < now).reverse();
   } else if (periodFilter === "upcoming") {
-    upcoming = upcomingAll;
+    upcoming = searchedUpcoming;
     past = [];
   } else if (periodFilter === "past") {
     upcoming = [];
-    past = pastAll;
+    past = searchedPast;
   }
 
   const featured = upcoming[0];
@@ -98,24 +109,21 @@ export function Events() {
     <div className="w-full page-enter">
       <div className="evt-toolbar">
         <EventsSubNav active="list" />
-        {canManage && (
-          <button type="button" className="evt-add evt-add--toolbar" onClick={() => setOpen(true)}>
-            <Icon name="add" size={20} />
-            <span className="evt-add-label">אירוע חדש</span>
-          </button>
-        )}
       </div>
 
-      {hasEvents && (
-        <EventsFilter
-          period={periodFilter}
-          onPeriodChange={setPeriodFilter}
-          dateFilter={dateFilter}
-          onDateFilterChange={setDateFilter}
-          upcomingCount={upcomingAll.length}
-          pastCount={pastAll.length}
-        />
-      )}
+      <EventsFilter
+        query={searchQuery}
+        onQueryChange={setSearchQuery}
+        period={periodFilter}
+        onPeriodChange={setPeriodFilter}
+        dateFilter={dateFilter}
+        onDateFilterChange={setDateFilter}
+        upcomingCount={upcomingAll.length}
+        pastCount={pastAll.length}
+        canManage={canManage}
+        onAdd={() => setOpen(true)}
+        filtersEnabled={hasEvents}
+      />
 
       {!hasEvents ? (
         <div className="evt-empty">
@@ -140,18 +148,23 @@ export function Events() {
         </div>
       ) : !hasFilteredResults ? (
         <div className="evt-filter-empty">
-          <Icon name="event_busy" size={28} />
-          <p className="evt-filter-empty-title">אין אירועים בסינון זה</p>
-          <p className="evt-filter-empty-sub">נסו תאריך אחר או שנו את תקופת הסינון.</p>
+          <Icon name={normalizedQuery ? "search_off" : "event_busy"} size={28} />
+          <p className="evt-filter-empty-title">
+            {normalizedQuery ? "לא נמצאו אירועים" : "אין אירועים בסינון זה"}
+          </p>
+          <p className="evt-filter-empty-sub">
+            {normalizedQuery ? "נסו לחפש בשם אחר או נקו את החיפוש." : "נסו תאריך אחר או שנו את תקופת הסינון."}
+          </p>
           <Button
             variant="secondary"
-            icon="filter_alt_off"
+            icon={normalizedQuery ? "search_off" : "filter_alt_off"}
             onClick={() => {
+              setSearchQuery("");
               setPeriodFilter("all");
               setDateFilter(null);
             }}
           >
-            ניקוי סינון
+            {normalizedQuery ? "ניקוי חיפוש" : "ניקוי סינון"}
           </Button>
         </div>
       ) : (

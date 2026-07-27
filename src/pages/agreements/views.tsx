@@ -33,7 +33,7 @@ import {
 } from "./DocumentsUI";
 import { DocumentStatusTable, Form101OverviewTable } from "./StatusTables";
 import { OfficeReceiptsPanel } from "./OfficeReceiptsPanel";
-import { EmployeeIdCardUploadPanel } from "./EmployeeIdCardPanel";
+import { EmployeeIdCardRow, IdCardUploadModal } from "./EmployeeIdCardPanel";
 import { TAX_YEAR, FORM_101_BLANK_URL, type DocsMgmtCategory, type ManagerTab } from "./types";
 
 const ADD_LABELS: Record<DocsMgmtCategory, string> = {
@@ -418,14 +418,17 @@ export function EmployeeDocumentsView({
   const myIdCard = idCardByEmployee(idCards, employeeId);
   const myAgreements = useMemo(() => agreementsForEmployee(agreements, employeeId), [agreements, employeeId]);
   const [reading, setReading] = useState<AgreementTemplate | null>(null);
+  const [idCardOpen, setIdCardOpen] = useState(false);
   const [fabVariant, setFabVariant] = useState<EditorVariant | null>(null);
   const [pageTab, setPageTab] = useState<"mine" | "manage">(canEditTemplates ? "manage" : "mine");
   const signedSet = new Set((signatures ?? []).filter((s) => s.agreed).map((s) => s.agreement_id));
 
   const pendingDocs = myAgreements.filter((a) => !signedSet.has(a.id));
   const doneDocs = myAgreements.filter((a) => signedSet.has(a.id));
-  const pending = pendingDocs.length + (myIdCard ? 0 : 1);
-  // The ID card counts as one more required document alongside the agreements.
+  const idCardDone = !!myIdCard;
+  const pendingCount = pendingDocs.length + (idCardDone ? 0 : 1);
+  const doneCount = doneDocs.length + (idCardDone ? 1 : 0);
+  const pending = pendingCount;
   const total = myAgreements.length + 1;
   const showTabs = Boolean(canEditTemplates && profileId);
 
@@ -444,49 +447,60 @@ export function EmployeeDocumentsView({
         <>
           <DocsProgressHeader done={total - pending} total={total} />
 
-          <EmployeeIdCardUploadPanel businessId={businessId} employeeId={employeeId} />
-
-          {pendingDocs.length > 0 && (
-            <DocsGroup label="ממתין לך" count={pendingDocs.length} tone="pending">
+          {pendingCount > 0 && (
+            <DocsGroup label="ממתין לך" count={pendingCount} tone="pending">
+              {!idCardDone && (
+                <EmployeeIdCardRow uploaded={false} onOpen={() => setIdCardOpen(true)} index={0} />
+              )}
               {pendingDocs.map((a, i) => (
                 <EmployeeDocRow
                   key={a.id}
                   title={a.title}
                   type={a.type}
                   signed={false}
-                  index={i}
+                  index={idCardDone ? i : i + 1}
                   onOpen={() => setReading(a)}
                 />
               ))}
             </DocsGroup>
           )}
 
-          {doneDocs.length > 0 && (
-            <DocsGroup label="הושלמו" count={doneDocs.length}>
+          {doneCount > 0 && (
+            <DocsGroup label="הושלמו" count={doneCount}>
+              {idCardDone && myIdCard && (
+                <EmployeeIdCardRow
+                  uploaded
+                  uploadedAt={myIdCard.uploaded_at}
+                  onOpen={() => setIdCardOpen(true)}
+                  index={0}
+                />
+              )}
               {doneDocs.map((a, i) => (
                 <EmployeeDocRow
                   key={a.id}
                   title={a.title}
                   type={a.type}
                   signed
-                  index={i}
+                  index={idCardDone ? i + 1 : i}
                   onOpen={() => setReading(a)}
                 />
               ))}
             </DocsGroup>
           )}
 
-          {myAgreements.length === 0 &&
-            (myIdCard ? (
-              <DocsEmployeeEmpty name={employeeName} />
-            ) : (
-              <p className="docs-id-card-only-hint text-center text-[13px] font-semibold text-text-3">
-                לאחר העלאת תעודת הזהות — יופיעו כאן גם הסכמים לחתימה, אם יש.
-              </p>
-            ))}
+          {myAgreements.length === 0 && idCardDone && <DocsEmployeeEmpty name={employeeName} />}
 
           {reading && (
             <ReadSignModal agreement={reading} employeeId={employeeId} signature={signatureOf(signatures ?? [], reading.id, employeeId)} onClose={() => setReading(null)} />
+          )}
+
+          {idCardOpen && (
+            <IdCardUploadModal
+              businessId={businessId}
+              employeeId={employeeId}
+              card={myIdCard}
+              onClose={() => setIdCardOpen(false)}
+            />
           )}
         </>
       )}

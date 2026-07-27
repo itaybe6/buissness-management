@@ -44,7 +44,7 @@ import {
 } from "@/api/inventoryCategories";
 import { useSuppliers, useSupplierItemPriceIndex, supplierPricesFor, buildItemSupplierIndex, itemMatchesSupplierFilter, effectiveMainUnitPrice, type SupplierItemPriceIndex, type SupplierItemPrices, type ItemSupplierIndex } from "@/api/suppliers";
 import { useWaste } from "@/api/waste";
-import type { Department, InventoryAction, InventoryCategory, InventoryWaste, Warehouse } from "@/types/database";
+import type { Department, InventoryAction, InventoryCategory, InventoryWaste, Supplier, Warehouse } from "@/types/database";
 
 type InventoryTab = "items" | "orders" | "waste";
 
@@ -144,13 +144,20 @@ function orderPreviewLabel(lines: OrderLine[]): string {
   return `${names.slice(0, 2).join(", ")} ועוד ${names.length - 2}`;
 }
 
+/** Supplier delivery day for an order line (from the linked supplier). */
+function lineDeliveryDay(line: OrderLine, suppliers: Supplier[]): number | null {
+  if (!line.supplier_id) return null;
+  const day = suppliers.find((s) => s.id === line.supplier_id)?.delivery_day;
+  return day != null && day >= 0 && day <= 6 ? day : null;
+}
+
 /** Unique supplier delivery days across order lines, formatted for display. */
-function orderDeliveryDaysLabel(lines: OrderLine[]): string {
+function orderDeliveryDaysLabel(lines: OrderLine[], suppliers: Supplier[]): string {
   const days = [
     ...new Set(
       lines
-        .map((l) => l.item?.supplier_delivery_day)
-        .filter((d): d is number => d != null && d >= 0 && d <= 6),
+        .map((l) => lineDeliveryDay(l, suppliers))
+        .filter((d): d is number => d != null),
     ),
   ].sort((a, b) => a - b);
 
@@ -161,12 +168,12 @@ function orderDeliveryDaysLabel(lines: OrderLine[]): string {
 const HE_DAYS_SHORT = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
 
 /** Compact delivery-days label for chips, e.g. "ג׳ · ד׳". */
-function orderDeliveryDaysShortLabel(lines: OrderLine[]): string | null {
+function orderDeliveryDaysShortLabel(lines: OrderLine[], suppliers: Supplier[]): string | null {
   const days = [
     ...new Set(
       lines
-        .map((l) => l.item?.supplier_delivery_day)
-        .filter((d): d is number => d != null && d >= 0 && d <= 6),
+        .map((l) => lineDeliveryDay(l, suppliers))
+        .filter((d): d is number => d != null),
     ),
   ].sort((a, b) => a - b);
 
@@ -279,6 +286,7 @@ function TabSearchBar<T extends string>({
   showAdd,
   addIcon = "add",
   addAriaLabel = "הוספה",
+  addIconOnly,
   addDisabled,
   extraFilterActive,
   filterTrigger,
@@ -298,6 +306,7 @@ function TabSearchBar<T extends string>({
   showAdd?: boolean;
   addIcon?: string;
   addAriaLabel?: string;
+  addIconOnly?: boolean;
   addDisabled?: boolean;
   extraFilterActive?: boolean;
   filterTrigger?: ReactNode;
@@ -343,9 +352,13 @@ function TabSearchBar<T extends string>({
             onClick={onAdd}
             disabled={addDisabled}
             aria-label={addAriaLabel}
-            className="!h-11 shrink-0 whitespace-nowrap !bg-ink shadow-sm hover:brightness-110 active:scale-[0.97]"
+            className={
+              addIconOnly
+                ? "!h-11 !w-11 shrink-0 !p-0 !bg-ink shadow-sm hover:brightness-110 active:scale-[0.97]"
+                : "!h-11 shrink-0 whitespace-nowrap !bg-ink shadow-sm hover:brightness-110 active:scale-[0.97]"
+            }
           >
-            {addAriaLabel}
+            {addIconOnly ? null : addAriaLabel}
           </Button>
         )}
       </div>
@@ -550,7 +563,7 @@ function InventoryCatalogFilterDeck({
       <button
         ref={btnRef}
         type="button"
-        className="inv-filters-btn"
+        className="inv-filters-btn inv-filters-btn--icon-only"
         data-open={open}
         data-filtered={activeCount > 0}
         onClick={() => setOpen((v) => !v)}
@@ -559,7 +572,6 @@ function InventoryCatalogFilterDeck({
         aria-label="סינון מוצרים"
       >
         <Icon name="tune" size={19} />
-        <span className="inv-filters-btn-label">סינון</span>
         {activeCount > 0 && <span className="inv-filters-badge">{activeCount}</span>}
       </button>
 
@@ -1257,13 +1269,6 @@ function ItemDetailModal({
               </span>
             </div>
           )}
-          <div className="pd-list-row">
-            <span className="pd-list-icon">
-              <Icon name="local_shipping" size={17} />
-            </span>
-            <span className="pd-list-label">אספקה מהספק</span>
-            <span className="pd-list-value">{formatDeliveryDay(item.supplier_delivery_day)}</span>
-          </div>
           {(item.last_updated_at || item.last_updated_by_name) && (
             <div className="pd-list-row">
               <span className="pd-list-icon">
@@ -1663,16 +1668,6 @@ function ItemCard({
           </div>
           <StockBar item={item} />
 
-          <div className="mt-3 flex items-center gap-1.5 text-[12px] text-text-3">
-            <Icon name="local_shipping" size={15} className="flex-none opacity-80" />
-            <span>
-              אספקה מהספק:{" "}
-              <span className={item.supplier_delivery_day != null ? "font-semibold text-text-2" : ""}>
-                {formatDeliveryDay(item.supplier_delivery_day)}
-              </span>
-            </span>
-          </div>
-
           <div className="mt-4 flex items-end justify-between gap-3">
             <div className="flex items-end gap-5">
               <div>
@@ -1764,6 +1759,7 @@ function OrderDetailLine({
   busy,
   canSeePrices,
   supplierPrices,
+  suppliers,
   onReceive,
   onNotArrived,
 }: {
@@ -1772,6 +1768,7 @@ function OrderDetailLine({
   busy?: boolean;
   canSeePrices?: boolean;
   supplierPrices?: Map<string, SupplierItemPrices> | null;
+  suppliers: Supplier[];
   onReceive: (receivedQty: number) => void;
   onNotArrived: () => void;
 }) {
@@ -1781,7 +1778,7 @@ function OrderDetailLine({
     item && supportsPieceInput(item.unit) && item.units_per_package
       ? mainUnitToPieces(Number(line.quantity), item.units_per_package)
       : null;
-  const deliveryDay = item?.supplier_delivery_day;
+  const deliveryDay = lineDeliveryDay(line, suppliers);
   const receivedLabel = formatOrderReceivedLabel(line);
   const [receiveOpen, setReceiveOpen] = useState(false);
   const lineTotal =
@@ -1878,6 +1875,7 @@ function OrderBatchRow({
   canManageOrders,
   canSeePrices,
   supplierPriceIndex,
+  suppliers,
   received,
   onDetails,
   onEdit,
@@ -1889,6 +1887,7 @@ function OrderBatchRow({
   canManageOrders: boolean;
   canSeePrices: boolean;
   supplierPriceIndex?: SupplierItemPriceIndex;
+  suppliers: Supplier[];
   received?: boolean;
   onDetails: () => void;
   onEdit: () => void;
@@ -1902,7 +1901,7 @@ function OrderBatchRow({
     ? batchReceivedUnits(batch)
     : batch.lines.reduce((sum, l) => sum + Number(l.quantity), 0);
   const date = formatOrderDate(batch.created_at);
-  const deliveryShort = orderDeliveryDaysShortLabel(batch.lines);
+  const deliveryShort = orderDeliveryDaysShortLabel(batch.lines, suppliers);
   const supplierPrices = supplierPricesFor(supplierPriceIndex, batch.supplier_id);
   const batchTotal = canSeePrices ? orderBatchTotal(batch.lines, supplierPrices) : 0;
   const showBatchTotal = canSeePrices && batchTotal > 0;
@@ -1951,7 +1950,7 @@ function OrderBatchRow({
         <OrderPreviewStack lines={batch.lines} />
         <span
           className="inventory-order-delivery-chip"
-          title={`אמורה להגיע: ${orderDeliveryDaysLabel(batch.lines)}`}
+          title={`אמורה להגיע: ${orderDeliveryDaysLabel(batch.lines, suppliers)}`}
         >
           <Icon name="local_shipping" size={13} />
           {deliveryShort ? `אספקה ${deliveryShort}` : "אספקה לא הוגדרה"}
@@ -2006,6 +2005,7 @@ function OrderBatchListSection({
   canManageOrders,
   canSeePrices,
   supplierPriceIndex,
+  suppliers,
   received,
   onDetails,
   onEdit,
@@ -2018,6 +2018,7 @@ function OrderBatchListSection({
   canManageOrders: boolean;
   canSeePrices: boolean;
   supplierPriceIndex?: SupplierItemPriceIndex;
+  suppliers: Supplier[];
   received?: boolean;
   onDetails: (batch: OrderBatch) => void;
   onEdit: (batch: OrderBatch) => void;
@@ -2043,6 +2044,7 @@ function OrderBatchListSection({
             canManageOrders={canManageOrders}
             canSeePrices={canSeePrices}
             supplierPriceIndex={supplierPriceIndex}
+            suppliers={suppliers}
             received={received}
             onDetails={() => onDetails(batch)}
             onEdit={() => onEdit(batch)}
@@ -2061,6 +2063,7 @@ function OrderDetailsModal({
   receiveBusy,
   canSeePrices,
   supplierPriceIndex,
+  suppliers,
   onClose,
   onReceive,
   onNotArrived,
@@ -2072,6 +2075,7 @@ function OrderDetailsModal({
   receiveBusy?: boolean;
   canSeePrices: boolean;
   supplierPriceIndex?: SupplierItemPriceIndex;
+  suppliers: Supplier[];
   onClose: () => void;
   onReceive: (line: OrderLine, receivedQty: number) => void;
   onNotArrived: (line: OrderLine) => void;
@@ -2100,8 +2104,8 @@ function OrderDetailsModal({
     {
       icon: "local_shipping",
       label: "אספקה מהספק",
-      value: orderDeliveryDaysShortLabel(batch.lines) ?? "לא הוגדר",
-      title: orderDeliveryDaysLabel(batch.lines),
+      value: orderDeliveryDaysShortLabel(batch.lines, suppliers) ?? "לא הוגדר",
+      title: orderDeliveryDaysLabel(batch.lines, suppliers),
     },
     { icon: "person", label: "הוזמן על ידי", value: batchOrderedByLabel(batch) },
   ];
@@ -2162,6 +2166,7 @@ function OrderDetailsModal({
             busy={receiveBusy}
             canSeePrices={canSeePrices}
             supplierPrices={supplierPrices}
+            suppliers={suppliers}
             onReceive={(receivedQty) => onReceive(line, receivedQty)}
             onNotArrived={() => onNotArrived(line)}
           />
@@ -2745,7 +2750,16 @@ export function Inventory() {
 
   /** Order composing moved to a dedicated page — /inventory/order. */
   function openNewOrder(presetItemId?: string) {
-    navigate(presetItemId ? `/inventory/order?item=${presetItemId}` : "/inventory/order");
+    if (!presetItemId) {
+      navigate("/inventory/order");
+      return;
+    }
+    // Orders always need a supplier — when the product has exactly one, bring it along.
+    const linked = itemSupplierIndex.get(presetItemId);
+    const onlySupplier = linked?.size === 1 ? [...linked][0] : null;
+    navigate(
+      `/inventory/order?item=${presetItemId}${onlySupplier ? `&supplier=${onlySupplier}` : ""}`,
+    );
   }
 
   function openEditOrder(batch: OrderBatch) {
@@ -2875,7 +2889,6 @@ export function Inventory() {
                     searchPlaceholder="חיפוש ספק..."
                   >
                     <option value="">כל הספקים</option>
-                    <option value="__none__">ללא ספק</option>
                     {(supplierList ?? [])
                       .filter((s) => s.active)
                       .map((s) => (
@@ -2921,6 +2934,7 @@ export function Inventory() {
                 canManageOrders={canManageOrders}
                 canSeePrices={canSeePrices}
                 supplierPriceIndex={supplierPriceIndex}
+                suppliers={supplierList ?? []}
                 received={orderListSectionMeta.received}
                 onDetails={(batch) => setDetailBatchId(batch.id)}
                 onEdit={openEditOrder}
@@ -2953,6 +2967,7 @@ export function Inventory() {
               showAdd={isManager}
               addIcon="add"
               addAriaLabel="פריט חדש"
+              addIconOnly
               extraFilterActive={listFiltersActive}
               topContent={
                 showWarehouseFilter ? (
@@ -3111,6 +3126,7 @@ export function Inventory() {
         receiveBusy={receiveOrder.isPending || markOrderNotArrived.isPending}
         canSeePrices={canSeePrices}
         supplierPriceIndex={supplierPriceIndex}
+        suppliers={supplierList ?? []}
         onClose={() => setDetailBatchId(null)}
         onReceive={(line, receivedQty) => handleReceive(line, receivedQty)}
         onNotArrived={(line) => handleMarkNotArrived(line)}

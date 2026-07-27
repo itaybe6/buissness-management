@@ -10,8 +10,9 @@ import {
   Select,
 } from "@/components/ui";
 import { DualUnitQtyInput } from "@/components/inventory/DualUnitQtyInput";
+import { InventoryUnitSelect, inventoryUnitIsBase } from "@/components/inventory/InventoryUnitSelect";
 import { useAuth } from "@/lib/auth";
-import { useBusinessId, HE_DAYS, formatCurrency } from "@/lib/db";
+import { useBusinessId, formatCurrency } from "@/lib/db";
 import { canSeeInventoryPrices } from "@/lib/constants";
 import {
   useInventory,
@@ -22,17 +23,16 @@ import {
   itemWarehouseQty,
   formatQtyWithPieces,
   normalizeInventoryBarcode,
-  supportsPieceInput,
   canUsePieceInput,
   mainUnitToPieces,
   inventorySaveError,
-  INVENTORY_UNITS,
   BASE_UNIT,
   type ItemWithQty,
 } from "@/api/inventory";
 import { useWarehouses } from "@/api/warehouses";
 import { useDepartments } from "@/api/departments";
 import { useInventoryCategories } from "@/api/inventoryCategories";
+import { useInventoryUnits } from "@/api/inventoryUnits";
 import {
   useItemSuppliers,
   useSaveItemSuppliers,
@@ -49,7 +49,6 @@ type ItemFormState = {
   unit: string;
   unitsPerPackage: string;
   minQty: string;
-  deliveryDay: string;
   departmentIds: string[];
   imageUrl: string | null;
   file: File | null;
@@ -79,7 +78,6 @@ const EMPTY_FORM: ItemFormState = {
   unit: "יחידות",
   unitsPerPackage: "",
   minQty: "0",
-  deliveryDay: "",
   departmentIds: [],
   imageUrl: null,
   file: null,
@@ -93,7 +91,6 @@ function formFromItem(item: ItemWithQty): ItemFormState {
     unit: item.unit ?? "יחידות",
     unitsPerPackage: item.units_per_package != null ? String(item.units_per_package) : "",
     minQty: String(item.min_quantity),
-    deliveryDay: item.supplier_delivery_day != null ? String(item.supplier_delivery_day) : "",
     departmentIds: [...item.department_ids],
     imageUrl: item.image_url,
     file: null,
@@ -405,6 +402,7 @@ export function ItemFormPage() {
   const { data: warehouseList, isLoading: warehousesLoading } = useWarehouses(businessId);
   const { data: departments } = useDepartments(businessId);
   const { data: inventoryCategories } = useInventoryCategories(businessId);
+  const { data: inventoryUnits } = useInventoryUnits(businessId);
   const { data: supplierList, isLoading: suppliersLoading } = useSuppliers(businessId, { activeOnly: false });
   const { data: itemSuppliers, isLoading: itemSuppliersLoading } = useItemSuppliers(
     businessId,
@@ -482,7 +480,9 @@ export function ItemFormPage() {
     return () => URL.revokeObjectURL(url);
   }, [form.file]);
 
-  const unitsPerPackage = supportsPieceInput(form.unit) ? Number(form.unitsPerPackage) || null : null;
+  const unitsPerPackage = !inventoryUnitIsBase(form.unit, inventoryUnits)
+    ? Number(form.unitsPerPackage) || null
+    : null;
   const dualUnit = canUsePieceInput(form.unit, unitsPerPackage);
 
   const totalQty = useMemo(
@@ -668,7 +668,7 @@ export function ItemFormPage() {
     if (id === "basics" && !form.name.trim()) return "נא להזין שם מוצר";
     if (id === "unit") {
       const raw = form.unitsPerPackage.trim();
-      if (supportsPieceInput(form.unit) && raw !== "" && (Number(raw) || 0) < 1) {
+      if (!inventoryUnitIsBase(form.unit, inventoryUnits) && raw !== "" && (Number(raw) || 0) < 1) {
         return `נא להזין כמה יחידות יש ב${form.unit} — מספר מ-1 ומעלה`;
       }
       if ((Number(form.minQty) || 0) < 0) return "כמות מינימום לא יכולה להיות שלילית";
@@ -734,9 +734,8 @@ export function ItemFormPage() {
 
       const barcode = normalizeInventoryBarcode(form.barcode);
       const min_quantity = Math.max(0, Number(form.minQty) || 0);
-      const supplier_delivery_day = form.deliveryDay === "" ? null : Number(form.deliveryDay);
       const category_id = form.categoryId || null;
-      const units_per_package = supportsPieceInput(form.unit)
+      const units_per_package = !inventoryUnitIsBase(form.unit, inventoryUnits)
         ? Math.max(0, Number(form.unitsPerPackage) || 0) || null
         : null;
       const department_ids = form.departmentIds;
@@ -760,7 +759,6 @@ export function ItemFormPage() {
         if (form.unit !== (editing.unit ?? "יחידות")) changed.push("יחידת מידה");
         if (units_per_package !== editing.units_per_package) changed.push("יחידים ביחידת מידה");
         if (min_quantity !== editing.min_quantity) changed.push("כמות מינימום");
-        if (supplier_delivery_day !== editing.supplier_delivery_day) changed.push("יום אספקה");
         if (category_id !== editing.category_id) changed.push("קטגוריה");
         if (image_url !== editing.image_url) changed.push("תמונה");
         const prevDepts = [...editing.department_ids].sort().join(",");
@@ -789,7 +787,6 @@ export function ItemFormPage() {
             units_per_package,
             image_url,
             min_quantity,
-            supplier_delivery_day,
             category_id,
           },
           department_ids,
@@ -826,7 +823,6 @@ export function ItemFormPage() {
           units_per_package,
           image_url,
           min_quantity,
-          supplier_delivery_day,
           category_id,
           department_ids,
           warehouse_quantities: warehouses
@@ -993,88 +989,102 @@ export function ItemFormPage() {
   }
 
   function renderUnit() {
+    const isPackUnit = !inventoryUnitIsBase(form.unit, inventoryUnits);
+    const minQtyNum = Math.max(0, Number(form.minQty) || 0);
+
     return (
-      <div className="spf-fields">
-        <IpfField icon="straighten" label="יחידת מידה" note="באיזו יחידה סופרים ומזמינים את המוצר">
-          <Select
-            className="ipf-select"
+      <div className="iwz-unit">
+        <div className="iwz-unit-hero">
+          <div className="iwz-unit-hero-copy">
+            <span className="iwz-unit-hero-kicker">מדידה</span>
+            <h3 className="iwz-unit-hero-title">יחידת מידה</h3>
+            <p className="iwz-unit-hero-sub">באיזו יחידה סופרים, מזמינים ומנהלים מלאי עבור מוצר זה</p>
+          </div>
+          <span className="iwz-unit-hero-icon" aria-hidden>
+            <Icon name="straighten" size={22} />
+          </span>
+        </div>
+
+        <div className="iwz-unit-picker">
+          <span className="iwz-unit-picker-label">יחידה נבחרת</span>
+          <InventoryUnitSelect
+            businessId={businessId}
             value={form.unit}
-            onChange={(e) => {
-              const unit = e.target.value;
+            canManage={canManage}
+            className="iwz-unit-select"
+            onChange={(unit) => {
               setForm((f) => ({
                 ...f,
                 unit,
-                unitsPerPackage: unit === BASE_UNIT ? "" : f.unitsPerPackage,
+                unitsPerPackage: inventoryUnitIsBase(unit, inventoryUnits) ? "" : f.unitsPerPackage,
               }));
             }}
-          >
-            {INVENTORY_UNITS.map((u) => (
-              <option key={u.value} value={u.value}>
-                {u.label}
-              </option>
-            ))}
-          </Select>
-        </IpfField>
+          />
+        </div>
 
-        {supportsPieceInput(form.unit) && (
-          <>
-            <IpfField
-              icon="widgets"
-              label={`יחידים ב${form.unit}`}
-              note="מאפשר להזין ולספור כמויות גם ביחידים בודדים"
-            >
-              <Input
-                className="spf-input"
-                type="number"
-                min={1}
-                value={form.unitsPerPackage}
-                onChange={(e) => setForm({ ...form, unitsPerPackage: e.target.value })}
-                placeholder="לדוגמה: 24"
-              />
-            </IpfField>
+        {isPackUnit && (
+          <div className="iwz-unit-pack">
+            <div className="iwz-unit-pack-head">
+              <Icon name="widgets" size={17} />
+              <span>פירוק ליחידים בודדים</span>
+            </div>
+            <div className="iwz-unit-pack-grid">
+              <label className="iwz-unit-pack-field">
+                <span className="iwz-unit-pack-label">יחידים ב{form.unit}</span>
+                <Input
+                  className="spf-input iwz-unit-pack-input"
+                  type="number"
+                  min={1}
+                  value={form.unitsPerPackage}
+                  onChange={(e) => setForm({ ...form, unitsPerPackage: e.target.value })}
+                  placeholder="לדוגמה: 24"
+                />
+              </label>
 
-            {dualUnit && (
-              <div className="iwz-conv" aria-hidden>
-                <span className="iwz-conv-side">
-                  <b>1</b>
-                  {form.unit}
-                </span>
-                <span className="iwz-conv-eq">=</span>
-                <span className="iwz-conv-side">
-                  <b>{unitsPerPackage}</b>
-                  {BASE_UNIT}
-                </span>
-              </div>
-            )}
-          </>
+              {dualUnit && (
+                <div className="iwz-unit-ratio" aria-live="polite">
+                  <span className="iwz-unit-ratio-chip">
+                    <b>1</b>
+                    <span>{form.unit}</span>
+                  </span>
+                  <Icon name="sync_alt" size={18} className="iwz-unit-ratio-arrow" />
+                  <span className="iwz-unit-ratio-chip iwz-unit-ratio-chip--accent">
+                    <b>{unitsPerPackage}</b>
+                    <span>{BASE_UNIT}</span>
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
         )}
 
-        <div className="spf-fields-row">
-          <IpfField icon="low_priority" label="כמות מינימום" note="מתחת לסף — מלאי נמוך">
+        <div className="iwz-unit-threshold">
+          <div className="iwz-unit-threshold-head">
+            <span className="iwz-unit-threshold-icon" aria-hidden>
+              <Icon name="low_priority" size={18} />
+            </span>
+            <div className="min-w-0">
+              <h4 className="iwz-unit-threshold-title">סף התראת מלאי נמוך</h4>
+              <p className="iwz-unit-threshold-sub">מתחת לכמות זו המוצר יסומן כמלאי נמוך</p>
+            </div>
+          </div>
+          <div className="iwz-unit-threshold-row">
             <Input
-              className="spf-input"
+              className="spf-input iwz-unit-threshold-input"
               type="number"
               min={0}
               value={form.minQty}
               onChange={(e) => setForm({ ...form, minQty: e.target.value })}
               placeholder="0"
             />
-          </IpfField>
-
-          <IpfField icon="local_shipping" label="יום אספקה" note="ביום זה הסחורה אמורה להגיע">
-            <Select
-              className="ipf-select"
-              value={form.deliveryDay}
-              onChange={(e) => setForm({ ...form, deliveryDay: e.target.value })}
-            >
-              <option value="">לא הוגדר</option>
-              {HE_DAYS.map((d, i) => (
-                <option key={i} value={String(i)}>
-                  יום {d}
-                </option>
-              ))}
-            </Select>
-          </IpfField>
+            <span className="iwz-unit-threshold-unit">{form.unit}</span>
+          </div>
+          {minQtyNum > 0 && (
+            <p className="iwz-unit-threshold-preview">
+              <Icon name="notifications_active" size={14} />
+              התראה כשהמלאי יורד מתחת ל-{minQtyNum} {form.unit}
+            </p>
+          )}
         </div>
       </div>
     );
@@ -1342,11 +1352,6 @@ export function ItemFormPage() {
           />
           <ReviewFact icon="warehouse" label="מחסנים" value={`${stocked.length} מתוך ${warehouses.length}`} />
           <ReviewFact icon="low_priority" label="סף התראה" value={minQtyValue > 0 ? `${minQtyValue}` : "לא הוגדר"} />
-          <ReviewFact
-            icon="local_shipping"
-            label="יום אספקה"
-            value={form.deliveryDay === "" ? "לא הוגדר" : `יום ${HE_DAYS[Number(form.deliveryDay)]}`}
-          />
         </div>
 
         <section className="iwz-rev-block">
@@ -1546,7 +1551,7 @@ export function ItemFormPage() {
             <p className="iwz-head-sub">{step.sub}</p>
           </div>
 
-          <section className="iwz-card">{renderStep()}</section>
+          <section className={`iwz-card${step.id === "unit" ? " iwz-card--unit" : ""}`}>{renderStep()}</section>
 
           {error && (
             <p className="spf-alert" role="alert">

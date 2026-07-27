@@ -384,6 +384,7 @@ export function makeTask(over: Partial<Task> = {}): Task {
     business_id: BUSINESS_ID,
     template_id: null,
     event_id: null,
+    department_id: null,
     title: "משימה",
     description: null,
     type: "one_time",
@@ -412,7 +413,7 @@ export function makeWarehouse(over: Partial<Warehouse> = {}): Warehouse {
   return {
     id: WAREHOUSE.main,
     business_id: BUSINESS_ID,
-    name: "מחסן ראשי",
+    name: "מלאי העסק",
     sort_order: 0,
     is_default: true,
     active: true,
@@ -424,7 +425,7 @@ export function makeWarehouse(over: Partial<Warehouse> = {}): Warehouse {
 export function makeWarehouseStock(over: Partial<WarehouseStock> = {}): WarehouseStock {
   return {
     warehouse_id: WAREHOUSE.main,
-    warehouse_name: "מחסן ראשי",
+    warehouse_name: "מלאי העסק",
     quantity: 10,
     last_updated_at: T0,
     last_updated_by: USER.employee,
@@ -443,7 +444,6 @@ export function makeInventoryItem(over: Partial<InventoryItem> = {}): InventoryI
     units_per_package: 24,
     image_url: null,
     min_quantity: 5,
-    supplier_delivery_day: null,
     category_id: null,
     active: true,
     created_at: T0,
@@ -503,6 +503,7 @@ export function makeSupplier(over: Partial<Supplier> = {}): Supplier {
     phone: "03-1234567",
     tax_id: null,
     notes: null,
+    delivery_day: null,
     active: true,
     created_at: T0,
     updated_at: T0,

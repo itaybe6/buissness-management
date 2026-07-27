@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
-import { Button, EmptyState, ErrorState, Icon, Input, PageLoader, Textarea } from "@/components/ui";
+import { Button, EmptyState, ErrorState, Icon, Input, PageLoader, Select, Textarea } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
-import { useBusinessId, formatCurrency } from "@/lib/db";
+import { useBusinessId, formatCurrency, HE_DAYS } from "@/lib/db";
 import { useAuth } from "@/lib/auth";
 import {
   useSupplierItems,
@@ -13,14 +13,73 @@ import {
   supplierSaveError,
   supplierPriceUnitLabel,
   supplierPriceListTotal,
+  effectiveMainUnitPrice,
   type SupplierItemPrices,
   type SupplierWithStats,
 } from "@/api/suppliers";
+import {
+  useInventory,
+  useCreateOrdersBatch,
+  formatQtyWithPieces,
+  splitPackageQty,
+  inventoryLineTotal,
+  inventorySaveError,
+  type ItemWithQty,
+} from "@/api/inventory";
+import { useInventoryCategories } from "@/api/inventoryCategories";
+import { QtyEditor, draftLabel, draftTotal, type QtyDraft } from "@/components/inventory/orderDraft";
 import { RECEIPT_TYPE_LABELS } from "@/pages/agreements/types";
 
 type DetailTab = "products" | "orders" | "receipts";
 /** Which field the details sheet lands on when it opens. */
 type EditField = "name" | "phone" | "taxId" | "notes";
+
+/** How the price list is laid out — cards mirror the inventory catalog. */
+type ProductView = "grid" | "rows";
+type ProductSort = "name" | "price-desc" | "price-asc" | "stock";
+
+const PRODUCT_SORTS: { key: ProductSort; label: string; icon: string }[] = [
+  { key: "name", label: "שם", icon: "sort_by_alpha" },
+  { key: "price-desc", label: "מחיר גבוה", icon: "trending_up" },
+  { key: "price-asc", label: "מחיר נמוך", icon: "trending_down" },
+  { key: "stock", label: "מלאי נמוך", icon: "priority_high" },
+];
+
+/** One product of the price list, joined with its catalog row when it is still active. */
+type SupplierProduct = {
+  item_id: string;
+  item_name: string;
+  item_unit: string | null;
+  item_units_per_package: number | null;
+  item_image_url: string | null;
+  prices: SupplierItemPrices;
+  item: ItemWithQty | null;
+  category_name: string | null;
+};
+
+type StockTone = "empty" | "low" | "ok";
+
+/** Same thresholds the inventory catalog uses, so both pages agree on "low". */
+function stockToneOf(item: ItemWithQty | null): { tone: StockTone; label: string } | null {
+  if (!item) return null;
+  if (item.current_qty <= 0) return { tone: "empty", label: "אזל" };
+  const threshold = item.min_quantity > 0 ? item.min_quantity : 3;
+  if (item.current_qty <= threshold) return { tone: "low", label: "מלאי נמוך" };
+  return { tone: "ok", label: "במלאי" };
+}
+
+function stockRank(product: SupplierProduct): number {
+  const tone = stockToneOf(product.item)?.tone;
+  if (tone === "empty") return 0;
+  if (tone === "low") return 1;
+  if (tone === "ok") return 2;
+  return 3;
+}
+
+/** Per-piece prices are often a few agorot — keep the decimals formatCurrency drops. */
+function formatPrice(n: number): string {
+  return "₪" + (Math.round(n * 100) / 100).toLocaleString("he-IL", { maximumFractionDigits: 2 });
+}
 
 function formatWhen(iso: string) {
   return new Date(iso).toLocaleDateString("he-IL", {
@@ -38,6 +97,11 @@ function monogram(name: string) {
 }
 
 /** 050-1234567 → https://wa.me/972501234567 */
+function formatDeliveryDay(day: number | null | undefined): string {
+  if (day == null || day < 0 || day > 6) return "לא הוגדר";
+  return `יום ${HE_DAYS[day]}`;
+}
+
 function waHref(phone: string) {
   const digits = phone.replace(/\D/g, "");
   const intl = digits.startsWith("0") ? `972${digits.slice(1)}` : digits;
@@ -78,7 +142,7 @@ function SheetField({
 /* Details sheet — edits the supplier identity in place, so fixing a  */
 /* phone number never means opening the heavy price-list form.        */
 /* ---------------------------------------------------------------- */
-type DetailsDraft = { name: string; phone: string; taxId: string; notes: string; active: boolean };
+type DetailsDraft = { name: string; phone: string; taxId: string; notes: string; deliveryDay: string; active: boolean };
 
 function draftOf(s: SupplierWithStats): DetailsDraft {
   return {
@@ -86,6 +150,7 @@ function draftOf(s: SupplierWithStats): DetailsDraft {
     phone: s.phone ?? "",
     taxId: s.tax_id ?? "",
     notes: s.notes ?? "",
+    deliveryDay: s.delivery_day != null ? String(s.delivery_day) : "",
     active: s.active,
   };
 }
@@ -144,6 +209,7 @@ function SupplierDetailsSheet({
     draft.phone.trim() !== (supplier.phone ?? "") ||
     draft.taxId.trim() !== (supplier.tax_id ?? "") ||
     draft.notes.trim() !== (supplier.notes ?? "") ||
+    draft.deliveryDay !== (supplier.delivery_day != null ? String(supplier.delivery_day) : "") ||
     draft.active !== supplier.active;
 
   function requestClose() {
@@ -169,6 +235,7 @@ function SupplierDetailsSheet({
         phone: draft.phone,
         tax_id: draft.taxId,
         notes: draft.notes,
+        delivery_day: draft.deliveryDay === "" ? null : Number(draft.deliveryDay),
         active: draft.active,
       });
       onSaved();
@@ -265,6 +332,21 @@ function SupplierDetailsSheet({
           </SheetField>
         </div>
 
+        <SheetField icon="local_shipping" label="יום אספקה" hint="ביום זה הסחורה אמורה להגיע">
+          <Select
+            className="spf-input spf-select"
+            value={draft.deliveryDay}
+            onChange={(e) => setDraft({ ...draft, deliveryDay: e.target.value })}
+          >
+            <option value="">לא הוגדר</option>
+            {HE_DAYS.map((d, i) => (
+              <option key={i} value={String(i)}>
+                יום {d}
+              </option>
+            ))}
+          </Select>
+        </SheetField>
+
         <SheetField icon="sticky_note_2" label="הערות">
           <Textarea
             ref={notesRef}
@@ -272,7 +354,7 @@ function SupplierDetailsSheet({
             rows={3}
             value={draft.notes}
             onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
-            placeholder="ימי אספקה, איש קשר, תנאי תשלום..."
+            placeholder="איש קשר, תנאי תשלום..."
           />
         </SheetField>
 
@@ -312,6 +394,262 @@ function SupplierDetailsSheet({
 }
 
 /* ---------------------------------------------------------------- */
+/* Price list product card — the inventory catalog tile, priced       */
+/* ---------------------------------------------------------------- */
+function ProductPrices({ product }: { product: SupplierProduct }) {
+  const { prices } = product;
+  const pack = product.item_units_per_package ?? 0;
+  // Only worth deriving when the supplier quotes the package alone.
+  const derivedPiece = prices.piece == null && prices.main != null && pack > 0 ? prices.main / pack : null;
+
+  if (prices.main == null && prices.piece == null) return null;
+
+  return (
+    <>
+      {prices.main != null && (
+        <span className="spd-pcard-price">
+          <b>{formatPrice(prices.main)}</b>
+          <em>ל{supplierPriceUnitLabel("main", product.item_unit)}</em>
+        </span>
+      )}
+      {prices.piece != null && (
+        <span className="spd-pcard-price spd-pcard-price--alt">
+          <b>{formatPrice(prices.piece)}</b>
+          <em>ל{supplierPriceUnitLabel("piece", product.item_unit)}</em>
+        </span>
+      )}
+      {derivedPiece != null && <span className="spd-pcard-derived">≈ {formatPrice(derivedPiece)} ליחידה</span>}
+    </>
+  );
+}
+
+function SupplierProductCard({
+  product,
+  index,
+  stockKnown,
+  draft,
+  onOpenItem,
+  onEditPrice,
+  onStep,
+}: {
+  product: SupplierProduct;
+  index: number;
+  stockKnown: boolean;
+  draft: QtyDraft | undefined;
+  onOpenItem: () => void;
+  onEditPrice: () => void;
+  onStep: (delta: number) => void;
+}) {
+  const { item, prices } = product;
+  const stock = stockToneOf(item);
+  const pack = product.item_units_per_package ?? 0;
+  const mainUnit = supplierPriceUnitLabel("main", product.item_unit);
+  const hasPrice = prices.main != null || prices.piece != null;
+  const orderedSplit = item && item.ordered_qty > 0 && pack > 0 ? splitPackageQty(item.ordered_qty, pack) : null;
+  // Fill the rail against twice the minimum — "how far above the reorder point".
+  const stockPct = item
+    ? Math.min(100, (item.current_qty / Math.max(item.min_quantity * 2, 10)) * 100)
+    : 0;
+
+  return (
+    <li
+      className="spd-pcard"
+      data-incart={!!draft}
+      style={{ animationDelay: `${Math.min(index, 11) * 35}ms` }}
+    >
+      <button type="button" className="spd-pcard-media" onClick={onOpenItem} title="פתיחת המוצר">
+        {product.item_image_url ? (
+          <img src={product.item_image_url} alt="" loading="lazy" />
+        ) : (
+          <span className="spd-pcard-ph" aria-hidden>
+            <Icon name="inventory_2" size={30} />
+          </span>
+        )}
+        {stock && (
+          <span className="spd-pcard-badge" data-tone={stock.tone}>
+            <i aria-hidden />
+            {stock.label}
+          </span>
+        )}
+        {item && item.ordered_qty > 0 && (
+          <span className="spd-pcard-ordered">
+            <Icon name="local_shipping" size={12} />
+            {orderedSplit
+              ? `+${orderedSplit.packages}${orderedSplit.pieces > 0 ? `+${orderedSplit.pieces}` : ""}`
+              : `+${item.ordered_qty}`}
+          </span>
+        )}
+        {item && draft && (
+          <span className="spd-pcard-incart" key={draftLabel(item, draft)}>
+            <Icon name="check_circle" size={12} />
+            {draftLabel(item, draft)}
+          </span>
+        )}
+      </button>
+
+      <div className="spd-pcard-body">
+        <button type="button" className="spd-pcard-title" onClick={onOpenItem}>
+          <span className="spd-pcard-name">{product.item_name}</span>
+          <span className="spd-pcard-meta">
+            {product.category_name && <span>{product.category_name}</span>}
+            {pack > 0 ? <span>{pack} יח׳ ב{mainUnit}</span> : <span>{mainUnit}</span>}
+            {item?.barcode && (
+              <span className="spd-pcard-bc" dir="ltr">
+                {item.barcode}
+              </span>
+            )}
+          </span>
+        </button>
+
+        <div className="spd-pcard-pricing">
+          {hasPrice ? (
+            <ProductPrices product={product} />
+          ) : (
+            <span className="spd-pcard-noprice">
+              <Icon name="error" size={14} />
+              ללא מחיר
+            </span>
+          )}
+        </div>
+
+        <div className="spd-pcard-foot">
+          <span className="spd-pcard-stockline">
+            <span className="spd-pcard-stock" data-tone={stock?.tone ?? "none"}>
+              <i aria-hidden />
+              {!stockKnown
+                ? "—"
+                : item
+                  ? `במלאי ${formatQtyWithPieces(item.current_qty, item.unit, item.units_per_package)}`
+                  : "לא פעיל במלאי"}
+            </span>
+            {item && item.min_quantity > 0 && <em className="spd-pcard-min">מינ׳ {item.min_quantity}</em>}
+          </span>
+          {item && (
+            <span className="spd-pcard-rail" data-tone={stock?.tone ?? "none"} aria-hidden>
+              <i style={{ width: `${stockPct}%` }} />
+            </span>
+          )}
+          <span className="spd-pcard-acts">
+            <button
+              type="button"
+              className="spd-pact spd-pact--icon"
+              onClick={onEditPrice}
+              title={hasPrice ? "עריכת מחיר" : "קביעת מחיר"}
+              aria-label={hasPrice ? "עריכת מחיר" : "קביעת מחיר"}
+            >
+              <Icon name="sell" size={16} />
+            </button>
+            {item && draft ? (
+              <span className="ordc-step spd-pstep">
+                <button
+                  type="button"
+                  className="ordc-step-btn"
+                  onClick={() => onStep(-1)}
+                  aria-label={`הפחתת ${product.item_name} מההזמנה`}
+                >
+                  <Icon name="remove" size={15} />
+                </button>
+                <b className="spd-pstep-val" key={draft.packs}>
+                  {draft.packs}
+                </b>
+                <button
+                  type="button"
+                  className="ordc-step-btn ordc-step-btn--add"
+                  onClick={() => onStep(1)}
+                  aria-label={`הוספת ${product.item_name} להזמנה`}
+                >
+                  <Icon name="add" size={15} />
+                </button>
+              </span>
+            ) : (
+              <button
+                type="button"
+                className="spd-pact spd-pact--primary"
+                onClick={() => onStep(1)}
+                disabled={!item}
+                title={item ? "הוספה להזמנה מהספק" : "המוצר אינו פעיל במלאי"}
+              >
+                <Icon name="add_shopping_cart" size={16} />
+                הזמנה
+              </button>
+            )}
+          </span>
+        </div>
+      </div>
+    </li>
+  );
+}
+
+function SupplierProductRow({
+  product,
+  stockKnown,
+  draft,
+  onOpenItem,
+  onStep,
+}: {
+  product: SupplierProduct;
+  stockKnown: boolean;
+  draft: QtyDraft | undefined;
+  onOpenItem: () => void;
+  onStep: (delta: number) => void;
+}) {
+  const { item } = product;
+  const stock = stockToneOf(item);
+  const mainUnit = supplierPriceUnitLabel("main", product.item_unit);
+
+  return (
+    <li className="spl-row spd-prow" data-incart={!!draft}>
+      <button type="button" className="spd-prow-open" onClick={onOpenItem} title="פתיחת המוצר">
+        <span className="spl-row-thumb">
+          {product.item_image_url ? (
+            <img src={product.item_image_url} alt="" loading="lazy" />
+          ) : (
+            <Icon name="inventory_2" size={17} className="text-text-3" />
+          )}
+        </span>
+        <span className="spl-row-main">
+          <b>{product.item_name}</b>
+          <em>
+            {[product.category_name, mainUnit, item?.barcode].filter(Boolean).join(" · ")}
+          </em>
+        </span>
+      </button>
+      <span className="spd-pcard-stock" data-tone={stock?.tone ?? "none"}>
+        <i aria-hidden />
+        {!stockKnown
+          ? "—"
+          : item
+            ? formatQtyWithPieces(item.current_qty, item.unit, item.units_per_package)
+            : "לא פעיל"}
+      </span>
+      <span className="spd-prices">
+        {product.prices.main == null && product.prices.piece == null ? (
+          <span className="spd-price spd-price--none">ללא מחיר</span>
+        ) : (
+          <>
+            {product.prices.main != null && (
+              <span className="spd-price">
+                <b>{formatPrice(product.prices.main)}</b>
+                <em>ל{mainUnit}</em>
+              </span>
+            )}
+            {product.prices.piece != null && (
+              <span className="spd-price">
+                <b>{formatPrice(product.prices.piece)}</b>
+                <em>ל{supplierPriceUnitLabel("piece", product.item_unit)}</em>
+              </span>
+            )}
+          </>
+        )}
+      </span>
+      <button type="button" className="spd-pact spd-pact--icon" onClick={onOrder} title="הזמנת המוצר" aria-label="הזמנת המוצר">
+        <Icon name="add_shopping_cart" size={16} />
+      </button>
+    </li>
+  );
+}
+
+/* ---------------------------------------------------------------- */
 /* Page                                                              */
 /* ---------------------------------------------------------------- */
 export function SupplierDetailPage() {
@@ -329,6 +667,8 @@ export function SupplierDetailPage() {
 
   const [tab, setTab] = useState<DetailTab>("products");
   const [productSearch, setProductSearch] = useState("");
+  const [productView, setProductView] = useState<ProductView>("grid");
+  const [productSort, setProductSort] = useState<ProductSort>("name");
 
   const [editField, setEditField] = useState<EditField | null>(null);
   const [copied, setCopied] = useState<"phone" | "tax" | null>(null);
@@ -354,27 +694,38 @@ export function SupplierDetailPage() {
     !!supplier,
   );
 
+  const { data: inventoryItems } = useInventory(businessId);
+  const { data: inventoryCategories } = useInventoryCategories(businessId);
+  const stockKnown = !!inventoryItems;
+
+  const itemsById = useMemo(() => {
+    const m = new Map<string, ItemWithQty>();
+    for (const it of inventoryItems ?? []) m.set(it.id, it);
+    return m;
+  }, [inventoryItems]);
+
+  const categoryNames = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of inventoryCategories ?? []) m.set(c.id, c.name);
+    return m;
+  }, [inventoryCategories]);
+
   /** supplier_items holds one row per price unit — fold them back into products. */
   const groupedProducts = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        item_id: string;
-        item_name: string;
-        item_unit: string | null;
-        item_image_url: string | null;
-        prices: SupplierItemPrices;
-      }
-    >();
+    const map = new Map<string, SupplierProduct>();
     for (const p of linkedProducts ?? []) {
       let row = map.get(p.item_id);
       if (!row) {
+        const item = itemsById.get(p.item_id) ?? null;
         row = {
           item_id: p.item_id,
           item_name: p.item_name,
           item_unit: p.item_unit,
+          item_units_per_package: p.item_units_per_package,
           item_image_url: p.item_image_url,
           prices: {},
+          item,
+          category_name: item?.category_id ? categoryNames.get(item.category_id) ?? null : null,
         };
         map.set(p.item_id, row);
       }
@@ -382,14 +733,27 @@ export function SupplierDetailPage() {
       else row.prices.main = Number(p.unit_price);
     }
     return [...map.values()];
-  }, [linkedProducts]);
+  }, [linkedProducts, itemsById, categoryNames]);
+
+  const lowStockCount = useMemo(() => groupedProducts.filter((p) => stockRank(p) <= 1).length, [groupedProducts]);
 
   const filteredProducts = useMemo(() => {
     const q = productSearch.trim().toLowerCase();
-    const rows = groupedProducts;
-    if (!q) return rows;
-    return rows.filter((p) => p.item_name.toLowerCase().includes(q));
-  }, [groupedProducts, productSearch]);
+    const rows = q
+      ? groupedProducts.filter(
+          (p) =>
+            p.item_name.toLowerCase().includes(q) ||
+            (p.item?.barcode ?? "").toLowerCase().includes(q) ||
+            (p.category_name ?? "").toLowerCase().includes(q),
+        )
+      : [...groupedProducts];
+    const byName = (a: SupplierProduct, b: SupplierProduct) => a.item_name.localeCompare(b.item_name, "he");
+    const priceOf = (p: SupplierProduct) => effectiveMainUnitPrice(p.prices, p.item_units_per_package);
+    if (productSort === "price-desc") return rows.sort((a, b) => priceOf(b) - priceOf(a) || byName(a, b));
+    if (productSort === "price-asc") return rows.sort((a, b) => priceOf(a) - priceOf(b) || byName(a, b));
+    if (productSort === "stock") return rows.sort((a, b) => stockRank(a) - stockRank(b) || byName(a, b));
+    return rows.sort(byName);
+  }, [groupedProducts, productSearch, productSort]);
 
   const priceTotal = useMemo(
     () => groupedProducts.reduce((sum, p) => sum + supplierPriceListTotal(p.prices), 0),
@@ -561,6 +925,11 @@ export function SupplierDetailPage() {
                     הוספת ח.פ
                   </button>
                 )}
+
+                <span className="spd-fact">
+                  <Icon name="local_shipping" size={14} />
+                  <span className="spd-fact-val">{formatDeliveryDay(supplier.delivery_day)}</span>
+                </span>
               </div>
             </div>
           </div>
@@ -635,7 +1004,7 @@ export function SupplierDetailPage() {
           </span>
           <span className="spd-note-body">
             <b>הערות לספק</b>
-            <span>{supplier.notes || "ימי אספקה, איש קשר, תנאי תשלום — לחצו להוספה"}</span>
+            <span>{supplier.notes || "איש קשר, תנאי תשלום — לחצו להוספה"}</span>
           </span>
           <Icon name={supplier.notes ? "edit" : "add"} size={16} className="spd-note-edit" />
         </button>
@@ -668,7 +1037,7 @@ export function SupplierDetailPage() {
                     <input
                       value={productSearch}
                       onChange={(e) => setProductSearch(e.target.value)}
-                      placeholder="חיפוש מוצר במחירון..."
+                      placeholder="חיפוש לפי שם, ברקוד או קטגוריה..."
                       className="spf-search-input"
                       aria-label="חיפוש מוצר בספק"
                     />
@@ -688,10 +1057,54 @@ export function SupplierDetailPage() {
                     <span>מתוך {groupedProducts.length}</span>
                   </span>
                 </div>
+
+                {groupedProducts.length > 1 && (
+                  <div className="spd-pbar">
+                    <div className="spd-sorts" role="group" aria-label="מיון המחירון">
+                      {PRODUCT_SORTS.map((s) => (
+                        <button
+                          key={s.key}
+                          type="button"
+                          className="spd-sort"
+                          data-active={productSort === s.key}
+                          onClick={() => setProductSort(s.key)}
+                        >
+                          <Icon name={s.icon} size={14} />
+                          {s.label}
+                          {s.key === "stock" && stockKnown && lowStockCount > 0 && (
+                            <span className="spd-sort-count">{lowStockCount}</span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="spd-views" role="group" aria-label="תצוגת המחירון">
+                      <button
+                        type="button"
+                        className="spd-view"
+                        data-active={productView === "grid"}
+                        onClick={() => setProductView("grid")}
+                        title="תצוגת כרטיסים"
+                        aria-label="תצוגת כרטיסים"
+                      >
+                        <Icon name="grid_view" size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        className="spd-view"
+                        data-active={productView === "rows"}
+                        onClick={() => setProductView("rows")}
+                        title="תצוגת שורות"
+                        aria-label="תצוגת שורות"
+                      >
+                        <Icon name="view_list" size={16} />
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {productsLoading ? (
-                <SkeletonRows />
+                <SkeletonCards />
               ) : !groupedProducts.length ? (
                 <EmptyState
                   icon="sell"
@@ -714,39 +1127,30 @@ export function SupplierDetailPage() {
                     </Button>
                   }
                 />
+              ) : productView === "grid" ? (
+                <ul className="spd-pgrid">
+                  {filteredProducts.map((p, i) => (
+                    <SupplierProductCard
+                      key={p.item_id}
+                      product={p}
+                      index={i}
+                      stockKnown={stockKnown}
+                      onOpenItem={() => navigate(`/inventory/items/${p.item_id}/edit`)}
+                      onEditPrice={() => navigate(`/suppliers/${supplier.id}/edit`)}
+                      onOrder={() => navigate(`/inventory/order?item=${p.item_id}`)}
+                    />
+                  ))}
+                </ul>
               ) : (
                 <ul className="spl-list">
                   {filteredProducts.map((p) => (
-                    <li key={p.item_id} className="spl-row">
-                      <span className="spl-row-thumb">
-                        {p.item_image_url ? (
-                          <img src={p.item_image_url} alt="" loading="lazy" />
-                        ) : (
-                          <Icon name="inventory_2" size={17} className="text-text-3" />
-                        )}
-                      </span>
-                      <span className="spl-row-main">
-                        <b>{p.item_name}</b>
-                        <em>{p.item_unit || "יחידה"}</em>
-                      </span>
-                      <span className="spd-prices">
-                        {p.prices.main != null && (
-                          <span className="spd-price">
-                            <b>{formatCurrency(p.prices.main)}</b>
-                            <em>ל{supplierPriceUnitLabel("main", p.item_unit)}</em>
-                          </span>
-                        )}
-                        {p.prices.piece != null && (
-                          <span className="spd-price">
-                            <b>{formatCurrency(p.prices.piece)}</b>
-                            <em>ל{supplierPriceUnitLabel("piece", p.item_unit)}</em>
-                          </span>
-                        )}
-                        {p.prices.main == null && p.prices.piece == null && (
-                          <span className="spd-price spd-price--none">ללא מחיר</span>
-                        )}
-                      </span>
-                    </li>
+                    <SupplierProductRow
+                      key={p.item_id}
+                      product={p}
+                      stockKnown={stockKnown}
+                      onOpenItem={() => navigate(`/inventory/items/${p.item_id}/edit`)}
+                      onOrder={() => navigate(`/inventory/order?item=${p.item_id}`)}
+                    />
                   ))}
                 </ul>
               )}
@@ -830,6 +1234,16 @@ function SkeletonRows() {
     <div className="spl-list">
       {[0, 1, 2].map((i) => (
         <div key={i} className="skeleton spl-skel" />
+      ))}
+    </div>
+  );
+}
+
+function SkeletonCards() {
+  return (
+    <div className="spd-pgrid">
+      {[0, 1, 2, 3, 4, 5].map((i) => (
+        <div key={i} className="skeleton spd-pskel" />
       ))}
     </div>
   );

@@ -32,6 +32,9 @@ export const WAGE_TYPE_LABELS: Record<WageType, string> = {
 /** Default hourly wage (₪) for new employees when none is specified. */
 export const DEFAULT_HOURLY_RATE = 35.4;
 
+/** Default name for the first warehouse created for a business. */
+export const DEFAULT_WAREHOUSE_NAME = "מלאי העסק";
+
 /** Roles that may create and manage business users. */
 export const USER_MANAGE_ROLES: UserRole[] = ["manager", "office_manager"];
 

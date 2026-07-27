@@ -1,5 +1,11 @@
-import { useMemo } from "react";
-import { motion, useReducedMotion } from "motion/react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  animate,
+  motion,
+  useReducedMotion,
+  type Transition,
+  type Variants,
+} from "motion/react";
 import { EASE_OUT, SPRING } from "@/components/motion/shared-motion";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId, colorForDepartment, initialsOf } from "@/lib/db";
@@ -8,7 +14,47 @@ import { useProfiles } from "@/api/users";
 import { useDepartments } from "@/api/departments";
 import type { Profile } from "@/types/database";
 
-const CONFETTI_COLORS = ["#bf7419", "#c2557b", "#3f72c4", "#3f9a72"] as const;
+const CONFETTI_COLORS = ["#e8b45a", "#f5d08a", "#ffffff", "#7dd3fc", "#f472b6"] as const;
+
+const HEAD_VARIANTS: Variants = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.07, delayChildren: 0.22 } },
+};
+
+const HEAD_ITEM: Variants = {
+  hidden: { opacity: 0, y: 8, filter: "blur(6px)" },
+  visible: {
+    opacity: 1,
+    y: 0,
+    filter: "blur(0px)",
+    transition: { duration: 0.45, ease: EASE_OUT },
+  },
+};
+
+const MARK_VARIANTS: Variants = {
+  hidden: { opacity: 0, scale: 0.4, rotate: -24 },
+  visible: {
+    opacity: 1,
+    scale: 1,
+    rotate: 0,
+    transition: { type: "spring", stiffness: 420, damping: 14 },
+  },
+};
+
+const COPY_VARIANTS: Variants = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.07, delayChildren: 0.28 } },
+};
+
+const COPY_ITEM: Variants = {
+  hidden: { opacity: 0, y: 14, filter: "blur(5px)" },
+  visible: {
+    opacity: 1,
+    y: 0,
+    filter: "blur(0px)",
+    transition: { duration: 0.42, ease: EASE_OUT },
+  },
+};
 
 function CakeGlyph({ size = 16 }: { size?: number }) {
   return (
@@ -39,60 +85,188 @@ function SparkGlyph({ size = 12 }: { size?: number }) {
   );
 }
 
-function CardDeco() {
-  return (
-    <span className="tbday-card__deco" aria-hidden>
-      <svg viewBox="0 0 160 92" fill="none">
-        <g stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeDasharray="4 8">
-          <path d="M-2 4c26 16 36 40 31 70" />
-          <path d="M22-8c33 18 47 40 43 68" />
-          <path d="M50-12c35 16 49 32 53 54" />
-        </g>
-        <g fill="currentColor">
-          <circle cx="112" cy="16" r="2.2" />
-          <circle cx="90" cy="58" r="1.5" />
-          <circle cx="134" cy="41" r="1.9" />
-          <circle cx="146" cy="12" r="1.4" />
-        </g>
-      </svg>
-    </span>
-  );
+type ConfettiPiece = {
+  id: number;
+  left: number;
+  color: string;
+  size: number;
+  shape: "strip" | "dot" | "square";
+  rotate: number;
+  sway: number;
+  duration: number;
+  delay: number;
+  repeatDelay: number;
+};
+
+function buildConfetti(seed: number, count: number): ConfettiPiece[] {
+  const shapes: ConfettiPiece["shape"][] = ["strip", "dot", "square"];
+  return Array.from({ length: count }, (_, i) => ({
+    id: i,
+    left: 4 + ((seed * 17 + i * 31) % 92),
+    color: CONFETTI_COLORS[(seed + i * 3) % CONFETTI_COLORS.length],
+    size: 3 + (i % 4) * 2,
+    shape: shapes[(seed + i) % shapes.length],
+    rotate: (seed * 13 + i * 53) % 360,
+    sway: -18 + ((seed + i * 11) % 36),
+    duration: 2.6 + (i % 5) * 0.55,
+    delay: 0.05 + ((seed + i * 5) % 18) / 10,
+    repeatDelay: 0.4 + (i % 4) * 0.35,
+  }));
 }
 
-function Confetti({ seed }: { seed: number }) {
-  const bits = useMemo(
-    () =>
-      Array.from({ length: 10 }, (_, i) => ({
-        id: i,
-        left: `${6 + ((seed * 13 + i * 29) % 88)}%`,
-        delay: `${((seed + i * 7) % 26) / 10}s`,
-        duration: `${3.2 + (i % 4) * 0.45}s`,
-        color: CONFETTI_COLORS[(seed + i) % CONFETTI_COLORS.length],
-        width: 5 + (i % 3) * 3,
-        rotate: (seed * 11 + i * 47) % 180,
-      })),
-    [seed],
-  );
+function ConfettiField({ seed, cardDelay }: { seed: number; cardDelay: number }) {
+  const reduce = useReducedMotion();
+  const pieces = useMemo(() => buildConfetti(seed, 20), [seed]);
+
+  if (reduce) return null;
 
   return (
     <span className="tbday-confetti" aria-hidden>
-      {bits.map((b) => (
-        <span
-          key={b.id}
-          className="tbday-confetti__bit"
-          style={
+      <motion.span
+        className="tbday-flash"
+        initial={{ opacity: 0, scale: 0.6 }}
+        animate={{ opacity: [0, 0.85, 0], scale: [0.6, 1.35, 1.6] }}
+        transition={{ duration: 0.9, delay: cardDelay + 0.08, ease: EASE_OUT }}
+      />
+      {pieces.map((p) => (
+        <motion.span
+          key={p.id}
+          className={`tbday-confetti__bit tbday-confetti__bit--${p.shape}`}
+          style={{
+            left: `${p.left}%`,
+            background: p.color,
+            ["--w" as string]: `${p.size}px`,
+          }}
+          initial={{
+            opacity: 0,
+            y: -40,
+            x: 0,
+            rotate: p.rotate,
+            scale: 0,
+          }}
+          animate={{
+            opacity: [0, 1, 1, 0.8, 0],
+            y: [-40, 10, 70, 130, 170],
+            x: [0, p.sway * 0.4, p.sway, p.sway * 1.3],
+            rotate: [p.rotate, p.rotate + 120, p.rotate + 280, p.rotate + 420],
+            scale: [0, 1.15, 1, 0.75, 0.4],
+          }}
+          transition={
             {
-              "--left": b.left,
-              "--delay": b.delay,
-              "--dur": b.duration,
-              "--color": b.color,
-              "--w": `${b.width}px`,
-              "--rot": `${b.rotate}deg`,
-            } as React.CSSProperties
+              duration: p.duration,
+              delay: cardDelay + p.delay,
+              repeat: Infinity,
+              repeatDelay: p.repeatDelay,
+              ease: EASE_OUT,
+            } satisfies Transition
           }
         />
       ))}
     </span>
+  );
+}
+
+function FloatingSpark({
+  className,
+  size,
+  delay,
+}: {
+  className: string;
+  size: number;
+  delay: number;
+}) {
+  const reduce = useReducedMotion();
+  if (reduce) {
+    return (
+      <span className={className} aria-hidden>
+        <SparkGlyph size={size} />
+      </span>
+    );
+  }
+
+  return (
+    <motion.span
+      className={className}
+      aria-hidden
+      animate={{
+        opacity: [0.2, 1, 0.2],
+        scale: [0.75, 1.15, 0.75],
+        y: [0, -5, 0],
+        rotate: [0, 18, 0],
+      }}
+      transition={{
+        duration: 2.8,
+        repeat: Infinity,
+        ease: "easeInOut",
+        delay,
+      }}
+    >
+      <SparkGlyph size={size} />
+    </motion.span>
+  );
+}
+
+function OrbitSpark({
+  radius,
+  duration,
+  delay,
+  size,
+}: {
+  radius: number;
+  duration: number;
+  delay: number;
+  size: number;
+}) {
+  const reduce = useReducedMotion();
+  if (reduce) return null;
+
+  return (
+    <motion.span
+      className="tbday-orbit-spark"
+      style={{ width: radius * 2, height: radius * 2, ["--orbit-r" as string]: `${radius}px` }}
+      animate={{ rotate: 360 }}
+      transition={{ duration, repeat: Infinity, ease: "linear", delay }}
+      aria-hidden
+    >
+      <motion.span
+        className="tbday-orbit-spark__dot"
+        animate={{ scale: [0.85, 1.2, 0.85], opacity: [0.5, 1, 0.5] }}
+        transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
+      >
+        <SparkGlyph size={size} />
+      </motion.span>
+    </motion.span>
+  );
+}
+
+function AgeReveal({ age, delay }: { age: number; delay: number }) {
+  const reduce = useReducedMotion();
+  const [display, setDisplay] = useState(reduce ? age : 0);
+
+  useEffect(() => {
+    if (reduce) {
+      setDisplay(age);
+      return;
+    }
+    setDisplay(0);
+    const controls = animate(0, age, {
+      duration: 1.15,
+      delay,
+      ease: EASE_OUT,
+      onUpdate: (v) => setDisplay(Math.round(v)),
+    });
+    return () => controls.stop();
+  }, [age, delay, reduce]);
+
+  return (
+    <motion.span
+      className="tbday-card__age-num"
+      initial={reduce ? false : { opacity: 0, scale: 0.15, filter: "blur(10px)" }}
+      animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+      transition={{ type: "spring", stiffness: 220, damping: 16, delay }}
+    >
+      {display}
+    </motion.span>
   );
 }
 
@@ -102,12 +276,14 @@ function BirthdayCard({
   departmentColor,
   isSelf,
   index,
+  stacked,
 }: {
   profile: Profile;
   departmentName: string | null;
   departmentColor: string | null;
   isSelf: boolean;
   index: number;
+  stacked: boolean;
 }) {
   const reduce = useReducedMotion();
   const age = profile.birth_date ? birthdayAge(profile.birth_date) : 0;
@@ -115,21 +291,59 @@ function BirthdayCard({
   const fullName = profile.full_name?.trim() || "עובד/ת";
   const firstName = fullName.split(/\s+/)[0];
   const seed = (profile.id.charCodeAt(0) || 7) + (profile.id.charCodeAt(3) || 3);
+  const cardDelay = 0.12 + index * 0.1;
 
   return (
     <motion.article
       className="tbday-card"
       data-self={isSelf || undefined}
-      initial={reduce ? false : { opacity: 0, y: 14 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ ...SPRING, delay: index * 0.07 }}
+      data-stacked={stacked || undefined}
+      initial={reduce ? false : { opacity: 0, y: 22, scale: 0.96, filter: "blur(8px)" }}
+      animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+      transition={{ duration: 0.58, ease: EASE_OUT, delay: cardDelay }}
+      whileHover={
+        reduce
+          ? undefined
+          : {
+              y: -4,
+              scale: 1.008,
+              transition: SPRING,
+            }
+      }
     >
-      <CardDeco />
-      {!reduce && <Confetti seed={seed} />}
+      <ConfettiField seed={seed} cardDelay={cardDelay} />
+
+      {!reduce && (
+        <motion.span
+          className="tbday-card__sweep"
+          aria-hidden
+          initial={{ x: "-130%", opacity: 0.75 }}
+          animate={{ x: "230%", opacity: 0 }}
+          transition={{ duration: 1.05, delay: cardDelay + 0.18, ease: EASE_OUT }}
+        />
+      )}
 
       <div className="tbday-card__body">
-        <div className="tbday-card__portrait">
-          <span className="tbday-card__ring" aria-hidden />
+        <motion.div
+          className="tbday-card__portrait"
+          initial={reduce ? false : { scale: 0.55, opacity: 0, rotate: -8 }}
+          animate={{ scale: 1, opacity: 1, rotate: 0 }}
+          transition={{ type: "spring", stiffness: 340, damping: 20, delay: cardDelay + 0.1 }}
+        >
+          <span className="tbday-card__halo" aria-hidden />
+          <motion.span
+            className="tbday-card__ring"
+            aria-hidden
+            animate={
+              reduce
+                ? undefined
+                : {
+                    scale: [1, 1.06, 1],
+                    opacity: [0.55, 1, 0.55],
+                  }
+            }
+            transition={{ duration: 2.6, repeat: Infinity, ease: "easeInOut" }}
+          />
           <span className="tbday-card__ring tbday-card__ring--outer" aria-hidden />
 
           {profile.avatar_url ? (
@@ -144,31 +358,35 @@ function BirthdayCard({
             </span>
           )}
 
-          <span className="tbday-card__twinkle tbday-card__twinkle--a" aria-hidden>
-            <SparkGlyph size={13} />
-          </span>
-          <span className="tbday-card__twinkle tbday-card__twinkle--b" aria-hidden>
-            <SparkGlyph size={9} />
-          </span>
-        </div>
+          <OrbitSpark radius={38} duration={9} delay={0} size={8} />
+          <OrbitSpark radius={46} duration={14} delay={0.4} size={6} />
 
-        <div className="tbday-card__copy">
-          <p className="tbday-card__eyebrow">
+          <FloatingSpark className="tbday-card__twinkle tbday-card__twinkle--a" size={13} delay={0} />
+          <FloatingSpark className="tbday-card__twinkle tbday-card__twinkle--b" size={9} delay={1.2} />
+        </motion.div>
+
+        <motion.div
+          className="tbday-card__copy"
+          initial="hidden"
+          animate="visible"
+          variants={COPY_VARIANTS}
+        >
+          <motion.p className="tbday-card__eyebrow" variants={COPY_ITEM}>
             <SparkGlyph size={10} />
             {isSelf ? "יום הולדת שמח לך" : "חוגגים היום"}
-          </p>
+          </motion.p>
 
-          <h3 className="tbday-card__name" title={fullName}>
+          <motion.h3 className="tbday-card__name" title={fullName} variants={COPY_ITEM}>
             {isSelf ? firstName : fullName}
-          </h3>
+          </motion.h3>
 
-          <p className="tbday-card__msg">
+          <motion.p className="tbday-card__msg" variants={COPY_ITEM}>
             {isSelf
               ? "כל הצוות מאחל לך שנה מלאה בבריאות, בהצלחה והרבה רגעים טובים."
               : `אפשר לעצור לרגע ולאחל ל${firstName} מזל טוב.`}
-          </p>
+          </motion.p>
 
-          <div className="tbday-card__chips">
+          <motion.div className="tbday-card__chips" variants={COPY_ITEM}>
             {departmentName && (
               <span className="tbday-card__chip">
                 <span
@@ -180,14 +398,27 @@ function BirthdayCard({
               </span>
             )}
             {age > 0 && <span className="tbday-card__chip tbday-card__chip--age">גיל {age}</span>}
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
 
         {age > 0 && (
-          <div className="tbday-card__age" aria-hidden>
-            <span className="tbday-card__age-num">{age}</span>
-            <span className="tbday-card__age-label">שנים</span>
-          </div>
+          <motion.div
+            className="tbday-card__age"
+            aria-hidden
+            initial={reduce ? false : { opacity: 0, x: 16 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.45, ease: EASE_OUT, delay: cardDelay + 0.32 }}
+          >
+            <AgeReveal age={age} delay={cardDelay + 0.38} />
+            <motion.span
+              className="tbday-card__age-label"
+              initial={reduce ? false : { opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.35, delay: cardDelay + 0.55 }}
+            >
+              שנים
+            </motion.span>
+          </motion.div>
         )}
       </div>
     </motion.article>
@@ -208,40 +439,64 @@ export function TodayBirthdaysBanner() {
   if (birthdays.length === 0) return null;
 
   const today = new Date().toLocaleDateString("he-IL", { day: "numeric", month: "long" });
+  const stacked = birthdays.length > 1;
 
   return (
     <section className="tbday" aria-label="ימי הולדת היום">
-      <motion.header
-        className="tbday-head"
-        initial={reduce ? false : { opacity: 0, y: 5 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3, ease: EASE_OUT }}
+      <motion.div
+        className="tbday-shell"
+        initial={reduce ? false : { opacity: 0, y: 32, scale: 0.93, filter: "blur(12px)" }}
+        animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+        transition={{ duration: 0.78, ease: EASE_OUT }}
       >
-        <span className="tbday-head__mark">
-          <CakeGlyph size={15} />
-        </span>
-        <span className="tbday-head__title">
-          {birthdays.length === 1 ? "יום הולדת היום" : `${birthdays.length} ימי הולדת היום`}
-        </span>
-        <span className="tbday-head__rule" aria-hidden />
-        <span className="tbday-head__date">{today}</span>
-      </motion.header>
+        <div className="tbday-fx" aria-hidden>
+          <span className="tbday-aurora tbday-aurora--1" />
+          <span className="tbday-aurora tbday-aurora--2" />
+          <span className="tbday-grid" />
+          <span className="tbday-grain" />
+          {!reduce && <span className="tbday-shimmer" />}
+        </div>
 
-      <div className="tbday-list">
-        {birthdays.map((p, i) => {
-          const dept = p.department_id ? deptById.get(p.department_id) : null;
-          return (
-            <BirthdayCard
-              key={p.id}
-              profile={p}
-              departmentName={dept?.name ?? null}
-              departmentColor={dept?.color ?? null}
-              isSelf={p.id === profile?.id}
-              index={i}
-            />
-          );
-        })}
-      </div>
+        <motion.header
+          className="tbday-head"
+          initial="hidden"
+          animate="visible"
+          variants={HEAD_VARIANTS}
+        >
+          <motion.span className="tbday-head__mark" variants={MARK_VARIANTS}>
+            <motion.span
+              animate={reduce ? undefined : { rotate: [0, -8, 8, -4, 0] }}
+              transition={{ duration: 0.7, delay: 0.55, ease: EASE_OUT }}
+            >
+              <CakeGlyph size={15} />
+            </motion.span>
+          </motion.span>
+          <motion.span className="tbday-head__title" variants={HEAD_ITEM}>
+            {birthdays.length === 1 ? "יום הולדת היום" : `${birthdays.length} ימי הולדת היום`}
+          </motion.span>
+          <motion.span className="tbday-head__rule" variants={HEAD_ITEM} aria-hidden />
+          <motion.span className="tbday-head__date" variants={HEAD_ITEM}>
+            {today}
+          </motion.span>
+        </motion.header>
+
+        <div className="tbday-list">
+          {birthdays.map((p, i) => {
+            const dept = p.department_id ? deptById.get(p.department_id) : null;
+            return (
+              <BirthdayCard
+                key={p.id}
+                profile={p}
+                departmentName={dept?.name ?? null}
+                departmentColor={dept?.color ?? null}
+                isSelf={p.id === profile?.id}
+                index={i}
+                stacked={stacked}
+              />
+            );
+          })}
+        </div>
+      </motion.div>
     </section>
   );
 }

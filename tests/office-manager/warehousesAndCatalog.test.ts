@@ -18,7 +18,7 @@ describe("בחירת מחסן ברירת מחדל", () => {
   it("בוחר את המחסן המסומן כברירת מחדל", () => {
     const list = [
       makeWarehouse({ id: WAREHOUSE.bar, name: "מחסן בר", is_default: false, sort_order: 0 }),
-      makeWarehouse({ id: WAREHOUSE.main, name: "מחסן ראשי", is_default: true, sort_order: 1 }),
+      makeWarehouse({ id: WAREHOUSE.main, name: "מלאי העסק", is_default: true, sort_order: 1 }),
     ];
     expect(defaultWarehouse(list)?.id).toBe(WAREHOUSE.main);
   });

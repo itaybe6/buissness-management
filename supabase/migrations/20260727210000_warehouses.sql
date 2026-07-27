@@ -40,7 +40,7 @@ create policy "warehouses_manager_write" on public.warehouses
 
 -- מחסן ברירת מחדל לכל עסק קיים
 insert into public.warehouses (business_id, name, sort_order, is_default)
-select b.id, 'מחסן ראשי', 0, true
+select b.id, 'מלאי העסק', 0, true
 from public.businesses b
 where not exists (
   select 1 from public.warehouses w where w.business_id = b.id and w.is_default = true
@@ -59,7 +59,7 @@ where c.warehouse_id is null
 
 -- ספירות יתומות (ללא מחסן ברירת מחדל) — יצירת מחסן ושיוך
 insert into public.warehouses (business_id, name, sort_order, is_default)
-select distinct c.business_id, 'מחסן ראשי', 0, true
+select distinct c.business_id, 'מלאי העסק', 0, true
 from public.inventory_counts c
 where c.warehouse_id is null
   and not exists (

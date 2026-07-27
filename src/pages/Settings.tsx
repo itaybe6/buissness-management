@@ -3,7 +3,7 @@ import { Badge, Button, EmptyState, Icon, Input, PageLoader, ErrorState, Switch,
 import { Modal } from "@/components/ui/Modal";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { useBusiness, useUpdateBusiness } from "@/api/businesses";
-import { ATTENDANCE_RADIUS_M, ATTENDANCE_GEOFENCE_EXEMPT_ROLE_OPTIONS, ROLE_LABELS } from "@/lib/constants";
+import { ATTENDANCE_RADIUS_M, ATTENDANCE_GEOFENCE_EXEMPT_ROLE_OPTIONS, DEFAULT_WAREHOUSE_NAME, ROLE_LABELS } from "@/lib/constants";
 import {
   useDepartments,
   useCreateDepartment,
@@ -187,7 +187,7 @@ export function Settings() {
                     .slice(0, 2)
                     .map((w) => w.name)
                     .join(" · ")
-                : "מחסן ראשי, מחסן משני…"
+                : "מלאי העסק, מחסן בר…"
             }
             onEdit={() => setPanel("warehouses")}
           />
@@ -1201,12 +1201,16 @@ function WarehousesModal({
           )}
         </div>
         <div className="flex gap-2.5">
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="שם מחסן חדש" />
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={(warehouses?.length ?? 0) === 0 ? DEFAULT_WAREHOUSE_NAME : "שם מחסן חדש"}
+          />
           <Button
             icon="add"
             loading={create.isPending}
             onClick={() => {
-              const trimmed = name.trim();
+              const trimmed = name.trim() || ((warehouses?.length ?? 0) === 0 ? DEFAULT_WAREHOUSE_NAME : "");
               if (!trimmed) return;
               create.mutate({
                 business_id: businessId,

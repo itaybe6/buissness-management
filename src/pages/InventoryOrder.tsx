@@ -11,8 +11,6 @@ import {
   useUpdateOrdersBatch,
   inventorySaveError,
   inventoryLineTotal,
-  canUsePieceInput,
-  piecesToMainUnit,
   formatQtyWithPieces,
   isTrackedLowStock,
   inventoryItemMatchesQuery,
@@ -20,45 +18,13 @@ import {
 } from "@/api/inventory";
 import { useInventoryCategories } from "@/api/inventoryCategories";
 import { useSuppliers, useSupplierItemPriceIndex, supplierPricesFor, effectiveMainUnitPrice } from "@/api/suppliers";
-
-/** Quantity draft per product: whole packages in the item's main unit + loose single pieces. */
-type QtyDraft = { packs: number; pieces: number };
-
-function round4(n: number): number {
-  return Math.round(n * 10000) / 10000;
-}
-
-function isDual(item: ItemWithQty): boolean {
-  return canUsePieceInput(item.unit, item.units_per_package);
-}
-
-/** Total order quantity in the item's main unit (packs + pieces converted). */
-function draftTotal(item: ItemWithQty, draft: QtyDraft): number {
-  const fromPieces = isDual(item) && draft.pieces > 0 ? piecesToMainUnit(draft.pieces, item.units_per_package!) : 0;
-  return round4(draft.packs + fromPieces);
-}
-
-/** Human label, e.g. "2 ארגז + 5 יח׳" or "3 ק״ג". */
-function draftLabel(item: ItemWithQty, draft: QtyDraft): string {
-  const unit = item.unit ?? "יחידות";
-  const parts: string[] = [];
-  if (draft.packs > 0) parts.push(`${draft.packs} ${unit}`);
-  if (isDual(item) && draft.pieces > 0) parts.push(`${draft.pieces} יח׳`);
-  return parts.length ? parts.join(" + ") : `0 ${unit}`;
-}
-
-/** Split a stored main-unit quantity back into whole packs + loose pieces for editing. */
-function decomposeQty(item: ItemWithQty | undefined, qty: number): QtyDraft {
-  if (!item || !isDual(item)) return { packs: qty, pieces: 0 };
-  const factor = item.units_per_package!;
-  let packs = Math.floor(qty + 1e-9);
-  let pieces = Math.round((qty - packs) * factor);
-  if (pieces >= factor) {
-    packs += 1;
-    pieces = 0;
-  }
-  return { packs, pieces };
-}
+import {
+  QtyEditor,
+  decomposeQty,
+  draftLabel,
+  draftTotal,
+  type QtyDraft,
+} from "@/components/inventory/orderDraft";
 
 function formatDeliveryDay(day: number | null | undefined): string {
   if (day == null || day < 0 || day > 6) return "לא הוגדר";
@@ -80,119 +46,6 @@ const STOCK_META: Record<StockStatus, { label: string; dot: string }> = {
   ok: { label: "במלאי", dot: "var(--success)" },
 };
 
-/* ----------------------------- Stepper control ----------------------------- */
-
-function StepControl({
-  value,
-  onChange,
-  integer = false,
-  ariaLabel,
-}: {
-  value: number;
-  onChange: (v: number) => void;
-  integer?: boolean;
-  ariaLabel: string;
-}) {
-  const [text, setText] = useState(value > 0 ? String(value) : "");
-
-  useEffect(() => {
-    setText(value > 0 ? String(value) : "");
-  }, [value]);
-
-  function commitText() {
-    const n = Number(text.replace(",", "."));
-    const v = !Number.isFinite(n) || n <= 0 ? 0 : integer ? Math.round(n) : round4(n);
-    if (v !== value) onChange(v);
-    else setText(v > 0 ? String(v) : "");
-  }
-
-  return (
-    <div className="ordc-step">
-      <button
-        type="button"
-        className="ordc-step-btn"
-        aria-label={`הפחתת ${ariaLabel}`}
-        onClick={() => onChange(Math.max(0, round4(value - 1)))}
-      >
-        <Icon name="remove" size={16} />
-      </button>
-      <input
-        className="ordc-step-input"
-        inputMode={integer ? "numeric" : "decimal"}
-        placeholder="0"
-        value={text}
-        aria-label={ariaLabel}
-        onFocus={(e) => e.target.select()}
-        onChange={(e) => setText(e.target.value)}
-        onBlur={commitText}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-        }}
-      />
-      <button
-        type="button"
-        className="ordc-step-btn ordc-step-btn--add"
-        aria-label={`הוספת ${ariaLabel}`}
-        onClick={() => onChange(round4(value + 1))}
-      >
-        <Icon name="add" size={16} />
-      </button>
-    </div>
-  );
-}
-
-/* ----------------------------- Quantity editor ----------------------------- */
-
-function QtyEditor({
-  item,
-  draft,
-  onPatch,
-  dense = false,
-}: {
-  item: ItemWithQty;
-  draft: QtyDraft;
-  onPatch: (patch: Partial<QtyDraft>) => void;
-  dense?: boolean;
-}) {
-  const dual = isDual(item);
-  const unit = item.unit ?? "יחידות";
-  const total = draftTotal(item, draft);
-
-  return (
-    <div className={`ordc-steppers ${dense ? "ordc-steppers--dense" : ""}`}>
-      <div className="ordc-step-row">
-        <span className="ordc-step-label">
-          <Icon name="package_2" size={14} />
-          {unit}
-        </span>
-        <StepControl value={draft.packs} onChange={(v) => onPatch({ packs: v })} ariaLabel={`כמות ${unit}`} />
-      </div>
-      {dual && (
-        <div className="ordc-step-row">
-          <span className="ordc-step-label">
-            <Icon name="counter_1" size={14} />
-            יחידות בודדות
-          </span>
-          <StepControl integer value={draft.pieces} onChange={(v) => onPatch({ pieces: v })} ariaLabel="יחידות בודדות" />
-        </div>
-      )}
-      {dual && (
-        <p className="ordc-step-total">
-          {total > 0 ? (
-            <>
-              סה״כ להזמנה: <b>{formatQtyWithPieces(total, item.unit, item.units_per_package)}</b>
-            </>
-          ) : (
-            <>
-              1 {unit} = {item.units_per_package} יח׳
-            </>
-          )}
-        </p>
-      )}
-    </div>
-  );
-}
-
 /* ----------------------------- Product card ----------------------------- */
 
 function ProductCard({
@@ -204,6 +57,7 @@ function ProductCard({
   onPatch,
   onRemove,
   categoryName,
+  deliveryLabel,
 }: {
   item: ItemWithQty;
   index: number;
@@ -213,6 +67,7 @@ function ProductCard({
   onPatch: (patch: Partial<QtyDraft>) => void;
   onRemove: () => void;
   categoryName: string | null;
+  deliveryLabel: string;
 }) {
   const meta = STOCK_META[stockStatus(item)];
   const selected = !!draft;
@@ -273,7 +128,7 @@ function ProductCard({
           </span>
           <span className="ordc-meta-line">
             <Icon name="local_shipping" size={13} />
-            אספקה: {formatDeliveryDay(item.supplier_delivery_day)}
+            אספקה: {deliveryLabel}
           </span>
         </div>
 
@@ -383,7 +238,7 @@ export function InventoryOrder() {
   const [error, setError] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [flashId, setFlashId] = useState<string | null>(null);
-  const [supplierId, setSupplierId] = useState<string>("");
+  const [supplierId, setSupplierId] = useState<string>(() => searchParams.get("supplier") ?? "");
   const [batchMissing, setBatchMissing] = useState(false);
   const editInitRef = useRef(false);
   const presetJumpRef = useRef(false);
@@ -416,6 +271,12 @@ export function InventoryOrder() {
     setDrafts(next);
     setSupplierId(editLines[0]?.supplier_id ?? "");
   }, [isEditing, editLines, items]);
+
+  // Every order belongs to a supplier — with a single supplier there is nothing to choose.
+  useEffect(() => {
+    if (supplierId || isEditing || !suppliers || suppliers.length !== 1) return;
+    setSupplierId(suppliers[0].id);
+  }, [suppliers, supplierId, isEditing]);
 
   // When arriving from a product card ("הזמנה" on a specific item) — scroll to it and flash.
   useEffect(() => {
@@ -486,17 +347,15 @@ export function InventoryOrder() {
     [selectedItems, drafts, supplierPrices],
   );
 
+  const selectedSupplier = useMemo(
+    () => (supplierId ? suppliers?.find((s) => s.id === supplierId) ?? null : null),
+    [suppliers, supplierId],
+  );
+
   const deliveryLabel = useMemo(() => {
-    const days = [
-      ...new Set(
-        selectedItems
-          .map((i) => i.supplier_delivery_day)
-          .filter((d): d is number => d != null && d >= 0 && d <= 6),
-      ),
-    ].sort((a, b) => a - b);
-    if (!days.length) return null;
-    return days.map((d) => `יום ${HE_DAYS[d]}`).join(" · ");
-  }, [selectedItems]);
+    if (!selectedSupplier) return "בחרו ספק";
+    return formatDeliveryDay(selectedSupplier.delivery_day);
+  }, [selectedSupplier]);
 
   const editMeta =
     isEditing && editLines?.length
@@ -565,6 +424,11 @@ export function InventoryOrder() {
       setError("נא לבחור לפחות מוצר אחד עם כמות");
       return;
     }
+    if (!supplierId) {
+      setError("כל הזמנה משויכת לספק — נא לבחור את הספק שממנו מזמינים");
+      setSheetOpen(true);
+      return;
+    }
     setBusy(true);
     try {
       if (isEditing && editLines?.length) {
@@ -572,7 +436,7 @@ export function InventoryOrder() {
           batch_id: batchParam!,
           business_id: businessId!,
           ordered_by: editLines[0].ordered_by ?? profile?.id ?? null,
-          supplier_id: supplierId || null,
+          supplier_id: supplierId,
           line_ids: editLines.map((l) => l.id),
           lines: orderLines,
         });
@@ -580,7 +444,7 @@ export function InventoryOrder() {
         await createOrdersBatch.mutateAsync({
           business_id: businessId!,
           ordered_by: profile?.id ?? null,
-          supplier_id: supplierId || null,
+          supplier_id: supplierId,
           lines: orderLines,
         });
       }
@@ -627,14 +491,16 @@ export function InventoryOrder() {
 
   const supplierPicker =
     (suppliers?.length ?? 0) > 0 ? (
-      <Field label="ספק להזמנה">
+      <Field label="ספק להזמנה · חובה">
         <Select
           value={supplierId}
           onChange={(e) => setSupplierId(e.target.value)}
           searchable
           searchPlaceholder="בחר ספק..."
         >
-          <option value="">ללא ספק</option>
+          <option value="" disabled>
+            בחרו ספק...
+          </option>
           {(suppliers ?? []).map((s) => (
             <option key={s.id} value={s.id}>
               {s.name}
@@ -649,7 +515,7 @@ export function InventoryOrder() {
       </Field>
     ) : (
       <p className="text-[12px] text-text-3">
-        אין ספקים במערכת.{" "}
+        אין ספקים במערכת — כל הזמנה חייבת ספק.{" "}
         <Link to="/suppliers" className="font-semibold text-accent-2 hover:underline">
           הוספת ספק
         </Link>
@@ -789,6 +655,7 @@ export function InventoryOrder() {
                       onPatch={(patch) => patchDraft(it, patch)}
                       onRemove={() => removeItem(it.id)}
                       categoryName={it.category_id ? categoryNameById.get(it.category_id) ?? null : null}
+                      deliveryLabel={deliveryLabel}
                     />
                   ))}
                 </div>
@@ -860,7 +727,7 @@ export function InventoryOrder() {
                     <span className="tabular-nums text-text">{formatCurrency(cartTotal)}</span>
                   </div>
                 )}
-                {deliveryLabel && (
+                {selectedSupplier && (
                   <p className="ordc-cart-delivery">
                     <Icon name="local_shipping" size={14} />
                     אספקה צפויה: {deliveryLabel}
@@ -941,7 +808,7 @@ export function InventoryOrder() {
                 <span className="tabular-nums text-text">{formatCurrency(cartTotal)}</span>
               </div>
             )}
-            {deliveryLabel && (
+            {selectedSupplier && (
               <p className="ordc-cart-delivery">
                 <Icon name="local_shipping" size={14} />
                 אספקה צפויה: {deliveryLabel}

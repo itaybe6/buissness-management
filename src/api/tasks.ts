@@ -4,7 +4,7 @@ import { compressImage } from "@/lib/compressImage";
 import { todayISO } from "@/lib/db";
 import { supabase } from "@/lib/supabase";
 import { normalizeRecurrenceWeekdays } from "@/lib/taskRecurrence";
-import { oneTimeTaskNeedsDueDateRollover } from "@/lib/todayTasks";
+import { oneTimeTaskNeedsDueDateRollover, taskBelongsToEmployee } from "@/lib/todayTasks";
 import type { Task, TaskApproval, TaskStatus, TaskType } from "@/types/database";
 
 function normalizeTask(row: Task): Task {
@@ -73,6 +73,7 @@ export function useCreateTask() {
       type: TaskType;
       template_id?: string | null;
       event_id?: string | null;
+      department_id?: string | null;
       assigned_to?: string | null;
       assigned_by?: string | null;
       due_date?: string | null;
@@ -160,11 +161,16 @@ export function useEventTasks(businessId: string | null, eventId: string | null 
   return { data: eventTasks, allTasks: tasks, ...rest };
 }
 
-/** Status/media updates for tasks assigned to the current user on a specific event. */
-export function useAssignedEventTaskActions(
+/**
+ * Status/media updates for event tasks — all rows when manageAll, otherwise
+ * personally assigned rows plus the shared tasks of the employee's department.
+ */
+export function useEventTaskListActions(
   businessId: string,
   eventId: string,
   profileId: string,
+  deptId: string | null,
+  manageAll: boolean,
 ) {
   const { data: tasks = [], isLoading } = useTasks(businessId);
   const update = useUpdateTask(businessId);
@@ -177,13 +183,13 @@ export function useAssignedEventTaskActions(
     >
   >({});
 
-  const assignedEventTasks = useMemo(() => {
+  const eventTaskList = useMemo(() => {
     return tasks
       .filter(
         (t) =>
           t.event_id === eventId &&
-          t.assigned_to === profileId &&
-          t.approval_status !== "pending",
+          t.approval_status !== "pending" &&
+          (manageAll || taskBelongsToEmployee(t, profileId, deptId)),
       )
       .map((t) => {
         const patch = overrides[t.id];
@@ -193,7 +199,7 @@ export function useAssignedEventTaskActions(
         if ((a.status === "done") !== (b.status === "done")) return a.status === "done" ? 1 : -1;
         return a.created_at.localeCompare(b.created_at);
       });
-  }, [tasks, eventId, profileId, overrides]);
+  }, [tasks, eventId, profileId, deptId, manageAll, overrides]);
 
   useEffect(() => {
     setOverrides((prev) => {
@@ -238,5 +244,15 @@ export function useAssignedEventTaskActions(
     update.mutate({ id, ...patch });
   }
 
-  return { tasks: assignedEventTasks, setStatus, setMedia, isLoading };
+  return { tasks: eventTaskList, setStatus, setMedia, isLoading };
+}
+
+/** @deprecated Use useEventTaskListActions */
+export function useAssignedEventTaskActions(
+  businessId: string,
+  eventId: string,
+  profileId: string,
+  deptId: string | null,
+) {
+  return useEventTaskListActions(businessId, eventId, profileId, deptId, false);
 }

@@ -18,7 +18,7 @@ drop trigger if exists on_auth_user_created on auth.users;
 drop table if exists
   public.tasks, public.task_templates, public.events, public.event_ideas, public.faults, public.inventory_logs,
   public.inventory_waste, public.inventory_orders, public.inventory_counts, public.inventory_item_departments,
-  public.inventory_items, public.inventory_categories, public.suppliers, public.supplier_items,
+  public.inventory_items, public.inventory_categories, public.inventory_units, public.suppliers, public.supplier_items,
   public.payroll_records, public.payroll_month_adjustments,
   public.tips, public.shift_bonuses, public.shift_reports, public.attendance, public.shift_assignments, public.shift_preferences,
   public.shift_templates, public.departments,
@@ -603,6 +603,19 @@ create table public.inventory_categories (
 create unique index idx_inv_categories_business_name
   on public.inventory_categories (business_id, lower(trim(name)));
 
+create table public.inventory_units (
+  id          uuid primary key default gen_random_uuid(),
+  business_id uuid not null references public.businesses(id) on delete cascade,
+  name        text not null,
+  sort_order  integer not null default 0,
+  is_base     boolean not null default false,
+  active      boolean not null default true,
+  created_at  timestamptz not null default now()
+);
+
+create unique index idx_inv_units_business_name
+  on public.inventory_units (business_id, lower(trim(name)));
+
 create table public.inventory_items (
   id            uuid primary key default gen_random_uuid(),
   business_id   uuid not null references public.businesses(id) on delete cascade,
@@ -611,7 +624,6 @@ create table public.inventory_items (
   units_per_package numeric(12,2) check (units_per_package is null or units_per_package > 0),  -- יחידים ביחידת מידה (למשל 24 בארגז)
   image_url     text,                 -- תמונת המוצר ב-Storage
   min_quantity  numeric(12,2) not null default 0,  -- סף מלאי נמוך
-  supplier_delivery_day smallint check (supplier_delivery_day between 0 and 6),  -- יום אספקה מהספק
   category_id   uuid references public.inventory_categories(id) on delete set null,
   active        boolean not null default true,
   created_at    timestamptz not null default now()
@@ -624,6 +636,7 @@ create table public.suppliers (
   phone         text,
   tax_id        text,
   notes         text,
+  delivery_day  smallint check (delivery_day between 0 and 6),  -- יום אספקה מהספק
   active        boolean not null default true,
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now()
@@ -776,6 +789,7 @@ create table public.tasks (
   business_id   uuid not null references public.businesses(id) on delete cascade,
   template_id   uuid references public.task_templates(id) on delete set null,
   event_id      uuid references public.events(id) on delete cascade,  -- משימת אירוע (null = רגילה)
+  department_id uuid references public.departments(id) on delete cascade, -- שיוך למחלקה (עם assigned_to null = משימה אחת לכל המחלקה)
   title         text not null,
   description   text,
   type          public.task_type not null default 'one_time',
@@ -875,6 +889,7 @@ create index idx_payroll_business           on public.payroll_records(business_i
 create index idx_payroll_month_adj_business on public.payroll_month_adjustments(business_id);
 create index idx_payroll_month_adj_period   on public.payroll_month_adjustments(business_id, period_month);
 create index idx_inv_categories_business    on public.inventory_categories(business_id, sort_order);
+create index idx_inv_units_business         on public.inventory_units(business_id, sort_order);
 create index idx_inv_items_business         on public.inventory_items(business_id);
 create index idx_inv_items_category_id      on public.inventory_items(business_id, category_id);
 create index idx_inv_item_depts_business    on public.inventory_item_departments(business_id);
@@ -925,6 +940,7 @@ alter table public.payroll_month_adjustments enable row level security;
 alter table public.suppliers            enable row level security;
 alter table public.supplier_items       enable row level security;
 alter table public.inventory_categories enable row level security;
+alter table public.inventory_units enable row level security;
 alter table public.inventory_items      enable row level security;
 alter table public.inventory_item_departments enable row level security;
 alter table public.inventory_counts     enable row level security;
@@ -1090,6 +1106,17 @@ create policy "inv_categories_manager_write" on public.inventory_categories
     public.can_access(business_id)
     and public.auth_role() in ('manager', 'shift_manager', 'office_manager')
   );
+-- inventory_units — קריאה לכל העסק; עריכה למנהלים
+create policy "inv_units_read" on public.inventory_units
+  for select using (public.can_access(business_id));
+create policy "inv_units_manager_write" on public.inventory_units
+  for all using (
+    public.can_access(business_id)
+    and public.auth_role() in ('manager', 'shift_manager', 'office_manager')
+  ) with check (
+    public.can_access(business_id)
+    and public.auth_role() in ('manager', 'shift_manager', 'office_manager')
+  );
 -- inventory_items — קריאה לפי מחלקה; עריכת קטלוג למנהלים בלבד
 create policy "inv_items_read" on public.inventory_items
   for select using (
@@ -1213,7 +1240,7 @@ create policy "task_templates_manager_write" on public.task_templates
   ) with check (
     public.can_access(business_id) and public.auth_role() = 'manager'
   );
--- tasks — קריאה לכולם; יצירה למנהל (או materialize ע"י העובד); עדכון למנהל/אחמ״ש/משויך; מחיקה למנהל
+-- tasks — קריאה לכולם; יצירה למנהל (או materialize ע"י העובד); עדכון למנהל/אחמ״ש/משויך/מחלקה משויכת; מחיקה למנהל
 create policy "tasks_read" on public.tasks
   for select using (public.can_access(business_id));
 create policy "tasks_insert" on public.tasks
@@ -1234,6 +1261,11 @@ create policy "tasks_update" on public.tasks
     and (
       public.auth_role() in ('manager', 'shift_manager')
       or assigned_to = auth.uid()
+      or (
+        assigned_to is null
+        and department_id is not null
+        and department_id = public.auth_department_id()
+      )
     )
   ) with check (public.can_access(business_id));
 create policy "tasks_delete" on public.tasks

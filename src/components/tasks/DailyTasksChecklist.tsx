@@ -4,7 +4,14 @@ import { Button, Icon } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { EASE_OUT } from "@/components/motion/shared-motion";
 import { todayISO } from "@/lib/db";
-import { buildTodayTasks, isRecurringTaskForDate, taskExpansionKey, VIRTUAL_TASK_PREFIX } from "@/lib/todayTasks";
+import {
+  buildTodayTasks,
+  buildEmployeeEventTasks,
+  isDepartmentTask,
+  isRecurringTaskForDate,
+  taskExpansionKey,
+  VIRTUAL_TASK_PREFIX,
+} from "@/lib/todayTasks";
 import { useCreateTask, useTasks, useUpdateTask, uploadTaskMedia } from "@/api/tasks";
 import { useTaskTemplates } from "@/api/taskTemplates";
 import { useProfiles } from "@/api/users";
@@ -72,6 +79,14 @@ export function useDailyTaskActions(
       return patch ? { ...t, ...patch } : t;
     });
   }, [businessId, tasks, templates, profileId, deptId, today, todayWeekday, role, overrides]);
+
+  const employeeEventTasks = useMemo(() => {
+    const built = buildEmployeeEventTasks(tasks, profileId, deptId);
+    return built.map((t) => {
+      const patch = overrides[t.id];
+      return patch ? { ...t, ...patch } : t;
+    });
+  }, [tasks, profileId, deptId, overrides]);
 
   // Clear overrides once the virtual row is gone (materialized) or the real row matches.
   useEffect(() => {
@@ -164,7 +179,14 @@ export function useDailyTaskActions(
     update.mutate({ id, ...patch });
   }
 
-  return { todayTasks, setStatus, setMedia, isLoading: tasksLoading || templatesLoading };
+  return {
+    todayTasks,
+    employeeEventTasks,
+    hasEventTasks: employeeEventTasks.length > 0,
+    setStatus,
+    setMedia,
+    isLoading: tasksLoading || templatesLoading,
+  };
 }
 
 function tasksHeroSummary(open: number, inProgress: number, total: number) {
@@ -390,6 +412,7 @@ function DailyTaskRow({
   businessId,
   onStatus,
   onMedia,
+  onDelete,
   variant,
   expanded,
   onToggle,
@@ -400,6 +423,7 @@ function DailyTaskRow({
   businessId: string;
   onStatus: (id: string, status: TaskStatus) => void;
   onMedia: (id: string, media_urls: string[]) => void;
+  onDelete?: (id: string) => void;
   variant: ChecklistVariant;
   expanded?: boolean;
   onToggle?: () => void;
@@ -539,6 +563,14 @@ function DailyTaskRow({
                       ·
                     </span>
                     <span className="task-row-card__meta-type">{task.event_id ? "משימת אירוע" : task.type === "recurring" ? "קבועה" : "חד־פעמית"}</span>
+                    {isDepartmentTask(task) && (
+                      <>
+                        <span className="task-row-card__meta-sep" aria-hidden>
+                          ·
+                        </span>
+                        <span className="task-row-card__meta-type">משימה של כל המחלקה</span>
+                      </>
+                    )}
                     {documenterName && (
                       <>
                         <span className="task-row-card__meta-sep" aria-hidden>
@@ -585,6 +617,18 @@ function DailyTaskRow({
 
                 {error && <span className="block text-[12px] font-semibold text-danger">{error}</span>}
               </div>
+              {onDelete && (
+                <div className="fault-row__panel-tools">
+                  <button
+                    type="button"
+                    className="fault-actions__btn fault-actions__btn--danger"
+                    onClick={() => onDelete(task.id)}
+                    aria-label="מחיקת משימה"
+                  >
+                    <Icon name="delete" size={16} />
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </motion.article>
@@ -631,6 +675,7 @@ function DailyTaskRow({
               <span className={`task-type-pill ${task.type === "recurring" ? "task-type-pill--recurring" : ""}`}>
                 {task.event_id ? "משימת אירוע" : task.type === "recurring" ? "קבועה" : "חד־פעמית"}
               </span>
+              {isDepartmentTask(task) && <span className="task-type-pill">כל המחלקה</span>}
             </div>
             {task.description && (
               <p className={`mt-1 text-[12.5px] leading-relaxed ${done ? "text-text-3" : "text-text-2"}`}>
@@ -670,6 +715,7 @@ export function DailyTasksChecklist({
   businessId,
   onStatus,
   onMedia,
+  onDelete,
   variant = "default",
   emptyTitle = "אין משימות להיום",
   emptyDescription = "לא שויכו אליך משימות קבועות או חד־פעמיות ליום זה.",
@@ -678,6 +724,7 @@ export function DailyTasksChecklist({
   businessId: string;
   onStatus: (id: string, status: TaskStatus) => void;
   onMedia: (id: string, media_urls: string[]) => void;
+  onDelete?: (id: string) => void;
   variant?: ChecklistVariant;
   emptyTitle?: string;
   emptyDescription?: string;
@@ -743,6 +790,7 @@ export function DailyTasksChecklist({
                   businessId={businessId}
                   onStatus={onStatus}
                   onMedia={onMedia}
+                  onDelete={onDelete}
                   variant={variant}
                   expanded={expandedKey === expandKey}
                   documenterName={firstName(

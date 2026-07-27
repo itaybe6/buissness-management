@@ -51,12 +51,30 @@ export function recurringMaterializedTemplateIds(
   return ids;
 }
 
+/** משימה משותפת למחלקה — שורה אחת בלי assigned_to שכל עובדי המחלקה רואים ויכולים לטפל בה. */
+export function isDepartmentTask(
+  task: Pick<Task, "assigned_to" | "department_id">,
+): boolean {
+  return !task.assigned_to && task.department_id != null;
+}
+
+/** האם שורת משימה קיימת מיועדת לעובד — שיוך אישי או שיוך למחלקה שלו. */
+export function taskBelongsToEmployee(
+  task: Pick<Task, "assigned_to" | "department_id">,
+  profileId: string,
+  deptId: string | null,
+): boolean {
+  if (task.assigned_to) return task.assigned_to === profileId;
+  return isDepartmentTask(task) && deptId != null && task.department_id === deptId;
+}
+
 export function virtualRecurringTask(t: TaskTemplate, profileId: string, businessId: string): Task {
   return {
     id: `${VIRTUAL_TASK_PREFIX}${t.id}`,
     business_id: businessId,
     template_id: t.id,
     event_id: null,
+    department_id: t.department_id,
     title: t.title,
     description: t.description,
     type: "recurring",
@@ -145,6 +163,28 @@ export function templateVisibleForDailyChecklist(
   return false;
 }
 
+/** Open event tasks assigned to the employee (personal or department-wide). */
+export function buildEmployeeEventTasks(
+  tasks: Task[],
+  profileId: string,
+  deptId: string | null,
+): Task[] {
+  return tasks
+    .filter(
+      (t) =>
+        t.event_id != null &&
+        taskBelongsToEmployee(t, profileId, deptId) &&
+        t.approval_status !== "pending" &&
+        t.status !== "done",
+    )
+    .sort((a, b) => {
+      const aDue = a.due_date ?? "9999-12-31";
+      const bDue = b.due_date ?? "9999-12-31";
+      if (aDue !== bDue) return aDue.localeCompare(bDue);
+      return a.created_at.localeCompare(b.created_at);
+    });
+}
+
 /** Daily checklist: recurring templates for today + assigned one-time / recurring rows. */
 export function buildTodayTasks(
   businessId: string,
@@ -156,7 +196,9 @@ export function buildTodayTasks(
   todayWeekday: number,
   role?: UserRole | null,
 ): Task[] {
-  const mine = tasks.filter((t) => t.assigned_to === profileId && t.approval_status !== "pending");
+  const mine = tasks.filter(
+    (t) => taskBelongsToEmployee(t, profileId, deptId) && t.approval_status !== "pending",
+  );
 
   const materializedTemplateIds = recurringMaterializedTemplateIds(tasks, profileId, today);
 

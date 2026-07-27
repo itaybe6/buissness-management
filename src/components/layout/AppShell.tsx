@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
@@ -43,6 +43,8 @@ export function AppShell() {
   const navigate = useNavigate();
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const [inkHeaderSolid, setInkHeaderSolid] = useState(false);
+  const mainRef = useRef<HTMLElement>(null);
 
   const { count: newFaultCount } = useMaintenanceNewFaultCount();
   const { count: partialDeliveryOrderCount } = usePartialDeliveryOrderCount();
@@ -68,6 +70,14 @@ export function AppShell() {
 
   const profileSubtitle = isSuperAdmin ? ROLE_LABELS[role] : business?.name ?? ROLE_LABELS[role];
 
+  /** Pages with the dark ink hero — mobile top bar should match that shell. */
+  const inkHeroHeader =
+    location.pathname.startsWith("/inventory/items/new") ||
+    /^\/inventory\/items\/[^/]+\/edit$/.test(location.pathname) ||
+    location.pathname === "/suppliers" ||
+    location.pathname.startsWith("/suppliers/") ||
+    (location.pathname !== "/events/ideas" && /^\/events\/[^/]+$/.test(location.pathname));
+
 
 
   async function handleLogout() {
@@ -85,6 +95,46 @@ export function AppShell() {
     setMenuOpen(false);
 
   }, [location.pathname]);
+
+  useEffect(() => {
+    setInkHeaderSolid(false);
+    if (!inkHeroHeader) return;
+
+    const main = mainRef.current;
+    const header = main?.previousElementSibling;
+    if (!main || !(header instanceof HTMLElement)) return;
+
+    const mainEl = main;
+    const headerEl = header;
+
+    function update() {
+      const hero = mainEl.querySelector(".spf-hero, .evtd-hero");
+      if (!hero) {
+        setInkHeaderSolid(true);
+        return;
+      }
+      const headerBottom = headerEl.getBoundingClientRect().bottom;
+      const heroBottom = hero.getBoundingClientRect().bottom;
+      setInkHeaderSolid(heroBottom <= headerBottom + 1);
+    }
+
+    update();
+    mainEl.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+
+    const ro = new ResizeObserver(update);
+    ro.observe(mainEl);
+
+    const mo = new MutationObserver(update);
+    mo.observe(mainEl, { childList: true, subtree: true });
+
+    return () => {
+      mainEl.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+      ro.disconnect();
+      mo.disconnect();
+    };
+  }, [inkHeroHeader, location.pathname]);
 
 
 
@@ -247,7 +297,11 @@ export function AppShell() {
       <div className="flex min-w-0 flex-1 flex-col">
 
         {/* Mobile-only top bar — desktop has the sidebar, so no empty header strip */}
-        <header className="app-header mobile-header sticky top-0 z-30 flex flex-none items-center gap-3 px-4 md:hidden">
+        <header
+          className={`app-header mobile-header sticky top-0 z-30 flex flex-none items-center gap-3 px-4 md:hidden${
+            inkHeroHeader ? ` mobile-header--ink${inkHeaderSolid ? " mobile-header--ink-solid" : ""}` : ""
+          }`}
+        >
 
           <NavLink
 
@@ -327,7 +381,12 @@ export function AppShell() {
 
 
 
-        <main className="flex-1 overflow-auto bg-bg px-4 pb-[max(1rem,var(--safe-bottom))] pt-[18px] md:px-[30px] md:pb-7 md:pt-7">
+        <main
+          ref={mainRef}
+          className={`flex-1 overflow-auto bg-bg px-4 pb-[max(1rem,var(--safe-bottom))] pt-[18px] md:px-[30px] md:pb-7 md:pt-7${
+            inkHeroHeader ? " main--ink-hero" : ""
+          }`}
+        >
 
           <div className="w-full min-w-0">
             <Outlet />
