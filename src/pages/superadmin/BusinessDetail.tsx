@@ -5,7 +5,6 @@ import {
   useApplyFeatureState,
   useBusiness,
   useBusinessFeatures,
-  useSetFeature,
   useUpdateBusiness,
 } from "@/api/businesses";
 import { useProfiles } from "@/api/users";
@@ -39,7 +38,6 @@ export function BusinessDetail() {
   const { data: biz, isLoading, isError, refetch } = useBusiness(businessId);
   const { data: features } = useBusinessFeatures(businessId);
   const { data: users } = useProfiles(businessId);
-  const setFeature = useSetFeature();
   const applyState = useApplyFeatureState();
   const updateBiz = useUpdateBusiness();
 
@@ -178,7 +176,7 @@ export function BusinessDetail() {
 
       <ActiveModulesPanel
         enabledSet={enabledSet}
-        onToggle={(feature, enabled) => setFeature.mutate({ businessId: biz.id, feature, enabled })}
+        onToggle={(feature, enabled) => toggleModules([{ key: feature, enabled }])}
         onBulkChange={toggleModules}
         headerSlot={<PlanPicker plan={livePlan} state={state} onPick={applyPlan} />}
       />

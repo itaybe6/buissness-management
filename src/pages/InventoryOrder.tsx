@@ -472,14 +472,6 @@ export function InventoryOrder() {
     });
   }, [list, query, category]);
 
-  const editMeta =
-    isEditing && editLines?.length
-      ? {
-          date: new Date(editLines[0].created_at).toLocaleDateString("he-IL", { day: "numeric", month: "short" }),
-          by: editLines[0].ordered_by_name,
-        }
-      : null;
-
   /**
    * Adding a product while editing must not silently move the whole batch to a
    * different supplier, so the batch's own supplier is the default there.
@@ -665,28 +657,6 @@ export function InventoryOrder() {
 
   return (
     <div className={`ordc-page page-enter w-full ${draftLines.length ? "pb-36" : "pb-4"} lg:pb-0`}>
-      <header className="mb-4 flex items-center gap-3 md:mb-5">
-        <button type="button" className="icon-btn shrink-0" onClick={goBack} aria-label="חזרה">
-          <Icon name="arrow_forward" size={20} />
-        </button>
-        <div className="min-w-0 flex-1">
-          <h1 className="text-[19px] font-extrabold leading-tight tracking-tight md:text-[23px]">
-            {isEditing ? "עריכת הזמנה" : "הזמנה חדשה"}
-          </h1>
-          <p className="mt-0.5 truncate text-[12px] text-text-3 md:text-[13px]">
-            {editMeta
-              ? `הזמנה מ־${editMeta.date}${editMeta.by ? ` · ${editMeta.by}` : ""}`
-              : "בכל מוצר בוחרים ספק וכמות — אפשר לשלב כמה ספקים בהזמנה אחת"}
-          </p>
-        </div>
-        {draftLines.length > 0 && (
-          <span className="ordc-head-chip hidden md:inline-flex lg:hidden" key={draftLines.length}>
-            <Icon name="shopping_cart" size={15} />
-            {draftLines.length}
-          </span>
-        )}
-      </header>
-
       <div className="ordc-layout">
         <section className="min-w-0">
           {list.length === 0 ? (

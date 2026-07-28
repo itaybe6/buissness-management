@@ -20545,20 +20545,6 @@ button.pd-stat[aria-expanded="true"] {
   }
 }
 
-/* Selected-count chip in the header (tablet, where the cart panel is hidden) */
-.ordc-head-chip {
-  align-items: center;
-  gap: 0.375rem;
-  padding: 0.45rem 0.8rem;
-  border-radius: 999px;
-  background: var(--ink);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-  animation: ordc-pop 260ms var(--ease-bounce);
-}
-
 /* --- Sticky search + category chips --- */
 .ordc-toolbar {
   position: sticky;
@@ -22399,7 +22385,6 @@ button.pd-stat[aria-expanded="true"] {
   .ordc-steppers,
   .ordc-cart-line,
   .ordc-cart-count,
-  .ordc-head-chip,
   .ordc-bar,
   .ordc-bar-meta b,
   .ordc-reco-qty,
