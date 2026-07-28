@@ -15,6 +15,7 @@ import {
   isPartialReceivedOrderLine,
   orderBatchTotal,
   orderLineBillableQty,
+  orderReceivedRemainderQty,
   resolveItemUnitPrice,
 } from "@/api/inventory";
 import {
@@ -27,6 +28,14 @@ import {
   supplierSaveError,
 } from "@/api/suppliers";
 import { makeOrder } from "../helpers/factories";
+
+describe("יתרת הזמנה אחרי קבלה חלקית", () => {
+  it("מחשב כמה נשאר פתוח", () => {
+    expect(orderReceivedRemainderQty(12, 8)).toBe(4);
+    expect(orderReceivedRemainderQty(10, 10)).toBe(0);
+    expect(orderReceivedRemainderQty(10, 6)).toBe(4);
+  });
+});
 
 describe("כמה מחייבים על שורת הזמנה", () => {
   it("שורה שטרם הגיעה מחויבת לפי הכמות שהוזמנה", () => {

@@ -76,7 +76,18 @@ export function assignment(
   };
 }
 
-/** Build clock_in/out on REPORT_DATE using local hours (matches shift overlap logic). */
+function nextDay(iso: string): string {
+  const d = new Date(`${iso}T12:00:00`);
+  d.setDate(d.getDate() + 1);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/**
+ * Build clock_in/out on REPORT_DATE using local hours (matches shift overlap logic).
+ * An end time at or before the start time rolls over to the next calendar day —
+ * a night punch is 23:00 → 01:30 *tomorrow*, never a negative-length punch.
+ */
 export function punch(
   employeeId: string,
   startHour: number,
@@ -86,8 +97,9 @@ export function punch(
   date = REPORT_DATE,
 ): Attendance {
   const pad = (n: number) => String(n).padStart(2, "0");
+  const rollsOver = endHour * 60 + endMinute <= startHour * 60 + startMinute;
   const clockIn = `${date}T${pad(startHour)}:${pad(startMinute)}:00`;
-  const clockOut = `${date}T${pad(endHour)}:${pad(endMinute)}:00`;
+  const clockOut = `${rollsOver ? nextDay(date) : date}T${pad(endHour)}:${pad(endMinute)}:00`;
   attendanceSeq += 1;
   return {
     id: `att-${attendanceSeq}`,

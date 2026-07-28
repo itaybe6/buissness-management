@@ -15,6 +15,7 @@ import {
   splitPackageQty,
 } from "@/api/inventory";
 import type { SupplierItemPrices } from "@/api/suppliers";
+import { nextWarehouseQty, planOrderReceive } from "@/lib/inventoryReceive";
 import {
   acknowledgePartialOrderBatch,
   countUnacknowledgedPartialDeliveryBatches,
@@ -208,5 +209,50 @@ describe("תצוגת כמויות ומינימום לכל הקטלוג", () => {
     const { ms } = measureBest(() => items.map((i) => itemWarehouseQty(i, WAREHOUSE.bar)));
     assertWithinBudget("שליפת מלאי מחסן ל-2,000 מוצרים", ms, 1000);
     expect(itemWarehouseQty(items[5], WAREHOUSE.bar)).toBe(5 % 4);
+  });
+});
+
+describe("קבלת משלוח גדול מהספק", () => {
+  /** 600 אצוות × 20 שורות — כל האצווה מתקבלת במלואה בבת אחת. */
+  const allLines = orders.map((o) => ({ ordered: o.quantity, received: o.quantity }));
+
+  it("תכנון קבלה מלאה ל-12,000 שורות — מהיר ובלי יתרות", () => {
+    const { result: plans, ms } = measureBest(() => allLines.map(planOrderReceive));
+    assertWithinBudget("תכנון קבלה מלאה ל-12,000 שורות", ms, 2000);
+
+    expect(plans).toHaveLength(orders.length);
+    expect(plans.every((p) => p.fullyArrived)).toBe(true);
+    expect(plans.every((p) => p.remainderQty === 0)).toBe(true);
+    expect(plans.every((p) => !p.createsRemainder)).toBe(true);
+  });
+
+  it("סך הסחורה שנכנסה למלאי שווה בדיוק לסך שהוזמן", () => {
+    const ordered = allLines.reduce((s, l) => s + l.ordered, 0);
+    const added = allLines.map(planOrderReceive).reduce((s, p) => s + p.stockDelta, 0);
+    expect(added).toBe(ordered);
+  });
+
+  it("קבלה חלקית של חצי מכל שורה פותחת בדיוק חצי יתרה", () => {
+    const half = orders.map((o) => planOrderReceive({ ordered: o.quantity, received: o.quantity / 2 }));
+    expect(half.every((p) => p.createsRemainder)).toBe(true);
+    const remainder = half.reduce((s, p) => s + p.remainderQty, 0);
+    const ordered = orders.reduce((s, o) => s + o.quantity, 0);
+    expect(remainder).toBe(ordered / 2);
+  });
+
+  it("מלאי מצטבר על פני 12,000 קבלות לא יורד מתחת לאפס ולא מאבד יחידות", () => {
+    const { result: stock, ms } = measureBest(() =>
+      allLines.reduce((qty, line) => nextWarehouseQty(qty, planOrderReceive(line).stockDelta), 0),
+    );
+    assertWithinBudget("צבירת מלאי מ-12,000 קבלות", ms, 2000);
+    expect(stock).toBe(allLines.reduce((s, l) => s + l.received, 0));
+  });
+
+  it("הזמן גדל ליניארית עם מספר השורות", () => {
+    const small = allLines.slice(0, 3000);
+    const large = allLines;
+    const smallMs = measureBest(() => small.map(planOrderReceive)).ms;
+    const largeMs = measureBest(() => large.map(planOrderReceive)).ms;
+    assertScalesLinearly({ label: "תכנון קבלות", smallMs, largeMs, ratio: 4, maxGrowthFactor: 20 });
   });
 });

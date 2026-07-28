@@ -463,7 +463,7 @@ export function SupplierFormPage() {
   const monogram = displayName ? displayName[0] : "";
 
   return (
-    <div className="spf-page page-enter">
+    <div className="spf-page spf-page--split page-enter">
       {/* ── Ink hero — live identity card ── */}
       <header className="spf-hero">
         <span className="spf-glow spf-glow--1" aria-hidden />

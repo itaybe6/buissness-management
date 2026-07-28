@@ -14,21 +14,6 @@ import {
 } from "@/api/suppliers";
 import { useInventory } from "@/api/inventory";
 
-type StatusFilter = "all" | "active" | "inactive";
-type SortKey = "name" | "products" | "orders";
-
-const STATUS_FILTERS: { key: StatusFilter; label: string }[] = [
-  { key: "all", label: "הכל" },
-  { key: "active", label: "פעילים" },
-  { key: "inactive", label: "לא פעילים" },
-];
-
-const SORTS: { key: SortKey; label: string; icon: string }[] = [
-  { key: "name", label: "א-ת", icon: "sort_by_alpha" },
-  { key: "products", label: "הכי הרבה מוצרים", icon: "inventory_2" },
-  { key: "orders", label: "הזמנות פתוחות", icon: "local_shipping" },
-];
-
 /** Thumbnails shown in a card's price-list strip. */
 const STRIP_MAX = 6;
 
@@ -56,8 +41,6 @@ export function Suppliers() {
   const del = useDeleteSupplier(businessId);
 
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
-  const [sort, setSort] = useState<SortKey>("name");
   const [toDelete, setToDelete] = useState<SupplierWithStats | null>(null);
 
   const itemMeta = useMemo(() => new Map((inventory ?? []).map((i) => [i.id, i])), [inventory]);
@@ -80,40 +63,15 @@ export function Suppliers() {
     return out;
   }, [priceIndex, itemMeta]);
 
-  const heroStats = useMemo(() => {
-    const list = suppliers ?? [];
-    return {
-      total: list.length,
-      active: list.filter((s) => s.active).length,
-      products: list.reduce((a, s) => a + s.product_count, 0),
-      openLines: list.reduce((a, s) => a + s.open_order_lines, 0),
-    };
-  }, [suppliers]);
-
-  const statusCounts = useMemo(() => {
-    const list = suppliers ?? [];
-    return {
-      all: list.length,
-      active: list.filter((s) => s.active).length,
-      inactive: list.filter((s) => !s.active).length,
-    };
-  }, [suppliers]);
-
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const rows = (suppliers ?? []).filter((s) => {
-      if (statusFilter === "active" && !s.active) return false;
-      if (statusFilter === "inactive" && s.active) return false;
       if (!q) return true;
       const hay = [s.name, s.phone ?? "", s.tax_id ?? "", s.notes ?? ""].join(" ").toLowerCase();
       return hay.includes(q);
     });
-    const sorted = [...rows];
-    if (sort === "products") sorted.sort((a, b) => b.product_count - a.product_count || a.name.localeCompare(b.name, "he"));
-    else if (sort === "orders") sorted.sort((a, b) => b.open_order_lines - a.open_order_lines || a.name.localeCompare(b.name, "he"));
-    else sorted.sort((a, b) => a.name.localeCompare(b.name, "he"));
-    return sorted;
-  }, [suppliers, search, statusFilter, sort]);
+    return [...rows].sort((a, b) => a.name.localeCompare(b.name, "he"));
+  }, [suppliers, search]);
 
   if (!canManage) return <Navigate to="/inventory" replace />;
   if (!businessId) {
@@ -136,64 +94,14 @@ export function Suppliers() {
 
   return (
     <div className="spf-page page-enter">
-      {/* ── Ink hero ── */}
       <header className="spf-hero">
         <span className="spf-glow spf-glow--1" aria-hidden />
         <span className="spf-glow spf-glow--2" aria-hidden />
         <span className="spf-grid-lines" aria-hidden />
 
         <div className="spf-hero-inner">
-          <div className="spl-hero-top">
-            <div className="min-w-0">
-              <span className="spf-hero-tag">
-                <Icon name="local_shipping" size={14} />
-                ניהול ספקים
-              </span>
-              <h1 className="spl-hero-title">ספקים</h1>
-              <p className="spl-hero-sub">
-                כל מי שמספק לעסק — עם המחירון שלו, ההזמנות הפתוחות והמסמכים הפיננסיים.
-              </p>
-            </div>
-            <Link to="/suppliers/new" className="spl-cta">
-              <Icon name="add" size={19} />
-              ספק חדש
-            </Link>
-          </div>
-
-          <div className="spf-hero-stats spf-hero-stats--4">
-            <div className="spf-stat">
-              <span className="spf-stat-label">סה״כ ספקים</span>
-              <b className="spf-stat-value" key={`t${heroStats.total}`}>
-                {heroStats.total}
-              </b>
-            </div>
-            <div className="spf-stat">
-              <span className="spf-stat-label">פעילים</span>
-              <b className="spf-stat-value" key={`a${heroStats.active}`}>
-                {heroStats.active}
-              </b>
-            </div>
-            <div className="spf-stat">
-              <span className="spf-stat-label">מוצרים במחירונים</span>
-              <b className="spf-stat-value" key={`p${heroStats.products}`}>
-                {heroStats.products}
-              </b>
-            </div>
-            <div className="spf-stat" data-tone={heroStats.openLines > 0 ? "warn" : undefined}>
-              <span className="spf-stat-label">שורות פתוחות</span>
-              <b className="spf-stat-value" key={`o${heroStats.openLines}`}>
-                {heroStats.openLines}
-              </b>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      <div className="spf-body">
-        {/* ── Sticky filters ── */}
-        <div className="spf-toolbar">
-          <div className="spf-toolbar-top">
-            <div className="spf-search">
+          <div className="spl-hero-bar">
+            <div className="spf-search spl-hero-search">
               <Icon name="search" size={18} className="spf-search-icon" />
               <input
                 value={search}
@@ -208,40 +116,15 @@ export function Suppliers() {
                 </button>
               )}
             </div>
-            <span className="spl-result">
-              <b>{filtered.length}</b>
-              <span>מתוך {statusCounts.all}</span>
-            </span>
-          </div>
-
-          <div className="spf-chips">
-            {STATUS_FILTERS.map(({ key, label }) => (
-              <button
-                key={key}
-                type="button"
-                className="spf-chip"
-                data-active={statusFilter === key}
-                onClick={() => setStatusFilter(key)}
-              >
-                {label}
-                <span className="spf-chip-count">{statusCounts[key]}</span>
-              </button>
-            ))}
-            <span className="spl-chip-sep" aria-hidden />
-            {SORTS.map((s) => (
-              <button
-                key={s.key}
-                type="button"
-                className="spf-chip"
-                data-active={sort === s.key}
-                onClick={() => setSort(s.key)}
-              >
-                <Icon name={s.icon} size={14} />
-                {s.label}
-              </button>
-            ))}
+            <Link to="/suppliers/new" className="spl-cta spl-cta--compact" aria-label="ספק חדש">
+              <Icon name="add" size={22} />
+              <span className="spl-cta-label">ספק חדש</span>
+            </Link>
           </div>
         </div>
+      </header>
+
+      <div className="spf-body">
 
         {/* ── Cards ── */}
         {filtered.length === 0 ? (
@@ -251,7 +134,7 @@ export function Suppliers() {
             description={
               noSuppliers
                 ? "הוסיפו ספקים קבועים כדי לקשר אליהם מחירונים, הזמנות וחשבוניות."
-                : "נסו חיפוש אחר או שנו את הסינון."
+                : "נסו חיפוש אחר."
             }
             action={
               noSuppliers ? (
@@ -259,14 +142,8 @@ export function Suppliers() {
                   <Button icon="add">ספק ראשון</Button>
                 </Link>
               ) : (
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    setSearch("");
-                    setStatusFilter("all");
-                  }}
-                >
-                  ניקוי סינון
+                <Button variant="secondary" onClick={() => setSearch("")}>
+                  ניקוי חיפוש
                 </Button>
               )
             }
@@ -370,12 +247,6 @@ function SupplierCard({
 
         <div className="spl-card-flags">
           {!s.active && <span className="spl-flag">לא פעיל</span>}
-          {s.open_order_lines > 0 && (
-            <span className="spl-flag spl-flag--live">
-              <i aria-hidden />
-              {s.open_order_lines} פתוחות
-            </span>
-          )}
         </div>
       </div>
 
@@ -406,10 +277,6 @@ function SupplierCard({
           <span>
             <b>{s.product_count}</b>
             מוצרים
-          </span>
-          <span>
-            <b>{s.open_order_lines}</b>
-            שורות פתוחות
           </span>
           <span>
             <b>{s.receipt_count}</b>

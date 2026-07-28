@@ -36,6 +36,7 @@ import { useDepartments } from "@/api/departments";
 import { useProfiles } from "@/api/users";
 import { useBusiness } from "@/api/businesses";
 import { MANAGER_ROLES, TASK_CREATE_ROLES } from "@/lib/constants";
+import { approvalForAssignee, pendingApprovalTasks } from "@/lib/taskAssignment";
 import { WorkerHome } from "@/components/dashboard/WorkerHome";
 import { TaskWeekSchedule } from "@/components/tasks/TaskWeekSchedule";
 import { RecurringTasksBoard } from "@/components/tasks/RecurringTasksBoard";
@@ -149,15 +150,16 @@ function ManagerTasksView({ businessId, profileId }: { businessId: string; profi
   // אישור מנהל: רק מנהל מאשר, ורק כשהמתג של העסק דלוק
   const approvalEnabled = !!business?.maintenance_task_approval;
   const canApprove = profile?.role === "manager";
-  const pendingApprovals = canApprove
-    ? (tasks ?? []).filter((t) => t.approval_status === "pending")
-    : [];
+  const pendingApprovals = pendingApprovalTasks(tasks ?? [], profile?.role);
 
   // משימה לאיש אחזקה דורשת אישור מנהל (כשהמתג של העסק דלוק)
-  function approvalForAssignee(assignedTo: string | null | undefined): "pending" | null {
-    if (!approvalEnabled || !canCreateTasks || !assignedTo) return null;
-    const target = (users ?? []).find((u) => u.id === assignedTo);
-    return target?.role === "maintenance" ? "pending" : null;
+  function approvalFor(assignedTo: string | null | undefined) {
+    return approvalForAssignee({
+      approvalEnabled,
+      canCreateTasks,
+      assignedTo,
+      users: users ?? [],
+    });
   }
 
   const trackingBlock = (
@@ -236,7 +238,7 @@ function ManagerTasksView({ businessId, profileId }: { businessId: string; profi
           templateById={templateById}
           saving={createTask.isPending}
           onAssign={async (input) => {
-            const approval = approvalForAssignee(input.assigned_to);
+            const approval = approvalFor(input.assigned_to);
             const id = await createTask.mutateAsync({
               business_id: businessId,
               assigned_by: profileId,

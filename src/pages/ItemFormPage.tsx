@@ -14,6 +14,7 @@ import { InventoryUnitSelect, inventoryUnitIsBase } from "@/components/inventory
 import { useAuth } from "@/lib/auth";
 import { useBusinessId, formatCurrency } from "@/lib/db";
 import { canSeeInventoryPrices } from "@/lib/constants";
+import { planStockTransfer } from "@/lib/warehouseStock";
 import {
   useInventory,
   useCreateItem,
@@ -620,25 +621,23 @@ export function ItemFormPage() {
 
   function runTransfer() {
     setTransferNote(null);
-    if (!transferFrom || !transferTo || transferFrom === transferTo) {
-      setTransferNote("בחרו מחסן מקור ומחסן יעד שונים");
-      return;
-    }
-    const amount = Math.min(transferQty, drafts[transferFrom] ?? 0);
-    if (amount <= 0) {
-      setTransferNote("אין כמות להעברה מהמחסן שנבחר");
+    const plan = planStockTransfer({
+      fromWarehouseId: transferFrom,
+      toWarehouseId: transferTo,
+      requestedQty: transferQty,
+      fromQty: drafts[transferFrom] ?? 0,
+      toQty: drafts[transferTo] ?? 0,
+    });
+    if (!plan.ok) {
+      setTransferNote(plan.error);
       return;
     }
     const fromName = warehouses.find((w) => w.id === transferFrom)?.name ?? "מחסן";
     const toName = warehouses.find((w) => w.id === transferTo)?.name ?? "מחסן";
-    setDrafts((d) => ({
-      ...d,
-      [transferFrom]: Math.round(((d[transferFrom] ?? 0) - amount) * 10000) / 10000,
-      [transferTo]: Math.round(((d[transferTo] ?? 0) + amount) * 10000) / 10000,
-    }));
+    setDrafts((d) => ({ ...d, [transferFrom]: plan.nextFromQty, [transferTo]: plan.nextToQty }));
     setTransferQty(0);
     setTransferNote(
-      `הועברו ${formatQtyWithPieces(amount, form.unit, unitsPerPackage)} מ${fromName} ל${toName} — יישמר בלחיצה על «שמירה»`,
+      `הועברו ${formatQtyWithPieces(plan.amount, form.unit, unitsPerPackage)} מ${fromName} ל${toName} — יישמר בלחיצה על «שמירה»`,
     );
   }
 

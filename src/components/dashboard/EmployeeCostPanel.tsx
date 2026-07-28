@@ -433,11 +433,6 @@ export function EmployeeCostPanel({
 
   return (
     <section className="labor-cost-panel dash-rise" style={{ ["--rise-delay" as string]: "60ms" }}>
-      <div className="labor-aura" aria-hidden>
-        <span className="labor-aura-blob labor-aura-blob--1" />
-        <span className="labor-aura-blob labor-aura-blob--2" />
-        <span className="labor-aura-blob labor-aura-blob--3" />
-      </div>
       <div className="labor-cost-top">
         <div className="labor-cost-top-main">
           <span className="dash-panel-icon">
@@ -481,8 +476,6 @@ export function EmployeeCostPanel({
 
       <div className="labor-cost-body">
         <div className="labor-cost-hero-stat">
-          <span className="labor-hero-glow" aria-hidden />
-          <span className="labor-hero-sheen" aria-hidden />
           <div className="labor-cost-hero-label">
             {granularity === "week" ? "עלות השבוע" : "עלות החודש"}
           </div>

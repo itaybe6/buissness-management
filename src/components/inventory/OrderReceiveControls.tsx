@@ -9,8 +9,10 @@ type OrderReceiveControlsProps = {
   unitsPerPackage: number | null;
   busy?: boolean;
   compact?: boolean;
+  mode?: "receive" | "correct";
+  initialReceivedQty?: number;
   onConfirmArrived: (receivedQty: number) => void;
-  onNotArrived: () => void;
+  onNotArrived?: () => void;
 };
 
 export function OrderReceiveControls({
@@ -19,18 +21,21 @@ export function OrderReceiveControls({
   unitsPerPackage,
   busy,
   compact,
+  mode = "receive",
+  initialReceivedQty,
   onConfirmArrived,
   onNotArrived,
 }: OrderReceiveControlsProps) {
-  const [receivedQty, setReceivedQty] = useState(orderedQty);
+  const [receivedQty, setReceivedQty] = useState(initialReceivedQty ?? orderedQty);
 
   useEffect(() => {
-    setReceivedQty(orderedQty);
-  }, [orderedQty]);
+    setReceivedQty(initialReceivedQty ?? orderedQty);
+  }, [initialReceivedQty, orderedQty]);
 
   const pieceUnit = supportsPieceInput(unit);
   const invalid =
     !Number.isFinite(receivedQty) || receivedQty <= 0 || receivedQty > orderedQty;
+  const isCorrect = mode === "correct";
 
   function handleArrived() {
     if (invalid || busy) return;
@@ -39,9 +44,11 @@ export function OrderReceiveControls({
 
   return (
     <div className={`relative ${compact ? "flex flex-col gap-2" : "flex flex-col gap-2.5"}`}>
-      <SectionLoader show={!!busy} label="מעדכן הזמנה..." />
+      <SectionLoader show={!!busy} label={isCorrect ? "מעדכן כמות..." : "מעדכן הזמנה..."} />
       <div>
-        <label className="mb-1.5 block text-[11px] font-semibold text-text-3">כמה הגיע בפועל?</label>
+        <label className="mb-1.5 block text-[11px] font-semibold text-text-3">
+          {isCorrect ? "עדכון כמות שהגיעה בפועל" : "כמה הגיע בפועל?"}
+        </label>
         {pieceUnit ? (
           <DualUnitQtyInput
             value={receivedQty}
@@ -79,21 +86,23 @@ export function OrderReceiveControls({
         )}
       </div>
       <div className="flex gap-2">
+        {!isCorrect && onNotArrived ? (
+          <Button
+            variant="secondary"
+            disabled={busy}
+            onClick={onNotArrived}
+            className="flex-1 !py-2.5 active:scale-[0.97]"
+          >
+            לא הגיע
+          </Button>
+        ) : null}
         <Button
-          variant="secondary"
-          disabled={busy}
-          onClick={onNotArrived}
-          className="flex-1 !py-2.5 active:scale-[0.97]"
-        >
-          לא הגיע
-        </Button>
-        <Button
-          icon="check_circle"
+          icon={isCorrect ? "save" : "check_circle"}
           disabled={busy || invalid}
           onClick={handleArrived}
-          className="flex-1 !bg-ink !py-2.5 active:scale-[0.97]"
+          className={`${isCorrect || !onNotArrived ? "w-full" : "flex-1"} !bg-ink !py-2.5 active:scale-[0.97]`}
         >
-          הגיע
+          {isCorrect ? "שמור" : "הגיע"}
         </Button>
       </div>
     </div>

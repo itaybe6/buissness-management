@@ -4,6 +4,14 @@ import { Modal } from "@/components/ui/Modal";
 import { useDeleteAttendance, useUpdateAttendanceSession } from "@/api/attendance";
 import { formatShiftElapsed } from "@/hooks/useShiftPunch";
 import { initialsOf } from "@/lib/db";
+import {
+  combineDateAndTime,
+  endTimeFromHours,
+  formatSessionHours,
+  hoursBetween,
+  toTimeInputValue,
+  validateSessionEdit,
+} from "@/lib/attendanceSessionEdit";
 
 export type ForceClockOutTarget = {
   attendanceId: string;
@@ -16,30 +24,6 @@ export type ForceClockOutTarget = {
 export type OpenForceClockOutOptions = {
   startInEditMode?: boolean;
 };
-
-function toTimeInputValue(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-
-/** Combine a date base with HH:mm; if end is before start, roll to the next day. */
-function combineDateAndTime(baseIso: string, hhmm: string, rollIfBefore?: Date): Date | null {
-  const m = /^(\d{2}):(\d{2})$/.exec(hhmm.trim());
-  if (!m) return null;
-  const base = new Date(baseIso);
-  if (Number.isNaN(base.getTime())) return null;
-  const next = new Date(base);
-  next.setHours(Number(m[1]), Number(m[2]), 0, 0);
-  if (rollIfBefore && next.getTime() <= rollIfBefore.getTime()) {
-    next.setDate(next.getDate() + 1);
-  }
-  return next;
-}
-
-function hoursBetween(start: Date, end: Date): number {
-  return Math.max(0, (end.getTime() - start.getTime()) / 3.6e6);
-}
 
 function useLiveClock(active: boolean) {
   const [now, setNow] = useState(() => new Date());
@@ -69,8 +53,7 @@ function resetFieldsFromTarget(
   const endDate = target.clockOut
     ? new Date(target.clockOut)
     : combineDateAndTime(target.clockIn, end, startDate) ?? new Date();
-  const h = hoursBetween(startDate, endDate);
-  setters.setHours(h > 0 ? (Math.round(h * 100) / 100).toString() : "");
+  setters.setHours(formatSessionHours(hoursBetween(startDate, endDate)));
 }
 
 export function ForceClockOutModal({
@@ -137,8 +120,7 @@ export function ForceClockOutModal({
     if (!startDate) return;
     const endDate = combineDateAndTime(target.clockIn, end, startDate);
     if (!endDate) return;
-    const h = hoursBetween(startDate, endDate);
-    setHours(h > 0 ? (Math.round(h * 100) / 100).toString() : "");
+    setHours(formatSessionHours(hoursBetween(startDate, endDate)));
   }
 
   function onStartChange(value: string) {
@@ -156,12 +138,8 @@ export function ForceClockOutModal({
     if (!target) return;
     const startDate = combineDateAndTime(target.clockIn, workStart);
     if (!startDate) return;
-    const n = Number(value);
-    if (!Number.isFinite(n) || n < 0) return;
-    const endDate = new Date(startDate.getTime() + n * 3.6e6);
-    setWorkEnd(
-      `${String(endDate.getHours()).padStart(2, "0")}:${String(endDate.getMinutes()).padStart(2, "0")}`,
-    );
+    const end = endTimeFromHours(startDate, Number(value));
+    if (end) setWorkEnd(end);
   }
 
   function cancelEditing() {
@@ -170,85 +148,39 @@ export function ForceClockOutModal({
     setIsEditing(false);
   }
 
-  function resolveEndDate(forClockOut: boolean): Date | null {
-    if (!target) return null;
-    const startDate = combineDateAndTime(target.clockIn, workStart);
-    if (!startDate) return null;
-    if (forClockOut && isOpenShift) {
-      if (isEditing) {
-        return combineDateAndTime(target.clockIn, workEnd, startDate);
-      }
-      return now;
+  async function applySessionEdit(mode: "edit_open" | "edit_closed" | "clock_out") {
+    if (!target) return;
+    const result = validateSessionEdit({
+      clockIn: target.clockIn,
+      workStart,
+      workEnd,
+      mode,
+      now,
+      editingEnd: isEditing,
+    });
+    if (!result.ok) {
+      setError(result.error);
+      return;
     }
-    return combineDateAndTime(target.clockIn, workEnd, startDate);
+    setError(null);
+    try {
+      await updateSession.mutateAsync({
+        id: target.attendanceId,
+        clock_in: result.clock_in,
+        ...(result.clock_out ? { clock_out: result.clock_out } : {}),
+      });
+      onClose();
+    } catch {
+      setError("לא הצלחנו לשמור את השעות. נסו שוב.");
+    }
   }
 
   async function handleSaveEdits() {
-    if (!target) return;
-    const startDate = combineDateAndTime(target.clockIn, workStart);
-    if (!startDate) {
-      setError("יש למלא שעת כניסה תקינה.");
-      return;
-    }
-    if (!isOpenShift) {
-      const endDate = combineDateAndTime(target.clockIn, workEnd, startDate);
-      if (!endDate) {
-        setError("יש למלא שעת יציאה תקינה.");
-        return;
-      }
-      if (endDate.getTime() <= startDate.getTime()) {
-        setError("שעת היציאה חייבת להיות אחרי שעת הכניסה.");
-        return;
-      }
-      setError(null);
-      try {
-        await updateSession.mutateAsync({
-          id: target.attendanceId,
-          clock_in: startDate.toISOString(),
-          clock_out: endDate.toISOString(),
-        });
-        onClose();
-      } catch {
-        setError("לא הצלחנו לשמור את השעות. נסו שוב.");
-      }
-      return;
-    }
-
-    setError(null);
-    try {
-      await updateSession.mutateAsync({
-        id: target.attendanceId,
-        clock_in: startDate.toISOString(),
-      });
-      onClose();
-    } catch {
-      setError("לא הצלחנו לשמור את השעות. נסו שוב.");
-    }
+    await applySessionEdit(isOpenShift ? "edit_open" : "edit_closed");
   }
 
   async function handleClockOut() {
-    if (!target) return;
-    const startDate = combineDateAndTime(target.clockIn, workStart);
-    const endDate = resolveEndDate(true);
-    if (!startDate || !endDate) {
-      setError("יש למלא שעת כניסה ויציאה תקינות.");
-      return;
-    }
-    if (endDate.getTime() <= startDate.getTime()) {
-      setError("שעת היציאה חייבת להיות אחרי שעת הכניסה.");
-      return;
-    }
-    setError(null);
-    try {
-      await updateSession.mutateAsync({
-        id: target.attendanceId,
-        clock_in: startDate.toISOString(),
-        clock_out: endDate.toISOString(),
-      });
-      onClose();
-    } catch {
-      setError("לא הצלחנו לשמור את השעות. נסו שוב.");
-    }
+    await applySessionEdit("clock_out");
   }
 
   async function handleDeleteConfirmed() {

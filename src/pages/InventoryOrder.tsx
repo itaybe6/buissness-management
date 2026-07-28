@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useLocation, useNavigate, useSearchParams, Link } from "react-router-dom";
-import { Button, EmptyState, ErrorState, Field, Icon, Input, PageLoader, Select } from "@/components/ui";
+import { Button, EmptyState, ErrorState, Icon, Input, LoadingOverlay, PageLoader } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/lib/auth";
-import { useBusinessId, HE_DAYS, formatCurrency } from "@/lib/db";
+import { useBusinessId } from "@/lib/db";
 import {
   useInventory,
   useOrders,
@@ -17,18 +17,34 @@ import {
   type ItemWithQty,
 } from "@/api/inventory";
 import { useInventoryCategories } from "@/api/inventoryCategories";
-import { useSuppliers, useSupplierItemPriceIndex, supplierPricesFor, effectiveMainUnitPrice } from "@/api/suppliers";
+import { useSuppliers, useSupplierItemPriceIndex, effectiveMainUnitPrice } from "@/api/suppliers";
 import {
-  QtyEditor,
   decomposeQty,
   draftLabel,
   draftTotal,
   type QtyDraft,
 } from "@/components/inventory/orderDraft";
+import {
+  ProductSupplierModal,
+  type ProductPick,
+} from "@/components/inventory/ProductSupplierModal";
+import { OrderReviewModal } from "@/components/inventory/OrderReviewModal";
+import {
+  deliveryDayLabel,
+  draftLinesTotal,
+  formatPrice,
+  groupDraftLinesBySupplier,
+  orderCalcLabel,
+  type DraftOrderLine,
+} from "@/lib/orderSuppliers";
 
-function formatDeliveryDay(day: number | null | undefined): string {
-  if (day == null || day < 0 || day > 6) return "לא הוגדר";
-  return `יום ${HE_DAYS[day]}`;
+/** A product in the cart: how much, and which supplier it was priced against. */
+type CartLine = QtyDraft & { supplier_id: string };
+
+/** How many active suppliers carry a product, and the best price among them. */
+interface ItemSupplierMeta {
+  count: number;
+  min_price: number;
 }
 
 type StockStatus = "empty" | "low" | "ok";
@@ -46,32 +62,37 @@ const STOCK_META: Record<StockStatus, { label: string; dot: string }> = {
   ok: { label: "במלאי", dot: "var(--success)" },
 };
 
+const NO_SUPPLIER_META: ItemSupplierMeta = { count: 0, min_price: 0 };
+
 /* ----------------------------- Product card ----------------------------- */
 
 function ProductCard({
   item,
   index,
-  draft,
+  line,
   flash,
-  onAdd,
-  onPatch,
-  onRemove,
-  categoryName,
+  supplierMeta,
+  supplierName,
   deliveryLabel,
+  lineTotal,
+  categoryName,
+  onOpen,
+  onRemove,
 }: {
   item: ItemWithQty;
   index: number;
-  draft: QtyDraft | undefined;
+  line: CartLine | undefined;
   flash: boolean;
-  onAdd: () => void;
-  onPatch: (patch: Partial<QtyDraft>) => void;
-  onRemove: () => void;
+  supplierMeta: ItemSupplierMeta;
+  supplierName: string | null;
+  deliveryLabel: string | null;
+  lineTotal: number;
   categoryName: string | null;
-  deliveryLabel: string;
+  onOpen: () => void;
+  onRemove: () => void;
 }) {
   const meta = STOCK_META[stockStatus(item)];
-  const selected = !!draft;
-  const category = categoryName;
+  const selected = !!line;
 
   return (
     <article
@@ -102,10 +123,10 @@ function ProductCard({
             +{item.ordered_qty} בהזמנה
           </span>
         )}
-        {selected && draft && (
-          <span className="ordc-qty-pill" key={draftLabel(item, draft)}>
+        {selected && line && (
+          <span className="ordc-qty-pill" key={draftLabel(item, line)}>
             <Icon name="check_circle" size={14} />
-            {draftLabel(item, draft)}
+            {draftLabel(item, line)}
           </span>
         )}
       </div>
@@ -118,7 +139,7 @@ function ProductCard({
               {item.barcode}
             </span>
           )}
-          {category && <span className="ordc-cat">{category}</span>}
+          {categoryName && <span className="ordc-cat">{categoryName}</span>}
         </div>
 
         <div className="ordc-meta">
@@ -127,21 +148,44 @@ function ProductCard({
             במלאי {formatQtyWithPieces(item.current_qty, item.unit, item.units_per_package)}
           </span>
           <span className="ordc-meta-line">
-            <Icon name="local_shipping" size={13} />
-            אספקה: {deliveryLabel}
+            <Icon name="storefront" size={13} />
+            {supplierMeta.count > 0
+              ? `${supplierMeta.count} ${supplierMeta.count === 1 ? "ספק" : "ספקים"}`
+              : "אין ספק משויך"}
+            {supplierMeta.min_price > 0 && ` · מ־${formatPrice(supplierMeta.min_price)}`}
           </span>
         </div>
 
-        {selected && draft ? (
+        {selected && line ? (
           <div className="ordc-card-controls">
-            <QtyEditor item={item} draft={draft} onPatch={onPatch} />
+            <button type="button" className="ordc-picked" onClick={onOpen}>
+              <span className="ordc-picked-body">
+                <span className="ordc-picked-sup">
+                  <Icon name="storefront" size={12} />
+                  {supplierName ?? "ספק"}
+                </span>
+                <span className="ordc-picked-qty tabular-nums">
+                  {draftLabel(item, line)}
+                  {lineTotal > 0 && <b> · {formatPrice(lineTotal)}</b>}
+                </span>
+                {deliveryLabel && (
+                  <span className="ordc-picked-delivery">
+                    <Icon name="local_shipping" size={11} />
+                    {deliveryLabel}
+                  </span>
+                )}
+              </span>
+              <span className="ordc-picked-edit">
+                <Icon name="tune" size={16} />
+              </span>
+            </button>
             <button type="button" className="ordc-remove-btn" onClick={onRemove}>
               <Icon name="delete" size={14} />
               הסרה מההזמנה
             </button>
           </div>
         ) : (
-          <button type="button" className="ordc-add-btn" onClick={onAdd}>
+          <button type="button" className="ordc-add-btn" onClick={onOpen}>
             <Icon name="add_shopping_cart" size={17} />
             הוספה להזמנה
           </button>
@@ -155,12 +199,12 @@ function ProductCard({
 
 function RecoStrip({
   items,
-  drafts,
-  onQuickAdd,
+  lines,
+  onOpen,
 }: {
   items: ItemWithQty[];
-  drafts: Record<string, QtyDraft>;
-  onQuickAdd: (item: ItemWithQty) => void;
+  lines: Record<string, CartLine>;
+  onOpen: (item: ItemWithQty) => void;
 }) {
   return (
     <section className="ordc-reco">
@@ -173,15 +217,15 @@ function RecoStrip({
       </div>
       <div className="ordc-reco-row">
         {items.map((it) => {
-          const d = drafts[it.id];
+          const inCart = !!lines[it.id];
           return (
             <button
               key={it.id}
               type="button"
               className="ordc-reco-card"
-              data-selected={!!d}
-              onClick={() => onQuickAdd(it)}
-              title={d ? "הוספת עוד אחד" : "הוספה להזמנה"}
+              data-selected={inCart}
+              onClick={() => onOpen(it)}
+              title={inCart ? "עריכת הבחירה" : "בחירת ספק והוספה להזמנה"}
             >
               <span className="ordc-reco-thumb">
                 {it.image_url ? <img src={it.image_url} alt="" /> : <Icon name="inventory_2" size={16} />}
@@ -194,13 +238,72 @@ function RecoStrip({
                 </span>
               </span>
               <span className="ordc-reco-add">
-                {d ? <b className="ordc-reco-qty" key={d.packs}>{d.packs}</b> : <Icon name="add" size={16} />}
+                <Icon name={inCart ? "check" : "add"} size={16} />
               </span>
             </button>
           );
         })}
       </div>
     </section>
+  );
+}
+
+/* ----------------------------- Cart lines ----------------------------- */
+
+function CartGroups({
+  groups,
+  onOpenLine,
+  onRemoveLine,
+}: {
+  groups: ReturnType<typeof groupDraftLinesBySupplier>;
+  onOpenLine: (itemId: string) => void;
+  onRemoveLine: (itemId: string) => void;
+}) {
+  return (
+    <div className="ordc-cart-lines">
+      {groups.map((group) => (
+        <section key={group.supplier_id} className="ordc-cgroup">
+          <header className="ordc-cgroup-head">
+            <span className="ordc-cgroup-name">
+              <Icon name="storefront" size={13} />
+              {group.name}
+            </span>
+            <span className="ordc-cgroup-total tabular-nums">{formatPrice(group.total)}</span>
+          </header>
+          <ul className="ordc-cgroup-lines">
+            {group.lines.map((line) => (
+              <li key={line.item_id} className="ordc-cart-line">
+                <button
+                  type="button"
+                  className="ordc-cart-line-main"
+                  onClick={() => onOpenLine(line.item_id)}
+                  title="שינוי ספק או כמות"
+                >
+                  <span className="ordc-cart-thumb">
+                    {line.image_url ? <img src={line.image_url} alt="" /> : <Icon name="inventory_2" size={16} />}
+                  </span>
+                  <span className="ordc-cart-info">
+                    <span className="ordc-cart-name">{line.name}</span>
+                    <span className="ordc-cart-qty">
+                      {line.qty_label}
+                      {line.line_total > 0 ? ` · ${formatPrice(line.line_total)}` : " · ללא מחיר"}
+                    </span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="ordc-cart-remove"
+                  onClick={() => onRemoveLine(line.item_id)}
+                  aria-label={`הסרת ${line.name}`}
+                >
+                  <Icon name="close" size={15} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
   );
 }
 
@@ -225,31 +328,28 @@ export function InventoryOrder() {
   }, [inventoryCategories]);
   const { data: orders } = useOrders(businessId, isEditing);
   const { data: suppliers } = useSuppliers(businessId, { activeOnly: true });
+  const { data: supplierPriceIndex } = useSupplierItemPriceIndex(businessId);
   const createOrdersBatch = useCreateOrdersBatch(businessId);
   const updateOrdersBatch = useUpdateOrdersBatch(businessId);
 
-  const [drafts, setDrafts] = useState<Record<string, QtyDraft>>(() => {
-    const preset = searchParams.get("item");
-    return preset ? { [preset]: { packs: 1, pieces: 0 } } : {};
-  });
+  const [cart, setCart] = useState<Record<string, CartLine>>({});
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string>("all");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [pickerItemId, setPickerItemId] = useState<string | null>(null);
   const [flashId, setFlashId] = useState<string | null>(null);
-  const [supplierId, setSupplierId] = useState<string>(() => searchParams.get("supplier") ?? "");
   const [batchMissing, setBatchMissing] = useState(false);
+  const preferredSupplierId = searchParams.get("supplier");
   const editInitRef = useRef(false);
-  const presetJumpRef = useRef(false);
+  const presetRef = useRef(false);
   const flashTimer = useRef<number>();
 
-  const list = items ?? [];
-  const { data: supplierPriceIndex } = useSupplierItemPriceIndex(businessId);
-  const supplierPrices = useMemo(
-    () => supplierPricesFor(supplierPriceIndex, supplierId || null),
-    [supplierPriceIndex, supplierId],
-  );
+  const list = useMemo(() => items ?? [], [items]);
+  const supplierList = useMemo(() => suppliers ?? [], [suppliers]);
+  const itemById = useMemo(() => new Map(list.map((i) => [i.id, i])), [list]);
 
   /** Open lines of the batch being edited (batch key = batch_id, or line id for legacy single orders). */
   const editLines = useMemo(() => {
@@ -264,40 +364,88 @@ export function InventoryOrder() {
       setBatchMissing(true);
       return;
     }
-    const next: Record<string, QtyDraft> = {};
+    const batchSupplierId = editLines[0]?.supplier_id ?? "";
+    const next: Record<string, CartLine> = {};
     for (const line of editLines) {
-      next[line.item_id] = decomposeQty(items.find((i) => i.id === line.item_id), Number(line.quantity));
+      const qty = decomposeQty(
+        items.find((i) => i.id === line.item_id),
+        Number(line.quantity),
+      );
+      next[line.item_id] = { ...qty, supplier_id: line.supplier_id ?? batchSupplierId };
     }
-    setDrafts(next);
-    setSupplierId(editLines[0]?.supplier_id ?? "");
+    setCart(next);
   }, [isEditing, editLines, items]);
 
-  // Every order belongs to a supplier — with a single supplier there is nothing to choose.
-  useEffect(() => {
-    if (supplierId || isEditing || !suppliers || suppliers.length !== 1) return;
-    setSupplierId(suppliers[0].id);
-  }, [suppliers, supplierId, isEditing]);
-
-  // When arriving from a product card ("הזמנה" on a specific item) — scroll to it and flash.
+  // Arriving from a product card ("הזמנה" on a specific item) — open its picker right away.
   useEffect(() => {
     const preset = searchParams.get("item");
-    if (!preset || presetJumpRef.current || !items) return;
-    presetJumpRef.current = true;
-    window.setTimeout(() => {
-      document.getElementById(`ordc-item-${preset}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-      setFlashId(preset);
-      flashTimer.current = window.setTimeout(() => setFlashId(null), 1100);
-    }, 350);
+    if (!preset || presetRef.current || !items) return;
+    presetRef.current = true;
+    if (items.some((i) => i.id === preset)) setPickerItemId(preset);
   }, [items, searchParams]);
 
   useEffect(() => () => window.clearTimeout(flashTimer.current), []);
 
-  const selectedItems = useMemo(
-    () =>
-      Object.keys(drafts)
-        .map((id) => list.find((i) => i.id === id))
-        .filter((i): i is ItemWithQty => !!i),
-    [drafts, list],
+  // Removing the last line from inside the review sends the user back to the catalog.
+  useEffect(() => {
+    if (reviewOpen && Object.keys(cart).length === 0) setReviewOpen(false);
+  }, [reviewOpen, cart]);
+
+  /** Active suppliers per product + the cheapest price among them, for the catalog cards. */
+  const supplierMetaByItem = useMemo(() => {
+    const map = new Map<string, ItemSupplierMeta>();
+    if (!supplierPriceIndex) return map;
+    const activeIds = new Set(supplierList.map((s) => s.id));
+    for (const [supplierId, itemPrices] of supplierPriceIndex) {
+      if (!activeIds.has(supplierId)) continue;
+      for (const [itemId, prices] of itemPrices) {
+        const price = effectiveMainUnitPrice(prices, itemById.get(itemId)?.units_per_package ?? null);
+        const entry = map.get(itemId) ?? { count: 0, min_price: 0 };
+        entry.count += 1;
+        if (price > 0 && (entry.min_price === 0 || price < entry.min_price)) entry.min_price = price;
+        map.set(itemId, entry);
+      }
+    }
+    return map;
+  }, [supplierPriceIndex, supplierList, itemById]);
+
+  const supplierById = useMemo(() => new Map(supplierList.map((s) => [s.id, s])), [supplierList]);
+
+  /** Cart contents, priced by whichever supplier was chosen per product. */
+  const draftLines = useMemo(() => {
+    const result: DraftOrderLine[] = [];
+    for (const [itemId, line] of Object.entries(cart)) {
+      const item = itemById.get(itemId);
+      if (!item) continue;
+      const quantity = draftTotal(item, line);
+      if (quantity <= 0) continue;
+      const prices = supplierPriceIndex?.get(line.supplier_id)?.get(itemId);
+      const unitPrice = effectiveMainUnitPrice(prices, item.units_per_package);
+      result.push({
+        item_id: itemId,
+        name: item.name,
+        image_url: item.image_url,
+        unit: item.unit,
+        units_per_package: item.units_per_package,
+        supplier_id: line.supplier_id,
+        quantity,
+        qty_label: draftLabel(item, line),
+        calc_label: orderCalcLabel(item, line, prices),
+        unit_price: unitPrice,
+        line_total: inventoryLineTotal(item, quantity, unitPrice),
+      });
+    }
+    return result;
+  }, [cart, itemById, supplierPriceIndex]);
+
+  const supplierGroups = useMemo(
+    () => groupDraftLinesBySupplier(draftLines, supplierList),
+    [draftLines, supplierList],
+  );
+  const cartTotal = useMemo(() => draftLinesTotal(draftLines), [draftLines]);
+  const lineTotalByItem = useMemo(
+    () => new Map(draftLines.map((l) => [l.item_id, l.line_total])),
+    [draftLines],
   );
 
   const categories = useMemo(() => {
@@ -324,39 +472,6 @@ export function InventoryOrder() {
     });
   }, [list, query, category]);
 
-  const orderLines = useMemo(
-    () =>
-      selectedItems
-        .map((item) => ({ item_id: item.id, quantity: draftTotal(item, drafts[item.id]!) }))
-        .filter((l) => l.quantity > 0),
-    [selectedItems, drafts],
-  );
-
-  const cartTotal = useMemo(
-    () =>
-      selectedItems.reduce(
-        (sum, item) =>
-          sum +
-          inventoryLineTotal(
-            item,
-            draftTotal(item, drafts[item.id]!),
-            effectiveMainUnitPrice(supplierPrices?.get(item.id), item.units_per_package),
-          ),
-        0,
-      ),
-    [selectedItems, drafts, supplierPrices],
-  );
-
-  const selectedSupplier = useMemo(
-    () => (supplierId ? suppliers?.find((s) => s.id === supplierId) ?? null : null),
-    [suppliers, supplierId],
-  );
-
-  const deliveryLabel = useMemo(() => {
-    if (!selectedSupplier) return "בחרו ספק";
-    return formatDeliveryDay(selectedSupplier.delivery_day);
-  }, [selectedSupplier]);
-
   const editMeta =
     isEditing && editLines?.length
       ? {
@@ -365,52 +480,61 @@ export function InventoryOrder() {
         }
       : null;
 
-  function patchDraft(item: ItemWithQty, patch: Partial<QtyDraft>) {
+  /**
+   * Adding a product while editing must not silently move the whole batch to a
+   * different supplier, so the batch's own supplier is the default there.
+   */
+  const pickerPreferredSupplierId = isEditing
+    ? Object.values(cart)[0]?.supplier_id ?? preferredSupplierId
+    : preferredSupplierId;
+
+  const pickerItem = pickerItemId ? itemById.get(pickerItemId) ?? null : null;
+  const pickerCurrent: ProductPick | null =
+    pickerItemId && cart[pickerItemId]
+      ? {
+          supplier_id: cart[pickerItemId].supplier_id,
+          packs: cart[pickerItemId].packs,
+          pieces: cart[pickerItemId].pieces,
+        }
+      : null;
+
+  function openPicker(item: ItemWithQty) {
     setError(null);
-    setDrafts((prev) => {
-      const cur = prev[item.id] ?? { packs: 0, pieces: 0 };
-      const next = {
-        packs: Math.max(0, patch.packs ?? cur.packs),
-        pieces: Math.max(0, patch.pieces ?? cur.pieces),
-      };
-      if (next.packs <= 0 && next.pieces <= 0) {
-        const { [item.id]: _removed, ...rest } = prev;
-        return rest;
-      }
-      return { ...prev, [item.id]: next };
-    });
+    setSheetOpen(false);
+    setPickerItemId(item.id);
   }
 
-  function addItem(item: ItemWithQty) {
-    patchDraft(item, { packs: (drafts[item.id]?.packs ?? 0) + 1 });
+  function confirmPick(itemId: string, pick: ProductPick) {
+    setError(null);
+    setCart((prev) => {
+      const next: Record<string, CartLine> = { ...prev };
+      next[itemId] = { supplier_id: pick.supplier_id, packs: pick.packs, pieces: pick.pieces };
+      // An existing order is one batch for one supplier — keep every line aligned.
+      if (isEditing) {
+        for (const id of Object.keys(next)) next[id] = { ...next[id], supplier_id: pick.supplier_id };
+      }
+      return next;
+    });
+    setPickerItemId(null);
+    flashItem(itemId);
   }
 
   function removeItem(id: string) {
-    setDrafts((prev) => {
+    setCart((prev) => {
       const { [id]: _removed, ...rest } = prev;
       return rest;
     });
   }
 
   function clearAll() {
-    setDrafts({});
+    setCart({});
     setError(null);
   }
 
-  /** Scroll the catalog to a selected product (clearing filters if they hide it) and flash it. */
-  function jumpToItem(item: ItemWithQty) {
-    setSheetOpen(false);
-    const visible = filtered.some((i) => i.id === item.id);
-    if (!visible) {
-      setQuery("");
-      setCategory("all");
-    }
-    window.setTimeout(() => {
-      document.getElementById(`ordc-item-${item.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-      setFlashId(item.id);
-      window.clearTimeout(flashTimer.current);
-      flashTimer.current = window.setTimeout(() => setFlashId(null), 1100);
-    }, visible ? 0 : 80);
+  function flashItem(itemId: string) {
+    setFlashId(itemId);
+    window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => setFlashId(null), 1100);
   }
 
   function goBack() {
@@ -418,15 +542,25 @@ export function InventoryOrder() {
     else navigate("/inventory?tab=orders", { replace: true });
   }
 
-  async function submit() {
+  function openReview() {
     setError(null);
-    if (!orderLines.length) {
+    if (!draftLines.length) {
       setError("נא לבחור לפחות מוצר אחד עם כמות");
       return;
     }
-    if (!supplierId) {
-      setError("כל הזמנה משויכת לספק — נא לבחור את הספק שממנו מזמינים");
-      setSheetOpen(true);
+    const missingSupplier = draftLines.some((l) => !l.supplier_id);
+    if (missingSupplier) {
+      setError("לכל מוצר צריך לבחור ספק");
+      return;
+    }
+    setSheetOpen(false);
+    setReviewOpen(true);
+  }
+
+  async function submit() {
+    setError(null);
+    if (!supplierGroups.length) {
+      setError("נא לבחור לפחות מוצר אחד עם כמות");
       return;
     }
     setBusy(true);
@@ -436,17 +570,20 @@ export function InventoryOrder() {
           batch_id: batchParam!,
           business_id: businessId!,
           ordered_by: editLines[0].ordered_by ?? profile?.id ?? null,
-          supplier_id: supplierId,
+          supplier_id: supplierGroups[0].supplier_id,
           line_ids: editLines.map((l) => l.id),
-          lines: orderLines,
+          lines: draftLines.map((l) => ({ item_id: l.item_id, quantity: l.quantity })),
         });
       } else {
-        await createOrdersBatch.mutateAsync({
-          business_id: businessId!,
-          ordered_by: profile?.id ?? null,
-          supplier_id: supplierId,
-          lines: orderLines,
-        });
+        // One batch per supplier — a mixed cart becomes several separate orders.
+        for (const group of supplierGroups) {
+          await createOrdersBatch.mutateAsync({
+            business_id: businessId!,
+            ordered_by: profile?.id ?? null,
+            supplier_id: group.supplier_id,
+            lines: group.lines.map((l) => ({ item_id: l.item_id, quantity: l.quantity })),
+          });
+        }
       }
       navigate("/inventory?tab=orders", { replace: true });
     } catch (e) {
@@ -481,46 +618,21 @@ export function InventoryOrder() {
     );
   }
 
-  const submitLabel = isEditing ? "שמירת שינויים" : "שליחת הזמנה";
-
   const errorBox = error && (
     <div className="flex items-start gap-2 rounded-[11px] [background:var(--danger-bg)] px-3 py-2.5 text-[13px] font-semibold text-danger">
       <Icon name="error" size={18} className="shrink-0" /> {error}
     </div>
   );
 
-  const supplierPicker =
-    (suppliers?.length ?? 0) > 0 ? (
-      <Field label="ספק להזמנה · חובה">
-        <Select
-          value={supplierId}
-          onChange={(e) => setSupplierId(e.target.value)}
-          searchable
-          searchPlaceholder="בחר ספק..."
-        >
-          <option value="" disabled>
-            בחרו ספק...
-          </option>
-          {(suppliers ?? []).map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </Select>
-        <p className="mt-1 text-[11.5px] text-text-3">
-          <Link to="/suppliers" className="font-semibold text-accent-2 hover:underline">
-            ניהול ספקים
-          </Link>
-        </p>
-      </Field>
-    ) : (
-      <p className="text-[12px] text-text-3">
-        אין ספקים במערכת — כל הזמנה חייבת ספק.{" "}
-        <Link to="/suppliers" className="font-semibold text-accent-2 hover:underline">
-          הוספת ספק
-        </Link>
-      </p>
-    );
+  const noSuppliersNote = supplierList.length === 0 && (
+    <p className="ordc-cart-hint">
+      <Icon name="warning" size={14} />
+      אין ספקים פעילים במערכת — כל הזמנה חייבת ספק.{" "}
+      <Link to="/suppliers" className="font-semibold text-accent-2 hover:underline">
+        הוספת ספק
+      </Link>
+    </p>
+  );
 
   const cartEmpty = (
     <div className="ordc-cart-empty">
@@ -528,12 +640,31 @@ export function InventoryOrder() {
         <Icon name="add_shopping_cart" size={26} />
       </span>
       <p className="ordc-cart-empty-title">עוד לא נבחרו מוצרים</p>
-      <p className="ordc-cart-empty-sub">הוסיפו מוצרים מהרשימה — הם יופיעו כאן לסיכום מהיר לפני השליחה.</p>
+      <p className="ordc-cart-empty-sub">
+        בכל מוצר בוחרים את הספק שממנו מזמינים — אפשר לשלב כמה ספקים בהזמנה אחת.
+      </p>
     </div>
   );
 
+  const cartSummary = (
+    <>
+      <div className="ordc-total">
+        <span className="ordc-total-label">
+          סה״כ הזמנה
+          <small>
+            {draftLines.length} מוצרים · {supplierGroups.length}{" "}
+            {supplierGroups.length === 1 ? "ספק" : "ספקים"}
+          </small>
+        </span>
+        <b className="ordc-total-value tabular-nums">{formatPrice(cartTotal)}</b>
+      </div>
+      {noSuppliersNote}
+      {errorBox}
+    </>
+  );
+
   return (
-    <div className={`ordc-page page-enter w-full ${selectedItems.length ? "pb-36" : "pb-4"} lg:pb-0`}>
+    <div className={`ordc-page page-enter w-full ${draftLines.length ? "pb-36" : "pb-4"} lg:pb-0`}>
       <header className="mb-4 flex items-center gap-3 md:mb-5">
         <button type="button" className="icon-btn shrink-0" onClick={goBack} aria-label="חזרה">
           <Icon name="arrow_forward" size={20} />
@@ -545,13 +676,13 @@ export function InventoryOrder() {
           <p className="mt-0.5 truncate text-[12px] text-text-3 md:text-[13px]">
             {editMeta
               ? `הזמנה מ־${editMeta.date}${editMeta.by ? ` · ${editMeta.by}` : ""}`
-              : "בוחרים מוצרים וכמויות — אפשר גם יחידות בודדות מכל מוצר"}
+              : "בכל מוצר בוחרים ספק וכמות — אפשר לשלב כמה ספקים בהזמנה אחת"}
           </p>
         </div>
-        {selectedItems.length > 0 && (
-          <span className="ordc-head-chip hidden md:inline-flex lg:hidden" key={selectedItems.length}>
+        {draftLines.length > 0 && (
+          <span className="ordc-head-chip hidden md:inline-flex lg:hidden" key={draftLines.length}>
             <Icon name="shopping_cart" size={15} />
-            {selectedItems.length}
+            {draftLines.length}
           </span>
         )}
       </header>
@@ -623,7 +754,7 @@ export function InventoryOrder() {
                 </div>
               </div>
 
-              {showReco && <RecoStrip items={recoItems} drafts={drafts} onQuickAdd={addItem} />}
+              {showReco && <RecoStrip items={recoItems} lines={cart} onOpen={openPicker} />}
 
               {filtered.length === 0 ? (
                 <EmptyState
@@ -644,20 +775,26 @@ export function InventoryOrder() {
                 />
               ) : (
                 <div className="ordc-grid">
-                  {filtered.map((it, idx) => (
-                    <ProductCard
-                      key={it.id}
-                      item={it}
-                      index={idx}
-                      draft={drafts[it.id]}
-                      flash={flashId === it.id}
-                      onAdd={() => addItem(it)}
-                      onPatch={(patch) => patchDraft(it, patch)}
-                      onRemove={() => removeItem(it.id)}
-                      categoryName={it.category_id ? categoryNameById.get(it.category_id) ?? null : null}
-                      deliveryLabel={deliveryLabel}
-                    />
-                  ))}
+                  {filtered.map((it, idx) => {
+                    const line = cart[it.id];
+                    const supplier = line ? supplierById.get(line.supplier_id) ?? null : null;
+                    return (
+                      <ProductCard
+                        key={it.id}
+                        item={it}
+                        index={idx}
+                        line={line}
+                        flash={flashId === it.id}
+                        supplierMeta={supplierMetaByItem.get(it.id) ?? NO_SUPPLIER_META}
+                        supplierName={supplier?.name ?? null}
+                        deliveryLabel={supplier ? deliveryDayLabel(supplier.delivery_day) : null}
+                        lineTotal={lineTotalByItem.get(it.id) ?? 0}
+                        categoryName={it.category_id ? categoryNameById.get(it.category_id) ?? null : null}
+                        onOpen={() => openPicker(it)}
+                        onRemove={() => removeItem(it.id)}
+                      />
+                    );
+                  })}
                 </div>
               )}
             </>
@@ -671,71 +808,26 @@ export function InventoryOrder() {
               <Icon name="shopping_cart" size={17} />
               ההזמנה שלי
             </span>
-            <span className="ordc-cart-count" key={selectedItems.length}>
-              {selectedItems.length}
+            <span className="ordc-cart-count" key={draftLines.length}>
+              {draftLines.length}
             </span>
           </div>
-          {selectedItems.length === 0 ? (
+          {draftLines.length === 0 ? (
             cartEmpty
           ) : (
             <>
-              <ul className="ordc-cart-lines">
-                {selectedItems.map((item) => (
-                  <li key={item.id} className="ordc-cart-line">
-                    <button
-                      type="button"
-                      className="ordc-cart-line-main"
-                      onClick={() => jumpToItem(item)}
-                      title="מעבר למוצר ברשימה"
-                    >
-                      <span className="ordc-cart-thumb">
-                        {item.image_url ? <img src={item.image_url} alt="" /> : <Icon name="inventory_2" size={16} />}
-                      </span>
-                      <span className="ordc-cart-info">
-                        <span className="ordc-cart-name">{item.name}</span>
-                        <span className="ordc-cart-qty">{draftLabel(item, drafts[item.id]!)}</span>
-                        {(() => {
-                          const lineSum = inventoryLineTotal(
-                            item,
-                            draftTotal(item, drafts[item.id]!),
-                            effectiveMainUnitPrice(supplierPrices?.get(item.id), item.units_per_package),
-                          );
-                          return lineSum > 0 ? (
-                            <span className="ordc-cart-qty tabular-nums text-text-2">
-                              {formatCurrency(lineSum)}
-                            </span>
-                          ) : null;
-                        })()}
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      className="ordc-cart-remove"
-                      onClick={() => removeItem(item.id)}
-                      aria-label={`הסרת ${item.name}`}
-                    >
-                      <Icon name="close" size={15} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              <CartGroups
+                groups={supplierGroups}
+                onOpenLine={(itemId) => {
+                  const item = itemById.get(itemId);
+                  if (item) openPicker(item);
+                }}
+                onRemoveLine={removeItem}
+              />
               <div className="ordc-cart-foot">
-                {supplierPicker}
-                {cartTotal > 0 && (
-                  <div className="flex items-center justify-between rounded-[10px] border border-border bg-surface-2 px-3 py-2 text-[13px] font-extrabold">
-                    <span className="text-text-2">סה״כ הזמנה</span>
-                    <span className="tabular-nums text-text">{formatCurrency(cartTotal)}</span>
-                  </div>
-                )}
-                {selectedSupplier && (
-                  <p className="ordc-cart-delivery">
-                    <Icon name="local_shipping" size={14} />
-                    אספקה צפויה: {deliveryLabel}
-                  </p>
-                )}
-                {errorBox}
-                <Button className="w-full !bg-ink" icon="send" loading={busy} onClick={submit}>
-                  {submitLabel} ({selectedItems.length})
+                {cartSummary}
+                <Button className="w-full !bg-ink" icon="arrow_back" onClick={openReview}>
+                  הבא · סיכום ההזמנה
                 </Button>
                 <button type="button" className="ordc-clear" onClick={clearAll}>
                   ניקוי הבחירה
@@ -747,26 +839,29 @@ export function InventoryOrder() {
       </div>
 
       {/* Mobile / tablet — sticky summary bar */}
-      {selectedItems.length > 0 && (
+      {draftLines.length > 0 && (
         <div className="ordc-bar">
           {errorBox}
           <div className="ordc-bar-row">
             <button type="button" className="ordc-bar-summary" onClick={() => setSheetOpen(true)}>
               <span className="ordc-bar-thumbs">
-                {selectedItems.slice(0, 3).map((item) => (
-                  <span key={item.id} className="ordc-bar-thumb">
-                    {item.image_url ? <img src={item.image_url} alt="" /> : <Icon name="inventory_2" size={14} />}
+                {draftLines.slice(0, 3).map((line) => (
+                  <span key={line.item_id} className="ordc-bar-thumb">
+                    {line.image_url ? <img src={line.image_url} alt="" /> : <Icon name="inventory_2" size={14} />}
                   </span>
                 ))}
               </span>
               <span className="ordc-bar-meta">
-                <b key={selectedItems.length}>{selectedItems.length} מוצרים</b>
-                <span>לצפייה ועריכה</span>
+                <b key={draftLines.length}>{formatPrice(cartTotal)}</b>
+                <span>
+                  {draftLines.length} מוצרים · {supplierGroups.length}{" "}
+                  {supplierGroups.length === 1 ? "ספק" : "ספקים"}
+                </span>
               </span>
               <Icon name="expand_less" size={18} className="text-text-3" />
             </button>
-            <Button className="shrink-0 !bg-ink !px-5" icon="send" loading={busy} onClick={submit}>
-              {isEditing ? "שמירה" : "שליחה"}
+            <Button className="shrink-0 !bg-ink !px-5" icon="arrow_back" onClick={openReview}>
+              הבא
             </Button>
           </div>
         </div>
@@ -777,9 +872,11 @@ export function InventoryOrder() {
         open={sheetOpen}
         onClose={() => setSheetOpen(false)}
         title="ההזמנה שלי"
-        subtitle={`${selectedItems.length} מוצרים נבחרו`}
+        subtitle={`${draftLines.length} מוצרים · ${supplierGroups.length} ${
+          supplierGroups.length === 1 ? "ספק" : "ספקים"
+        }`}
         icon="shopping_cart"
-        maxWidth={520}
+        maxWidth={540}
         footer={
           <>
             <Button variant="secondary" onClick={() => setSheetOpen(false)} className="active:scale-[0.97]">
@@ -787,64 +884,63 @@ export function InventoryOrder() {
             </Button>
             <Button
               className="flex-1 !bg-ink active:scale-[0.97]"
-              icon="send"
-              loading={busy}
-              disabled={selectedItems.length === 0}
-              onClick={submit}
+              icon="arrow_back"
+              disabled={draftLines.length === 0}
+              onClick={openReview}
             >
-              {submitLabel} ({selectedItems.length})
+              הבא · {formatPrice(cartTotal)}
             </Button>
           </>
         }
       >
-        {selectedItems.length === 0 ? (
+        {draftLines.length === 0 ? (
           cartEmpty
         ) : (
-          <div className="flex flex-col gap-2.5">
-            {supplierPicker}
-            {cartTotal > 0 && (
-              <div className="flex items-center justify-between rounded-[10px] border border-border bg-surface-2 px-3 py-2 text-[13px] font-extrabold">
-                <span className="text-text-2">סה״כ הזמנה</span>
-                <span className="tabular-nums text-text">{formatCurrency(cartTotal)}</span>
-              </div>
-            )}
-            {selectedSupplier && (
-              <p className="ordc-cart-delivery">
-                <Icon name="local_shipping" size={14} />
-                אספקה צפויה: {deliveryLabel}
-              </p>
-            )}
-            {selectedItems.map((item) => (
-              <div key={item.id} className="rounded-[13px] border border-border-2 bg-surface p-3">
-                <div className="flex items-center gap-2.5">
-                  <span className="ordc-cart-thumb">
-                    {item.image_url ? <img src={item.image_url} alt="" /> : <Icon name="inventory_2" size={16} />}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] font-bold">{item.name}</span>
-                    <span className="mt-0.5 block text-[11px] font-medium text-text-3">
-                      במלאי {item.current_qty}
-                      {item.unit ? ` ${item.unit}` : ""}
-                    </span>
-                  </span>
-                  <button
-                    type="button"
-                    className="ordc-cart-remove"
-                    onClick={() => removeItem(item.id)}
-                    aria-label={`הסרת ${item.name}`}
-                  >
-                    <Icon name="delete" size={16} />
-                  </button>
-                </div>
-                <div className="mt-2.5">
-                  <QtyEditor dense item={item} draft={drafts[item.id]!} onPatch={(patch) => patchDraft(item, patch)} />
-                </div>
-              </div>
-            ))}
-            {errorBox}
+          <div className="ordc-sheet">
+            <CartGroups
+              groups={supplierGroups}
+              onOpenLine={(itemId) => {
+                const item = itemById.get(itemId);
+                if (item) openPicker(item);
+              }}
+              onRemoveLine={removeItem}
+            />
+            {cartSummary}
+            <button type="button" className="ordc-clear" onClick={clearAll}>
+              ניקוי הבחירה
+            </button>
           </div>
         )}
       </Modal>
+
+      <ProductSupplierModal
+        item={pickerItem}
+        suppliers={supplierList}
+        priceIndex={supplierPriceIndex}
+        current={pickerCurrent}
+        preferredSupplierId={pickerPreferredSupplierId}
+        sharedSupplier={isEditing}
+        onClose={() => setPickerItemId(null)}
+        onConfirm={(pick) => pickerItemId && confirmPick(pickerItemId, pick)}
+        onRemove={() => {
+          if (pickerItemId) removeItem(pickerItemId);
+          setPickerItemId(null);
+        }}
+      />
+
+      <OrderReviewModal
+        open={reviewOpen}
+        groups={supplierGroups}
+        total={cartTotal}
+        busy={busy}
+        error={error}
+        isEditing={isEditing}
+        onClose={() => setReviewOpen(false)}
+        onRemoveLine={removeItem}
+        onSubmit={submit}
+      />
+
+      <LoadingOverlay show={busy} label={isEditing ? "שומר שינויים בהזמנה..." : "שולח הזמנה..."} />
     </div>
   );
 }

@@ -12,6 +12,12 @@ import {
   featureStateForPlan,
   type FeatureState,
 } from "@/lib/features";
+import {
+  parseSeatCap,
+  validateDetailsStep,
+  validateManagerStep,
+  validateModuleStep,
+} from "@/lib/businessSetup";
 import type { Business, BusinessPlan, FeatureKey } from "@/types/database";
 
 const STEPS = [
@@ -85,28 +91,29 @@ export function CreateBusinessWizard({
   function next() {
     setError(null);
     if (step === 0) {
-      if (!name.trim()) return setError("נא להזין שם עסק");
-      return setStep(1);
+      const err = validateDetailsStep({ name, notes });
+      return err ? setError(err) : setStep(1);
     }
     if (step === 1) {
-      if (enabledSet.size === 0) return setError("יש להפעיל לפחות מודול אחד");
-      const cap = seats.trim() ? Number(seats) : null;
-      if (cap != null && (!Number.isFinite(cap) || cap < 1)) return setError("מגבלת המשתמשים חייבת להיות מספר חיובי");
-      return setStep(2);
+      const err = validateModuleStep({ state, seats });
+      return err ? setError(err) : setStep(2);
     }
   }
 
   async function submit(withManager: boolean) {
     setError(null);
     if (withManager) {
-      if (!mgrName.trim() || !mgrEmail.trim() || !mgrPassword) {
-        return setError("נא למלא שם, אימייל וסיסמה למנהל המערכת");
-      }
-      if (mgrPassword.length < 6) return setError("הסיסמה חייבת להכיל לפחות 6 תווים");
+      const err = validateManagerStep({
+        full_name: mgrName,
+        email: mgrEmail,
+        password: mgrPassword,
+        phone: mgrPhone,
+      });
+      if (err) return setError(err);
     }
 
-    const cap = seats.trim() ? Number(seats) : null;
-    if (withManager && cap != null && cap < 1) return setError("מגבלת המשתמשים חייבת להיות לפחות 1");
+    const { cap, error: seatError } = parseSeatCap(seats);
+    if (seatError) return setError(seatError);
 
     try {
       const biz = await create.mutateAsync({

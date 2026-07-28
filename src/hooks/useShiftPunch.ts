@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/lib/auth";
-import { ATTENDANCE_RADIUS_M } from "@/lib/constants";
+import { evaluateClockIn, resolveGeofenceRules } from "@/lib/attendanceGeofence";
 import { useBusinessId, todayISO, weekStart, addDays } from "@/lib/db";
 import { pendingTasksForEmployee } from "@/lib/pendingTasks";
 import { useBusiness } from "@/api/businesses";
@@ -9,15 +9,6 @@ import { useTaskTemplates } from "@/api/taskTemplates";
 import { useAttendanceToday, useClockIn, useClockOut } from "@/api/attendance";
 import { useActiveShiftTemplates, useShiftAssignments } from "@/api/shifts";
 import type { ShiftTemplate } from "@/types/database";
-
-function distanceM(lat1: number, lng1: number, lat2: number, lng2: number) {
-  const R = 6371000;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
 
 export function formatShiftElapsed(ms: number) {
   const totalSec = Math.max(0, Math.floor(ms / 1000));
@@ -84,12 +75,12 @@ export function useShiftPunch() {
       )
     : [];
 
-  const geofenceEnabled = biz?.attendance_geofence_enabled ?? false;
-  const geofenceExempt = Boolean(
-    profile && biz?.attendance_geofence_exempt_roles?.includes(profile.role),
-  );
-  const geofenceRequired = geofenceEnabled && !geofenceExempt;
-  const radiusM = biz?.location_radius_m ?? ATTENDANCE_RADIUS_M;
+  const {
+    enabled: geofenceEnabled,
+    exempt: geofenceExempt,
+    required: geofenceRequired,
+    radiusM,
+  } = resolveGeofenceRules(biz, profile?.role);
 
   async function clockInRecord(lat: number | null, lng: number | null, within: boolean) {
     await clockIn.mutateAsync({
@@ -148,24 +139,28 @@ export function useShiftPunch() {
       return;
     }
 
-    if (biz.location_lat == null || biz.location_lng == null) {
-      setClockStatus({ ok: false, text: "מיקום העסק לא הוגדר. פנו למנהל." });
+    const preflight = evaluateClockIn({ business: biz, role: profile.role, position: null });
+    if (!preflight.allowed && preflight.reason === "missing_business_location") {
+      setClockStatus({ ok: false, text: preflight.message });
       return;
     }
 
     setBusy(true);
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
-        const d = distanceM(pos.coords.latitude, pos.coords.longitude, biz.location_lat!, biz.location_lng!);
-        const within = d <= radiusM;
-        if (!within) {
-          setClockStatus({ ok: false, text: `אתם במרחק ${Math.round(d)} מ׳ מחוץ לרדיוס (${radiusM} מ׳)` });
+        const decision = evaluateClockIn({
+          business: biz,
+          role: profile.role,
+          position: { lat: pos.coords.latitude, lng: pos.coords.longitude },
+        });
+        if (!decision.allowed) {
+          setClockStatus({ ok: false, text: decision.message });
           setBusy(false);
           return;
         }
         try {
-          await clockInRecord(pos.coords.latitude, pos.coords.longitude, within);
-          setClockStatus({ ok: true, text: `כניסה הוחתמה · ${Math.round(d)} מ׳ מהעסק` });
+          await clockInRecord(pos.coords.latitude, pos.coords.longitude, decision.within);
+          setClockStatus({ ok: true, text: `כניסה הוחתמה · ${Math.round(decision.distanceM ?? 0)} מ׳ מהעסק` });
         } catch {
           setClockStatus({ ok: false, text: "החתמה נכשלה" });
         } finally {

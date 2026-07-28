@@ -53,6 +53,7 @@ function ModuleCapsule({
   index,
   lockedBy,
   breaks,
+  pending,
   onToggle,
 }: {
   module: FeatureModule;
@@ -62,6 +63,8 @@ function ModuleCapsule({
   lockedBy: FeatureModule | null;
   /** Modules that will switch off along with this one. */
   breaks: FeatureModule[];
+  /** Waiting on the purge dialog — still on, but marked for removal. */
+  pending?: boolean;
   onToggle: () => void;
 }) {
   const art = MODULE_ART[module.key];
@@ -95,13 +98,19 @@ function ModuleCapsule({
 
   const meta = (
     <>
-      {lockedBy && (
+      {pending && (
+        <span className="module-capsule-dep module-capsule-dep--locked">
+          <Icon name="hourglass_top" size={13} />
+          ממתין לאישור מחיקה
+        </span>
+      )}
+      {!pending && lockedBy && (
         <span className="module-capsule-dep module-capsule-dep--locked">
           <Icon name="lock" size={13} />
           דורש {lockedBy.label}
         </span>
       )}
-      {!lockedBy && enabled && breaks.length > 0 && (
+      {!pending && !lockedBy && enabled && breaks.length > 0 && (
         <span className="module-capsule-dep">
           <Icon name="link" size={13} />
           כיבוי יכבה גם {breaks.map((b) => b.label).join(", ")}
@@ -133,6 +142,7 @@ function ModuleCapsule({
       data-module={module.key}
       data-layout={art.layout}
       data-locked={!!lockedBy}
+      data-pending={!!pending}
       title={lockedBy ? `הפעלת ${module.label} תדליק אוטומטית את ${lockedBy.label}` : module.dependencyNote}
       style={{ "--spot-x": "50%", "--spot-y": "50%", perspective: 900 } as CSSProperties}
       className={`module-capsule group ${art.span}`}
@@ -205,6 +215,8 @@ export function ActiveModulesPanel({
   enabledSet,
   onToggle,
   onBulkChange,
+  onRequestDisable,
+  pendingOff,
   headerSlot,
 }: {
   enabledSet: Set<FeatureKey>;
@@ -212,6 +224,14 @@ export function ActiveModulesPanel({
   onToggle: (key: FeatureKey, enabled: boolean) => void;
   /** Optional bulk apply — when absent, cascades are emitted as individual onToggle calls. */
   onBulkChange?: (changes: { key: FeatureKey; enabled: boolean }[]) => void;
+  /**
+   * When provided, switching a module off is handed to the parent instead of
+   * applied — an existing business loses data, so it goes through confirmation
+   * first. `cascade` lists the module clicked plus everything that depends on it.
+   */
+  onRequestDisable?: (key: FeatureKey, cascade: FeatureKey[]) => void;
+  /** Modules awaiting that confirmation — still lit, but marked. */
+  pendingOff?: Set<FeatureKey>;
   /** Rendered in the panel header (e.g. the plan picker). */
   headerSlot?: React.ReactNode;
 }) {
@@ -232,6 +252,14 @@ export function ActiveModulesPanel({
 
   function handleToggle(key: FeatureKey) {
     const next = !state[key];
+
+    // Switching off destroys data — the parent owns that decision.
+    if (!next && onRequestDisable) {
+      const { turnedOff } = applyFeatureToggle(state, key, false);
+      onRequestDisable(key, [key, ...turnedOff]);
+      return;
+    }
+
     const result = applyFeatureToggle(state, key, next);
     const changes = [
       { key, enabled: next },
@@ -349,6 +377,7 @@ export function ActiveModulesPanel({
                       index={idx}
                       lockedBy={!on && unmetDep ? MODULE_BY_KEY.get(unmetDep)! : null}
                       breaks={willBreak}
+                      pending={pendingOff?.has(m.key)}
                       onToggle={() => handleToggle(m.key)}
                     />
                   );

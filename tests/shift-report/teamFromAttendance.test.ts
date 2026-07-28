@@ -122,9 +122,14 @@ describe("buildTeamMembersFromShift daily", () => {
     expect(team[0].attendance_hours).toBe(8);
   });
 
-  it("clips hours to the calendar day, not the full multi-day punch", () => {
-    const reportDate = "2026-07-11";
-    const punch: Attendance = {
+  /**
+   * A punch spanning several days means somebody forgot to clock out. Without a
+   * shift template the report has no window to clip against, so it falls back to
+   * the module-wide convention: a punch belongs to the day it *started* (same
+   * rule as attendanceBelongsToTodayFeed). Selecting a template clips properly.
+   */
+  describe("multi-day punch (forgotten clock-out)", () => {
+    const longPunch: Attendance = {
       id: "att-long",
       business_id: "biz-1",
       employee_id: EMP.carol,
@@ -136,15 +141,34 @@ describe("buildTeamMembersFromShift daily", () => {
       created_at: "2026-07-10T08:00:00",
     };
 
-    const hrs = getAttendanceHoursForShiftReport({
-      attendance: [punch],
-      employeeId: EMP.carol,
-      reportDate,
-      shiftTemplateId: "",
-      templates: [],
+    const hoursFor = (reportDate: string, shiftTemplateId = "", tpls = templates) =>
+      getAttendanceHoursForShiftReport({
+        attendance: [longPunch],
+        employeeId: EMP.carol,
+        reportDate,
+        shiftTemplateId,
+        templates: tpls,
+      });
+
+    it("counts on the day it started, without a template", () => {
+      expect(hoursFor("2026-07-10")).toBe(48);
     });
 
-    expect(hrs).toBe(24);
-    expect(hrs).not.toBe(48);
+    it("does not leak onto the following days it spans", () => {
+      expect(hoursFor("2026-07-11")).toBe(0);
+      expect(hoursFor("2026-07-12")).toBe(0);
+    });
+
+    it("clips to the shift window once a template is selected", () => {
+      // בוקר 08:00–16:00 ביום 11/07 — 8 שעות מתוך ההחתמה הארוכה
+      expect(hoursFor("2026-07-11", TEMPLATE.morning)).toBe(8);
+    });
+
+    it("never reports more hours than the shift window is long", () => {
+      const morning = templates.find((t) => t.id === TEMPLATE.morning)!;
+      const windowHours =
+        (Number(morning.end_time.slice(0, 2)) - Number(morning.start_time.slice(0, 2)));
+      expect(hoursFor("2026-07-11", TEMPLATE.morning)).toBeLessThanOrEqual(windowHours);
+    });
   });
 });

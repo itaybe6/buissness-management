@@ -1,25 +1,26 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
-import { Button, EmptyState, ErrorState, Icon, Input, PageLoader, Select, Textarea } from "@/components/ui";
+import { Button, EmptyState, ErrorState, Icon, Input, LoadingOverlay, PageLoader, Select, Textarea } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useBusinessId, formatCurrency, HE_DAYS } from "@/lib/db";
 import { useAuth } from "@/lib/auth";
 import {
   useSupplierItems,
-  useSupplierOrderBatches,
   useSupplierReceipts,
   useSuppliers,
   useUpdateSupplier,
+  useSupplierItemPriceIndex,
   supplierSaveError,
   supplierPriceUnitLabel,
-  supplierPriceListTotal,
   effectiveMainUnitPrice,
   type SupplierItemPrices,
   type SupplierWithStats,
 } from "@/api/suppliers";
 import {
   useInventory,
+  useOrders,
   useCreateOrdersBatch,
+  useDeleteOrdersBatch,
   formatQtyWithPieces,
   splitPackageQty,
   inventoryLineTotal,
@@ -28,6 +29,14 @@ import {
 } from "@/api/inventory";
 import { useInventoryCategories } from "@/api/inventoryCategories";
 import { QtyEditor, draftLabel, draftTotal, type QtyDraft } from "@/components/inventory/orderDraft";
+import {
+  type OrderBatch,
+  batchHasPendingLines,
+  batchIsFullyReceived,
+  groupOrderBatches,
+  OrderBatchListSection,
+} from "@/components/inventory/orderBatchUi";
+import { usePartialDeliveryOrderCount } from "@/hooks/usePartialDeliveryOrderCount";
 import { RECEIPT_TYPE_LABELS } from "@/pages/agreements/types";
 
 type DetailTab = "products" | "orders" | "receipts";
@@ -36,14 +45,9 @@ type EditField = "name" | "phone" | "taxId" | "notes";
 
 /** How the price list is laid out — cards mirror the inventory catalog. */
 type ProductView = "grid" | "rows";
-type ProductSort = "name" | "price-desc" | "price-asc" | "stock";
-
-const PRODUCT_SORTS: { key: ProductSort; label: string; icon: string }[] = [
-  { key: "name", label: "שם", icon: "sort_by_alpha" },
-  { key: "price-desc", label: "מחיר גבוה", icon: "trending_up" },
-  { key: "price-asc", label: "מחיר נמוך", icon: "trending_down" },
-  { key: "stock", label: "מלאי נמוך", icon: "priority_high" },
-];
+/** null = all categories · __none__ = products without a category */
+type CategoryFilter = string | null;
+const CAT_FILTER_NONE = "__none__" as const;
 
 /** One product of the price list, joined with its catalog row when it is still active. */
 type SupplierProduct = {
@@ -68,14 +72,6 @@ function stockToneOf(item: ItemWithQty | null): { tone: StockTone; label: string
   return { tone: "ok", label: "במלאי" };
 }
 
-function stockRank(product: SupplierProduct): number {
-  const tone = stockToneOf(product.item)?.tone;
-  if (tone === "empty") return 0;
-  if (tone === "low") return 1;
-  if (tone === "ok") return 2;
-  return 3;
-}
-
 /** Per-piece prices are often a few agorot — keep the decimals formatCurrency drops. */
 function formatPrice(n: number): string {
   return "₪" + (Math.round(n * 100) / 100).toLocaleString("he-IL", { maximumFractionDigits: 2 });
@@ -91,22 +87,12 @@ function formatWhen(iso: string) {
   });
 }
 
-function monogram(name: string) {
-  const t = name.trim();
-  return t ? t[0] : "?";
-}
-
 /** 050-1234567 → https://wa.me/972501234567 */
 function formatDeliveryDay(day: number | null | undefined): string {
   if (day == null || day < 0 || day > 6) return "לא הוגדר";
   return `יום ${HE_DAYS[day]}`;
 }
 
-function waHref(phone: string) {
-  const digits = phone.replace(/\D/g, "");
-  const intl = digits.startsWith("0") ? `972${digits.slice(1)}` : digits;
-  return `https://wa.me/${intl}`;
-}
 
 /* ---------------------------------------------------------------- */
 /* Field shell — icon + tiny label + borderless input (module look)   */
@@ -699,11 +685,12 @@ export function SupplierDetailPage() {
   const [tab, setTab] = useState<DetailTab>("products");
   const [productSearch, setProductSearch] = useState("");
   const [productView, setProductView] = useState<ProductView>("grid");
-  const [productSort, setProductSort] = useState<ProductSort>("name");
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>(null);
 
   /** Order composed in place — every line belongs to the supplier being viewed. */
   const [cart, setCart] = useState<Record<string, QtyDraft>>({});
   const [cartOpen, setCartOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const [orderBusy, setOrderBusy] = useState(false);
   const [orderError, setOrderError] = useState<string | null>(null);
   const [orderSent, setOrderSent] = useState<number | null>(null);
@@ -716,17 +703,14 @@ export function SupplierDetailPage() {
 
   const update = useUpdateSupplier(businessId);
   const createOrdersBatch = useCreateOrdersBatch(businessId);
+  const deleteOrdersBatch = useDeleteOrdersBatch(businessId);
 
   const { data: linkedProducts, isLoading: productsLoading } = useSupplierItems(
     businessId,
     supplier?.id ?? null,
     !!supplier,
   );
-  const { data: batches, isLoading: ordersLoading } = useSupplierOrderBatches(
-    businessId,
-    supplier?.id ?? null,
-    !!supplier,
-  );
+  const { data: orderList, isLoading: ordersLoading } = useOrders(businessId, !!supplier);
   const { data: receipts, isLoading: receiptsLoading } = useSupplierReceipts(
     businessId,
     supplier?.id ?? null,
@@ -735,6 +719,8 @@ export function SupplierDetailPage() {
 
   const { data: inventoryItems } = useInventory(businessId);
   const { data: inventoryCategories } = useInventoryCategories(businessId);
+  const { data: supplierPriceIndex } = useSupplierItemPriceIndex(businessId);
+  const { getPartialBatchUiState } = usePartialDeliveryOrderCount();
   const stockKnown = !!inventoryItems;
 
   const itemsById = useMemo(() => {
@@ -774,30 +760,40 @@ export function SupplierDetailPage() {
     return [...map.values()];
   }, [linkedProducts, itemsById, categoryNames]);
 
-  const lowStockCount = useMemo(() => groupedProducts.filter((p) => stockRank(p) <= 1).length, [groupedProducts]);
+  const productCategories = useMemo(() => {
+    const counts = new Map<string, number>();
+    let noneCount = 0;
+    for (const p of groupedProducts) {
+      const catId = p.item?.category_id;
+      if (!catId) {
+        noneCount += 1;
+        continue;
+      }
+      counts.set(catId, (counts.get(catId) ?? 0) + 1);
+    }
+    const cats = (inventoryCategories ?? [])
+      .filter((c) => counts.has(c.id))
+      .map((c) => ({ id: c.id, name: c.name, count: counts.get(c.id)! }));
+    return { noneCount, cats };
+  }, [groupedProducts, inventoryCategories]);
 
   const filteredProducts = useMemo(() => {
     const q = productSearch.trim().toLowerCase();
-    const rows = q
-      ? groupedProducts.filter(
-          (p) =>
-            p.item_name.toLowerCase().includes(q) ||
-            (p.item?.barcode ?? "").toLowerCase().includes(q) ||
-            (p.category_name ?? "").toLowerCase().includes(q),
-        )
-      : [...groupedProducts];
-    const byName = (a: SupplierProduct, b: SupplierProduct) => a.item_name.localeCompare(b.item_name, "he");
-    const priceOf = (p: SupplierProduct) => effectiveMainUnitPrice(p.prices, p.item_units_per_package);
-    if (productSort === "price-desc") return rows.sort((a, b) => priceOf(b) - priceOf(a) || byName(a, b));
-    if (productSort === "price-asc") return rows.sort((a, b) => priceOf(a) - priceOf(b) || byName(a, b));
-    if (productSort === "stock") return rows.sort((a, b) => stockRank(a) - stockRank(b) || byName(a, b));
-    return rows.sort(byName);
-  }, [groupedProducts, productSearch, productSort]);
-
-  const priceTotal = useMemo(
-    () => groupedProducts.reduce((sum, p) => sum + supplierPriceListTotal(p.prices), 0),
-    [groupedProducts],
-  );
+    const rows = groupedProducts.filter((p) => {
+      if (categoryFilter === CAT_FILTER_NONE) {
+        if (p.item?.category_id) return false;
+      } else if (categoryFilter && p.item?.category_id !== categoryFilter) {
+        return false;
+      }
+      if (!q) return true;
+      return (
+        p.item_name.toLowerCase().includes(q) ||
+        (p.item?.barcode ?? "").toLowerCase().includes(q) ||
+        (p.category_name ?? "").toLowerCase().includes(q)
+      );
+    });
+    return rows.sort((a, b) => a.item_name.localeCompare(b.item_name, "he"));
+  }, [groupedProducts, productSearch, categoryFilter]);
 
   const productById = useMemo(
     () => new Map(groupedProducts.map((p) => [p.item_id, p])),
@@ -829,7 +825,33 @@ export function SupplierDetailPage() {
 
   const cartTotal = useMemo(() => cartLines.reduce((sum, l) => sum + l.sum, 0), [cartLines]);
 
+  const supplierOrderBatches = useMemo(() => {
+    if (!supplier) return [];
+    const rows = (orderList ?? []).filter((o) => o.supplier_id === supplier.id);
+    return groupOrderBatches(rows, inventoryItems ?? []);
+  }, [orderList, supplier, inventoryItems]);
+
+  const openSupplierOrders = useMemo(
+    () => supplierOrderBatches.filter(batchHasPendingLines),
+    [supplierOrderBatches],
+  );
+  const receivedSupplierOrders = useMemo(
+    () => supplierOrderBatches.filter(batchIsFullyReceived),
+    [supplierOrderBatches],
+  );
+
+  const resolveBatchPartialUiState = useCallback(
+    (batch: OrderBatch) => getPartialBatchUiState(batch.id, batch.lines),
+    [getPartialBatchUiState],
+  );
+
   useEffect(() => () => timers.current.forEach((t) => window.clearTimeout(t)), []);
+
+  // Emptying the cart closes any open order sheet.
+  useEffect(() => {
+    if (cartOpen && cartLines.length === 0) setCartOpen(false);
+    if (reviewOpen && cartLines.length === 0) setReviewOpen(false);
+  }, [cartOpen, reviewOpen, cartLines.length]);
 
   function later(fn: () => void, ms: number) {
     timers.current.push(window.setTimeout(fn, ms));
@@ -871,7 +893,44 @@ export function SupplierDetailPage() {
     });
   }
 
-  /** The supplier is the page context — the order needs no supplier picker. */
+  function openReview() {
+    setOrderError(null);
+    setCartOpen(false);
+    setReviewOpen(true);
+  }
+
+  function openEditOrder(batch: OrderBatch) {
+    navigate(`/inventory/order?batch=${encodeURIComponent(batch.batch_id ?? batch.id)}`);
+  }
+
+  function openOrderDetails(batch: OrderBatch) {
+    if (batchHasPendingLines(batch)) {
+      openEditOrder(batch);
+      return;
+    }
+    navigate("/inventory?tab=orders");
+  }
+
+  async function handleDeleteOrder(batch: OrderBatch) {
+    if (
+      !businessId ||
+      deleteOrdersBatch.isPending ||
+      !window.confirm(`למחוק את ההזמנה (${batch.lines.length} פריטים)?`)
+    ) {
+      return;
+    }
+    try {
+      await deleteOrdersBatch.mutateAsync({
+        business_id: businessId,
+        line_ids: batch.lines.map((l) => l.id),
+        employee_id: profile?.id ?? null,
+        lines: batch.lines.map((l) => ({ item_id: l.item_id, quantity: Number(l.quantity) })),
+      });
+    } catch (e) {
+      window.alert(inventorySaveError(e));
+    }
+  }
+
   async function submitOrder() {
     if (!supplier || orderBusy) return;
     setOrderError(null);
@@ -890,6 +949,7 @@ export function SupplierDetailPage() {
       setOrderSent(cartLines.length);
       setCart({});
       setCartOpen(false);
+      setReviewOpen(false);
       setTab("orders");
       later(() => setOrderSent(null), 5000);
     } catch (e) {
@@ -954,21 +1014,8 @@ export function SupplierDetailPage() {
 
   const tabs: { key: DetailTab; label: string; icon: string; count: number }[] = [
     { key: "products", label: "מחירון", icon: "sell", count: productCount },
-    { key: "orders", label: "הזמנות", icon: "local_shipping", count: batches?.length ?? 0 },
+    { key: "orders", label: "הזמנות", icon: "local_shipping", count: supplierOrderBatches.length },
     { key: "receipts", label: "מסמכים", icon: "receipt_long", count: supplier.receipt_count },
-  ];
-
-  const stats: { key: string; icon: string; label: string; value: string; tone?: "warn" }[] = [
-    { key: "products", icon: "sell", label: "מוצרים במחירון", value: String(productCount) },
-    { key: "total", icon: "payments", label: "שווי מחירון", value: formatCurrency(priceTotal) },
-    {
-      key: "open",
-      icon: "local_shipping",
-      label: "שורות פתוחות",
-      value: String(supplier.open_order_lines),
-      tone: supplier.open_order_lines > 0 ? "warn" : undefined,
-    },
-    { key: "docs", icon: "receipt_long", label: "מסמכים", value: String(supplier.receipt_count) },
   ];
 
   return (
@@ -993,76 +1040,99 @@ export function SupplierDetailPage() {
               </span>
             )}
 
-            <button
-              type="button"
-              className="spd-state"
-              data-active={supplier.active}
-              onClick={() => void toggleActive()}
-              disabled={update.isPending}
-              title="לחצו כדי לשנות סטטוס"
-            >
-              <i aria-hidden />
-              {supplier.active ? "ספק פעיל" : "לא פעיל"}
-              <Icon name="cached" size={14} className="spd-state-swap" />
-            </button>
+            {!supplier.active && (
+              <button
+                type="button"
+                className="spd-state"
+                data-active={false}
+                onClick={() => void toggleActive()}
+                disabled={update.isPending}
+                title="לחצו כדי להפעיל את הספק"
+              >
+                <i aria-hidden />
+                לא פעיל
+                <Icon name="cached" size={14} className="spd-state-swap" />
+              </button>
+            )}
           </div>
 
           {/* ── identity ── */}
           <div className="spd-id">
-            <span className="spd-mono" aria-hidden>
-              {monogram(supplier.name)}
-            </span>
-            <div className="spd-id-text">
-              <h1 className="spd-name">{supplier.name}</h1>
+            <h1 className="spd-name">{supplier.name}</h1>
 
-              <div className="spd-facts">
-                {supplier.phone ? (
-                  <button
-                    type="button"
-                    className="spd-fact"
-                    data-copied={copied === "phone"}
-                    onClick={() => copyFact("phone", supplier.phone!)}
-                    title="העתקת מספר הטלפון"
-                  >
-                    <Icon name="call" size={14} />
-                    <span className="spd-fact-val">{supplier.phone}</span>
-                    <span className="spd-fact-hint">{copied === "phone" ? "הועתק" : "העתקה"}</span>
-                  </button>
-                ) : (
-                  <button type="button" className="spd-fact spd-fact--add" onClick={() => setEditField("phone")}>
-                    <Icon name="add" size={14} />
-                    הוספת טלפון
-                  </button>
-                )}
+            <div className="spd-facts">
+              {supplier.phone ? (
+                <button
+                  type="button"
+                  className="spd-fact"
+                  data-label="טלפון"
+                  data-copied={copied === "phone"}
+                  onClick={() => copyFact("phone", supplier.phone!)}
+                  title="העתקת מספר הטלפון"
+                >
+                  <Icon name="call" size={15} />
+                  <span className="spd-fact-val">{supplier.phone}</span>
+                  <span className="spd-fact-hint">{copied === "phone" ? "הועתק" : "העתקה"}</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="spd-fact spd-fact--add"
+                  data-label="טלפון"
+                  onClick={() => setEditField("phone")}
+                >
+                  <Icon name="add" size={15} />
+                  <span className="spd-fact-val">הוספה</span>
+                </button>
+              )}
 
-                {supplier.tax_id ? (
-                  <button
-                    type="button"
-                    className="spd-fact"
-                    data-copied={copied === "tax"}
-                    onClick={() => copyFact("tax", supplier.tax_id!)}
-                    title="העתקת ח.פ"
-                  >
-                    <Icon name="badge" size={14} />
-                    <span className="spd-fact-val">{supplier.tax_id}</span>
-                    <span className="spd-fact-hint">{copied === "tax" ? "הועתק" : "העתקה"}</span>
-                  </button>
-                ) : (
-                  <button type="button" className="spd-fact spd-fact--add" onClick={() => setEditField("taxId")}>
-                    <Icon name="add" size={14} />
-                    הוספת ח.פ
-                  </button>
-                )}
+              {supplier.tax_id ? (
+                <button
+                  type="button"
+                  className="spd-fact"
+                  data-label="ח.פ / עוסק"
+                  data-copied={copied === "tax"}
+                  onClick={() => copyFact("tax", supplier.tax_id!)}
+                  title="העתקת ח.פ"
+                >
+                  <Icon name="badge" size={15} />
+                  <span className="spd-fact-val">{supplier.tax_id}</span>
+                  <span className="spd-fact-hint">{copied === "tax" ? "הועתק" : "העתקה"}</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="spd-fact spd-fact--add"
+                  data-label="ח.פ / עוסק"
+                  onClick={() => setEditField("taxId")}
+                >
+                  <Icon name="add" size={15} />
+                  <span className="spd-fact-val">הוספה</span>
+                </button>
+              )}
 
-                <span className="spd-fact">
-                  <Icon name="local_shipping" size={14} />
-                  <span className="spd-fact-val">{formatDeliveryDay(supplier.delivery_day)}</span>
-                </span>
-              </div>
+              <span className="spd-fact spd-fact--static" data-label="יום אספקה">
+                <Icon name="local_shipping" size={15} />
+                <span className="spd-fact-val">{formatDeliveryDay(supplier.delivery_day)}</span>
+              </span>
             </div>
           </div>
 
-          {/* ── actions ── */}
+          <button
+            type="button"
+            className={`spd-note spd-note--hero${supplier.notes ? "" : " spd-note--empty"}`}
+            onClick={() => setEditField("notes")}
+          >
+            <span className="spd-note-ico" aria-hidden>
+              <Icon name="sticky_note_2" size={16} />
+            </span>
+            <span className="spd-note-body">
+              <b>הערות לספק</b>
+              <span>{supplier.notes || "איש קשר, תנאי תשלום — לחצו להוספה"}</span>
+            </span>
+            <Icon name={supplier.notes ? "edit" : "add"} size={16} className="spd-note-edit" />
+          </button>
+
           <div className="spd-actions">
             <button type="button" className="spd-act spd-act--main" onClick={() => setEditField("name")}>
               <Icon name="edit" size={18} />
@@ -1076,28 +1146,6 @@ export function SupplierDetailPage() {
               <Icon name="inventory_2" size={18} />
               מוצרים במלאי
             </Link>
-            {supplier.phone && (
-              <>
-                <a
-                  className="spd-act spd-act--icon"
-                  href={`tel:${supplier.phone}`}
-                  title="חיוג לספק"
-                  aria-label="חיוג לספק"
-                >
-                  <Icon name="call" size={18} />
-                </a>
-                <a
-                  className="spd-act spd-act--icon"
-                  href={waHref(supplier.phone)}
-                  target="_blank"
-                  rel="noreferrer"
-                  title="וואטסאפ"
-                  aria-label="פתיחת וואטסאפ"
-                >
-                  <Icon name="chat" size={18} />
-                </a>
-              </>
-            )}
           </div>
 
           {statusError && (
@@ -1106,17 +1154,6 @@ export function SupplierDetailPage() {
               {statusError}
             </p>
           )}
-
-          {/* ── stats ── */}
-          <div className="spd-stats">
-            {stats.map((s) => (
-              <div key={s.key} className="spd-stat" data-tone={s.tone}>
-                <Icon name={s.icon} size={16} className="spd-stat-ico" />
-                <b className="spd-stat-value">{s.value}</b>
-                <span className="spd-stat-label">{s.label}</span>
-              </div>
-            ))}
-          </div>
         </div>
       </header>
 
@@ -1129,22 +1166,6 @@ export function SupplierDetailPage() {
             </span>
           </p>
         )}
-
-        {/* Notes double as a shortcut into the details sheet */}
-        <button
-          type="button"
-          className={`spd-note${supplier.notes ? "" : " spd-note--empty"}`}
-          onClick={() => setEditField("notes")}
-        >
-          <span className="spd-note-ico" aria-hidden>
-            <Icon name="sticky_note_2" size={16} />
-          </span>
-          <span className="spd-note-body">
-            <b>הערות לספק</b>
-            <span>{supplier.notes || "איש קשר, תנאי תשלום — לחצו להוספה"}</span>
-          </span>
-          <Icon name={supplier.notes ? "edit" : "add"} size={16} className="spd-note-edit" />
-        </button>
 
         <div className="spd-tabs" role="tablist">
           {tabs.map((t) => (
@@ -1195,22 +1216,44 @@ export function SupplierDetailPage() {
                   </span>
                 </div>
 
-                {groupedProducts.length > 1 && (
+                {groupedProducts.length > 0 && (
                   <div className="spd-pbar">
-                    <div className="spd-sorts" role="group" aria-label="מיון המחירון">
-                      {PRODUCT_SORTS.map((s) => (
+                    <div className="spd-sorts" role="group" aria-label="סינון לפי קטגוריה">
+                      <button
+                        type="button"
+                        className="spd-sort"
+                        data-active={categoryFilter === null}
+                        onClick={() => setCategoryFilter(null)}
+                      >
+                        <Icon name="apps" size={14} />
+                        הכל
+                        <span className="spd-sort-count">{groupedProducts.length}</span>
+                      </button>
+                      {productCategories.noneCount > 0 && (
                         <button
-                          key={s.key}
                           type="button"
                           className="spd-sort"
-                          data-active={productSort === s.key}
-                          onClick={() => setProductSort(s.key)}
+                          data-active={categoryFilter === CAT_FILTER_NONE}
+                          onClick={() =>
+                            setCategoryFilter(categoryFilter === CAT_FILTER_NONE ? null : CAT_FILTER_NONE)
+                          }
                         >
-                          <Icon name={s.icon} size={14} />
-                          {s.label}
-                          {s.key === "stock" && stockKnown && lowStockCount > 0 && (
-                            <span className="spd-sort-count">{lowStockCount}</span>
-                          )}
+                          <Icon name="label_off" size={14} />
+                          ללא קטגוריה
+                          <span className="spd-sort-count">{productCategories.noneCount}</span>
+                        </button>
+                      )}
+                      {productCategories.cats.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          className="spd-sort"
+                          data-active={categoryFilter === c.id}
+                          onClick={() => setCategoryFilter(categoryFilter === c.id ? null : c.id)}
+                        >
+                          <Icon name="category" size={14} />
+                          {c.name}
+                          <span className="spd-sort-count">{c.count}</span>
                         </button>
                       ))}
                     </div>
@@ -1257,10 +1300,20 @@ export function SupplierDetailPage() {
                 <EmptyState
                   icon="search_off"
                   title="לא נמצאו מוצרים"
-                  description="נסו מילת חיפוש אחרת."
+                  description={
+                    categoryFilter
+                      ? "אין מוצרים בקטגוריה זו — נסו קטגוריה אחרת או נקו את הסינון."
+                      : "נסו מילת חיפוש אחרת."
+                  }
                   action={
-                    <Button variant="secondary" onClick={() => setProductSearch("")}>
-                      ניקוי חיפוש
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        setProductSearch("");
+                        setCategoryFilter(null);
+                      }}
+                    >
+                      ניקוי סינון
                     </Button>
                   }
                 />
@@ -1298,39 +1351,55 @@ export function SupplierDetailPage() {
 
           {tab === "orders" &&
             (ordersLoading ? (
-              <SkeletonRows />
-            ) : !batches?.length ? (
+              <SkeletonOrderCards />
+            ) : !supplierOrderBatches.length ? (
               <EmptyState
                 icon="local_shipping"
                 title="אין הזמנות"
-                description="עדיין לא נוצרו הזמנות מקושרות לספק זה."
+                description="בחרו מוצרים בטאב «מחירון» ושלחו הזמנה — היא תופיע כאן וגם במלאי."
                 action={
-                  <Link to={`/inventory?tab=orders&supplier=${supplier.id}`}>
-                    <Button variant="secondary">הזמנות במלאי</Button>
-                  </Link>
+                  <Button icon="sell" onClick={() => setTab("products")}>
+                    הזמנה מהמחירון
+                  </Button>
                 }
               />
             ) : (
-              <ul className="spl-list">
-                {batches.map((b) => (
-                  <li key={b.batch_key} className="spl-row spl-row--stack">
-                    <span className="spl-row-main">
-                      <b>
-                        {b.preview_item_names.join(", ")}
-                        {b.line_count > b.preview_item_names.length
-                          ? ` +${b.line_count - b.preview_item_names.length}`
-                          : ""}
-                      </b>
-                      <em>
-                        {formatWhen(b.created_at)} · {b.line_count} פריטים
-                      </em>
-                    </span>
-                    <span className={`spl-pill${b.pending_count > 0 ? " spl-pill--warn" : " spl-pill--ok"}`}>
-                      {b.pending_count > 0 ? `${b.pending_count} ממתין` : "התקבל"}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              <div className="flex flex-col gap-5">
+                {openSupplierOrders.length > 0 && (
+                  <OrderBatchListSection
+                    title="הזמנות פתוחות"
+                    icon="local_shipping"
+                    batches={openSupplierOrders}
+                    canManageOrders
+                    canSeePrices
+                    supplierPriceIndex={supplierPriceIndex}
+                    suppliers={supplier ? [supplier] : []}
+                    onDetails={openOrderDetails}
+                    onEdit={openEditOrder}
+                    onDelete={handleDeleteOrder}
+                    getBatchPartialUiState={resolveBatchPartialUiState}
+                    footChipLabel={formatDeliveryDay(supplier.delivery_day)}
+                    footChipIcon="local_shipping"
+                  />
+                )}
+                {receivedSupplierOrders.length > 0 && (
+                  <OrderBatchListSection
+                    title="הזמנות שהתקבלו"
+                    icon="check_circle"
+                    batches={receivedSupplierOrders}
+                    canManageOrders
+                    canSeePrices
+                    supplierPriceIndex={supplierPriceIndex}
+                    suppliers={supplier ? [supplier] : []}
+                    received
+                    onDetails={openOrderDetails}
+                    onEdit={openEditOrder}
+                    onDelete={handleDeleteOrder}
+                    footChipLabel={formatDeliveryDay(supplier.delivery_day)}
+                    footChipIcon="local_shipping"
+                  />
+                )}
+              </div>
             ))}
 
           {tab === "receipts" &&
@@ -1359,12 +1428,6 @@ export function SupplierDetailPage() {
 
       {cartLines.length > 0 && (
         <div className="ordc-bar spd-cartbar">
-          {orderError && (
-            <p className="spd-cart-alert" role="alert">
-              <Icon name="error" size={15} />
-              {orderError}
-            </p>
-          )}
           <div className="ordc-bar-row">
             <button type="button" className="ordc-bar-summary" onClick={() => setCartOpen(true)}>
               <span className="ordc-bar-thumbs">
@@ -1382,17 +1445,12 @@ export function SupplierDetailPage() {
                 <b key={cartLines.length}>
                   {cartLines.length} מוצרים{cartTotal > 0 ? ` · ${formatCurrency(cartTotal)}` : ""}
                 </b>
-                <span>הזמנה מ־{supplier.name} · לצפייה ועריכה</span>
+                <span>הזמנה מ־{supplier.name} · לעריכת כמויות</span>
               </span>
               <Icon name="expand_less" size={18} className="text-text-3" />
             </button>
-            <Button
-              className="shrink-0 !bg-ink !px-5"
-              icon="send"
-              loading={orderBusy}
-              onClick={() => void submitOrder()}
-            >
-              שליחה
+            <Button className="shrink-0 !bg-ink !px-5" icon="arrow_back" onClick={openReview}>
+              הבא
             </Button>
           </div>
         </div>
@@ -1401,23 +1459,17 @@ export function SupplierDetailPage() {
       <Modal
         open={cartOpen}
         onClose={() => setCartOpen(false)}
-        title="הזמנה מהספק"
-        subtitle={supplier.name}
-        icon="shopping_cart"
+        title="עריכת ההזמנה"
+        subtitle={`${cartLines.length} מוצרים · ${supplier.name}`}
+        icon="edit_note"
         maxWidth={520}
         footer={
           <>
             <Button variant="secondary" onClick={() => setCartOpen(false)}>
               המשך בחירה
             </Button>
-            <Button
-              className="flex-1 !bg-ink"
-              icon="send"
-              loading={orderBusy}
-              disabled={!cartLines.length}
-              onClick={() => void submitOrder()}
-            >
-              שליחת הזמנה ({cartLines.length})
+            <Button className="flex-1 !bg-ink" icon="arrow_back" disabled={!cartLines.length} onClick={openReview}>
+              הבא לסיכום ({cartLines.length})
             </Button>
           </>
         }
@@ -1481,10 +1533,102 @@ export function SupplierDetailPage() {
 
           {cartTotal > 0 && (
             <div className="spd-cart-total">
-              <span>סה״כ הזמנה</span>
+              <span>סה״כ משוער</span>
               <b>{formatCurrency(cartTotal)}</b>
             </div>
           )}
+
+          <button type="button" className="ordc-clear" onClick={() => setCart({})}>
+            ניקוי ההזמנה
+          </button>
+        </div>
+      </Modal>
+
+      <Modal
+        open={reviewOpen}
+        onClose={() => setReviewOpen(false)}
+        title="סיכום הזמנה"
+        subtitle={`${cartLines.length} מוצרים לפני שליחה`}
+        icon="fact_check"
+        maxWidth={560}
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setReviewOpen(false);
+                setCartOpen(true);
+              }}
+            >
+              חזרה לעריכה
+            </Button>
+            <Button
+              className="flex-1 !bg-ink"
+              icon="send"
+              loading={orderBusy}
+              disabled={!cartLines.length}
+              onClick={() => void submitOrder()}
+            >
+              שליחת הזמנה
+            </Button>
+          </>
+        }
+      >
+        <div className="spd-review">
+          <div className="spd-review-supplier">
+            <span className="spd-review-supplier-ico" aria-hidden>
+              <Icon name="local_shipping" size={20} />
+            </span>
+            <span className="spd-review-supplier-body">
+              <b>{supplier.name}</b>
+              <span>
+                אספקה: {formatDeliveryDay(supplier.delivery_day)}
+                {supplier.phone ? ` · ${supplier.phone}` : ""}
+              </span>
+            </span>
+          </div>
+
+          <ul className="spd-review-lines">
+            {cartLines.map((l) => (
+              <li key={l.product.item_id} className="spd-review-line">
+                <span className="spd-review-thumb">
+                  {l.product.item_image_url ? (
+                    <img src={l.product.item_image_url} alt="" />
+                  ) : (
+                    <Icon name="inventory_2" size={18} />
+                  )}
+                </span>
+                <span className="spd-review-main">
+                  <b>{l.product.item_name}</b>
+                  <span>{draftLabel(l.item, l.draft)}</span>
+                  {l.product.prices.main != null && (
+                    <em>
+                      {formatPrice(l.product.prices.main)} ל{supplierPriceUnitLabel("main", l.product.item_unit)}
+                    </em>
+                  )}
+                </span>
+                <span className="spd-review-sum">{l.sum > 0 ? formatCurrency(l.sum) : "—"}</span>
+              </li>
+            ))}
+          </ul>
+
+          <div className="spd-review-stats">
+            <div className="spd-review-stat">
+              <span>מספר פריטים</span>
+              <b>{cartLines.length}</b>
+            </div>
+            {cartTotal > 0 && (
+              <div className="spd-review-stat spd-review-stat--total">
+                <span>סה״כ הזמנה</span>
+                <b>{formatCurrency(cartTotal)}</b>
+              </div>
+            )}
+          </div>
+
+          <p className="spd-review-note">
+            <Icon name="info" size={15} />
+            לאחר השליחה ההזמנה תופיע בטאב «הזמנות» של הספק ובמלאי.
+          </p>
 
           {orderError && (
             <p className="spd-cart-alert" role="alert">
@@ -1492,10 +1636,6 @@ export function SupplierDetailPage() {
               {orderError}
             </p>
           )}
-
-          <button type="button" className="ordc-clear" onClick={() => setCart({})}>
-            ניקוי ההזמנה
-          </button>
         </div>
       </Modal>
 
@@ -1506,6 +1646,18 @@ export function SupplierDetailPage() {
         onClose={() => setEditField(null)}
         onSaved={flashSaved}
       />
+
+      <LoadingOverlay show={orderBusy} label={`שולח הזמנה ל${supplier.name}...`} />
+    </div>
+  );
+}
+
+function SkeletonOrderCards() {
+  return (
+    <div className="inventory-orders-cards">
+      {[0, 1].map((i) => (
+        <div key={i} className="skeleton inventory-order-card" style={{ minHeight: 120 }} />
+      ))}
     </div>
   );
 }

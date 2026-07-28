@@ -6,6 +6,7 @@
  * במצב פרטי (localStorage חסום) לא מפיל את המסך.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { batchHasActivePartialDelivery } from "@/api/inventory";
 import {
   PARTIAL_ORDER_ACK_EVENT,
   acknowledgePartialOrderBatch,
@@ -159,5 +160,72 @@ describe("ספירת האצוות שדורשות טיפול", () => {
     acknowledgePartialOrderBatch(USER.officeManager, BUSINESS_ID, "batch-a", "2026-07-08T16:00:00Z");
 
     expect(countUnacknowledgedPartialDeliveryBatches(orders, getPartialOrderAcks(USER.officeManager, BUSINESS_ID))).toBe(0);
+  });
+});
+
+/**
+ * מסלול עסקי מלא: מנהל משמרת מסמן «הגיע חלקית» → useReceiveOrder יוצר יתרה → מנהלת המשרד רואה תג.
+ * (הקבלה עצמה נבדקת ב-inventoryOrders.test.ts; כאן מדמים את מצב ה-DB אחרי הקבלה.)
+ */
+describe("מסלול: קבלה חלקית מהספק → התראה למנהלת משרד", () => {
+  it("אחרי קבלת 6 מתוך 10 — נוצרת יתרה פתוחה והתג נדלק", () => {
+    const afterPartialReceive = [
+      makeOrder({
+        id: "closed-line",
+        batch_id: "batch-supplier-1",
+        quantity: 10,
+        received_quantity: 6,
+        status: "received",
+        created_at: "2026-07-08T10:00:00Z",
+      }),
+      makeOrder({
+        id: "remainder-line",
+        batch_id: "batch-supplier-1",
+        quantity: 4,
+        status: "requested",
+        created_at: "2026-07-08T15:00:00Z",
+      }),
+    ];
+
+    expect(batchHasActivePartialDelivery(afterPartialReceive)).toBe(true);
+    expect(countUnacknowledgedPartialDeliveryBatches(afterPartialReceive, {})).toBe(1);
+    expect(isPartialDeliveryBatchUnacknowledged("batch-supplier-1", afterPartialReceive, {})).toBe(true);
+  });
+
+  it("קבלה מלאה של היתרה — התג כבה (אין עוד אספקה חלקית פעילה)", () => {
+    const afterFullReceive = [
+      makeOrder({
+        batch_id: "batch-supplier-1",
+        quantity: 10,
+        received_quantity: 6,
+        status: "received",
+        created_at: "2026-07-08T10:00:00Z",
+      }),
+      makeOrder({
+        batch_id: "batch-supplier-1",
+        quantity: 4,
+        received_quantity: 4,
+        status: "received",
+        created_at: "2026-07-08T15:00:00Z",
+      }),
+    ];
+
+    expect(batchHasActivePartialDelivery(afterFullReceive)).toBe(false);
+    expect(countUnacknowledgedPartialDeliveryBatches(afterFullReceive, {})).toBe(0);
+  });
+
+  it("יתרה שסומנה «לא הגיע» — התג כבה גם אם השורה הראשונה חלקית", () => {
+    const remainderClosed = [
+      makeOrder({
+        batch_id: "batch-supplier-1",
+        quantity: 10,
+        received_quantity: 6,
+        status: "received",
+        created_at: "2026-07-08T10:00:00Z",
+      }),
+    ];
+
+    expect(batchHasActivePartialDelivery(remainderClosed)).toBe(false);
+    expect(countUnacknowledgedPartialDeliveryBatches(remainderClosed, {})).toBe(0);
   });
 });

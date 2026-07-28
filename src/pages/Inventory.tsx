@@ -7,6 +7,19 @@ import { WastePanel } from "@/components/waste/WastePanel";
 import { DualUnitQtyInput } from "@/components/inventory/DualUnitQtyInput";
 import { InventoryQtyUpdatePanel } from "@/components/inventory/InventoryQtyUpdatePanel";
 import { formatOrderReceivedLabel, OrderReceiveControls } from "@/components/inventory/OrderReceiveControls";
+import {
+  type OrderBatch,
+  type OrderLine,
+  batchHasPendingLines,
+  batchIsFullyReceived,
+  batchOrderedByLabel,
+  formatOrderDate,
+  groupOrderBatches,
+  lineDeliveryDay,
+  orderDeliveryDaysLabel,
+  orderPreviewLabel,
+  OrderBatchListSection,
+} from "@/components/inventory/orderBatchUi";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId, HE_DAYS, formatCurrency } from "@/lib/db";
 import { canSeeInventoryPrices } from "@/lib/constants";
@@ -16,6 +29,7 @@ import {
   useOrders,
   useDeleteOrdersBatch,
   useReceiveOrder,
+  useCorrectReceivedOrder,
   useMarkOrderNotArrived,
   type InventoryOrderWithUser,
   useItemLogs,
@@ -48,60 +62,6 @@ import type { Department, InventoryAction, InventoryCategory, InventoryWaste, Su
 
 type InventoryTab = "items" | "orders" | "waste";
 
-type OrderLine = InventoryOrderWithUser & { item?: ItemWithQty };
-
-type OrderBatch = {
-  id: string;
-  batch_id: string | null;
-  created_at: string;
-  ordered_by: string | null;
-  ordered_by_name: string | null;
-  supplier_id: string | null;
-  supplier_name: string | null;
-  lines: OrderLine[];
-};
-
-function groupOrderBatches(orders: InventoryOrderWithUser[], items: ItemWithQty[]): OrderBatch[] {
-  const map = new Map<string, OrderBatch>();
-  for (const o of orders) {
-    const key = o.batch_id ?? o.id;
-    const line: OrderLine = { ...o, item: items.find((i) => i.id === o.item_id) };
-    if (!map.has(key)) {
-      map.set(key, {
-        id: key,
-        batch_id: o.batch_id,
-        created_at: o.created_at,
-        ordered_by: o.ordered_by,
-        ordered_by_name: o.ordered_by_name,
-        supplier_id: o.supplier_id,
-        supplier_name: o.supplier_name,
-        lines: [],
-      });
-    }
-    map.get(key)!.lines.push(line);
-  }
-  return [...map.values()].sort((a, b) => b.created_at.localeCompare(a.created_at));
-}
-
-function batchHasPendingLines(batch: OrderBatch): boolean {
-  return batch.lines.some((l) => l.status !== "received");
-}
-
-function batchIsFullyReceived(batch: OrderBatch): boolean {
-  return batch.lines.length > 0 && batch.lines.every((l) => l.status === "received");
-}
-
-function batchReceivedUnits(batch: OrderBatch): number {
-  return batch.lines.reduce(
-    (sum, l) => sum + Number(l.status === "received" ? (l.received_quantity ?? l.quantity) : 0),
-    0,
-  );
-}
-
-function batchOrderedByLabel(batch: OrderBatch): string {
-  return batch.ordered_by_name ?? "לא ידוע";
-}
-
 function ItemBarcodeLabel({
   barcode,
   className,
@@ -120,65 +80,6 @@ function ItemBarcodeLabel({
 function formatDeliveryDay(day: number | null | undefined): string {
   if (day == null || day < 0 || day > 6) return "לא הוגדר";
   return `יום ${HE_DAYS[day]}`;
-}
-
-function formatOrderDate(iso: string) {
-  const d = new Date(iso);
-  return {
-    day: d.toLocaleDateString("he-IL", { day: "numeric" }),
-    month: d.toLocaleDateString("he-IL", { month: "short" }),
-    time: d.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" }),
-    full: d.toLocaleDateString("he-IL", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    }),
-  };
-}
-
-function orderPreviewLabel(lines: OrderLine[]): string {
-  const names = lines.map((l) => l.item?.name ?? "פריט");
-  if (names.length <= 2) return names.join(", ");
-  return `${names.slice(0, 2).join(", ")} ועוד ${names.length - 2}`;
-}
-
-/** Supplier delivery day for an order line (from the linked supplier). */
-function lineDeliveryDay(line: OrderLine, suppliers: Supplier[]): number | null {
-  if (!line.supplier_id) return null;
-  const day = suppliers.find((s) => s.id === line.supplier_id)?.delivery_day;
-  return day != null && day >= 0 && day <= 6 ? day : null;
-}
-
-/** Unique supplier delivery days across order lines, formatted for display. */
-function orderDeliveryDaysLabel(lines: OrderLine[], suppliers: Supplier[]): string {
-  const days = [
-    ...new Set(
-      lines
-        .map((l) => lineDeliveryDay(l, suppliers))
-        .filter((d): d is number => d != null),
-    ),
-  ].sort((a, b) => a - b);
-
-  if (days.length === 0) return "לא הוגדר";
-  return days.map((d) => formatDeliveryDay(d)).join(", ");
-}
-
-const HE_DAYS_SHORT = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
-
-/** Compact delivery-days label for chips, e.g. "ג׳ · ד׳". */
-function orderDeliveryDaysShortLabel(lines: OrderLine[], suppliers: Supplier[]): string | null {
-  const days = [
-    ...new Set(
-      lines
-        .map((l) => lineDeliveryDay(l, suppliers))
-        .filter((d): d is number => d != null),
-    ),
-  ].sort((a, b) => a - b);
-
-  if (days.length === 0) return null;
-  return days.map((d) => HE_DAYS_SHORT[d]).join(" · ");
 }
 
 type StockStatus = "empty" | "low" | "ok";
@@ -228,6 +129,7 @@ function TabBar({
   tab,
   total,
   pending,
+  partialAlertCount,
   wasteCount,
   showOrders,
   showWaste,
@@ -236,6 +138,7 @@ function TabBar({
   tab: InventoryTab;
   total: number;
   pending: number;
+  partialAlertCount: number;
   wasteCount: number;
   showOrders: boolean;
   showWaste: boolean;
@@ -264,8 +167,19 @@ function TabBar({
           onClick={() => onChange(key)}
           className="inventory-summary-cell inventory-tab-cell"
         >
+          {key === "orders" && partialAlertCount > 0 ? (
+            <span
+              className="inventory-tab-alert-badge"
+              aria-label={`${partialAlertCount} הזמנות שלא הגיעו במלואן`}
+            >
+              {partialAlertCount > 99 ? "99+" : partialAlertCount}
+            </span>
+          ) : null}
           <div className="text-[18px] font-extrabold leading-none tabular-nums tracking-tight md:text-[26px]">{count}</div>
           <div className="inventory-tab-cell-label mt-1 text-[10px] font-medium text-text-3 md:mt-1.5 md:text-[12px]">{label}</div>
+          {key === "orders" && partialAlertCount > 0 ? (
+            <div className="inventory-tab-partial-hint">לא במלואה</div>
+          ) : null}
         </button>
       ))}
     </div>
@@ -1731,25 +1645,11 @@ function ItemCard({
   );
 }
 
-function OrderPreviewStack({ lines }: { lines: OrderLine[] }) {
-  const shown = lines.slice(0, 3);
-  const extra = lines.length - shown.length;
-
+function findRemainderLineForReceived(batchLines: OrderLine[], receivedLine: OrderLine): OrderLine | null {
   return (
-    <div className="inventory-order-avatars">
-      {shown.map((line, i) => (
-        <div key={line.id} className="inventory-order-avatar" style={{ zIndex: shown.length - i }}>
-          {line.item?.image_url ? (
-            <img src={line.item.image_url} alt={line.item.name} />
-          ) : (
-            <span className="inventory-order-avatar-fallback">
-              <Icon name="inventory_2" size={14} />
-            </span>
-          )}
-        </div>
-      ))}
-      {extra > 0 && <span className="inventory-order-avatar-more">+{extra}</span>}
-    </div>
+    batchLines.find(
+      (l) => l.id !== receivedLine.id && l.item_id === receivedLine.item_id && l.status !== "received",
+    ) ?? null
   );
 }
 
@@ -1758,22 +1658,28 @@ function OrderDetailLine({
   index,
   busy,
   canSeePrices,
+  canUpdateOrderArrival,
   supplierPrices,
   suppliers,
   onReceive,
   onNotArrived,
+  onCorrectReceived,
 }: {
   line: OrderLine;
   index: number;
   busy?: boolean;
   canSeePrices?: boolean;
+  canUpdateOrderArrival?: boolean;
   supplierPrices?: Map<string, SupplierItemPrices> | null;
   suppliers: Supplier[];
   onReceive: (receivedQty: number) => void;
   onNotArrived: () => void;
+  onCorrectReceived?: (receivedQty: number) => void;
 }) {
   const item = line.item;
   const pending = line.status !== "received";
+  const isPartialReceived =
+    !pending && line.received_quantity != null && line.received_quantity < line.quantity;
   const pieces =
     item && supportsPieceInput(item.unit) && item.units_per_package
       ? mainUnitToPieces(Number(line.quantity), item.units_per_package)
@@ -1781,6 +1687,7 @@ function OrderDetailLine({
   const deliveryDay = lineDeliveryDay(line, suppliers);
   const receivedLabel = formatOrderReceivedLabel(line);
   const [receiveOpen, setReceiveOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const lineTotal =
     canSeePrices && item
       ? inventoryLineTotal(
@@ -1794,8 +1701,17 @@ function OrderDetailLine({
     if (!pending) setReceiveOpen(false);
   }, [pending]);
 
+  useEffect(() => {
+    if (!isPartialReceived) setEditOpen(false);
+  }, [isPartialReceived]);
+
+  const showControls = (pending && receiveOpen) || (isPartialReceived && editOpen && onCorrectReceived);
+
   return (
-    <div className="inventory-order-detail-line inventory-item-enter" style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}>
+    <div
+      className={`inventory-order-detail-line inventory-item-enter${isPartialReceived ? " inventory-order-detail-line--partial" : ""}`}
+      style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
+    >
       <div className="inventory-order-detail-thumb">
         {item?.image_url ? (
           <img src={item.image_url} alt={item.name} />
@@ -1817,13 +1733,13 @@ function OrderDetailLine({
           )}
           {pieces != null && <span>({pieces} יח׳)</span>}
           {deliveryDay != null && deliveryDay >= 0 && deliveryDay <= 6 && (
-            <span>· אספקה {HE_DAYS_SHORT[deliveryDay]}</span>
+            <span>· {formatDeliveryDay(deliveryDay)}</span>
           )}
           {lineTotal != null && lineTotal > 0 && (
             <span>· {formatCurrency(lineTotal)}</span>
           )}
         </div>
-        {pending && receiveOpen && (
+        {showControls && (
           <div className="mt-3 rounded-[14px] border border-border bg-surface p-3">
             <OrderReceiveControls
               orderedQty={Number(line.quantity)}
@@ -1831,14 +1747,27 @@ function OrderDetailLine({
               unitsPerPackage={item?.units_per_package ?? null}
               busy={busy}
               compact
+              mode={isPartialReceived ? "correct" : "receive"}
+              initialReceivedQty={
+                isPartialReceived ? Number(line.received_quantity ?? line.quantity) : undefined
+              }
               onConfirmArrived={(qty) => {
-                onReceive(qty);
-                setReceiveOpen(false);
+                if (isPartialReceived) {
+                  onCorrectReceived?.(qty);
+                  setEditOpen(false);
+                } else {
+                  onReceive(qty);
+                  setReceiveOpen(false);
+                }
               }}
-              onNotArrived={() => {
-                onNotArrived();
-                setReceiveOpen(false);
-              }}
+              onNotArrived={
+                pending
+                  ? () => {
+                      onNotArrived();
+                      setReceiveOpen(false);
+                    }
+                  : undefined
+              }
             />
           </div>
         )}
@@ -1858,201 +1787,31 @@ function OrderDetailLine({
             התקבל
           </button>
         )
+      ) : isPartialReceived && canUpdateOrderArrival && onCorrectReceived ? (
+        editOpen ? (
+          <button
+            type="button"
+            className="inventory-order-receive-btn shrink-0 opacity-70"
+            onClick={() => setEditOpen(false)}
+          >
+            <Icon name="close" size={16} />
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="inventory-order-correct-btn shrink-0"
+            onClick={() => setEditOpen(true)}
+            title="עריכת כמות שהגיעה"
+          >
+            <Icon name="edit" size={16} />
+            ערוך
+          </button>
+        )
       ) : (
-        <Badge tone="success">
-          {line.received_quantity != null && line.received_quantity < line.quantity
-            ? `התקבל ${receivedLabel}`
-            : "במלאי"}
+        <Badge tone={isPartialReceived ? "danger" : "success"}>
+          {isPartialReceived ? `התקבל ${receivedLabel}` : "במלאי"}
         </Badge>
       )}
-    </div>
-  );
-}
-
-function OrderBatchRow({
-  batch,
-  index,
-  canManageOrders,
-  canSeePrices,
-  supplierPriceIndex,
-  suppliers,
-  received,
-  onDetails,
-  onEdit,
-  onDelete,
-  partialUiState = "none",
-}: {
-  batch: OrderBatch;
-  index: number;
-  canManageOrders: boolean;
-  canSeePrices: boolean;
-  supplierPriceIndex?: SupplierItemPriceIndex;
-  suppliers: Supplier[];
-  received?: boolean;
-  onDetails: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
-  partialUiState?: PartialBatchUiState;
-}) {
-  const pendingQty = batch.lines
-    .filter((l) => l.status !== "received")
-    .reduce((sum, l) => sum + Number(l.quantity), 0);
-  const totalQty = received
-    ? batchReceivedUnits(batch)
-    : batch.lines.reduce((sum, l) => sum + Number(l.quantity), 0);
-  const date = formatOrderDate(batch.created_at);
-  const deliveryShort = orderDeliveryDaysShortLabel(batch.lines, suppliers);
-  const supplierPrices = supplierPricesFor(supplierPriceIndex, batch.supplier_id);
-  const batchTotal = canSeePrices ? orderBatchTotal(batch.lines, supplierPrices) : 0;
-  const showBatchTotal = canSeePrices && batchTotal > 0;
-  const statusLabel = received ? "התקבל" : partialUiState === "handled" ? "טופל" : "בהזמנה";
-  const statusModifier = received
-    ? " inventory-order-status--received"
-    : partialUiState === "handled"
-      ? " inventory-order-status--handled"
-      : "";
-
-  return (
-    <article
-      className="inventory-order-card inventory-item-enter"
-      style={{ animationDelay: `${Math.min(index, 10) * 45}ms` }}
-    >
-      <button type="button" className="inventory-order-card-main" onClick={onDetails}>
-        <div className="inventory-order-date">
-          <span className="inventory-order-date-day">{date.day}</span>
-          <span className="inventory-order-date-month">{date.month}</span>
-        </div>
-        <div className="inventory-order-heading">
-          <div className="inventory-order-title-row">
-            <h3 className="inventory-order-title">{orderPreviewLabel(batch.lines)}</h3>
-            <span className={`inventory-order-status${statusModifier}`}>
-              <span className="inventory-order-status-dot" aria-hidden />
-              {statusLabel}
-            </span>
-            {partialUiState === "needs_attention" ? (
-              <span className="inventory-order-partial-chip" title="הגיעה כמות חלקית — נדרשת התייחסות">
-                <Icon name="priority_high" size={12} />
-                לא במלואה
-              </span>
-            ) : null}
-          </div>
-          <p className="inventory-order-sub">
-            <b>{batch.lines.length}</b> פריטים · <b>{totalQty}</b> יח׳
-            {received ? " התקבלו" : pendingQty < totalQty ? ` · ${pendingQty} ממתין` : ""} · הוזמן{" "}
-            {date.time} · {batchOrderedByLabel(batch)}
-            {batch.supplier_name ? ` · ${batch.supplier_name}` : ""}
-            {showBatchTotal ? ` · ${formatCurrency(batchTotal)}` : ""}
-          </p>
-        </div>
-      </button>
-
-      <div className="inventory-order-card-foot">
-        <OrderPreviewStack lines={batch.lines} />
-        <span
-          className="inventory-order-delivery-chip"
-          title={`אמורה להגיע: ${orderDeliveryDaysLabel(batch.lines, suppliers)}`}
-        >
-          <Icon name="local_shipping" size={13} />
-          {deliveryShort ? `אספקה ${deliveryShort}` : "אספקה לא הוגדרה"}
-        </span>
-        {showBatchTotal && (
-          <span className="inventory-order-delivery-chip" title="סה״כ הזמנה">
-            <Icon name="payments" size={13} />
-            {formatCurrency(batchTotal)}
-          </span>
-        )}
-        <span className="inventory-order-foot-spacer" />
-        <button
-          type="button"
-          className="inventory-order-icon-btn"
-          onClick={onDetails}
-          aria-label="פרטי הזמנה"
-          title="פרטים"
-        >
-          <Icon name="visibility" size={17} />
-        </button>
-        {canManageOrders && !received && (
-          <>
-            <button
-              type="button"
-              className="inventory-order-icon-btn"
-              onClick={onEdit}
-              aria-label="עריכת הזמנה"
-              title="עריכה"
-            >
-              <Icon name="edit" size={17} />
-            </button>
-            <button
-              type="button"
-              className="inventory-order-icon-btn inventory-order-icon-btn-danger"
-              onClick={onDelete}
-              aria-label="מחיקת הזמנה"
-              title="מחיקה"
-            >
-              <Icon name="delete" size={17} />
-            </button>
-          </>
-        )}
-      </div>
-    </article>
-  );
-}
-
-function OrderBatchListSection({
-  title,
-  icon,
-  batches,
-  canManageOrders,
-  canSeePrices,
-  supplierPriceIndex,
-  suppliers,
-  received,
-  onDetails,
-  onEdit,
-  onDelete,
-  getBatchPartialUiState,
-}: {
-  title: string;
-  icon: string;
-  batches: OrderBatch[];
-  canManageOrders: boolean;
-  canSeePrices: boolean;
-  supplierPriceIndex?: SupplierItemPriceIndex;
-  suppliers: Supplier[];
-  received?: boolean;
-  onDetails: (batch: OrderBatch) => void;
-  onEdit: (batch: OrderBatch) => void;
-  onDelete: (batch: OrderBatch) => void;
-  getBatchPartialUiState?: (batch: OrderBatch) => PartialBatchUiState;
-}) {
-  if (batches.length === 0) return null;
-  return (
-    <div className="inventory-orders-list">
-      <div className="inventory-orders-list-head">
-        <div className="inventory-orders-list-title">
-          <Icon name={icon} size={18} />
-          {title}
-        </div>
-        <span className="inventory-orders-panel-count">{batches.length}</span>
-      </div>
-      <div className="inventory-orders-cards">
-        {batches.map((batch, idx) => (
-          <OrderBatchRow
-            key={batch.id}
-            batch={batch}
-            index={idx}
-            canManageOrders={canManageOrders}
-            canSeePrices={canSeePrices}
-            supplierPriceIndex={supplierPriceIndex}
-            suppliers={suppliers}
-            received={received}
-            onDetails={() => onDetails(batch)}
-            onEdit={() => onEdit(batch)}
-            onDelete={() => onDelete(batch)}
-            partialUiState={getBatchPartialUiState?.(batch) ?? "none"}
-          />
-        ))}
-      </div>
     </div>
   );
 }
@@ -2062,11 +1821,13 @@ function OrderDetailsModal({
   open,
   receiveBusy,
   canSeePrices,
+  canUpdateOrderArrival,
   supplierPriceIndex,
   suppliers,
   onClose,
   onReceive,
   onNotArrived,
+  onCorrectReceived,
   partialUiState = "none",
   onAcknowledgePartial,
 }: {
@@ -2074,11 +1835,13 @@ function OrderDetailsModal({
   open: boolean;
   receiveBusy?: boolean;
   canSeePrices: boolean;
+  canUpdateOrderArrival: boolean;
   supplierPriceIndex?: SupplierItemPriceIndex;
   suppliers: Supplier[];
   onClose: () => void;
   onReceive: (line: OrderLine, receivedQty: number) => void;
   onNotArrived: (line: OrderLine) => void;
+  onCorrectReceived: (line: OrderLine, receivedQty: number) => void;
   partialUiState?: PartialBatchUiState;
   onAcknowledgePartial?: () => void;
 }) {
@@ -2103,9 +1866,8 @@ function OrderDetailsModal({
     },
     {
       icon: "local_shipping",
-      label: "אספקה מהספק",
-      value: orderDeliveryDaysShortLabel(batch.lines, suppliers) ?? "לא הוגדר",
-      title: orderDeliveryDaysLabel(batch.lines, suppliers),
+      label: "יום אספקה",
+      value: orderDeliveryDaysLabel(batch.lines, suppliers),
     },
     { icon: "person", label: "הוזמן על ידי", value: batchOrderedByLabel(batch) },
   ];
@@ -2114,7 +1876,7 @@ function OrderDetailsModal({
     <Modal open={open} onClose={onClose} title="פרטי הזמנה" subtitle={date.full} icon="local_shipping" maxWidth={540}>
       <div className="inventory-order-hero">
         {facts.map((fact) => (
-          <div key={fact.label} className="inventory-order-hero-fact" title={fact.title}>
+          <div key={fact.label} className="inventory-order-hero-fact">
             <span className="inventory-order-hero-icon">
               <Icon name={fact.icon} size={16} />
             </span>
@@ -2128,7 +1890,7 @@ function OrderDetailsModal({
       {partialUiState === "needs_attention" && batchHasActivePartialDelivery(batch.lines) ? (
         <div className="inventory-order-partial-banner">
           <div className="inventory-order-partial-banner-text">
-            <Icon name="local_shipping" size={18} style={{ color: "var(--warning)", flexShrink: 0 }} />
+            <Icon name="local_shipping" size={18} style={{ color: "var(--danger)", flexShrink: 0 }} />
             <span>
               חלק מהפריטים סומנו כ«הגיע חלקית». יתרת ההזמנה עדיין פתוחה — סמנו כטופל כדי להסיר את הסימון
               מהתפריט.
@@ -2138,7 +1900,7 @@ function OrderDetailsModal({
             variant="secondary"
             icon="done_all"
             onClick={onAcknowledgePartial}
-            className="shrink-0 !py-2 !px-3 !text-[12px]"
+            className="shrink-0 !border-[color-mix(in_srgb,var(--danger)_35%,var(--border))] !py-2 !px-3 !text-[12px] !text-[var(--danger)]"
           >
             סמן כטופל
           </Button>
@@ -2165,13 +1927,32 @@ function OrderDetailsModal({
             index={idx}
             busy={receiveBusy}
             canSeePrices={canSeePrices}
+            canUpdateOrderArrival={canUpdateOrderArrival}
             supplierPrices={supplierPrices}
             suppliers={suppliers}
             onReceive={(receivedQty) => onReceive(line, receivedQty)}
             onNotArrived={() => onNotArrived(line)}
+            onCorrectReceived={
+              canUpdateOrderArrival &&
+              line.status === "received" &&
+              line.received_quantity != null &&
+              line.received_quantity < line.quantity
+                ? (receivedQty) => onCorrectReceived(line, receivedQty)
+                : undefined
+            }
           />
         ))}
       </div>
+      {partialUiState === "needs_attention" && batchHasActivePartialDelivery(batch.lines) && onAcknowledgePartial ? (
+        <div className="mt-4 border-t border-border pt-4">
+          <Button icon="done_all" onClick={onAcknowledgePartial} className="w-full !bg-ink">
+            סמן כטופל — הסר מהתראות
+          </Button>
+          <p className="mt-2 text-center text-[11px] text-text-3">
+            היתרה תישאר פתוחה במלאי עד קבלה מלאה
+          </p>
+        </div>
+      ) : null}
     </Modal>
   );
 }
@@ -2421,6 +2202,7 @@ export function Inventory() {
   const [qtySaving, setQtySaving] = useState(false);
   const deleteOrdersBatch = useDeleteOrdersBatch(businessId);
   const receiveOrder = useReceiveOrder(businessId);
+  const correctReceivedOrder = useCorrectReceivedOrder(businessId);
   const markOrderNotArrived = useMarkOrderNotArrived(businessId);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -2678,6 +2460,20 @@ export function Inventory() {
     () => allOrderBatches.filter((b) => batchHasActivePartialDelivery(b.lines)),
     [allOrderBatches],
   );
+  const partialAttentionCount = useMemo(
+    () =>
+      allOrderBatches.filter((b) => resolveBatchPartialUiState(b) === "needs_attention").length,
+    [allOrderBatches, resolveBatchPartialUiState],
+  );
+  const orderFiltersWithCounts = useMemo(
+    () =>
+      ORDER_FILTERS.map((f) =>
+        f.key === "partial" && partialBatches.length > 0
+          ? { ...f, label: `חלקיות (${partialBatches.length})` }
+          : f,
+      ),
+    [partialBatches.length],
+  );
   const filteredOrderBatches = useMemo(
     () => filterOrderBatches(allOrderBatches, orderSearchQuery, orderFilter, supplierFilter),
     [allOrderBatches, orderSearchQuery, orderFilter, supplierFilter],
@@ -2750,15 +2546,18 @@ export function Inventory() {
 
   /** Order composing moved to a dedicated page — /inventory/order. */
   function openNewOrder(presetItemId?: string) {
+    const filteredSupplier =
+      supplierFilter && supplierFilter !== SUPPLIER_FILTER_NONE ? supplierFilter : null;
     if (!presetItemId) {
-      navigate("/inventory/order");
+      navigate(filteredSupplier ? `/inventory/order?supplier=${filteredSupplier}` : "/inventory/order");
       return;
     }
-    // Orders always need a supplier — when the product has exactly one, bring it along.
+    // Orders always need a supplier — prefer the active filter, else a sole linked supplier.
     const linked = itemSupplierIndex.get(presetItemId);
-    const onlySupplier = linked?.size === 1 ? [...linked][0] : null;
+    const resolvedSupplier =
+      filteredSupplier ?? (linked?.size === 1 ? [...linked][0] : null);
     navigate(
-      `/inventory/order?item=${presetItemId}${onlySupplier ? `&supplier=${onlySupplier}` : ""}`,
+      `/inventory/order?item=${presetItemId}${resolvedSupplier ? `&supplier=${resolvedSupplier}` : ""}`,
     );
   }
 
@@ -2823,12 +2622,37 @@ export function Inventory() {
     }
   }
 
+  async function handleCorrectReceived(line: OrderLine, receivedQty: number, batchLines: OrderLine[]) {
+    if (!canManageOrders && !canUpdateOrderArrival) return;
+    const previous = Number(line.received_quantity ?? line.quantity);
+    if (receivedQty === previous) return;
+    const remainder = findRemainderLineForReceived(batchLines, line);
+    try {
+      await correctReceivedOrder.mutateAsync({
+        order_id: line.id,
+        business_id: businessId!,
+        item_id: line.item_id,
+        ordered_quantity: Number(line.quantity),
+        previous_received: previous,
+        received_quantity: receivedQty,
+        batch_id: line.batch_id,
+        ordered_by: line.ordered_by,
+        supplier_id: line.supplier_id,
+        employee_id: profile?.id ?? null,
+        remainder_order_id: remainder?.id ?? null,
+      });
+    } catch (e) {
+      window.alert(inventorySaveError(e));
+    }
+  }
+
   return (
     <div className="w-full animate-fadeUp">
       <TabBar
         tab={tab}
         total={list.length}
         pending={pending}
+        partialAlertCount={partialAttentionCount}
         wasteCount={wasteCount}
         showOrders={canManageOrders}
         showWaste={showWaste}
@@ -2869,7 +2693,7 @@ export function Inventory() {
             onQueryChange={setOrderSearchQuery}
             filter={orderFilter}
             onFilterChange={setOrderFilter}
-            filters={ORDER_FILTERS}
+            filters={orderFiltersWithCounts}
             placeholder="חיפוש הזמנה..."
             resultCount={visibleOrderResultCount}
             totalCount={visibleOrderTotalCount}
@@ -3123,13 +2947,17 @@ export function Inventory() {
       <OrderDetailsModal
         batch={detailBatch}
         open={!!detailBatch}
-        receiveBusy={receiveOrder.isPending || markOrderNotArrived.isPending}
+        receiveBusy={receiveOrder.isPending || correctReceivedOrder.isPending || markOrderNotArrived.isPending}
         canSeePrices={canSeePrices}
+        canUpdateOrderArrival={canUpdateOrderArrival}
         supplierPriceIndex={supplierPriceIndex}
         suppliers={supplierList ?? []}
         onClose={() => setDetailBatchId(null)}
         onReceive={(line, receivedQty) => handleReceive(line, receivedQty)}
         onNotArrived={(line) => handleMarkNotArrived(line)}
+        onCorrectReceived={(line, receivedQty) =>
+          detailBatch && handleCorrectReceived(line, receivedQty, detailBatch.lines)
+        }
         partialUiState={detailBatch ? resolveBatchPartialUiState(detailBatch) : "none"}
         onAcknowledgePartial={() => {
           if (detailBatch) acknowledgeBatch(detailBatch.id);

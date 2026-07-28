@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { compressImage } from "@/lib/compressImage";
 import { supabase } from "@/lib/supabase";
 import { effectiveMainUnitPrice, type SupplierItemPrices } from "@/api/suppliers";
+import { nextWarehouseQty, planOrderReceive, planReceiveCorrection } from "@/lib/inventoryReceive";
 import type { InventoryAction, InventoryItem, InventoryLog, InventoryOrder, OrderStatus, WarehouseStock } from "@/types/database";
 
 function throwDbError(error: { message: string } | null): void {
@@ -818,6 +819,71 @@ export function useDeleteOrdersBatch(businessId: string | null) {
   });
 }
 
+export { orderReceivedRemainderQty } from "@/lib/inventoryReceive";
+
+async function resolveDefaultWarehouseId(businessId: string): Promise<string> {
+  const { data: wh } = await supabase
+    .from("warehouses")
+    .select("id")
+    .eq("business_id", businessId)
+    .eq("is_default", true)
+    .maybeSingle();
+  let warehouseId = wh?.id ?? null;
+  if (!warehouseId) {
+    const { data: firstWh } = await supabase
+      .from("warehouses")
+      .select("id")
+      .eq("business_id", businessId)
+      .eq("active", true)
+      .order("sort_order")
+      .limit(1)
+      .maybeSingle();
+    warehouseId = firstWh?.id ?? null;
+  }
+  if (!warehouseId) throw new Error("לא נמצא מחסן לעדכון המלאי");
+  return warehouseId;
+}
+
+async function adjustWarehouseStock(input: {
+  business_id: string;
+  item_id: string;
+  employee_id: string | null;
+  delta: number;
+  note: string;
+}) {
+  if (input.delta === 0) return;
+  const warehouseId = await resolveDefaultWarehouseId(input.business_id);
+  const { data: latestCount } = await supabase
+    .from("inventory_counts")
+    .select("quantity")
+    .eq("business_id", input.business_id)
+    .eq("item_id", input.item_id)
+    .eq("warehouse_id", warehouseId)
+    .order("counted_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const warehouseCurrentQty = Number(latestCount?.quantity ?? 0);
+  const newQty = nextWarehouseQty(warehouseCurrentQty, input.delta);
+  const { error: countError } = await supabase.from("inventory_counts").insert({
+    business_id: input.business_id,
+    item_id: input.item_id,
+    warehouse_id: warehouseId,
+    employee_id: input.employee_id,
+    quantity: newQty,
+  });
+  throwDbError(countError);
+  await logInventory({
+    business_id: input.business_id,
+    item_id: input.item_id,
+    warehouse_id: warehouseId,
+    employee_id: input.employee_id,
+    action: "order",
+    previous_qty: warehouseCurrentQty,
+    new_qty: newQty,
+    note: input.note,
+  });
+}
+
 export function useReceiveOrder(businessId: string | null) {
   const qc = useQueryClient();
   return useMutation({
@@ -835,17 +901,14 @@ export function useReceiveOrder(businessId: string | null) {
       ordered_by: string | null;
       supplier_id: string | null;
     }) => {
-      const ordered = input.ordered_quantity;
       const received = input.received_quantity;
-      if (!Number.isFinite(received) || received <= 0 || received > ordered) {
-        throw new Error("כמות שהגיעה חייבת להיות בין 1 לכמות שהוזמנה");
-      }
+      const plan = planOrderReceive({ ordered: input.ordered_quantity, received });
 
-      if (received < ordered) {
+      if (plan.createsRemainder) {
         const { error: remainderError } = await supabase.from("inventory_orders").insert({
           business_id: input.business_id,
           item_id: input.item_id,
-          quantity: ordered - received,
+          quantity: plan.remainderQty,
           status: "requested",
           ordered_by: input.ordered_by,
           batch_id: input.batch_id,
@@ -860,63 +923,87 @@ export function useReceiveOrder(businessId: string | null) {
         .eq("id", input.order_id);
       throwDbError(orderError);
 
-      let warehouseId = input.warehouse_id ?? null;
-      if (!warehouseId) {
-        const { data: wh } = await supabase
-          .from("warehouses")
-          .select("id")
-          .eq("business_id", input.business_id)
-          .eq("is_default", true)
-          .maybeSingle();
-        warehouseId = wh?.id ?? null;
-        if (!warehouseId) {
-          const { data: firstWh } = await supabase
-            .from("warehouses")
-            .select("id")
-            .eq("business_id", input.business_id)
-            .eq("active", true)
-            .order("sort_order")
-            .limit(1)
-            .maybeSingle();
-          warehouseId = firstWh?.id ?? null;
-        }
-      }
-      if (!warehouseId) throw new Error("לא נמצא מחסן לעדכון המלאי");
-
-      const { data: latestCount } = await supabase
-        .from("inventory_counts")
-        .select("quantity")
-        .eq("business_id", input.business_id)
-        .eq("item_id", input.item_id)
-        .eq("warehouse_id", warehouseId)
-        .order("counted_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      const warehouseCurrentQty = Number(latestCount?.quantity ?? 0);
-      const newQty = warehouseCurrentQty + received;
-      const { error: countError } = await supabase.from("inventory_counts").insert({
+      await adjustWarehouseStock({
         business_id: input.business_id,
         item_id: input.item_id,
-        warehouse_id: warehouseId,
         employee_id: input.employee_id,
-        quantity: newQty,
+        delta: plan.stockDelta,
+        note: plan.note,
       });
-      throwDbError(countError);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["inventory_orders", businessId] });
+      qc.invalidateQueries({ queryKey: ["inventory", businessId] });
+      qc.invalidateQueries({ queryKey: ["inventory_logs"] });
+      qc.invalidateQueries({ queryKey: ["supplier_orders", businessId] });
+      qc.invalidateQueries({ queryKey: ["suppliers", businessId] });
+    },
+  });
+}
 
-      const note =
-        received < ordered
-          ? `הגיע · נוסף למלאי +${received} מתוך ${ordered}`
-          : `הגיע · נוסף למלאי +${received}`;
+/** Correct how much was received on an already-closed order line (partial delivery). */
+export function useCorrectReceivedOrder(businessId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      order_id: string;
+      business_id: string;
+      item_id: string;
+      ordered_quantity: number;
+      previous_received: number;
+      received_quantity: number;
+      batch_id: string | null;
+      ordered_by: string | null;
+      supplier_id: string | null;
+      employee_id: string | null;
+      remainder_order_id: string | null;
+    }) => {
+      const received = input.received_quantity;
+      const plan = planReceiveCorrection({
+        ordered: input.ordered_quantity,
+        previousReceived: input.previous_received,
+        received,
+        hasRemainderOrder: !!input.remainder_order_id,
+      });
+      if (plan.noop) return;
 
-      await logInventory({
+      const { error: orderError } = await supabase
+        .from("inventory_orders")
+        .update({ status: "received", received_quantity: received })
+        .eq("id", input.order_id);
+      throwDbError(orderError);
+
+      if (plan.remainderAction === "update") {
+        const { error: remainderError } = await supabase
+          .from("inventory_orders")
+          .update({ quantity: plan.remainderQty })
+          .eq("id", input.remainder_order_id!);
+        throwDbError(remainderError);
+      } else if (plan.remainderAction === "create") {
+        const { error: remainderError } = await supabase.from("inventory_orders").insert({
+          business_id: input.business_id,
+          item_id: input.item_id,
+          quantity: plan.remainderQty,
+          status: "requested",
+          ordered_by: input.ordered_by,
+          batch_id: input.batch_id,
+          supplier_id: input.supplier_id,
+        });
+        throwDbError(remainderError);
+      } else if (plan.remainderAction === "delete") {
+        const { error: deleteError } = await supabase
+          .from("inventory_orders")
+          .delete()
+          .eq("id", input.remainder_order_id!);
+        throwDbError(deleteError);
+      }
+
+      await adjustWarehouseStock({
         business_id: input.business_id,
         item_id: input.item_id,
-        warehouse_id: warehouseId,
         employee_id: input.employee_id,
-        action: "order",
-        previous_qty: warehouseCurrentQty,
-        new_qty: newQty,
-        note,
+        delta: plan.stockDelta,
+        note: plan.note,
       });
     },
     onSuccess: () => {

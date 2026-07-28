@@ -63,11 +63,11 @@ export function usePartialDeliveryOrderCount() {
   const getPartialBatchUiState = useCallback(
     (batchKey: string, lines: InventoryOrder[]): PartialBatchUiState => {
       if (!batchHasActivePartialDelivery(lines)) return "none";
-      if (!isOfficeManager) return "needs_attention";
+      if (!userId) return "needs_attention";
       if (isPartialDeliveryBatchUnacknowledged(batchKey, lines, acks)) return "needs_attention";
       return "handled";
     },
-    [isOfficeManager, acks],
+    [userId, acks],
   );
 
   const acknowledgeBatch = useCallback(

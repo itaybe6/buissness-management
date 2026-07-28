@@ -2,19 +2,24 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, EmptyState, Field, Icon, Input, Textarea } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/lib/auth";
-import { useBusinessId, addDays, todayISO, toISODate } from "@/lib/db";
+import { useBusinessId } from "@/lib/db";
 import type { ItemWithQty } from "@/api/inventory";
 import { inventoryItemMatchesQuery } from "@/api/inventory";
 import { mainUnitToPieces, supportsPieceInput } from "@/api/inventory";
 import { DualUnitQtyInput } from "@/components/inventory/DualUnitQtyInput";
 import { useWaste, useCreateWaste } from "@/api/waste";
+import {
+  formatWasteQty,
+  groupWasteByDay,
+  wasteStockStatus,
+  type WasteStockStatus,
+} from "@/lib/wasteReport";
 import { useProfiles } from "@/api/users";
 import type { InventoryWaste } from "@/types/database";
 
 type WasteForm = { itemId: string; qty: number; note: string };
 const EMPTY_FORM: WasteForm = { itemId: "", qty: 1, note: "" };
 
-type StockStatus = "empty" | "low" | "ok";
 type WasteTone = "info" | "warning";
 
 const WASTE_STATUS: Record<"deducted" | "reported", { label: string; tone: WasteTone; icon: string }> = {
@@ -22,22 +27,11 @@ const WASTE_STATUS: Record<"deducted" | "reported", { label: string; tone: Waste
   reported: { label: "דווח בלבד", tone: "warning", icon: "report" },
 };
 
-function stockStatus(item: ItemWithQty): StockStatus {
-  if (item.current_qty === 0) return "empty";
-  const threshold = item.min_quantity > 0 ? item.min_quantity : 3;
-  if (item.current_qty <= threshold) return "low";
-  return "ok";
-}
-
-const STOCK_BADGE: Record<StockStatus, { tone: "danger" | "warning" | "success"; label: string; dot: string }> = {
+const STOCK_BADGE: Record<WasteStockStatus, { tone: "danger" | "warning" | "success"; label: string; dot: string }> = {
   empty: { tone: "danger", label: "אזל מהמלאי", dot: "var(--danger)" },
   low: { tone: "warning", label: "מלאי נמוך", dot: "var(--warning)" },
   ok: { tone: "success", label: "במלאי", dot: "var(--success)" },
 };
-
-function wasteDay(iso: string) {
-  return toISODate(new Date(iso));
-}
 
 function formatWasteTimeRelative(iso: string) {
   const d = new Date(iso);
@@ -63,43 +57,6 @@ function formatWasteExact(iso: string) {
   const time = d.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", hour12: false });
   const date = d.toLocaleDateString("he-IL", { day: "numeric", month: "short", year: "numeric" });
   return `${date} · ${time}`;
-}
-
-function wasteDayLabel(day: string) {
-  const today = todayISO();
-  if (day === today) return "היום";
-  if (day === addDays(today, -1)) return "אתמול";
-  const d = new Date(`${day}T00:00:00`);
-  const sameYear = d.getFullYear() === new Date().getFullYear();
-  const weekday = d.toLocaleDateString("he-IL", { weekday: "long" });
-  const date = d.toLocaleDateString("he-IL", {
-    day: "numeric",
-    month: "numeric",
-    ...(sameYear ? {} : { year: "numeric" as const }),
-  });
-  return `${weekday} · ${date}`;
-}
-
-type WasteDayGroup = { day: string; label: string; items: InventoryWaste[] };
-
-function groupWasteByDay(list: InventoryWaste[]): WasteDayGroup[] {
-  const groups: WasteDayGroup[] = [];
-  for (const w of list) {
-    const day = wasteDay(w.created_at);
-    const last = groups[groups.length - 1];
-    if (last?.day === day) last.items.push(w);
-    else groups.push({ day, label: wasteDayLabel(day), items: [w] });
-  }
-  return groups;
-}
-
-function formatWasteQty(record: InventoryWaste, item?: ItemWithQty): string {
-  const unit = item?.unit ? ` ${item.unit}` : "";
-  const base = `−${record.quantity}${unit}`;
-  if (item && supportsPieceInput(item.unit) && item.units_per_package) {
-    return `${base} (${mainUnitToPieces(Number(record.quantity), item.units_per_package)} יח׳)`;
-  }
-  return base;
 }
 
 function WasteItemPicker({
@@ -183,10 +140,10 @@ function WasteItemPicker({
                 <div className="mt-0.5 flex items-center gap-1.5">
                   <span
                     className="h-1.5 w-1.5 rounded-full"
-                    style={{ background: STOCK_BADGE[stockStatus(selected)].dot }}
+                    style={{ background: STOCK_BADGE[wasteStockStatus(selected)].dot }}
                   />
                   <span className="text-[11px] font-medium text-text-3">
-                    {STOCK_BADGE[stockStatus(selected)].label}
+                    {STOCK_BADGE[wasteStockStatus(selected)].label}
                   </span>
                 </div>
               </div>
@@ -223,7 +180,7 @@ function WasteItemPicker({
             ) : (
               filtered.map((it) => {
                 const active = it.id === value;
-                const status = stockStatus(it);
+                const status = wasteStockStatus(it);
                 const meta = STOCK_BADGE[status];
                 return (
                   <button
