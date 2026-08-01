@@ -10,18 +10,21 @@ import { formatOrderReceivedLabel, OrderReceiveControls } from "@/components/inv
 import {
   type OrderBatch,
   type OrderLine,
+  ArrivingTodayChip,
   batchHasPendingLines,
   batchIsFullyReceived,
   batchOrderedByLabel,
   formatOrderDate,
   groupOrderBatches,
-  lineDeliveryDay,
+  lineDeliveryDays,
+  orderDeliversToday,
   orderDeliveryDaysLabel,
   orderPreviewLabel,
   OrderBatchListSection,
 } from "@/components/inventory/orderBatchUi";
 import { useAuth } from "@/lib/auth";
-import { useBusinessId, HE_DAYS, formatCurrency } from "@/lib/db";
+import { useBusinessId, formatCurrency } from "@/lib/db";
+import { deliveryDaysLabel } from "@/lib/orderSuppliers";
 import { canSeeInventoryPrices } from "@/lib/constants";
 import {
   useInventory,
@@ -75,11 +78,6 @@ function ItemBarcodeLabel({
       {barcode}
     </span>
   );
-}
-
-function formatDeliveryDay(day: number | null | undefined): string {
-  if (day == null || day < 0 || day > 6) return "לא הוגדר";
-  return `יום ${HE_DAYS[day]}`;
 }
 
 type StockStatus = "empty" | "low" | "ok";
@@ -486,7 +484,6 @@ function InventoryCatalogFilterDeck({
         aria-label="סינון מוצרים"
       >
         <Icon name="tune" size={19} />
-        {activeCount > 0 && <span className="inv-filters-badge">{activeCount}</span>}
       </button>
 
       <div
@@ -909,7 +906,7 @@ function ItemDetailModal({
   onEdit: () => void;
   onHistory: () => void;
   onOrder: () => void;
-  onMarkArrived: (order: InventoryOrderWithUser, receivedQty: number) => void;
+  onMarkArrived: (order: InventoryOrderWithUser, payload: { receivedQty: number; warehouseId: string }) => void;
   onMarkNotArrived: (order: InventoryOrderWithUser) => void;
   categoryNames: Record<string, string>;
 }) {
@@ -1160,9 +1157,13 @@ function ItemDetailModal({
                     orderedQty={Number(order.quantity)}
                     unit={item.unit}
                     unitsPerPackage={item.units_per_package}
+                    warehouses={warehouses}
+                    defaultWarehouseId={primaryWarehouseId}
                     busy={orderArrivalBusy}
                     compact
-                    onConfirmArrived={(receivedQty) => onMarkArrived(order, receivedQty)}
+                    onConfirmArrived={({ receivedQty, warehouseId }) =>
+                      onMarkArrived(order, { receivedQty, warehouseId })
+                    }
                     onNotArrived={() => onMarkNotArrived(order)}
                   />
                 </li>
@@ -1475,7 +1476,7 @@ function ItemCard({
                   </>
                 ) : (
                   <>
-                    <span className="text-[17px] font-extrabold tabular-nums">{item.current_qty}</span>
+                    <span className="text-[17px] font-extrabold tabular-nums">{Math.round(item.current_qty)}</span>
                     {item.unit && <span className="block text-[9px] font-semibold text-text-3">{item.unit}</span>}
                   </>
                 )}
@@ -1595,7 +1596,7 @@ function ItemCard({
                     </div>
                   </>
                 ) : (
-                  <div className="mt-1 text-[22px] font-extrabold tabular-nums leading-none">{item.current_qty}</div>
+                  <div className="mt-1 text-[22px] font-extrabold tabular-nums leading-none">{Math.round(item.current_qty)}</div>
                 )}
                 {item.ordered_qty > 0 && (
                   <div className="mt-1 text-[12px] font-bold tabular-nums text-[var(--info)]">
@@ -1661,6 +1662,8 @@ function OrderDetailLine({
   canUpdateOrderArrival,
   supplierPrices,
   suppliers,
+  warehouses,
+  defaultWarehouseId,
   onReceive,
   onNotArrived,
   onCorrectReceived,
@@ -1672,7 +1675,9 @@ function OrderDetailLine({
   canUpdateOrderArrival?: boolean;
   supplierPrices?: Map<string, SupplierItemPrices> | null;
   suppliers: Supplier[];
-  onReceive: (receivedQty: number) => void;
+  warehouses: Warehouse[];
+  defaultWarehouseId: string | null;
+  onReceive: (payload: { receivedQty: number; warehouseId: string }) => void;
   onNotArrived: () => void;
   onCorrectReceived?: (receivedQty: number) => void;
 }) {
@@ -1684,10 +1689,11 @@ function OrderDetailLine({
     item && supportsPieceInput(item.unit) && item.units_per_package
       ? mainUnitToPieces(Number(line.quantity), item.units_per_package)
       : null;
-  const deliveryDay = lineDeliveryDay(line, suppliers);
+  const deliveryDays = lineDeliveryDays(line, suppliers);
   const receivedLabel = formatOrderReceivedLabel(line);
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const savePendingRef = useRef(false);
   const lineTotal =
     canSeePrices && item
       ? inventoryLineTotal(
@@ -1705,112 +1711,115 @@ function OrderDetailLine({
     if (!isPartialReceived) setEditOpen(false);
   }, [isPartialReceived]);
 
+  useEffect(() => {
+    if (savePendingRef.current && !busy) {
+      savePendingRef.current = false;
+      setReceiveOpen(false);
+      setEditOpen(false);
+    }
+  }, [busy]);
+
   const showControls = (pending && receiveOpen) || (isPartialReceived && editOpen && onCorrectReceived);
 
   return (
     <div
-      className={`inventory-order-detail-line inventory-item-enter${isPartialReceived ? " inventory-order-detail-line--partial" : ""}`}
+      className={`inventory-order-detail-line inventory-item-enter${isPartialReceived ? " inventory-order-detail-line--partial" : ""}${showControls ? " inventory-order-detail-line--receiving" : ""}`}
       style={{ animationDelay: `${Math.min(index, 8) * 40}ms` }}
     >
-      <div className="inventory-order-detail-thumb">
-        {item?.image_url ? (
-          <img src={item.image_url} alt={item.name} />
-        ) : (
-          <span className="grid h-full place-items-center text-text-3">
-            <Icon name="inventory_2" size={20} />
-          </span>
-        )}
-      </div>
-      <div className="inventory-order-detail-info min-w-0 flex-1">
-        <div className="inventory-order-detail-name">{item?.name ?? "פריט"}</div>
-        <div className="inventory-order-detail-sub">
-          <b>
-            {pending ? line.quantity : receivedLabel ?? line.quantity}
-            {item?.unit ? ` ${item.unit}` : ""}
-          </b>
-          {!pending && line.received_quantity != null && line.received_quantity < line.quantity && (
-            <span> · הוזמן {line.quantity}</span>
-          )}
-          {pieces != null && <span>({pieces} יח׳)</span>}
-          {deliveryDay != null && deliveryDay >= 0 && deliveryDay <= 6 && (
-            <span>· {formatDeliveryDay(deliveryDay)}</span>
-          )}
-          {lineTotal != null && lineTotal > 0 && (
-            <span>· {formatCurrency(lineTotal)}</span>
+      <div className="inventory-order-detail-line-head">
+        <div className="inventory-order-detail-thumb">
+          {item?.image_url ? (
+            <img src={item.image_url} alt={item.name} />
+          ) : (
+            <span className="grid h-full place-items-center text-text-3">
+              <Icon name="inventory_2" size={20} />
+            </span>
           )}
         </div>
-        {showControls && (
-          <div className="mt-3 rounded-[14px] border border-border bg-surface p-3">
-            <OrderReceiveControls
-              orderedQty={Number(line.quantity)}
-              unit={item?.unit ?? null}
-              unitsPerPackage={item?.units_per_package ?? null}
-              busy={busy}
-              compact
-              mode={isPartialReceived ? "correct" : "receive"}
-              initialReceivedQty={
-                isPartialReceived ? Number(line.received_quantity ?? line.quantity) : undefined
-              }
-              onConfirmArrived={(qty) => {
-                if (isPartialReceived) {
-                  onCorrectReceived?.(qty);
-                  setEditOpen(false);
-                } else {
-                  onReceive(qty);
-                  setReceiveOpen(false);
-                }
-              }}
-              onNotArrived={
-                pending
-                  ? () => {
-                      onNotArrived();
-                      setReceiveOpen(false);
-                    }
-                  : undefined
-              }
-            />
+        <div className="inventory-order-detail-info min-w-0 flex-1">
+          <div className="inventory-order-detail-name">{item?.name ?? "פריט"}</div>
+          <div className="inventory-order-detail-sub">
+            <b>
+              {pending ? line.quantity : receivedLabel ?? line.quantity}
+              {item?.unit ? ` ${item.unit}` : ""}
+            </b>
+            {!pending && line.received_quantity != null && line.received_quantity < line.quantity && (
+              <span> · הוזמן {line.quantity}</span>
+            )}
+            {pieces != null && <span>({pieces} יח׳)</span>}
+            {deliveryDays.length > 0 && (
+              <span>· {deliveryDaysLabel(deliveryDays)}</span>
+            )}
+            {lineTotal != null && lineTotal > 0 && (
+              <span>· {formatCurrency(lineTotal)}</span>
+            )}
           </div>
+        </div>
+        {pending ? (
+          receiveOpen ? null : (
+            <button
+              type="button"
+              className="inventory-order-receive-btn shrink-0"
+              disabled={busy}
+              onClick={() => setReceiveOpen(true)}
+            >
+              <Icon name="check_circle" size={16} />
+              התקבל
+            </button>
+          )
+        ) : isPartialReceived && canUpdateOrderArrival && onCorrectReceived ? (
+          editOpen ? null : (
+            <button
+              type="button"
+              className="inventory-order-correct-btn shrink-0"
+              disabled={busy}
+              onClick={() => setEditOpen(true)}
+              title="עריכת כמות שהגיעה"
+            >
+              <Icon name="edit" size={16} />
+              ערוך
+            </button>
+          )
+        ) : (
+          <Badge tone={isPartialReceived ? "danger" : "success"}>
+            {isPartialReceived ? `התקבל ${receivedLabel}` : "במלאי"}
+          </Badge>
         )}
       </div>
-      {pending ? (
-        receiveOpen ? (
-          <button
-            type="button"
-            className="inventory-order-receive-btn shrink-0 opacity-70"
-            onClick={() => setReceiveOpen(false)}
-          >
-            <Icon name="close" size={16} />
-          </button>
-        ) : (
-          <button type="button" className="inventory-order-receive-btn shrink-0" onClick={() => setReceiveOpen(true)}>
-            <Icon name="check_circle" size={16} />
-            התקבל
-          </button>
-        )
-      ) : isPartialReceived && canUpdateOrderArrival && onCorrectReceived ? (
-        editOpen ? (
-          <button
-            type="button"
-            className="inventory-order-receive-btn shrink-0 opacity-70"
-            onClick={() => setEditOpen(false)}
-          >
-            <Icon name="close" size={16} />
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="inventory-order-correct-btn shrink-0"
-            onClick={() => setEditOpen(true)}
-            title="עריכת כמות שהגיעה"
-          >
-            <Icon name="edit" size={16} />
-            ערוך
-          </button>
-        )
-      ) : (
-        <Badge tone={isPartialReceived ? "danger" : "success"}>
-          {isPartialReceived ? `התקבל ${receivedLabel}` : "במלאי"}
-        </Badge>
+      {showControls && (
+        <OrderReceiveControls
+          orderedQty={Number(line.quantity)}
+          unit={item?.unit ?? null}
+          unitsPerPackage={item?.units_per_package ?? null}
+          warehouses={warehouses}
+          defaultWarehouseId={defaultWarehouseId}
+          busy={busy}
+          compact
+          mode={isPartialReceived ? "correct" : "receive"}
+          initialReceivedQty={
+            isPartialReceived ? Number(line.received_quantity ?? line.quantity) : undefined
+          }
+          onConfirmArrived={({ receivedQty, warehouseId }) => {
+            savePendingRef.current = true;
+            if (isPartialReceived) {
+              onCorrectReceived?.(receivedQty);
+            } else {
+              onReceive({ receivedQty, warehouseId });
+            }
+          }}
+          onNotArrived={
+            pending
+              ? () => {
+                  savePendingRef.current = true;
+                  onNotArrived();
+                }
+              : undefined
+          }
+          onCancel={() => {
+            setReceiveOpen(false);
+            setEditOpen(false);
+          }}
+        />
       )}
     </div>
   );
@@ -1824,6 +1833,8 @@ function OrderDetailsModal({
   canUpdateOrderArrival,
   supplierPriceIndex,
   suppliers,
+  warehouses,
+  defaultWarehouseId,
   onClose,
   onReceive,
   onNotArrived,
@@ -1838,8 +1849,10 @@ function OrderDetailsModal({
   canUpdateOrderArrival: boolean;
   supplierPriceIndex?: SupplierItemPriceIndex;
   suppliers: Supplier[];
+  warehouses: Warehouse[];
+  defaultWarehouseId: string | null;
   onClose: () => void;
-  onReceive: (line: OrderLine, receivedQty: number) => void;
+  onReceive: (line: OrderLine, payload: { receivedQty: number; warehouseId: string }) => void;
   onNotArrived: (line: OrderLine) => void;
   onCorrectReceived: (line: OrderLine, receivedQty: number) => void;
   partialUiState?: PartialBatchUiState;
@@ -1850,6 +1863,7 @@ function OrderDetailsModal({
   const date = formatOrderDate(batch.created_at);
   const totalQty = batch.lines.reduce((sum, l) => sum + Number(l.quantity), 0);
   const pendingCount = batch.lines.filter((l) => l.status !== "received").length;
+  const deliversToday = pendingCount > 0 && orderDeliversToday(batch.lines, suppliers);
   const supplierPrices = supplierPricesFor(supplierPriceIndex, batch.supplier_id);
   const batchTotal = canSeePrices ? orderBatchTotal(batch.lines, supplierPrices) : 0;
 
@@ -1873,7 +1887,18 @@ function OrderDetailsModal({
   ];
 
   return (
-    <Modal open={open} onClose={onClose} title="פרטי הזמנה" subtitle={date.full} icon="local_shipping" maxWidth={540}>
+    <Modal
+      open={open}
+      onClose={() => {
+        if (!receiveBusy) onClose();
+      }}
+      title="פרטי הזמנה"
+      subtitle={date.full}
+      icon="local_shipping"
+      maxWidth={540}
+    >
+      <div className="relative">
+        <SectionLoader show={!!receiveBusy} label="מעדכן הזמנה..." />
       <div className="inventory-order-hero">
         {facts.map((fact) => (
           <div key={fact.label} className="inventory-order-hero-fact">
@@ -1887,6 +1912,14 @@ function OrderDetailsModal({
           </div>
         ))}
       </div>
+      {deliversToday ? (
+        <div className="inventory-order-arriving-today-banner">
+          <div className="inventory-order-arriving-today-banner-text">
+            <ArrivingTodayChip />
+            <span>הסחורה מהספק אמורה להגיע היום — בדקו קבלה במלאי כשמגיעה.</span>
+          </div>
+        </div>
+      ) : null}
       {partialUiState === "needs_attention" && batchHasActivePartialDelivery(batch.lines) ? (
         <div className="inventory-order-partial-banner">
           <div className="inventory-order-partial-banner-text">
@@ -1899,6 +1932,7 @@ function OrderDetailsModal({
           <Button
             variant="secondary"
             icon="done_all"
+            disabled={receiveBusy}
             onClick={onAcknowledgePartial}
             className="shrink-0 !border-[color-mix(in_srgb,var(--danger)_35%,var(--border))] !py-2 !px-3 !text-[12px] !text-[var(--danger)]"
           >
@@ -1930,7 +1964,9 @@ function OrderDetailsModal({
             canUpdateOrderArrival={canUpdateOrderArrival}
             supplierPrices={supplierPrices}
             suppliers={suppliers}
-            onReceive={(receivedQty) => onReceive(line, receivedQty)}
+            warehouses={warehouses}
+            defaultWarehouseId={defaultWarehouseId}
+            onReceive={(payload) => onReceive(line, payload)}
             onNotArrived={() => onNotArrived(line)}
             onCorrectReceived={
               canUpdateOrderArrival &&
@@ -1945,7 +1981,7 @@ function OrderDetailsModal({
       </div>
       {partialUiState === "needs_attention" && batchHasActivePartialDelivery(batch.lines) && onAcknowledgePartial ? (
         <div className="mt-4 border-t border-border pt-4">
-          <Button icon="done_all" onClick={onAcknowledgePartial} className="w-full !bg-ink">
+          <Button icon="done_all" disabled={receiveBusy} onClick={onAcknowledgePartial} className="w-full !bg-ink">
             סמן כטופל — הסר מהתראות
           </Button>
           <p className="mt-2 text-center text-[11px] text-text-3">
@@ -1953,6 +1989,7 @@ function OrderDetailsModal({
           </p>
         </div>
       ) : null}
+      </div>
     </Modal>
   );
 }
@@ -2581,12 +2618,20 @@ export function Inventory() {
     }
   }
 
-  async function handleReceive(line: OrderLine | InventoryOrderWithUser, receivedQty?: number) {
+  async function handleReceive(
+    line: OrderLine | InventoryOrderWithUser,
+    payload?: { receivedQty?: number; warehouseId?: string },
+  ) {
     if (!canManageOrders && !canUpdateOrderArrival) return;
     const item = list.find((i) => i.id === line.item_id);
     if (!item) return;
     const ordered = Number(line.quantity);
-    const received = receivedQty ?? ordered;
+    const received = payload?.receivedQty ?? ordered;
+    const warehouseId = payload?.warehouseId ?? primaryWarehouseId;
+    if (!warehouseId) {
+      window.alert("לא נמצא מחסן לעדכון המלאי");
+      return;
+    }
     try {
       await receiveOrder.mutateAsync({
         order_id: line.id,
@@ -2595,6 +2640,7 @@ export function Inventory() {
         ordered_quantity: ordered,
         received_quantity: received,
         current_qty: item.current_qty,
+        warehouse_id: warehouseId,
         employee_id: profile?.id ?? null,
         batch_id: line.batch_id,
         ordered_by: line.ordered_by,
@@ -2952,8 +2998,10 @@ export function Inventory() {
         canUpdateOrderArrival={canUpdateOrderArrival}
         supplierPriceIndex={supplierPriceIndex}
         suppliers={supplierList ?? []}
+        warehouses={warehouses}
+        defaultWarehouseId={primaryWarehouseId}
         onClose={() => setDetailBatchId(null)}
-        onReceive={(line, receivedQty) => handleReceive(line, receivedQty)}
+        onReceive={(line, payload) => handleReceive(line, payload)}
         onNotArrived={(line) => handleMarkNotArrived(line)}
         onCorrectReceived={(line, receivedQty) =>
           detailBatch && handleCorrectReceived(line, receivedQty, detailBatch.lines)

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Icon } from "@/components/ui";
+import { Button, Icon, InlineLoader } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { formatQtyWithPieces, inventoryLineTotal, type ItemWithQty } from "@/api/inventory";
 import type { SupplierItemPriceIndex } from "@/api/suppliers";
 import {
   defaultSupplierChoice,
-  deliveryDayLabel,
+  deliveryDaysLabel,
   formatPrice,
   itemSupplierChoices,
   orderCalcLabel,
@@ -23,6 +23,8 @@ interface ProductSupplierModalProps {
   item: ItemWithQty | null;
   suppliers: SupplierBasics[];
   priceIndex: SupplierItemPriceIndex | undefined;
+  /** Supplier prices still loading — avoid flashing an empty-state warning. */
+  priceIndexLoading?: boolean;
   /** Existing cart line for this product, when the user re-opens it. */
   current: ProductPick | null;
   /** Supplier to preselect for a brand-new pick (e.g. arriving from a supplier page). */
@@ -32,6 +34,8 @@ interface ProductSupplierModalProps {
    * here changes it for the whole order.
    */
   sharedSupplier?: boolean;
+  /** The confirmed pick is still being applied to the cart. */
+  busy?: boolean;
   onClose: () => void;
   onConfirm: (pick: ProductPick) => void;
   onRemove: () => void;
@@ -74,7 +78,7 @@ function SupplierRow({
         </span>
         <span className="opick-sup-meta">
           <Icon name="local_shipping" size={13} />
-          אספקה: {deliveryDayLabel(choice.delivery_day)}
+          אספקה: {deliveryDaysLabel(choice.delivery_days)}
         </span>
       </span>
       <span className="opick-sup-price">
@@ -100,9 +104,11 @@ export function ProductSupplierModal({
   item,
   suppliers,
   priceIndex,
+  priceIndexLoading = false,
   current,
   preferredSupplierId,
   sharedSupplier = false,
+  busy = false,
   onClose,
   onConfirm,
   onRemove,
@@ -110,28 +116,25 @@ export function ProductSupplierModal({
   const open = !!item;
   const [supplierId, setSupplierId] = useState("");
   const [draft, setDraft] = useState<QtyDraft>({ packs: 1, pieces: 0 });
-  const [showAll, setShowAll] = useState(false);
 
   const choices = useMemo(
     () => (item ? itemSupplierChoices(item, suppliers, priceIndex) : []),
     [item, suppliers, priceIndex],
   );
-  const listed = useMemo(() => choices.filter((c) => c.listed), [choices]);
-  const unlisted = useMemo(() => choices.filter((c) => !c.listed), [choices]);
 
   // Re-seed the form every time a product is opened.
   useEffect(() => {
     if (!item) return;
     setDraft(current ? { packs: current.packs, pieces: current.pieces } : { packs: 1, pieces: 0 });
     setSupplierId(current?.supplier_id ?? "");
-    setShowAll(false);
     // Only re-seed per opened product — not on every re-render of the cart line.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item?.id]);
 
-  // Prices load asynchronously, so the default supplier is picked once they arrive.
+  // Prices load asynchronously; keep the selection valid once choices arrive.
   useEffect(() => {
-    if (!item || supplierId || !choices.length) return;
+    if (!item || !choices.length) return;
+    if (supplierId && choices.some((c) => c.supplier_id === supplierId)) return;
     setSupplierId(defaultSupplierChoice(choices, preferredSupplierId));
   }, [item, supplierId, choices, preferredSupplierId]);
 
@@ -141,8 +144,7 @@ export function ProductSupplierModal({
   const quantity = draftTotal(item, draft);
   const lineTotal = inventoryLineTotal(item, quantity, selected?.unit_price ?? 0);
   const calcLabel = orderCalcLabel(item, draft, selected?.prices);
-  const visibleUnlisted = showAll || listed.length === 0 ? unlisted : [];
-  const canConfirm = !!supplierId && quantity > 0;
+  const canConfirm = !priceIndexLoading && !!supplierId && quantity > 0;
 
   return (
     <Modal
@@ -185,7 +187,7 @@ export function ProductSupplierModal({
       footer={
         <>
           {current && (
-            <button type="button" className="opick-drop" onClick={onRemove}>
+            <button type="button" className="opick-drop" disabled={busy} onClick={onRemove}>
               <Icon name="delete" size={16} />
               הסרה
             </button>
@@ -194,10 +196,13 @@ export function ProductSupplierModal({
             className="flex-1 !bg-ink active:scale-[0.98]"
             icon={current ? "check" : "add_shopping_cart"}
             disabled={!canConfirm}
+            loading={busy}
             onClick={() => onConfirm({ supplier_id: supplierId, packs: draft.packs, pieces: draft.pieces })}
           >
-            {current ? "עדכון ההזמנה" : "הוספה להזמנה"}
-            {lineTotal > 0 && <span className="tabular-nums opacity-80">· {formatPrice(lineTotal)}</span>}
+            {busy ? "מוסיף להזמנה..." : current ? "עדכון ההזמנה" : "הוספה להזמנה"}
+            {!busy && lineTotal > 0 && (
+              <span className="tabular-nums opacity-80">· {formatPrice(lineTotal)}</span>
+            )}
           </Button>
         </>
       }
@@ -209,7 +214,7 @@ export function ProductSupplierModal({
               <Icon name="storefront" size={15} />
               מאיזה ספק להזמין?
             </span>
-            {listed.length > 0 && <span className="opick-sec-count">{listed.length}</span>}
+            {choices.length > 0 && <span className="opick-sec-count">{choices.length}</span>}
           </div>
 
           {sharedSupplier && (
@@ -219,37 +224,30 @@ export function ProductSupplierModal({
             </p>
           )}
 
-          {choices.length === 0 ? (
+          {suppliers.length === 0 ? (
             <p className="opick-note opick-note--warn">
               <Icon name="warning" size={14} />
               אין ספקים פעילים במערכת. כדי להזמין צריך קודם להוסיף ספק.
             </p>
+          ) : priceIndexLoading ? (
+            <InlineLoader compact label="טוען ספקים למוצר" className="opick-sups-loading" />
+          ) : choices.length === 0 ? (
+            <p className="opick-note opick-note--warn">
+              <Icon name="warning" size={14} />
+              אין ספק עם מחיר למוצר הזה — הוסיפו את המוצר למחירון הספק כדי להזמין ממנו.
+            </p>
           ) : (
-            <>
-              {listed.length === 0 && (
-                <p className="opick-note opick-note--warn">
-                  <Icon name="warning" size={14} />
-                  למוצר הזה אין מחירון אצל אף ספק — אפשר לבחור ספק ידנית, אבל ההזמנה תישלח בלי מחיר.
-                </p>
-              )}
-              <div className="opick-sups">
-                {[...listed, ...visibleUnlisted].map((choice) => (
-                  <SupplierRow
-                    key={choice.supplier_id}
-                    choice={choice}
-                    item={item}
-                    selected={choice.supplier_id === supplierId}
-                    onSelect={() => setSupplierId(choice.supplier_id)}
-                  />
-                ))}
-              </div>
-              {listed.length > 0 && unlisted.length > 0 && (
-                <button type="button" className="opick-more" onClick={() => setShowAll((v) => !v)}>
-                  <Icon name={showAll ? "expand_less" : "expand_more"} size={16} />
-                  {showAll ? "הסתרת ספקים אחרים" : `ספקים אחרים (${unlisted.length})`}
-                </button>
-              )}
-            </>
+            <div className="opick-sups">
+              {choices.map((choice) => (
+                <SupplierRow
+                  key={choice.supplier_id}
+                  choice={choice}
+                  item={item}
+                  selected={choice.supplier_id === supplierId}
+                  onSelect={() => setSupplierId(choice.supplier_id)}
+                />
+              ))}
+            </div>
           )}
         </section>
 

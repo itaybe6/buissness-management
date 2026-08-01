@@ -76,7 +76,8 @@ export function AppShell() {
     /^\/inventory\/items\/[^/]+\/edit$/.test(location.pathname) ||
     location.pathname === "/suppliers" ||
     location.pathname.startsWith("/suppliers/") ||
-    (location.pathname !== "/events/ideas" && /^\/events\/[^/]+$/.test(location.pathname));
+    location.pathname === "/businesses/new" ||
+    /^\/events\/[^/]+$/.test(location.pathname);
 
 
 
@@ -108,7 +109,7 @@ export function AppShell() {
     const headerEl = header;
 
     function update() {
-      const hero = mainEl.querySelector(".spf-hero, .evtd-hero");
+      const hero = mainEl.querySelector(".spf-hero, .evtd-hero, .evid-hero, .cbp-hero");
       if (!hero) {
         setInkHeaderSolid(true);
         return;

@@ -5,22 +5,42 @@ import {
   useApplyFeatureState,
   useBusiness,
   useBusinessFeatures,
+  useFeatureDataReport,
   useUpdateBusiness,
+  type ApplyFeaturesResult,
 } from "@/api/businesses";
 import { useProfiles } from "@/api/users";
 import { AddUserModal } from "@/components/AddUserModal";
 import { ActiveModulesPanel } from "@/components/superadmin/ActiveModulesPanel";
+import { FeaturePurgeDialog } from "@/components/superadmin/FeaturePurgeDialog";
 import { PlanPicker } from "@/components/superadmin/PlanPicker";
 import { SeatMeter } from "@/components/superadmin/SeatMeter";
 import { ROLE_LABELS } from "@/lib/constants";
 import {
+  ALL_FEATURE_KEYS,
   PLAN_LABELS,
   detectPlan,
   featureStateForPlan,
   featureStateFromKeys,
+  type FeatureState,
 } from "@/lib/features";
 import { colorFor, initialsOf } from "@/lib/db";
 import type { BusinessPlan, FeatureKey, UserRole } from "@/types/database";
+
+/**
+ * A module switch-off waiting for confirmation. The next state lives here and
+ * nothing is written until the dialog is confirmed — so cancelling really is a
+ * no-op, and the capsule stays lit in the meantime.
+ */
+interface PendingPurge {
+  state: FeatureState;
+  plan: BusinessPlan;
+  /** Modules going off, lead first. */
+  off: FeatureKey[];
+  lead: FeatureKey;
+  mode: "module" | "plan";
+  planLabel?: string;
+}
 
 const ASSIGNABLE_ROLES: UserRole[] = [
   "manager",
@@ -45,6 +65,9 @@ export function BusinessDetail() {
   const [notes, setNotes] = useState<string | null>(null);
   const [seats, setSeats] = useState<string | null>(null);
   const [addUser, setAddUser] = useState(false);
+  const [pending, setPending] = useState<PendingPurge | null>(null);
+  const [purgeResult, setPurgeResult] = useState<ApplyFeaturesResult | null>(null);
+  const [purgeError, setPurgeError] = useState<string | null>(null);
 
   const enabledSet = useMemo(
     () => new Set((features ?? []).filter((f) => f.enabled).map((f) => f.feature_key)),
@@ -52,6 +75,11 @@ export function BusinessDetail() {
   );
   const state = useMemo(() => featureStateFromKeys(enabledSet), [enabledSet]);
   const livePlan = useMemo(() => detectPlan(state), [state]);
+  const pendingOff = useMemo(() => new Set(pending?.off ?? []), [pending]);
+
+  // Counted fresh every time the dialog opens — a stale number on a delete
+  // confirmation is worse than no number.
+  const dataReport = useFeatureDataReport(businessId, pending?.off ?? [], !!pending);
 
   if (isLoading) return <PageLoader />;
   if (isError || !biz) return <ErrorState onRetry={refetch} />;
@@ -82,14 +110,75 @@ export function BusinessDetail() {
     );
   }
 
+  /** Modules that are on today and would be off in `next` — i.e. lose their data. */
+  function modulesLosingData(next: FeatureState): FeatureKey[] {
+    return ALL_FEATURE_KEYS.filter((k) => state[k] && !next[k]);
+  }
+
+  /**
+   * The one door every module change goes through. Switching modules *on* is
+   * free and applies immediately; switching one *off* deletes that module's
+   * data, so it stops here and waits for the dialog.
+   */
+  function requestState(next: FeatureState, intent: Omit<PendingPurge, "state" | "plan" | "off">) {
+    const off = modulesLosingData(next);
+    const plan = detectPlan(next);
+
+    if (off.length === 0) {
+      applyState.mutate({ businessId: biz!.id, state: next, plan });
+      return;
+    }
+
+    setPurgeResult(null);
+    setPurgeError(null);
+    setPending({
+      ...intent,
+      state: next,
+      plan,
+      // Lead first so the dialog can separate "what you clicked" from the cascade.
+      off: [intent.lead, ...off.filter((k) => k !== intent.lead)].filter((k) => off.includes(k)),
+    });
+  }
+
   function applyPlan(plan: Exclude<BusinessPlan, "custom">) {
-    applyState.mutate({ businessId: biz!.id, state: featureStateForPlan(plan), plan });
+    const next = featureStateForPlan(plan);
+    const off = modulesLosingData(next);
+    requestState(next, {
+      lead: off[0] ?? ALL_FEATURE_KEYS[0],
+      mode: "plan",
+      planLabel: PLAN_LABELS[plan],
+    });
   }
 
   function toggleModules(changes: { key: FeatureKey; enabled: boolean }[]) {
-    const nextState = { ...state };
-    for (const c of changes) nextState[c.key] = c.enabled;
-    applyState.mutate({ businessId: biz!.id, state: nextState, plan: detectPlan(nextState) });
+    const next = { ...state };
+    for (const c of changes) next[c.key] = c.enabled;
+    // Only switch-ons reach here; the panel routes switch-offs to requestDisable.
+    applyState.mutate({ businessId: biz!.id, state: next, plan: detectPlan(next) });
+  }
+
+  function requestDisable(key: FeatureKey, cascade: FeatureKey[]) {
+    const next = { ...state };
+    for (const k of cascade) next[k] = false;
+    requestState(next, { lead: key, mode: "module" });
+  }
+
+  function confirmPurge() {
+    if (!pending) return;
+    setPurgeError(null);
+    applyState.mutate(
+      { businessId: biz!.id, state: pending.state, plan: pending.plan, purge: pending.off },
+      {
+        onSuccess: (res) => setPurgeResult(res),
+        onError: (e) => setPurgeError(e instanceof Error ? e.message : "המחיקה נכשלה"),
+      },
+    );
+  }
+
+  function closePurge() {
+    setPending(null);
+    setPurgeResult(null);
+    setPurgeError(null);
   }
 
   return (
@@ -178,6 +267,8 @@ export function BusinessDetail() {
         enabledSet={enabledSet}
         onToggle={(feature, enabled) => toggleModules([{ key: feature, enabled }])}
         onBulkChange={toggleModules}
+        onRequestDisable={requestDisable}
+        pendingOff={pendingOff}
         headerSlot={<PlanPicker plan={livePlan} state={state} onPick={applyPlan} />}
       />
 
@@ -235,6 +326,25 @@ export function BusinessDetail() {
         businessId={biz.id}
         roles={ASSIGNABLE_ROLES}
       />
+
+      {pending && (
+        <FeaturePurgeDialog
+          open
+          businessName={biz.name}
+          keys={pending.off}
+          leadKey={pending.lead}
+          mode={pending.mode}
+          planLabel={pending.planLabel}
+          report={dataReport.data}
+          reportLoading={dataReport.isLoading}
+          reportError={dataReport.isError}
+          working={applyState.isPending}
+          result={purgeResult}
+          error={purgeError}
+          onCancel={closePurge}
+          onConfirm={confirmPurge}
+        />
+      )}
     </div>
   );
 }

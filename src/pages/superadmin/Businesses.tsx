@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Badge, Button, Card, EmptyState, ErrorState, Icon, Input, PageHeader, PageLoader } from "@/components/ui";
-import { CreateBusinessWizard } from "@/components/superadmin/CreateBusinessWizard";
 import { SeatMeter } from "@/components/superadmin/SeatMeter";
 import { useBusinesses } from "@/api/businesses";
 import { PLAN_LABELS } from "@/lib/features";
@@ -11,7 +10,6 @@ import { colorFor, initialsOf } from "@/lib/db";
 export function Businesses() {
   const { data, isLoading, isError, refetch } = useBusinesses();
   const navigate = useNavigate();
-  const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
 
   const filtered = useMemo(
@@ -31,7 +29,7 @@ export function Businesses() {
         title="עסקים"
         subtitle={`${total} עסקים · ${active} פעילים · ניהול חבילות ומודולים`}
         actions={
-          <Button icon="add_business" onClick={() => setOpen(true)}>
+          <Button icon="add_business" onClick={() => navigate("/businesses/new")}>
             הוספת עסק חדש
           </Button>
         }
@@ -41,8 +39,8 @@ export function Businesses() {
         <EmptyState
           icon="store"
           title="אין עדיין עסקים"
-          description="הקימו את העסק הראשון: בחרו חבילת מודולים והוסיפו לו מנהל מערכת שיקים את הצוות."
-          action={<Button icon="add_business" onClick={() => setOpen(true)}>הוספת עסק חדש</Button>}
+          description="הקימו את העסק הראשון: בחרו מודולים והוסיפו מנהל מערכת שיקים את הצוות."
+          action={<Button icon="add_business" onClick={() => navigate("/businesses/new")}>הוספת עסק חדש</Button>}
         />
       ) : (
         <>
@@ -110,12 +108,6 @@ export function Businesses() {
           </Card>
         </>
       )}
-
-      <CreateBusinessWizard
-        open={open}
-        onClose={() => setOpen(false)}
-        onCreated={(biz) => navigate(`/businesses/${biz.id}`)}
-      />
     </div>
   );
 }

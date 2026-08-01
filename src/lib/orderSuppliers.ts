@@ -10,22 +10,30 @@ export function formatPrice(n: number): string {
   return "₪" + (Math.round(n * 100) / 100).toLocaleString("he-IL", { maximumFractionDigits: 2 });
 }
 
+export function deliveryDaysLabel(days: number[] | null | undefined): string {
+  if (!days?.length) return "לא הוגדר";
+  const valid = [...new Set(days.filter((d) => d >= 0 && d <= 6))].sort((a, b) => a - b);
+  if (valid.length === 0) return "לא הוגדר";
+  return valid.map((d) => `יום ${HE_DAYS[d]}`).join(", ");
+}
+
+/** @deprecated use deliveryDaysLabel */
 export function deliveryDayLabel(day: number | null | undefined): string {
   if (day == null || day < 0 || day > 6) return "לא הוגדר";
-  return `יום ${HE_DAYS[day]}`;
+  return deliveryDaysLabel([day]);
 }
 
 export interface SupplierBasics {
   id: string;
   name: string;
-  delivery_day: number | null;
+  delivery_days: number[] | null;
 }
 
 /** One supplier the user can order a specific product from. */
 export interface SupplierChoice {
   supplier_id: string;
   name: string;
-  delivery_day: number | null;
+  delivery_days: number[] | null;
   prices: SupplierItemPrices | null;
   /** Price per the product's main unit; 0 when this supplier has no price for it. */
   unit_price: number;
@@ -36,40 +44,42 @@ export interface SupplierChoice {
 }
 
 function compareChoices(a: SupplierChoice, b: SupplierChoice): number {
-  if (a.listed !== b.listed) return a.listed ? -1 : 1;
-  const aPriced = a.unit_price > 0;
-  const bPriced = b.unit_price > 0;
-  if (aPriced !== bPriced) return aPriced ? -1 : 1;
-  if (aPriced && a.unit_price !== b.unit_price) return a.unit_price - b.unit_price;
+  if (a.unit_price !== b.unit_price) return a.unit_price - b.unit_price;
   return a.name.localeCompare(b.name, "he");
 }
 
+/** Supplier carries the product in its price list with a usable price. */
+export function isOrderableSupplierChoice(choice: SupplierChoice): boolean {
+  return choice.listed && choice.unit_price > 0;
+}
+
 /**
- * Suppliers a product can be ordered from, cheapest first. Suppliers that don't
- * list the product are still returned (last) so a one-off order is possible.
+ * Suppliers a product can be ordered from, cheapest first. Only suppliers that
+ * list the product with a valid price are returned.
  */
 export function itemSupplierChoices(
   item: { id: string; units_per_package: number | null },
   suppliers: SupplierBasics[],
   priceIndex: SupplierItemPriceIndex | undefined,
 ): SupplierChoice[] {
-  const choices: SupplierChoice[] = suppliers.map((s) => {
-    const prices = priceIndex?.get(s.id)?.get(item.id) ?? null;
-    return {
-      supplier_id: s.id,
-      name: s.name,
-      delivery_day: s.delivery_day,
-      prices,
-      unit_price: prices ? effectiveMainUnitPrice(prices, item.units_per_package) : 0,
-      listed: !!prices,
-      cheapest: false,
-    };
-  });
+  const choices: SupplierChoice[] = suppliers
+    .map((s) => {
+      const prices = priceIndex?.get(s.id)?.get(item.id) ?? null;
+      return {
+        supplier_id: s.id,
+        name: s.name,
+        delivery_days: s.delivery_days,
+        prices,
+        unit_price: prices ? effectiveMainUnitPrice(prices, item.units_per_package) : 0,
+        listed: !!prices,
+        cheapest: false,
+      };
+    })
+    .filter(isOrderableSupplierChoice);
 
-  const priced = choices.filter((c) => c.listed && c.unit_price > 0);
-  if (priced.length > 1) {
-    const min = Math.min(...priced.map((c) => c.unit_price));
-    const winners = priced.filter((c) => c.unit_price === min);
+  if (choices.length > 1) {
+    const min = Math.min(...choices.map((c) => c.unit_price));
+    const winners = choices.filter((c) => c.unit_price === min);
     if (winners.length === 1) winners[0].cheapest = true;
   }
 
@@ -146,7 +156,7 @@ export function defaultSupplierChoice(
   if (preferredSupplierId && choices.some((c) => c.supplier_id === preferredSupplierId)) {
     return preferredSupplierId;
   }
-  return choices.find((c) => c.listed && c.unit_price > 0)?.supplier_id ?? choices[0]?.supplier_id ?? "";
+  return choices[0]?.supplier_id ?? "";
 }
 
 /** A product the user put in the cart, priced by the supplier chosen for it. */
@@ -170,7 +180,7 @@ export interface DraftOrderLine {
 export interface DraftSupplierGroup {
   supplier_id: string;
   name: string;
-  delivery_day: number | null;
+  delivery_days: number[] | null;
   lines: DraftOrderLine[];
   total: number;
   /** Lines this supplier has no price for — the group total is therefore partial. */
@@ -195,7 +205,7 @@ export function groupDraftLinesBySupplier(
       group = {
         supplier_id: line.supplier_id,
         name: meta.get(line.supplier_id)?.name ?? "ספק לא ידוע",
-        delivery_day: meta.get(line.supplier_id)?.delivery_day ?? null,
+        delivery_days: meta.get(line.supplier_id)?.delivery_days ?? null,
         lines: [],
         total: 0,
         unpriced_count: 0,

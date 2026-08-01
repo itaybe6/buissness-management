@@ -123,6 +123,8 @@ export function FeaturePurgeDialog({
   businessName,
   keys,
   leadKey,
+  mode = "module",
+  planLabel,
   report,
   reportLoading,
   reportError,
@@ -196,9 +198,11 @@ export function FeaturePurgeDialog({
             <h2 className="purge-title">
               {phase === "done"
                 ? "הנתונים נמחקו"
-                : keys.length > 1
-                  ? `כיבוי ${keys.length} מודולים ומחיקת הנתונים שלהם`
-                  : `כיבוי ${moduleLabel(leadKey)} ומחיקת הנתונים שלו`}
+                : mode === "plan"
+                  ? `מעבר לחבילת ${planLabel} מכבה ${keys.length} מודולים`
+                  : keys.length > 1
+                    ? `כיבוי ${keys.length} מודולים ומחיקת הנתונים שלהם`
+                    : `כיבוי ${moduleLabel(leadKey)} ומחיקת הנתונים שלו`}
             </h2>
             <p className="purge-sub">
               <Icon name="storefront" size={14} />
@@ -262,15 +266,25 @@ export function FeaturePurgeDialog({
                 animate={{ opacity: 1 }}
                 className="purge-review"
               >
-                {cascade.length > 0 && (
+                {mode === "plan" ? (
                   <div className="purge-cascade">
-                    <Icon name="account_tree" size={17} />
+                    <Icon name="workspace_premium" size={17} />
                     <span>
-                      <b>{moduleLabel(leadKey)}</b> מפעיל את{" "}
-                      {cascade.map((k) => moduleLabel(k)).join(", ")} — הנתונים של{" "}
-                      {cascade.length > 1 ? "כולם" : "שניהם"} יימחקו יחד.
+                      חבילת <b>{planLabel}</b> אינה כוללת את{" "}
+                      {keys.map((k) => moduleLabel(k)).join(", ")}. הנתונים שלהם יימחקו עם המעבר.
                     </span>
                   </div>
+                ) : (
+                  cascade.length > 0 && (
+                    <div className="purge-cascade">
+                      <Icon name="account_tree" size={17} />
+                      <span>
+                        <b>{moduleLabel(leadKey)}</b> מפעיל את{" "}
+                        {cascade.map((k) => moduleLabel(k)).join(", ")} — הנתונים של{" "}
+                        {cascade.length > 1 ? "כולם" : "שניהם"} יימחקו יחד.
+                      </span>
+                    </div>
+                  )
                 )}
 
                 <div className="purge-meter" data-empty={nothingToDelete}>
@@ -313,7 +327,9 @@ export function FeaturePurgeDialog({
                             <Icon name={module?.icon ?? "layers"} size={17} />
                           </span>
                           <span className="purge-ledger-name">{module?.label ?? key}</span>
-                          {key !== leadKey && <span className="purge-ledger-tag">נגרר בתלות</span>}
+                          {mode === "module" && key !== leadKey && (
+                            <span className="purge-ledger-tag">נגרר בתלות</span>
+                          )}
                         </header>
 
                         <p className="purge-ledger-loses">{scope.loses}</p>

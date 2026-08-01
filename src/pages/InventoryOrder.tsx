@@ -1,6 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Navigate, useLocation, useNavigate, useSearchParams, Link } from "react-router-dom";
-import { Button, EmptyState, ErrorState, Icon, Input, LoadingOverlay, PageLoader } from "@/components/ui";
+import {
+  Button,
+  EmptyState,
+  ErrorState,
+  Icon,
+  Input,
+  LoadingOverlay,
+  PageLoader,
+  Spinner,
+} from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId } from "@/lib/db";
@@ -29,8 +38,25 @@ import {
   type ProductPick,
 } from "@/components/inventory/ProductSupplierModal";
 import { OrderReviewModal } from "@/components/inventory/OrderReviewModal";
+import { RecurringOrderPicker } from "@/components/inventory/RecurringOrderPicker";
+import { SaveRecurringOrderModal } from "@/components/inventory/SaveRecurringOrderModal";
 import {
-  deliveryDayLabel,
+  useDeleteRecurringOrder,
+  useRecurringOrders,
+  useSaveRecurringOrder,
+  useTouchRecurringOrder,
+  recurringOrderSaveError,
+  type RecurringOrderWithItems,
+} from "@/api/recurringOrders";
+import {
+  clearOrderDraft,
+  draftSavedAgoLabel,
+  loadOrderDraft,
+  saveOrderDraft,
+} from "@/lib/orderDraftStorage";
+import { recurringTemplateCart, recurringTemplateNotice } from "@/lib/recurringOrders";
+import {
+  deliveryDaysLabel,
   draftLinesTotal,
   formatPrice,
   groupDraftLinesBySupplier,
@@ -66,11 +92,12 @@ const NO_SUPPLIER_META: ItemSupplierMeta = { count: 0, min_price: 0 };
 
 /* ----------------------------- Product card ----------------------------- */
 
-function ProductCard({
+const ProductCard = memo(function ProductCard({
   item,
   index,
   line,
   flash,
+  pending,
   supplierMeta,
   supplierName,
   deliveryLabel,
@@ -83,13 +110,15 @@ function ProductCard({
   index: number;
   line: CartLine | undefined;
   flash: boolean;
+  /** The pick is being applied to the cart — the card shows a spinner meanwhile. */
+  pending: boolean;
   supplierMeta: ItemSupplierMeta;
   supplierName: string | null;
   deliveryLabel: string | null;
   lineTotal: number;
   categoryName: string | null;
-  onOpen: () => void;
-  onRemove: () => void;
+  onOpen: (item: ItemWithQty) => void;
+  onRemove: (itemId: string) => void;
 }) {
   const meta = STOCK_META[stockStatus(item)];
   const selected = !!line;
@@ -100,6 +129,7 @@ function ProductCard({
       className="ordc-card inventory-item-enter"
       data-selected={selected}
       data-flash={flash || undefined}
+      data-pending={pending || undefined}
       style={{ animationDelay: `${Math.min(index, 10) * 35}ms` }}
     >
       <div className="ordc-card-img">
@@ -127,6 +157,11 @@ function ProductCard({
           <span className="ordc-qty-pill" key={draftLabel(item, line)}>
             <Icon name="check_circle" size={14} />
             {draftLabel(item, line)}
+          </span>
+        )}
+        {pending && (
+          <span className="ordc-card-pending" role="status" aria-label="מוסיף להזמנה">
+            <Spinner size={22} />
           </span>
         )}
       </div>
@@ -158,7 +193,7 @@ function ProductCard({
 
         {selected && line ? (
           <div className="ordc-card-controls">
-            <button type="button" className="ordc-picked" onClick={onOpen}>
+            <button type="button" className="ordc-picked" onClick={() => onOpen(item)}>
               <span className="ordc-picked-body">
                 <span className="ordc-picked-sup">
                   <Icon name="storefront" size={12} />
@@ -179,13 +214,13 @@ function ProductCard({
                 <Icon name="tune" size={16} />
               </span>
             </button>
-            <button type="button" className="ordc-remove-btn" onClick={onRemove}>
+            <button type="button" className="ordc-remove-btn" onClick={() => onRemove(item.id)}>
               <Icon name="delete" size={14} />
               הסרה מההזמנה
             </button>
           </div>
         ) : (
-          <button type="button" className="ordc-add-btn" onClick={onOpen}>
+          <button type="button" className="ordc-add-btn" onClick={() => onOpen(item)}>
             <Icon name="add_shopping_cart" size={17} />
             הוספה להזמנה
           </button>
@@ -193,7 +228,7 @@ function ProductCard({
       </div>
     </article>
   );
-}
+});
 
 /* ----------------------------- Low-stock strip ----------------------------- */
 
@@ -328,9 +363,13 @@ export function InventoryOrder() {
   }, [inventoryCategories]);
   const { data: orders } = useOrders(businessId, isEditing);
   const { data: suppliers } = useSuppliers(businessId, { activeOnly: true });
-  const { data: supplierPriceIndex } = useSupplierItemPriceIndex(businessId);
+  const { data: supplierPriceIndex, isPending: priceIndexPending } = useSupplierItemPriceIndex(businessId);
   const createOrdersBatch = useCreateOrdersBatch(businessId);
   const updateOrdersBatch = useUpdateOrdersBatch(businessId);
+  const { data: recurringOrders, isLoading: recurringLoading } = useRecurringOrders(businessId);
+  const saveRecurringOrder = useSaveRecurringOrder(businessId);
+  const deleteRecurringOrder = useDeleteRecurringOrder(businessId);
+  const touchRecurringOrder = useTouchRecurringOrder(businessId);
 
   const [cart, setCart] = useState<Record<string, CartLine>>({});
   const [query, setQuery] = useState("");
@@ -340,16 +379,28 @@ export function InventoryOrder() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [pickerItemId, setPickerItemId] = useState<string | null>(null);
+  const [addingItemId, setAddingItemId] = useState<string | null>(null);
   const [flashId, setFlashId] = useState<string | null>(null);
   const [batchMissing, setBatchMissing] = useState(false);
+  const [restoredAt, setRestoredAt] = useState<string | null>(null);
+  const [draftReady, setDraftReady] = useState(false);
+  const [recurringOpen, setRecurringOpen] = useState(false);
+  const [saveRecurringOpen, setSaveRecurringOpen] = useState(false);
+  const [recurringBusyId, setRecurringBusyId] = useState<string | null>(null);
+  const [recurringSaveError, setRecurringSaveError] = useState<string | null>(null);
+  const [recurringNotice, setRecurringNotice] = useState<string | null>(null);
+  const [applying, startApplying] = useTransition();
   const preferredSupplierId = searchParams.get("supplier");
   const editInitRef = useRef(false);
   const presetRef = useRef(false);
   const flashTimer = useRef<number>();
+  const userId = profile?.id ?? null;
 
   const list = useMemo(() => items ?? [], [items]);
   const supplierList = useMemo(() => suppliers ?? [], [suppliers]);
   const itemById = useMemo(() => new Map(list.map((i) => [i.id, i])), [list]);
+  const recurringList = useMemo(() => recurringOrders ?? [], [recurringOrders]);
+  const recurringCount = recurringList.length;
 
   /** Open lines of the batch being edited (batch key = batch_id, or line id for legacy single orders). */
   const editLines = useMemo(() => {
@@ -384,6 +435,39 @@ export function InventoryOrder() {
     if (items.some((i) => i.id === preset)) setPickerItemId(preset);
   }, [items, searchParams]);
 
+  /**
+   * A cart the user never sent is kept in localStorage, so leaving the page or
+   * closing the app mid-order does not throw the work away. Editing an existing
+   * order is hydrated from the database instead and never touches the draft.
+   */
+  useEffect(() => {
+    if (isEditing || draftReady || !userId || !businessId || !items) return;
+    setDraftReady(true);
+    const draft = loadOrderDraft(userId, businessId);
+    if (!draft) return;
+    // Products deleted since the draft was saved cannot be ordered any more.
+    const next: Record<string, CartLine> = {};
+    for (const line of draft.lines) {
+      if (!items.some((i) => i.id === line.item_id)) continue;
+      next[line.item_id] = { supplier_id: line.supplier_id, packs: line.packs, pieces: line.pieces };
+    }
+    if (!Object.keys(next).length) {
+      clearOrderDraft(userId, businessId);
+      return;
+    }
+    setCart(next);
+    setRestoredAt(draft.saved_at);
+  }, [isEditing, draftReady, userId, businessId, items]);
+
+  useEffect(() => {
+    if (isEditing || !draftReady || !userId || !businessId) return;
+    saveOrderDraft(
+      userId,
+      businessId,
+      Object.entries(cart).map(([item_id, line]) => ({ item_id, ...line })),
+    );
+  }, [cart, isEditing, draftReady, userId, businessId]);
+
   useEffect(() => () => window.clearTimeout(flashTimer.current), []);
 
   // Removing the last line from inside the review sends the user back to the catalog.
@@ -400,9 +484,10 @@ export function InventoryOrder() {
       if (!activeIds.has(supplierId)) continue;
       for (const [itemId, prices] of itemPrices) {
         const price = effectiveMainUnitPrice(prices, itemById.get(itemId)?.units_per_package ?? null);
+        if (price <= 0) continue;
         const entry = map.get(itemId) ?? { count: 0, min_price: 0 };
         entry.count += 1;
-        if (price > 0 && (entry.min_price === 0 || price < entry.min_price)) entry.min_price = price;
+        if (entry.min_price === 0 || price < entry.min_price) entry.min_price = price;
         map.set(itemId, entry);
       }
     }
@@ -490,37 +575,104 @@ export function InventoryOrder() {
         }
       : null;
 
-  function openPicker(item: ItemWithQty) {
+  const openPicker = useCallback((item: ItemWithQty) => {
     setError(null);
     setSheetOpen(false);
     setPickerItemId(item.id);
-  }
+  }, []);
 
+  /**
+   * Writing to the cart re-renders the whole catalog, which is slow enough on a
+   * large one to feel broken. The update runs as a transition so the picker can
+   * show a spinner instead of freezing on the tap.
+   */
   function confirmPick(itemId: string, pick: ProductPick) {
     setError(null);
-    setCart((prev) => {
-      const next: Record<string, CartLine> = { ...prev };
-      next[itemId] = { supplier_id: pick.supplier_id, packs: pick.packs, pieces: pick.pieces };
-      // An existing order is one batch for one supplier — keep every line aligned.
-      if (isEditing) {
-        for (const id of Object.keys(next)) next[id] = { ...next[id], supplier_id: pick.supplier_id };
-      }
-      return next;
+    setAddingItemId(itemId);
+    startApplying(() => {
+      setCart((prev) => {
+        const next: Record<string, CartLine> = { ...prev };
+        next[itemId] = { supplier_id: pick.supplier_id, packs: pick.packs, pieces: pick.pieces };
+        // An existing order is one batch for one supplier — keep every line aligned.
+        if (isEditing) {
+          for (const id of Object.keys(next)) next[id] = { ...next[id], supplier_id: pick.supplier_id };
+        }
+        return next;
+      });
+      setPickerItemId(null);
+      setAddingItemId(null);
+      flashItem(itemId);
     });
-    setPickerItemId(null);
-    flashItem(itemId);
   }
 
-  function removeItem(id: string) {
+  const removeItem = useCallback((id: string) => {
     setCart((prev) => {
       const { [id]: _removed, ...rest } = prev;
       return rest;
     });
-  }
+  }, []);
 
   function clearAll() {
     setCart({});
     setError(null);
+    setRestoredAt(null);
+    setRecurringNotice(null);
+  }
+
+  /** Start the order from a saved template instead of picking every product again. */
+  function applyRecurringTemplate(template: RecurringOrderWithItems) {
+    setError(null);
+    setRecurringBusyId(template.id);
+    const { lines, skipped } = recurringTemplateCart(
+      template.items,
+      itemById,
+      supplierList,
+      supplierPriceIndex,
+    );
+    const added = Object.keys(lines).length;
+    startApplying(() => {
+      setCart(lines);
+      setRecurringOpen(false);
+      setRecurringBusyId(null);
+      setRestoredAt(null);
+      setRecurringNotice(recurringTemplateNotice(template.name, added, skipped));
+    });
+    if (added > 0) touchRecurringOrder.mutate(template.id);
+  }
+
+  async function saveAsRecurring({ id, name }: { id: string | null; name: string }) {
+    setRecurringSaveError(null);
+    setRecurringBusyId(id ?? "new");
+    try {
+      await saveRecurringOrder.mutateAsync({
+        id: id ?? undefined,
+        business_id: businessId!,
+        name,
+        created_by: profile?.id ?? null,
+        lines: draftLines.map((l) => ({
+          item_id: l.item_id,
+          supplier_id: l.supplier_id,
+          quantity: l.quantity,
+        })),
+      });
+      setSaveRecurringOpen(false);
+      setRecurringNotice(`ההזמנה נשמרה כהזמנה קבועה "${name}"`);
+    } catch (e) {
+      setRecurringSaveError(recurringOrderSaveError(e));
+    } finally {
+      setRecurringBusyId(null);
+    }
+  }
+
+  async function deleteRecurring(template: RecurringOrderWithItems) {
+    setRecurringBusyId(template.id);
+    try {
+      await deleteRecurringOrder.mutateAsync(template.id);
+    } catch (e) {
+      setError(inventorySaveError(e));
+    } finally {
+      setRecurringBusyId(null);
+    }
   }
 
   function flashItem(itemId: string) {
@@ -577,6 +729,7 @@ export function InventoryOrder() {
           });
         }
       }
+      if (!isEditing && userId && businessId) clearOrderDraft(userId, businessId);
       navigate("/inventory?tab=orders", { replace: true });
     } catch (e) {
       setError(inventorySaveError(e));
@@ -626,6 +779,64 @@ export function InventoryOrder() {
     </p>
   );
 
+  const noticeBar = restoredAt ? (
+    <div className="ordc-notice" role="status">
+      <span className="ordc-notice-icon">
+        <Icon name="history" size={16} />
+      </span>
+      <span className="ordc-notice-text">
+        המשך ההזמנה שלא נשלחה
+        <small>נשמרה {draftSavedAgoLabel(restoredAt)} · הפריטים שנבחרו נשמרו אוטומטית</small>
+      </span>
+      <button type="button" className="ordc-notice-action" onClick={clearAll}>
+        התחלה מחדש
+      </button>
+      <button
+        type="button"
+        className="ordc-notice-close"
+        aria-label="סגירה"
+        onClick={() => setRestoredAt(null)}
+      >
+        <Icon name="close" size={15} />
+      </button>
+    </div>
+  ) : recurringNotice ? (
+    <div className="ordc-notice" role="status">
+      <span className="ordc-notice-icon">
+        <Icon name="event_repeat" size={16} />
+      </span>
+      <span className="ordc-notice-text">{recurringNotice}</span>
+      <button
+        type="button"
+        className="ordc-notice-close"
+        aria-label="סגירה"
+        onClick={() => setRecurringNotice(null)}
+      >
+        <Icon name="close" size={15} />
+      </button>
+    </div>
+  ) : null;
+
+  const cartLinks = (
+    <div className="ordc-cart-links">
+      <button
+        type="button"
+        className="ordc-cart-link"
+        onClick={() => {
+          setRecurringSaveError(null);
+          setSheetOpen(false);
+          setSaveRecurringOpen(true);
+        }}
+      >
+        <Icon name="bookmark_add" size={14} />
+        שמירה כהזמנה קבועה
+      </button>
+      <button type="button" className="ordc-clear" onClick={clearAll}>
+        ניקוי הבחירה
+      </button>
+    </div>
+  );
+
   const cartEmpty = (
     <div className="ordc-cart-empty">
       <span className="ordc-cart-empty-icon">
@@ -635,6 +846,19 @@ export function InventoryOrder() {
       <p className="ordc-cart-empty-sub">
         בכל מוצר בוחרים את הספק שממנו מזמינים — אפשר לשלב כמה ספקים בהזמנה אחת.
       </p>
+      {!isEditing && recurringCount > 0 && (
+        <button
+          type="button"
+          className="ordc-cart-link"
+          onClick={() => {
+            setSheetOpen(false);
+            setRecurringOpen(true);
+          }}
+        >
+          <Icon name="event_repeat" size={14} />
+          התחלה מהזמנה קבועה
+        </button>
+      )}
     </div>
   );
 
@@ -673,26 +897,40 @@ export function InventoryOrder() {
           ) : (
             <>
               <div className="ordc-toolbar">
-                <div className="relative">
-                  <Icon
-                    name="search"
-                    size={18}
-                    className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-text-3"
-                  />
-                  <Input
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="חיפוש לפי שם או ברקוד..."
-                    className="!pr-10"
-                  />
-                  {query && (
+                <div className="ordc-search-row">
+                  <div className="relative min-w-0 flex-1">
+                    <Icon
+                      name="search"
+                      size={18}
+                      className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-text-3"
+                    />
+                    <Input
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder="חיפוש לפי שם או ברקוד..."
+                      className="!pr-10"
+                    />
+                    {query && (
+                      <button
+                        type="button"
+                        onClick={() => setQuery("")}
+                        aria-label="ניקוי חיפוש"
+                        className="absolute left-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-md text-text-3 transition-colors hover:bg-surface-2 hover:text-text"
+                      >
+                        <Icon name="close" size={16} />
+                      </button>
+                    )}
+                  </div>
+                  {!isEditing && (
                     <button
                       type="button"
-                      onClick={() => setQuery("")}
-                      aria-label="ניקוי חיפוש"
-                      className="absolute left-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-md text-text-3 transition-colors hover:bg-surface-2 hover:text-text"
+                      className="ordc-recurring-btn"
+                      onClick={() => setRecurringOpen(true)}
+                      disabled={priceIndexPending}
                     >
-                      <Icon name="close" size={16} />
+                      <Icon name="event_repeat" size={17} />
+                      <span>הזמנה קבועה</span>
+                      {recurringCount > 0 && <span className="ordc-recurring-count">{recurringCount}</span>}
                     </button>
                   )}
                 </div>
@@ -723,6 +961,8 @@ export function InventoryOrder() {
                   ))}
                 </div>
               </div>
+
+              {noticeBar}
 
               {showReco && <RecoStrip items={recoItems} lines={cart} onOpen={openPicker} />}
 
@@ -755,13 +995,14 @@ export function InventoryOrder() {
                         index={idx}
                         line={line}
                         flash={flashId === it.id}
+                        pending={addingItemId === it.id}
                         supplierMeta={supplierMetaByItem.get(it.id) ?? NO_SUPPLIER_META}
                         supplierName={supplier?.name ?? null}
-                        deliveryLabel={supplier ? deliveryDayLabel(supplier.delivery_day) : null}
+                        deliveryLabel={supplier ? deliveryDaysLabel(supplier.delivery_days) : null}
                         lineTotal={lineTotalByItem.get(it.id) ?? 0}
                         categoryName={it.category_id ? categoryNameById.get(it.category_id) ?? null : null}
-                        onOpen={() => openPicker(it)}
-                        onRemove={() => removeItem(it.id)}
+                        onOpen={openPicker}
+                        onRemove={removeItem}
                       />
                     );
                   })}
@@ -799,9 +1040,7 @@ export function InventoryOrder() {
                 <Button className="w-full !bg-ink" icon="arrow_back" onClick={openReview}>
                   הבא · סיכום ההזמנה
                 </Button>
-                <button type="button" className="ordc-clear" onClick={clearAll}>
-                  ניקוי הבחירה
-                </button>
+                {cartLinks}
               </div>
             </>
           )}
@@ -876,9 +1115,7 @@ export function InventoryOrder() {
               onRemoveLine={removeItem}
             />
             {cartSummary}
-            <button type="button" className="ordc-clear" onClick={clearAll}>
-              ניקוי הבחירה
-            </button>
+            {cartLinks}
           </div>
         )}
       </Modal>
@@ -887,9 +1124,11 @@ export function InventoryOrder() {
         item={pickerItem}
         suppliers={supplierList}
         priceIndex={supplierPriceIndex}
+        priceIndexLoading={priceIndexPending}
         current={pickerCurrent}
         preferredSupplierId={pickerPreferredSupplierId}
         sharedSupplier={isEditing}
+        busy={applying && addingItemId === pickerItemId}
         onClose={() => setPickerItemId(null)}
         onConfirm={(pick) => pickerItemId && confirmPick(pickerItemId, pick)}
         onRemove={() => {
@@ -908,6 +1147,28 @@ export function InventoryOrder() {
         onClose={() => setReviewOpen(false)}
         onRemoveLine={removeItem}
         onSubmit={submit}
+      />
+
+      <RecurringOrderPicker
+        open={recurringOpen}
+        templates={recurringList}
+        loading={recurringLoading}
+        itemById={itemById}
+        cartHasLines={draftLines.length > 0}
+        busyId={recurringBusyId}
+        onClose={() => setRecurringOpen(false)}
+        onUse={applyRecurringTemplate}
+        onDelete={deleteRecurring}
+      />
+
+      <SaveRecurringOrderModal
+        open={saveRecurringOpen}
+        lines={draftLines}
+        templates={recurringList}
+        busy={!!recurringBusyId}
+        error={recurringSaveError}
+        onClose={() => setSaveRecurringOpen(false)}
+        onSave={saveAsRecurring}
       />
 
       <LoadingOverlay show={busy} label={isEditing ? "שומר שינויים בהזמנה..." : "שולח הזמנה..."} />

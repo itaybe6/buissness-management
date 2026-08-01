@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
-import { Button, EmptyState, ErrorState, Icon, Input, LoadingOverlay, PageLoader, Select, Textarea } from "@/components/ui";
+import { Button, EmptyState, ErrorState, Icon, Input, LoadingOverlay, MultiSelect, PageLoader, Textarea } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useBusinessId, formatCurrency, HE_DAYS } from "@/lib/db";
+import { deliveryDaysLabel } from "@/lib/orderSuppliers";
 import { useAuth } from "@/lib/auth";
 import {
   useSupplierItems,
@@ -88,9 +89,16 @@ function formatWhen(iso: string) {
 }
 
 /** 050-1234567 → https://wa.me/972501234567 */
-function formatDeliveryDay(day: number | null | undefined): string {
-  if (day == null || day < 0 || day > 6) return "לא הוגדר";
-  return `יום ${HE_DAYS[day]}`;
+const DELIVERY_DAY_OPTIONS = HE_DAYS.map((d, i) => ({ value: String(i), label: `יום ${d}` }));
+
+function deliveryDaysFromSupplier(days: number[] | null | undefined): string[] {
+  if (!days?.length) return [];
+  return [...new Set(days.filter((d) => d >= 0 && d <= 6))].sort((a, b) => a - b).map(String);
+}
+
+function deliveryDaysEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((v, i) => v === b[i]);
 }
 
 
@@ -128,7 +136,7 @@ function SheetField({
 /* Details sheet — edits the supplier identity in place, so fixing a  */
 /* phone number never means opening the heavy price-list form.        */
 /* ---------------------------------------------------------------- */
-type DetailsDraft = { name: string; phone: string; taxId: string; notes: string; deliveryDay: string; active: boolean };
+type DetailsDraft = { name: string; phone: string; taxId: string; notes: string; deliveryDays: string[]; active: boolean };
 
 function draftOf(s: SupplierWithStats): DetailsDraft {
   return {
@@ -136,7 +144,7 @@ function draftOf(s: SupplierWithStats): DetailsDraft {
     phone: s.phone ?? "",
     taxId: s.tax_id ?? "",
     notes: s.notes ?? "",
-    deliveryDay: s.delivery_day != null ? String(s.delivery_day) : "",
+    deliveryDays: deliveryDaysFromSupplier(s.delivery_days),
     active: s.active,
   };
 }
@@ -195,7 +203,7 @@ function SupplierDetailsSheet({
     draft.phone.trim() !== (supplier.phone ?? "") ||
     draft.taxId.trim() !== (supplier.tax_id ?? "") ||
     draft.notes.trim() !== (supplier.notes ?? "") ||
-    draft.deliveryDay !== (supplier.delivery_day != null ? String(supplier.delivery_day) : "") ||
+    !deliveryDaysEqual(draft.deliveryDays, deliveryDaysFromSupplier(supplier.delivery_days)) ||
     draft.active !== supplier.active;
 
   function requestClose() {
@@ -221,7 +229,9 @@ function SupplierDetailsSheet({
         phone: draft.phone,
         tax_id: draft.taxId,
         notes: draft.notes,
-        delivery_day: draft.deliveryDay === "" ? null : Number(draft.deliveryDay),
+        delivery_days: draft.deliveryDays.length
+          ? draft.deliveryDays.map(Number).sort((a, b) => a - b)
+          : null,
         active: draft.active,
       });
       onSaved();
@@ -318,19 +328,14 @@ function SupplierDetailsSheet({
           </SheetField>
         </div>
 
-        <SheetField icon="local_shipping" label="יום אספקה" hint="ביום זה הסחורה אמורה להגיע">
-          <Select
+        <SheetField icon="local_shipping" label="ימי אספקה" hint="בימים אלה הסחורה אמורה להגיע">
+          <MultiSelect
             className="spf-input spf-select"
-            value={draft.deliveryDay}
-            onChange={(e) => setDraft({ ...draft, deliveryDay: e.target.value })}
-          >
-            <option value="">לא הוגדר</option>
-            {HE_DAYS.map((d, i) => (
-              <option key={i} value={String(i)}>
-                יום {d}
-              </option>
-            ))}
-          </Select>
+            values={draft.deliveryDays}
+            onChange={(deliveryDays) => setDraft({ ...draft, deliveryDays: [...deliveryDays].sort() })}
+            options={DELIVERY_DAY_OPTIONS}
+            placeholder="לא הוגדר"
+          />
         </SheetField>
 
         <SheetField icon="sticky_note_2" label="הערות">
@@ -1111,9 +1116,9 @@ export function SupplierDetailPage() {
                 </button>
               )}
 
-              <span className="spd-fact spd-fact--static" data-label="יום אספקה">
+              <span className="spd-fact spd-fact--static" data-label="ימי אספקה">
                 <Icon name="local_shipping" size={15} />
-                <span className="spd-fact-val">{formatDeliveryDay(supplier.delivery_day)}</span>
+                <span className="spd-fact-val">{deliveryDaysLabel(supplier.delivery_days)}</span>
               </span>
             </div>
           </div>
@@ -1378,7 +1383,7 @@ export function SupplierDetailPage() {
                     onEdit={openEditOrder}
                     onDelete={handleDeleteOrder}
                     getBatchPartialUiState={resolveBatchPartialUiState}
-                    footChipLabel={formatDeliveryDay(supplier.delivery_day)}
+                    footChipLabel={deliveryDaysLabel(supplier.delivery_days)}
                     footChipIcon="local_shipping"
                   />
                 )}
@@ -1395,7 +1400,7 @@ export function SupplierDetailPage() {
                     onDetails={openOrderDetails}
                     onEdit={openEditOrder}
                     onDelete={handleDeleteOrder}
-                    footChipLabel={formatDeliveryDay(supplier.delivery_day)}
+                    footChipLabel={deliveryDaysLabel(supplier.delivery_days)}
                     footChipIcon="local_shipping"
                   />
                 )}
@@ -1481,7 +1486,7 @@ export function SupplierDetailPage() {
             </span>
             <span className="spd-cart-supplier-body">
               <b>{supplier.name}</b>
-              <span>אספקה: {formatDeliveryDay(supplier.delivery_day)}</span>
+              <span>אספקה: {deliveryDaysLabel(supplier.delivery_days)}</span>
             </span>
             <span className="spd-cart-supplier-tag">
               <Icon name="lock" size={12} />
@@ -1582,7 +1587,7 @@ export function SupplierDetailPage() {
             <span className="spd-review-supplier-body">
               <b>{supplier.name}</b>
               <span>
-                אספקה: {formatDeliveryDay(supplier.delivery_day)}
+                אספקה: {deliveryDaysLabel(supplier.delivery_days)}
                 {supplier.phone ? ` · ${supplier.phone}` : ""}
               </span>
             </span>

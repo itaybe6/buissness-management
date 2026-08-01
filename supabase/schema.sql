@@ -17,7 +17,8 @@ drop trigger if exists on_auth_user_created on auth.users;
 -- מחיקת טבלאות (אם קיימות) בסדר תלות
 drop table if exists
   public.tasks, public.task_templates, public.events, public.event_ideas, public.faults, public.inventory_logs,
-  public.inventory_waste, public.inventory_orders, public.inventory_counts, public.inventory_item_departments,
+  public.inventory_waste, public.recurring_order_items, public.recurring_orders,
+  public.inventory_orders, public.inventory_counts, public.inventory_item_departments,
   public.inventory_items, public.inventory_categories, public.inventory_units, public.suppliers, public.supplier_items,
   public.payroll_records, public.payroll_month_adjustments,
   public.tips, public.shift_bonuses, public.shift_reports, public.attendance, public.shift_assignments, public.shift_preferences,
@@ -636,7 +637,13 @@ create table public.suppliers (
   phone         text,
   tax_id        text,
   notes         text,
-  delivery_day  smallint check (delivery_day between 0 and 6),  -- יום אספקה מהספק
+  delivery_days smallint[] check (
+    delivery_days is null
+    or (
+      coalesce(array_length(delivery_days, 1), 0) > 0
+      and delivery_days <@ array[0,1,2,3,4,5,6]::smallint[]
+    )
+  ),  -- ימי אספקה מהספק
   active        boolean not null default true,
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now()
@@ -684,6 +691,31 @@ create table public.inventory_orders (
   supplier_id uuid references public.suppliers(id) on delete set null,
   created_at  timestamptz not null default now()
 );
+
+-- הזמנות קבועות — תבנית מוצרים שממנה מתחילים הזמנה חדשה בלחיצה אחת
+create table public.recurring_orders (
+  id           uuid primary key default gen_random_uuid(),
+  business_id  uuid not null references public.businesses(id) on delete cascade,
+  name         text not null,
+  notes        text,
+  created_by   uuid references public.profiles(id),
+  last_used_at timestamptz,           -- מתי לאחרונה נפתחה הזמנה מהתבנית
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now()
+);
+
+create table public.recurring_order_items (
+  business_id        uuid not null references public.businesses(id) on delete cascade,
+  recurring_order_id uuid not null references public.recurring_orders(id) on delete cascade,
+  item_id            uuid not null references public.inventory_items(id) on delete cascade,
+  supplier_id        uuid references public.suppliers(id) on delete set null,  -- ספק ברירת מחדל למוצר
+  quantity           numeric(12,2) not null check (quantity > 0),
+  created_at         timestamptz not null default now(),
+  primary key (recurring_order_id, item_id)
+);
+
+create unique index idx_recurring_orders_business_name
+  on public.recurring_orders (business_id, lower(trim(name)));
 
 -- דיווחי בלאי (כל משתמש) — מוצרים שנפסלו/התבזבזו, עם אפשרות להפחית מהמלאי
 create table public.inventory_waste (
@@ -819,6 +851,7 @@ create trigger trg_shift_reports_updated before update on public.shift_reports  
 create trigger trg_faults_updated        before update on public.faults              for each row execute function public.set_updated_at();
 create trigger trg_tasks_updated         before update on public.tasks               for each row execute function public.set_updated_at();
 create trigger trg_event_ideas_updated     before update on public.event_ideas          for each row execute function public.set_updated_at();
+create trigger trg_recurring_orders_updated before update on public.recurring_orders    for each row execute function public.set_updated_at();
 
 -- משמרות ברירת מחדל לכל עסק חדש (בוקר / צהריים / ערב / לילה)
 create or replace function public.seed_default_shift_templates(p_business_id uuid)
@@ -901,6 +934,9 @@ create index idx_supplier_items_business    on public.supplier_items(business_id
 create index idx_supplier_items_item        on public.supplier_items(item_id);
 create index idx_inv_orders_business        on public.inventory_orders(business_id);
 create index idx_inv_orders_supplier        on public.inventory_orders(business_id, supplier_id);
+create index idx_recurring_orders_business  on public.recurring_orders(business_id, created_at desc);
+create index idx_recurring_order_items_business on public.recurring_order_items(business_id);
+create index idx_recurring_order_items_item on public.recurring_order_items(item_id);
 create index idx_inv_waste_business         on public.inventory_waste(business_id);
 create index idx_inv_logs_business          on public.inventory_logs(business_id);
 create index idx_inv_logs_item              on public.inventory_logs(item_id, created_at desc);
@@ -945,6 +981,8 @@ alter table public.inventory_items      enable row level security;
 alter table public.inventory_item_departments enable row level security;
 alter table public.inventory_counts     enable row level security;
 alter table public.inventory_orders     enable row level security;
+alter table public.recurring_orders     enable row level security;
+alter table public.recurring_order_items enable row level security;
 alter table public.inventory_waste      enable row level security;
 alter table public.inventory_logs       enable row level security;
 alter table public.faults               enable row level security;
@@ -1167,6 +1205,11 @@ create policy "suppliers_tenant" on public.suppliers
   for all using (public.can_access(business_id)) with check (public.can_access(business_id));
 create policy "supplier_items_tenant" on public.supplier_items
   for all using (public.can_access(business_id)) with check (public.can_access(business_id));
+-- הזמנות קבועות
+create policy "recurring_orders_tenant" on public.recurring_orders
+  for all using (public.can_access(business_id)) with check (public.can_access(business_id));
+create policy "recurring_order_items_tenant" on public.recurring_order_items
+  for all using (public.can_access(business_id)) with check (public.can_access(business_id));
 -- inventory_counts — עדכון כמות (ספירה) לכל חברי העסק כולל עובדים
 create policy "inv_counts_read" on public.inventory_counts
   for select using (public.can_access(business_id));
@@ -1376,6 +1419,8 @@ as $$
       ('inventory',     'inventory_logs',               null),
       ('inventory',     'inventory_counts',             null),
       ('inventory',     'inventory_orders',             null),
+      ('inventory',     'recurring_order_items',        null),
+      ('inventory',     'recurring_orders',             null),
       ('inventory',     'supplier_items',               null),
       ('inventory',     'inventory_item_departments',   null),
       ('inventory',     'inventory_items',              null),
@@ -1410,6 +1455,7 @@ as $$
         'shift_bonuses', 'tips', 'shift_reports',
         'payroll_month_adjustments', 'payroll_records',
         'inventory_waste', 'inventory_logs', 'inventory_counts', 'inventory_orders',
+        'recurring_order_items', 'recurring_orders',
         'supplier_items', 'inventory_item_departments', 'inventory_items',
         'suppliers', 'inventory_categories', 'inventory_units', 'warehouses',
         'faults',

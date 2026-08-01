@@ -850,9 +850,10 @@ async function adjustWarehouseStock(input: {
   employee_id: string | null;
   delta: number;
   note: string;
+  warehouse_id?: string | null;
 }) {
   if (input.delta === 0) return;
-  const warehouseId = await resolveDefaultWarehouseId(input.business_id);
+  const warehouseId = input.warehouse_id ?? (await resolveDefaultWarehouseId(input.business_id));
   const { data: latestCount } = await supabase
     .from("inventory_counts")
     .select("quantity")
@@ -929,6 +930,7 @@ export function useReceiveOrder(businessId: string | null) {
         employee_id: input.employee_id,
         delta: plan.stockDelta,
         note: plan.note,
+        warehouse_id: input.warehouse_id,
       });
     },
     onSuccess: () => {
@@ -1004,6 +1006,7 @@ export function useCorrectReceivedOrder(businessId: string | null) {
         employee_id: input.employee_id,
         delta: plan.stockDelta,
         note: plan.note,
+        warehouse_id: input.warehouse_id,
       });
     },
     onSuccess: () => {

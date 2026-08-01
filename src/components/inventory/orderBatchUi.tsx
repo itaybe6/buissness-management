@@ -20,9 +20,11 @@ export type OrderBatch = {
   lines: OrderLine[];
 };
 
-function formatDeliveryDay(day: number | null | undefined): string {
-  if (day == null || day < 0 || day > 6) return "לא הוגדר";
-  return `יום ${HE_DAYS[day]}`;
+function formatDeliveryDays(days: number[] | null | undefined): string {
+  if (!days?.length) return "לא הוגדר";
+  const valid = [...new Set(days.filter((d) => d >= 0 && d <= 6))].sort((a, b) => a - b);
+  if (valid.length === 0) return "לא הוגדר";
+  return valid.map((d) => `יום ${HE_DAYS[d]}`).join(", ");
 }
 
 export function groupOrderBatches(orders: InventoryOrderWithUser[], items: ItemWithQty[]): OrderBatch[] {
@@ -110,23 +112,43 @@ export function orderPreviewLabel(lines: OrderLine[]): string {
   return `${names.slice(0, 2).join(", ")} ועוד ${names.length - 2}`;
 }
 
-export function lineDeliveryDay(line: OrderLine, suppliers: Supplier[]): number | null {
-  if (!line.supplier_id) return null;
-  const day = suppliers.find((s) => s.id === line.supplier_id)?.delivery_day;
-  return day != null && day >= 0 && day <= 6 ? day : null;
+export function lineDeliveryDays(line: OrderLine, suppliers: Supplier[]): number[] {
+  if (!line.supplier_id) return [];
+  const days = suppliers.find((s) => s.id === line.supplier_id)?.delivery_days;
+  if (!days?.length) return [];
+  return [...new Set(days.filter((d) => d >= 0 && d <= 6))].sort((a, b) => a - b);
 }
 
 export function orderDeliveryDaysLabel(lines: OrderLine[], suppliers: Supplier[]): string {
   const days = [
-    ...new Set(
-      lines
-        .map((l) => lineDeliveryDay(l, suppliers))
-        .filter((d): d is number => d != null),
-    ),
+    ...new Set(lines.flatMap((l) => lineDeliveryDays(l, suppliers))),
   ].sort((a, b) => a - b);
 
   if (days.length === 0) return "לא הוגדר";
-  return days.map((d) => formatDeliveryDay(d)).join(", ");
+  return days.map((d) => formatDeliveryDays([d])).join(", ");
+}
+
+/** True when at least one line's supplier delivers on the given weekday (0=Sun … 6=Sat). */
+export function orderDeliversToday(
+  lines: OrderLine[],
+  suppliers: Supplier[],
+  now: Date = new Date(),
+): boolean {
+  const today = now.getDay();
+  return lines.some((l) => lineDeliveryDays(l, suppliers).includes(today));
+}
+
+export function ArrivingTodayChip({ className }: { className?: string }) {
+  return (
+    <span
+      className={`inventory-order-arriving-today-chip${className ? ` ${className}` : ""}`}
+      title="יום האספקה של הספק הוא היום"
+    >
+      <span className="inventory-order-arriving-today-pulse" aria-hidden />
+      <Icon name="local_shipping" size={13} />
+      אמור להגיע היום
+    </span>
+  );
 }
 
 export function OrderPreviewStack({ lines }: { lines: OrderLine[] }) {
@@ -200,20 +222,22 @@ export function OrderBatchCard({
       ? " inventory-order-status--handled"
       : "";
   const needsPartialAttention = partialUiState === "needs_attention";
+  const deliversToday = !isReceived && orderDeliversToday(batch.lines, suppliers);
 
   return (
     <article
-      className={`inventory-order-card inventory-item-enter${needsPartialAttention ? " inventory-order-card--partial-attention" : ""}`}
+      className={`inventory-order-card inventory-item-enter${needsPartialAttention ? " inventory-order-card--partial-attention" : deliversToday ? " inventory-order-card--arriving-today" : ""}`}
       style={{ animationDelay: `${Math.min(index, 10) * 45}ms` }}
     >
       <button type="button" className="inventory-order-card-main" onClick={onDetails}>
-        <div className="inventory-order-date">
+        <div className={`inventory-order-date${deliversToday ? " inventory-order-date--arriving-today" : ""}`}>
           <span className="inventory-order-date-day">{date.day}</span>
           <span className="inventory-order-date-month">{date.month}</span>
         </div>
         <div className="inventory-order-heading">
           <div className="inventory-order-title-row">
             <h3 className="inventory-order-title">{orderPreviewLabel(batch.lines)}</h3>
+            {deliversToday ? <ArrivingTodayChip /> : null}
             <span className={`inventory-order-status${statusModifier}`}>
               <span className="inventory-order-status-dot" aria-hidden />
               {statusLabel}

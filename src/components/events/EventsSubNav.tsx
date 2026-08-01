@@ -7,11 +7,18 @@ const TABS = [
   { key: "ideas" as const, to: "/events/ideas", label: "רעיונות", icon: "lightbulb" },
 ];
 
-export function EventsSubNav({ active }: { active: "list" | "ideas" }) {
+export function EventsSubNav({
+  active,
+  variant = "plain",
+}: {
+  active: "list" | "ideas";
+  /** `ink` = glass segmented control sitting on a dark hero. */
+  variant?: "plain" | "ink";
+}) {
   const reduce = useReducedMotion();
 
   return (
-    <nav className="evt-subnav" aria-label="ניווט אירועים">
+    <nav className="evt-subnav" data-ink={variant === "ink" || undefined} aria-label="ניווט אירועים">
       {TABS.map((tab) => {
         const isActive = active === tab.key;
         return (

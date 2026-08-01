@@ -5,9 +5,30 @@ import {
   canUsePieceInput,
   mainUnitToPieces,
   piecesToMainUnit,
+  splitPackageQty,
 } from "@/api/inventory";
 
 type InputMode = "main" | "pieces";
+
+function toDisplayQty(
+  value: number,
+  mode: InputMode,
+  dualEnabled: boolean,
+  factor: number,
+): number {
+  if (mode === "pieces" && dualEnabled) {
+    return Math.round(mainUnitToPieces(value, factor));
+  }
+  if (dualEnabled) {
+    return splitPackageQty(value, factor).packages;
+  }
+  return Math.round(value);
+}
+
+function parseIntegerInput(raw: string): number {
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) ? n : 0;
+}
 
 type DualUnitQtyInputProps = {
   value: number;
@@ -45,11 +66,11 @@ export function DualUnitQtyInput({
   const [bump, setBump] = useState(false);
 
   useEffect(() => {
-    setLocal(mode === "pieces" && dualEnabled ? mainUnitToPieces(value, factor) : value);
+    setLocal(toDisplayQty(value, mode, dualEnabled, factor));
   }, [value, mode, dualEnabled, factor]);
 
   function commitFromDisplay(displayQty: number) {
-    const v = Math.max(min, displayQty);
+    const v = Math.max(min, Math.round(displayQty));
     const mainQty = mode === "pieces" && dualEnabled ? piecesToMainUnit(v, factor) : v;
     setLocal(v);
     setBump(true);
@@ -59,11 +80,7 @@ export function DualUnitQtyInput({
   function switchMode(next: InputMode) {
     if (next === mode) return;
     setMode(next);
-    if (next === "pieces" && dualEnabled) {
-      setLocal(mainUnitToPieces(value, factor));
-    } else {
-      setLocal(value);
-    }
+    setLocal(toDisplayQty(value, next, dualEnabled, factor));
   }
 
   const unitLabel = mode === "pieces" ? BASE_UNIT : (mainUnit ?? "");
@@ -109,12 +126,16 @@ export function DualUnitQtyInput({
             </button>
             <input
               type="number"
+              min={min}
+              step={1}
+              inputMode="numeric"
+              dir="ltr"
               value={local}
               disabled={disabled}
-              onChange={(e) => setLocal(Number(e.target.value))}
+              onChange={(e) => setLocal(parseIntegerInput(e.target.value))}
               onBlur={() => commitFromDisplay(local)}
               onAnimationEnd={() => setBump(false)}
-              className={`w-8 bg-transparent text-center text-[13px] font-bold tabular-nums text-text outline-none ${bump ? "inventory-qty-bump" : ""}`}
+              className={`min-w-[2.25rem] w-10 shrink-0 bg-transparent px-0.5 text-center text-[13px] font-bold tabular-nums text-text outline-none ${bump ? "inventory-qty-bump" : ""}`}
             />
             <button
               type="button"
@@ -146,12 +167,16 @@ export function DualUnitQtyInput({
             </button>
             <input
               type="number"
+              min={min}
+              step={1}
+              inputMode="numeric"
+              dir="ltr"
               value={local}
               disabled={disabled}
-              onChange={(e) => setLocal(Number(e.target.value))}
+              onChange={(e) => setLocal(parseIntegerInput(e.target.value))}
               onBlur={() => commitFromDisplay(local)}
               onAnimationEnd={() => setBump(false)}
-              className={`w-10 bg-transparent text-center text-[15px] font-bold tabular-nums text-text outline-none ${bump ? "inventory-qty-bump" : ""}`}
+              className={`min-w-[2.5rem] w-12 shrink-0 bg-transparent px-0.5 text-center text-[15px] font-bold tabular-nums text-text outline-none ${bump ? "inventory-qty-bump" : ""}`}
             />
             <button
               type="button"
@@ -176,10 +201,13 @@ export function DualUnitQtyInput({
         <Input
           type="number"
           min={min}
+          step={1}
+          inputMode="numeric"
+          dir="ltr"
           value={local === 0 && !value ? "" : local}
           placeholder={placeholder}
           disabled={disabled}
-          onChange={(e) => setLocal(e.target.value === "" ? 0 : Number(e.target.value))}
+          onChange={(e) => setLocal(e.target.value === "" ? 0 : parseIntegerInput(e.target.value))}
           onBlur={() => commitFromDisplay(local)}
           className="flex-1"
         />

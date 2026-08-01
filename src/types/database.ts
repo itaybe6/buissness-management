@@ -240,8 +240,8 @@ export interface Supplier {
   phone: string | null;
   tax_id: string | null;
   notes: string | null;
-  /** 0=Sunday … 6=Saturday (JS getDay). null = not set */
-  delivery_day: number | null;
+  /** 0=Sunday … 6=Saturday (JS getDay). null or empty = not set */
+  delivery_days: number[] | null;
   active: boolean;
   created_at: string;
   updated_at: string;
@@ -516,6 +516,30 @@ export interface InventoryOrder {
   ordered_by: string | null;
   batch_id: string | null;
   supplier_id: string | null;
+  created_at: string;
+}
+
+/** A saved order template — the products a business orders again and again. */
+export interface RecurringOrder {
+  id: string;
+  business_id: string;
+  name: string;
+  notes: string | null;
+  created_by: string | null;
+  /** When an order was last started from this template. */
+  last_used_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RecurringOrderItem {
+  business_id: string;
+  recurring_order_id: string;
+  item_id: string;
+  /** Supplier saved with the line; may be missing or inactive by the time it is used. */
+  supplier_id: string | null;
+  /** Quantity in the product's main unit. */
+  quantity: number;
   created_at: string;
 }
 

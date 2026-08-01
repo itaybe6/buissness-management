@@ -11,6 +11,7 @@ import { SuperAdminRoute } from "@/components/SuperAdminRoute";
 import { Dashboard } from "@/pages/Dashboard";
 import { Platform } from "@/pages/superadmin/Platform";
 import { Businesses } from "@/pages/superadmin/Businesses";
+import { CreateBusinessPage } from "@/pages/superadmin/CreateBusinessPage";
 import { BusinessDetail } from "@/pages/superadmin/BusinessDetail";
 import { PlatformUsers } from "@/pages/superadmin/PlatformUsers";
 import { Users } from "@/pages/Users";
@@ -70,6 +71,7 @@ export function App() {
           <Route path="dashboard" element={<DashboardRoute />} />
           <Route path="platform" element={<SuperAdminRoute><Platform /></SuperAdminRoute>} />
           <Route path="businesses" element={<SuperAdminRoute><Businesses /></SuperAdminRoute>} />
+          <Route path="businesses/new" element={<SuperAdminRoute><CreateBusinessPage /></SuperAdminRoute>} />
           <Route path="businesses/:id" element={<SuperAdminRoute><BusinessDetail /></SuperAdminRoute>} />
           <Route path="platform-users" element={<SuperAdminRoute><PlatformUsers /></SuperAdminRoute>} />
           <Route path="users" element={<Users />} />

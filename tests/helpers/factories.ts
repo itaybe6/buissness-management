@@ -503,7 +503,7 @@ export function makeSupplier(over: Partial<Supplier> = {}): Supplier {
     phone: "03-1234567",
     tax_id: null,
     notes: null,
-    delivery_day: null,
+    delivery_days: null,
     active: true,
     created_at: T0,
     updated_at: T0,

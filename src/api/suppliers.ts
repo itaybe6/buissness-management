@@ -22,8 +22,8 @@ export function supplierSaveError(e: unknown): string {
   if (msg.includes("supplier_items")) {
     return "טבלת «מוצרים לספק» חסרה. הריצו ב-Supabase SQL Editor: supabase/patches/048_supplier_items.sql";
   }
-  if (msg.includes("delivery_day")) {
-    return "עמודת «יום אספקה» חסרה בטבלת הספקים. הריצו את המיגרציה supplier_delivery_day ב-Supabase.";
+  if (msg.includes("delivery_days") || msg.includes("delivery_day")) {
+    return "עמודת «ימי אספקה» חסרה בטבלת הספקים. הריצו את המיגרציה supplier_delivery_days ב-Supabase.";
   }
   return msg || "שגיאה בשמירה";
 }
@@ -157,7 +157,7 @@ export function useCreateSupplier(businessId: string | null) {
       phone?: string | null;
       tax_id?: string | null;
       notes?: string | null;
-      delivery_day?: number | null;
+      delivery_days?: number[] | null;
     }) => {
       const { data, error } = await supabase
         .from("suppliers")
@@ -167,7 +167,7 @@ export function useCreateSupplier(businessId: string | null) {
           phone: input.phone?.trim() || null,
           tax_id: input.tax_id?.trim() || null,
           notes: input.notes?.trim() || null,
-          delivery_day: input.delivery_day ?? null,
+          delivery_days: input.delivery_days?.length ? input.delivery_days : null,
         })
         .select()
         .single();
@@ -187,7 +187,7 @@ export function useUpdateSupplier(businessId: string | null) {
       phone?: string | null;
       tax_id?: string | null;
       notes?: string | null;
-      delivery_day?: number | null;
+      delivery_days?: number[] | null;
       active?: boolean;
     }) => {
       const { data, error } = await supabase
@@ -197,7 +197,9 @@ export function useUpdateSupplier(businessId: string | null) {
           phone: input.phone?.trim() || null,
           tax_id: input.tax_id?.trim() || null,
           notes: input.notes?.trim() || null,
-          ...(input.delivery_day !== undefined ? { delivery_day: input.delivery_day } : {}),
+          ...(input.delivery_days !== undefined
+            ? { delivery_days: input.delivery_days?.length ? input.delivery_days : null }
+            : {}),
           ...(input.active !== undefined ? { active: input.active } : {}),
         })
         .eq("id", input.id)

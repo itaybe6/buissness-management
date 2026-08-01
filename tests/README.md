@@ -49,6 +49,7 @@ tests/
     payroll.test.ts         # התאמות חודשיות, ייצוא, עלות מעסיק
     inventoryOrders.test.ts # הזמנות, אצוות, אספקה חלקית, תמחור
     orderSupplierChoice.test.ts # בחירת ספק לכל מוצר ופיצול ההזמנה לספקים
+    recurringOrders.test.ts # הזמנות קבועות וטיוטת הזמנה שנשמרת אוטומטית
     partialDeliveryAlerts.test.ts # התג האדום על «סחורות»
     warehousesAndCatalog.test.ts  # מחסנים וקטגוריות
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
-import { Button, EmptyState, ErrorState, Icon, Input, PageLoader, Select, Textarea } from "@/components/ui";
+import { Button, EmptyState, ErrorState, Icon, Input, PageLoader, MultiSelect, Textarea } from "@/components/ui";
 import { useBusinessId, formatCurrency, HE_DAYS } from "@/lib/db";
 import { useAuth } from "@/lib/auth";
 import {
@@ -23,7 +23,7 @@ type SupplierForm = {
   phone: string;
   taxId: string;
   notes: string;
-  deliveryDay: string;
+  deliveryDays: string[];
   active: boolean;
 };
 
@@ -32,11 +32,17 @@ const EMPTY_FORM: SupplierForm = {
   phone: "",
   taxId: "",
   notes: "",
-  deliveryDay: "",
+  deliveryDays: [],
   active: true,
 };
 
 const NO_CATEGORY = "__none__";
+const DELIVERY_DAY_OPTIONS = HE_DAYS.map((d, i) => ({ value: String(i), label: `יום ${d}` }));
+
+function deliveryDaysFromSupplier(days: number[] | null | undefined): string[] {
+  if (!days?.length) return [];
+  return [...new Set(days.filter((d) => d >= 0 && d <= 6))].sort((a, b) => a - b).map(String);
+}
 
 function formFromSupplier(s: Supplier): SupplierForm {
   return {
@@ -44,7 +50,7 @@ function formFromSupplier(s: Supplier): SupplierForm {
     phone: s.phone ?? "",
     taxId: s.tax_id ?? "",
     notes: s.notes ?? "",
-    deliveryDay: s.delivery_day != null ? String(s.delivery_day) : "",
+    deliveryDays: deliveryDaysFromSupplier(s.delivery_days),
     active: s.active,
   };
 }
@@ -117,21 +123,24 @@ function PriceField({
 }) {
   return (
     <div className="spf-tile-price-row">
-      <span className="spf-tile-currency">₪</span>
-      <input
-        ref={registerPrice}
-        type="number"
-        min={0}
-        step="0.01"
-        inputMode="decimal"
-        tabIndex={selected ? 0 : -1}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="spf-price-input"
-        placeholder="0.00"
-        aria-label={`מחיר ל${unitLabel} — ${itemName}`}
-      />
-      <span className="spf-tile-per">/ {unitLabel}</span>
+      <span className="spf-tile-price-unit">ל{unitLabel}</span>
+      <div className="spf-tile-price-fields">
+        <span className="spf-tile-currency">₪</span>
+        <input
+          ref={registerPrice}
+          type="number"
+          min={0}
+          step="0.01"
+          inputMode="decimal"
+          tabIndex={selected ? 0 : -1}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="spf-price-input"
+          placeholder="0.00"
+          aria-label={`מחיר ל${unitLabel} — ${itemName}`}
+        />
+        <span className="spf-tile-per">/ {unitLabel}</span>
+      </div>
     </div>
   );
 }
@@ -412,7 +421,9 @@ export function SupplierFormPage() {
       return setFormError("לכל מוצר משויך יש להזין לפחות מחיר אחד תקין");
     }
     const itemLines = parseProductLines();
-    const delivery_day = form.deliveryDay === "" ? null : Number(form.deliveryDay);
+    const delivery_days = form.deliveryDays.length
+      ? form.deliveryDays.map(Number).sort((a, b) => a - b)
+      : null;
     try {
       let id = editing?.id;
       if (editing) {
@@ -422,7 +433,7 @@ export function SupplierFormPage() {
           phone: form.phone,
           tax_id: form.taxId,
           notes: form.notes,
-          delivery_day,
+          delivery_days,
           active: form.active,
         });
       } else {
@@ -432,7 +443,7 @@ export function SupplierFormPage() {
           phone: form.phone,
           tax_id: form.taxId,
           notes: form.notes,
-          delivery_day,
+          delivery_days,
         });
         id = created.id;
       }
@@ -581,19 +592,14 @@ export function SupplierFormPage() {
                   </SpfField>
                 </div>
 
-                <SpfField icon="local_shipping" label="יום אספקה" hint="ביום זה הסחורה אמורה להגיע מהספק">
-                  <Select
+                <SpfField icon="local_shipping" label="ימי אספקה" hint="בימים אלה הסחורה אמורה להגיע מהספק">
+                  <MultiSelect
                     className="spf-input spf-select"
-                    value={form.deliveryDay}
-                    onChange={(e) => setForm({ ...form, deliveryDay: e.target.value })}
-                  >
-                    <option value="">לא הוגדר</option>
-                    {HE_DAYS.map((d, i) => (
-                      <option key={i} value={String(i)}>
-                        יום {d}
-                      </option>
-                    ))}
-                  </Select>
+                    values={form.deliveryDays}
+                    onChange={(deliveryDays) => setForm({ ...form, deliveryDays: [...deliveryDays].sort() })}
+                    options={DELIVERY_DAY_OPTIONS}
+                    placeholder="לא הוגדר"
+                  />
                 </SpfField>
 
                 <SpfField icon="sticky_note_2" label="הערות">

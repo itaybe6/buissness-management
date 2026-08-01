@@ -88,8 +88,8 @@ describe("שלב 2 — המודולים שנקנו", () => {
     expect(validateModuleStep({ state: GROWTH, seats: "50" })).toBeNull();
   });
 
-  it("בלי אף מודול — נחסם", () => {
-    expect(validateModuleStep({ state: emptyFeatureState(), seats: "" })).toBe("יש להפעיל לפחות מודול אחד");
+  it("בלי אף פיצ'ר — נחסם", () => {
+    expect(validateModuleStep({ state: emptyFeatureState(), seats: "" })).toBe("יש להפעיל לפחות פיצ'ר אחד");
   });
 
   it("שכר בלי שעון נוכחות — נחסם עם הסבר בעברית", () => {

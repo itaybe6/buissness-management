@@ -106,12 +106,12 @@ export function useCreateBusiness() {
         )
         .select()
         .single();
-      if (error) throw error;
+      if (error) throw new Error(error.message || "שגיאה ביצירת העסק");
 
       const { error: fErr } = await supabase
         .from("business_features")
         .insert(featureRowsFor(biz.id, input.features));
-      if (fErr) throw fErr;
+      if (fErr) throw new Error(fErr.message || "שגיאה בשמירת המודולים");
 
       if (input.manager) {
         const { data, error: uErr } = await supabase.functions.invoke("create-user", {

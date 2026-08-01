@@ -10,7 +10,7 @@ import type { BusinessPlan, FeatureKey } from "@/types/database";
 /**
  * Opening a new business — the rules, without the React.
  *
- * The wizard (`CreateBusinessWizard`) and the mutation (`useCreateBusiness`)
+ * The create-business page (`CreateBusinessPage`) and the mutation (`useCreateBusiness`)
  * both call into here, so "what makes a business valid" is stated once and can
  * be tested against the real code instead of a copy of it.
  * Covered by tests/super-admin/businessCreation.test.ts.
@@ -61,7 +61,7 @@ export function parseSeatCap(seats: string): { cap: number | null; error: Valida
 
 export function validateModuleStep(draft: ModuleStepDraft): ValidationError {
   const on = enabledKeysOf(draft.state);
-  if (on.length === 0) return "יש להפעיל לפחות מודול אחד";
+  if (on.length === 0) return "יש להפעיל לפחות פיצ'ר אחד";
 
   // A module whose hard requirement is off would render a broken screen — the
   // requirement list comes from the catalog so the two can never drift.

@@ -1,7 +1,7 @@
 import { Button, Icon } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import {
-  deliveryDayLabel,
+  deliveryDaysLabel,
   formatPrice,
   type DraftOrderLine,
   type DraftSupplierGroup,
@@ -108,7 +108,7 @@ export function OrderReviewModal({
                 <span className="orev-group-name">{group.name}</span>
                 <span className="orev-group-meta">
                   <Icon name="local_shipping" size={12} />
-                  אספקה: {deliveryDayLabel(group.delivery_day)}
+                  אספקה: {deliveryDaysLabel(group.delivery_days)}
                   <span className="orev-dot" />
                   {group.lines.length} מוצרים
                 </span>

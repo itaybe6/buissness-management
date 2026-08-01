@@ -10,6 +10,7 @@ import type { SupplierItemPriceIndex } from "@/api/suppliers";
 import {
   defaultSupplierChoice,
   deliveryDayLabel,
+  deliveryDaysLabel,
   draftLinesTotal,
   formatPrice,
   groupDraftLinesBySupplier,
@@ -19,11 +20,13 @@ import {
   type DraftOrderLine,
   type SupplierBasics,
 } from "@/lib/orderSuppliers";
+import { orderDeliversToday, type OrderLine } from "@/components/inventory/orderBatchUi";
+import type { Supplier } from "@/types/database";
 
 const CRATE = { id: "item-beer", units_per_package: 24 };
 
-function suppliers(...names: [string, string, number | null][]): SupplierBasics[] {
-  return names.map(([id, name, delivery_day]) => ({ id, name, delivery_day }));
+function suppliers(...names: [string, string, number[] | null][]): SupplierBasics[] {
+  return names.map(([id, name, delivery_days]) => ({ id, name, delivery_days }));
 }
 
 function priceIndex(entries: [string, [string, { main?: number; piece?: number }][]][]): SupplierItemPriceIndex {
@@ -31,15 +34,15 @@ function priceIndex(entries: [string, [string, { main?: number; piece?: number }
 }
 
 describe("אילו ספקים מוצעים למוצר", () => {
-  const list = suppliers(["sup-a", "אלפא", 1], ["sup-b", "בטא", 3], ["sup-c", "גמא", null]);
+  const list = suppliers(["sup-a", "אלפא", [1]], ["sup-b", "בטא", [3]], ["sup-c", "גמא", null]);
 
-  it("ספקים שיש להם מחירון למוצר מוצגים ראשונים, מהזול ליקר", () => {
+  it("ספקים שיש להם מחירון למוצר מוצגים, מהזול ליקר — בלי ספקים בלי מחיר", () => {
     const index = priceIndex([
       ["sup-b", [["item-beer", { main: 90 }]]],
       ["sup-a", [["item-beer", { main: 120 }]]],
     ]);
     const choices = itemSupplierChoices(CRATE, list, index);
-    expect(choices.map((c) => c.supplier_id)).toEqual(["sup-b", "sup-a", "sup-c"]);
+    expect(choices.map((c) => c.supplier_id)).toEqual(["sup-b", "sup-a"]);
     expect(choices[0].unit_price).toBe(90);
   });
 
@@ -76,17 +79,14 @@ describe("אילו ספקים מוצעים למוצר", () => {
     expect(choices[0].listed).toBe(true);
   });
 
-  it("ספק שהמוצר במחירון שלו בלי מחיר תקף נחשב «במחירון» אבל בלי מחיר", () => {
+  it("ספק שהמוצר במחירון שלו בלי מחיר תקף לא מוצע להזמנה", () => {
     const choices = itemSupplierChoices(CRATE, list, priceIndex([["sup-a", [["item-beer", { main: 0 }]]]]));
-    const a = choices.find((c) => c.supplier_id === "sup-a")!;
-    expect(a.listed).toBe(true);
-    expect(a.unit_price).toBe(0);
+    expect(choices).toEqual([]);
   });
 
-  it("בלי מחירון בכלל — כל הספקים עדיין מוצעים, לפי שם, וכולם «לא במחירון»", () => {
+  it("בלי מחירון בכלל — אין ספקים להזמנה", () => {
     const choices = itemSupplierChoices(CRATE, list, undefined);
-    expect(choices.map((c) => c.name)).toEqual(["אלפא", "בטא", "גמא"]);
-    expect(choices.every((c) => !c.listed && c.unit_price === 0)).toBe(true);
+    expect(choices).toEqual([]);
   });
 
   it("בלי ספקים במערכת אין מה לבחור", () => {
@@ -113,8 +113,8 @@ describe("איזה ספק נבחר כברירת מחדל", () => {
     expect(defaultSupplierChoice(itemSupplierChoices(CRATE, list, index), "sup-deleted")).toBe("sup-b");
   });
 
-  it("בלי מחירים בכלל נבחר הספק הראשון, ובלי ספקים — מחרוזת ריקה", () => {
-    expect(defaultSupplierChoice(itemSupplierChoices(CRATE, list, undefined))).toBe("sup-a");
+  it("בלי מחירים בכלל אין ספק ברירת מחדל, ובלי ספקים — מחרוזת ריקה", () => {
+    expect(defaultSupplierChoice(itemSupplierChoices(CRATE, list, undefined))).toBe("");
     expect(defaultSupplierChoice([])).toBe("");
   });
 });
@@ -207,7 +207,7 @@ describe("פיצול ההזמנה לספקים וחישוב הסכומים", () 
     };
   }
 
-  const list = suppliers(["sup-a", "בטא", 3], ["sup-b", "אלפא", 1]);
+  const list = suppliers(["sup-a", "בטא", [3]], ["sup-b", "אלפא", [1]]);
 
   it("כל ספק מקבל קבוצה משלו עם סכום משלו", () => {
     const groups = groupDraftLinesBySupplier(
@@ -245,12 +245,12 @@ describe("פיצול ההזמנה לספקים וחישוב הסכומים", () 
   it("ספק שנמחק מהמערכת עדיין מקבל קבוצה מזוהה ולא קורס", () => {
     const groups = groupDraftLinesBySupplier([line({ supplier_id: "sup-gone" })], list);
     expect(groups[0].name).toBe("ספק לא ידוע");
-    expect(groups[0].delivery_day).toBeNull();
+    expect(groups[0].delivery_days).toBeNull();
   });
 
-  it("יום האספקה נלקח מהספק", () => {
+  it("ימי האספקה נלקחים מהספק", () => {
     const groups = groupDraftLinesBySupplier([line({ supplier_id: "sup-b" })], list);
-    expect(groups[0].delivery_day).toBe(1);
+    expect(groups[0].delivery_days).toEqual([1]);
   });
 
   it("עגלה ריקה מחזירה אפס קבוצות ואפס סכום", () => {
@@ -274,10 +274,39 @@ describe("תצוגה למשתמש", () => {
     expect(formatPrice(0)).toBe("₪0");
   });
 
-  it("יום אספקה מוצג בעברית, וללא הגדרה נאמר במפורש", () => {
+  it("ימי אספקה מוצגים בעברית, וללא הגדרה נאמר במפורש", () => {
+    expect(deliveryDaysLabel([0])).toBe("יום ראשון");
+    expect(deliveryDaysLabel([0, 2, 5])).toBe("יום ראשון, יום שלישי, יום שישי");
+    expect(deliveryDaysLabel([6])).toBe("יום שבת");
+    expect(deliveryDaysLabel(null)).toBe("לא הוגדר");
+    expect(deliveryDaysLabel([])).toBe("לא הוגדר");
     expect(deliveryDayLabel(0)).toBe("יום ראשון");
-    expect(deliveryDayLabel(6)).toBe("יום שבת");
-    expect(deliveryDayLabel(null)).toBe("לא הוגדר");
     expect(deliveryDayLabel(9)).toBe("לא הוגדר");
+  });
+
+  it("הזמנה פתוחה מסומנת כ«אמור להגיע היום» כשיום האספקה של הספק הוא היום", () => {
+    const supplierList: Supplier[] = [
+      { id: "sup-a", name: "אלפא", delivery_days: [5], active: true, business_id: "b1", phone: null, tax_id: null, notes: null, created_at: "" },
+    ];
+    const sunday = new Date("2026-08-02T10:00:00"); // יום ראשון
+    const friday = new Date("2026-08-07T10:00:00"); // יום שישי
+    const line: OrderLine = {
+      id: "o1",
+      item_id: "item-1",
+      supplier_id: "sup-a",
+      quantity: 2,
+      status: "pending",
+      business_id: "b1",
+      batch_id: "batch-1",
+      created_at: friday.toISOString(),
+      ordered_by: null,
+      ordered_by_name: null,
+      supplier_name: "אלפא",
+      received_quantity: null,
+    };
+
+    expect(orderDeliversToday([line], supplierList, friday)).toBe(true);
+    expect(orderDeliversToday([line], supplierList, sunday)).toBe(false);
+    expect(orderDeliversToday([{ ...line, status: "received" }], supplierList, friday)).toBe(true);
   });
 });
