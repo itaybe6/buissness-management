@@ -442,6 +442,7 @@ export function makeInventoryItem(over: Partial<InventoryItem> = {}): InventoryI
     barcode: null,
     unit: "ארגז",
     units_per_package: 24,
+    piece_unit: "יחידות",
     image_url: null,
     min_quantity: 5,
     category_id: null,

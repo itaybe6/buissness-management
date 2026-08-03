@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 import { Icon } from "@/components/ui";
-import { canUsePieceInput, formatQtyWithPieces, piecesToMainUnit, type ItemWithQty } from "@/api/inventory";
+import {
+  formatItemQty,
+  hasPieceBreakdown,
+  pieceUnitLabel,
+  piecesToMainUnit,
+  type ItemWithQty,
+} from "@/api/inventory";
 
 /** Quantity draft per product: whole packages in the item's main unit + loose single pieces. */
 export type QtyDraft = { packs: number; pieces: number };
@@ -10,7 +16,7 @@ export function round4(n: number): number {
 }
 
 export function isDualUnit(item: ItemWithQty): boolean {
-  return canUsePieceInput(item.unit, item.units_per_package);
+  return hasPieceBreakdown(item.units_per_package);
 }
 
 /** Total order quantity in the item's main unit (packs + pieces converted). */
@@ -20,12 +26,14 @@ export function draftTotal(item: ItemWithQty, draft: QtyDraft): number {
   return round4(draft.packs + fromPieces);
 }
 
-/** Human label, e.g. "2 ארגז + 5 יח׳" or "3 ק״ג". */
+/** Human label, e.g. "2 ארגז + 5 בקבוק" or "3 ק״ג". */
 export function draftLabel(item: ItemWithQty, draft: QtyDraft): string {
   const unit = item.unit ?? "יחידות";
   const parts: string[] = [];
   if (draft.packs > 0) parts.push(`${draft.packs} ${unit}`);
-  if (isDualUnit(item) && draft.pieces > 0) parts.push(`${draft.pieces} יח׳`);
+  if (isDualUnit(item) && draft.pieces > 0) {
+    parts.push(`${draft.pieces} ${pieceUnitLabel(item.piece_unit)}`);
+  }
   return parts.length ? parts.join(" + ") : `0 ${unit}`;
 }
 
@@ -114,6 +122,7 @@ export function QtyEditor({
 }) {
   const dual = isDualUnit(item);
   const unit = item.unit ?? "יחידות";
+  const pieceLabel = pieceUnitLabel(item.piece_unit);
   const total = draftTotal(item, draft);
 
   return (
@@ -129,13 +138,13 @@ export function QtyEditor({
         <div className="ordc-step-row">
           <span className="ordc-step-label">
             <Icon name="counter_1" size={14} />
-            יחידות בודדות
+            {pieceLabel} בודדים
           </span>
           <StepControl
             integer
             value={draft.pieces}
             onChange={(v) => onPatch({ pieces: v })}
-            ariaLabel="יחידות בודדות"
+            ariaLabel={`${pieceLabel} בודדים`}
           />
         </div>
       )}
@@ -143,11 +152,11 @@ export function QtyEditor({
         <p className="ordc-step-total">
           {total > 0 ? (
             <>
-              סה״כ להזמנה: <b>{formatQtyWithPieces(total, item.unit, item.units_per_package)}</b>
+              סה״כ להזמנה: <b>{formatItemQty(item, total)}</b>
             </>
           ) : (
             <>
-              1 {unit} = {item.units_per_package} יח׳
+              1 {unit} = {item.units_per_package} {pieceLabel}
             </>
           )}
         </p>

@@ -1,5 +1,5 @@
 import { addDays, toISODate, todayISO } from "@/lib/db";
-import { mainUnitToPieces, supportsPieceInput } from "@/api/inventory";
+import { hasPieceBreakdown, mainUnitToPieces, pieceUnitLabel } from "@/api/inventory";
 import type { ItemWithQty } from "@/api/inventory";
 import type { InventoryWaste } from "@/types/database";
 
@@ -65,15 +65,16 @@ export function groupWasteByDay(list: InventoryWaste[], today = todayISO()): Was
   return groups;
 }
 
-/** "−2 ארגז (48 יח׳)" — always negative, with the piece count when it helps. */
+/** "−2 ארגז (48 בקבוק)" — always negative, with the piece count when it helps. */
 export function formatWasteQty(
   record: Pick<InventoryWaste, "quantity">,
-  item?: Pick<ItemWithQty, "unit" | "units_per_package">,
+  item?: Pick<ItemWithQty, "unit" | "units_per_package" | "piece_unit">,
 ): string {
   const unit = item?.unit ? ` ${item.unit}` : "";
   const base = `−${record.quantity}${unit}`;
-  if (item && supportsPieceInput(item.unit) && item.units_per_package) {
-    return `${base} (${mainUnitToPieces(Number(record.quantity), item.units_per_package)} יח׳)`;
+  if (item && hasPieceBreakdown(item.units_per_package)) {
+    const pieces = mainUnitToPieces(Number(record.quantity), item.units_per_package!);
+    return `${base} (${pieces} ${pieceUnitLabel(item.piece_unit)})`;
   }
   return base;
 }

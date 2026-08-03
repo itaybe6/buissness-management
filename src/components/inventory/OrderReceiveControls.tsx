@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button, Icon, Input, SectionLoader } from "@/components/ui";
 import { DualUnitQtyInput } from "@/components/inventory/DualUnitQtyInput";
-import { supportsPieceInput } from "@/api/inventory";
+import { hasPieceBreakdown } from "@/api/inventory";
 import type { Warehouse } from "@/types/database";
 
 export type OrderReceiveConfirm = {
@@ -13,6 +13,7 @@ type OrderReceiveControlsProps = {
   orderedQty: number;
   unit: string | null;
   unitsPerPackage: number | null;
+  pieceUnit?: string | null;
   warehouses: Warehouse[];
   defaultWarehouseId: string | null;
   busy?: boolean;
@@ -28,6 +29,7 @@ export function OrderReceiveControls({
   orderedQty,
   unit,
   unitsPerPackage,
+  pieceUnit,
   warehouses,
   defaultWarehouseId,
   busy,
@@ -49,7 +51,7 @@ export function OrderReceiveControls({
     setWarehouseId(defaultWarehouseId ?? warehouses[0]?.id ?? "");
   }, [defaultWarehouseId, warehouses]);
 
-  const pieceUnit = supportsPieceInput(unit);
+  const dualUnit = hasPieceBreakdown(unitsPerPackage);
   const invalid =
     !Number.isFinite(receivedQty) || receivedQty <= 0 || receivedQty > orderedQty || !warehouseId;
   const isCorrect = mode === "correct";
@@ -128,11 +130,12 @@ export function OrderReceiveControls({
         <label className="order-receive-panel-label">
           {isCorrect ? "כמה הגיע בפועל?" : "כמה הגיע?"}
         </label>
-        {pieceUnit ? (
+        {dualUnit ? (
           <DualUnitQtyInput
             value={receivedQty}
             mainUnit={unit}
             unitsPerPackage={unitsPerPackage}
+            pieceUnit={pieceUnit}
             disabled={busy}
             onCommit={setReceivedQty}
             min={0}

@@ -12,7 +12,7 @@ import {
   supplierSaveError,
   supplierPriceUnitLabel,
 } from "@/api/suppliers";
-import { useInventory, type ItemWithQty, supportsPieceInput, BASE_UNIT } from "@/api/inventory";
+import { useInventory, type ItemWithQty, itemHasPieces, BASE_UNIT } from "@/api/inventory";
 import { useInventoryCategories } from "@/api/inventoryCategories";
 import type { Supplier, SupplierPriceUnit } from "@/types/database";
 
@@ -172,9 +172,9 @@ function ProductTile({
   registerTile: (el: HTMLElement | null) => void;
 }) {
   const selected = !!line;
-  const dual = supportsPieceInput(item.unit);
+  const dual = itemHasPieces(item);
   const mainUnitLabel = item.unit?.trim() || BASE_UNIT;
-  const pieceUnitLabel = supplierPriceUnitLabel("piece", item.unit);
+  const pieceUnitLabel = supplierPriceUnitLabel("piece", item.unit, item.piece_unit);
 
   return (
     <article
@@ -316,7 +316,7 @@ export function SupplierFormPage() {
     let missing = 0;
     for (const l of productLines) {
       const item = inventoryList.find((i) => i.id === l.itemId);
-      const dual = item ? supportsPieceInput(item.unit) : false;
+      const dual = item ? itemHasPieces(item) : false;
       if (!lineHasValidPrice(l, dual)) missing += 1;
       else sum += linePriceSum(l);
     }
@@ -412,7 +412,7 @@ export function SupplierFormPage() {
     if (!form.name.trim()) return setFormError("נא להזין שם ספק");
     const firstMissing = productLines.find((l) => {
       const item = inventoryList.find((i) => i.id === l.itemId);
-      const dual = item ? supportsPieceInput(item.unit) : false;
+      const dual = item ? itemHasPieces(item) : false;
       return !lineHasValidPrice(l, dual);
     });
     if (firstMissing) {
@@ -668,7 +668,7 @@ export function SupplierFormPage() {
                 <>
                   <ul className="spf-basket-list">
                     {selectedItems.map(({ line, item }) => {
-                      const dual = supportsPieceInput(item.unit);
+                      const dual = itemHasPieces(item);
                       const mainVal = priceValue(line.mainPrice);
                       const pieceVal = priceValue(line.piecePrice);
                       const hasPrice = lineHasValidPrice(line, dual);
@@ -826,7 +826,7 @@ export function SupplierFormPage() {
                         missing={
                           attempted &&
                           !!line &&
-                          !lineHasValidPrice(line, supportsPieceInput(item.unit))
+                          !lineHasValidPrice(line, itemHasPieces(item))
                         }
                         onAdd={() => toggleItem(item.id)}
                         onRemove={() => toggleItem(item.id)}

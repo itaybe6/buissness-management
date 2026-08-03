@@ -322,8 +322,9 @@ export function supplierPriceListTotal(prices: SupplierItemPrices): number {
 export function supplierPriceUnitLabel(
   priceUnit: SupplierPriceUnit,
   itemUnit: string | null | undefined,
+  pieceUnit?: string | null,
 ): string {
-  if (priceUnit === "piece") return "יחידה";
+  if (priceUnit === "piece") return pieceUnit?.trim() || "יחידה";
   return itemUnit?.trim() || "יחידה";
 }
 

@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/auth";
 import { useBusinessId } from "@/lib/db";
 import type { ItemWithQty } from "@/api/inventory";
 import { inventoryItemMatchesQuery } from "@/api/inventory";
-import { mainUnitToPieces, supportsPieceInput } from "@/api/inventory";
+import { hasPieceBreakdown, mainUnitToPieces, pieceUnitLabel } from "@/api/inventory";
 import { DualUnitQtyInput } from "@/components/inventory/DualUnitQtyInput";
 import { useWaste, useCreateWaste } from "@/api/waste";
 import {
@@ -529,6 +529,7 @@ export function WastePanel({
                   value={form.qty}
                   mainUnit={item?.unit ?? null}
                   unitsPerPackage={item?.units_per_package ?? null}
+                  pieceUnit={item?.piece_unit ?? null}
                   onCommit={(q) => setForm((f) => ({ ...f, qty: q }))}
                   variant="input"
                   min={0.01}
@@ -577,8 +578,8 @@ export function WastePanel({
               <span className="font-bold text-text">
                 {pending.qty}
                 {pending.item.unit ? ` ${pending.item.unit}` : ""} {pending.item.name}
-                {supportsPieceInput(pending.item.unit) && pending.item.units_per_package
-                  ? ` (${mainUnitToPieces(pending.qty, pending.item.units_per_package)} יח׳)`
+                {hasPieceBreakdown(pending.item.units_per_package)
+                  ? ` (${mainUnitToPieces(pending.qty, pending.item.units_per_package!)} ${pieceUnitLabel(pending.item.piece_unit)})`
                   : ""}
               </span>
               . האם להפחית את הכמות הזו מהמלאי?

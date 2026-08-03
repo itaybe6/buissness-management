@@ -2,15 +2,18 @@ import { useEffect, useState } from "react";
 import { Icon, Input } from "@/components/ui";
 import {
   BASE_UNIT,
+  itemHasPieces,
+  pieceUnitLabel,
   piecesToMainUnit,
   splitPackageQty,
-  supportsPieceInput,
   type ItemWithQty,
 } from "@/api/inventory";
 
 type InventoryQtyUpdatePanelProps = {
   item: ItemWithQty;
   onSetQty: (qty: number) => void;
+  /** Continuous measures (ק״ג, ליטר) accept decimal quantities. */
+  allowFractions?: boolean;
   disabled?: boolean;
   /**
    * When false, quantity changes stay local until the parent calls onSetQty
@@ -20,9 +23,6 @@ type InventoryQtyUpdatePanelProps = {
   /** Fires whenever the draft quantity changes (useful with autoCommit=false). */
   onDraftChange?: (qty: number) => void;
 };
-
-/** Soft default when product unit is a package but units_per_package was never set. */
-const DEFAULT_UNITS_PER_PACKAGE = 12;
 
 function splitQty(qty: number, factor: number) {
   const { packages, pieces } = splitPackageQty(qty, factor);
@@ -95,17 +95,14 @@ function StepperField({
 export function InventoryQtyUpdatePanel({
   item,
   onSetQty,
+  allowFractions = false,
   disabled,
   autoCommit = true,
   onDraftChange,
 }: InventoryQtyUpdatePanelProps) {
-  const dual = supportsPieceInput(item.unit);
-  const factor =
-    dual && (item.units_per_package ?? 0) > 0
-      ? item.units_per_package!
-      : dual
-        ? DEFAULT_UNITS_PER_PACKAGE
-        : 1;
+  const dual = itemHasPieces(item);
+  const factor = dual ? item.units_per_package! : 1;
+  const pieceLabel = pieceUnitLabel(item.piece_unit);
 
   const split = dual ? splitQty(item.current_qty, factor) : { packages: item.current_qty, pieces: 0 };
   const [packages, setPackages] = useState(split.packages);
@@ -139,10 +136,13 @@ export function InventoryQtyUpdatePanel({
           <Input
             type="number"
             min={0}
+            step={allowFractions ? 0.1 : 1}
+            inputMode={allowFractions ? "decimal" : "numeric"}
             disabled={disabled}
             value={simpleQty === 0 && !item.current_qty ? "" : simpleQty}
             onChange={(e) => {
-              const next = e.target.value === "" ? 0 : Math.max(0, Number(e.target.value) || 0);
+              const raw = e.target.value === "" ? 0 : Math.max(0, Number(e.target.value) || 0);
+              const next = allowFractions ? raw : Math.round(raw);
               setSimpleQty(next);
               if (!autoCommit) onDraftChange?.(next);
             }}
@@ -173,7 +173,7 @@ export function InventoryQtyUpdatePanel({
           onCommit={(n) => commit(n, pieces)}
         />
         <StepperField
-          label={BASE_UNIT}
+          label={pieceLabel}
           value={pieces}
           disabled={disabled}
           onChange={(n) => {
@@ -205,7 +205,7 @@ export function InventoryQtyUpdatePanel({
         />
       </div>
       <p className="text-[12px] leading-relaxed text-text-3">
-        עדכנו ארגזים ויחידות בנפרד — למשל 1 ארגז + 3 יחידות.
+        עדכנו כל רמה בנפרד — למשל 1 {item.unit ?? BASE_UNIT} + 3 {pieceLabel}.
       </p>
     </div>
   );

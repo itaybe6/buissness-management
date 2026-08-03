@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { Icon, Input } from "@/components/ui";
 import {
-  BASE_UNIT,
-  canUsePieceInput,
+  hasPieceBreakdown,
   mainUnitToPieces,
+  pieceUnitLabel,
   piecesToMainUnit,
   splitPackageQty,
 } from "@/api/inventory";
@@ -15,6 +15,7 @@ function toDisplayQty(
   mode: InputMode,
   dualEnabled: boolean,
   factor: number,
+  allowFractions: boolean,
 ): number {
   if (mode === "pieces" && dualEnabled) {
     return Math.round(mainUnitToPieces(value, factor));
@@ -22,11 +23,11 @@ function toDisplayQty(
   if (dualEnabled) {
     return splitPackageQty(value, factor).packages;
   }
-  return Math.round(value);
+  return allowFractions ? value : Math.round(value);
 }
 
-function parseIntegerInput(raw: string): number {
-  const n = parseInt(raw, 10);
+function parseQtyInput(raw: string, allowFractions: boolean): number {
+  const n = allowFractions ? parseFloat(raw) : parseInt(raw, 10);
   return Number.isFinite(n) ? n : 0;
 }
 
@@ -34,6 +35,10 @@ type DualUnitQtyInputProps = {
   value: number;
   mainUnit: string | null;
   unitsPerPackage: number | null;
+  /** Name of the single piece inside the package; falls back to «יחידות». */
+  pieceUnit?: string | null;
+  /** Continuous measures (ק״ג, ליטר) accept decimals; countable units do not. */
+  allowFractions?: boolean;
   disabled?: boolean;
   onCommit: (mainUnitQty: number) => void;
   variant?: "stepper" | "input";
@@ -49,6 +54,8 @@ export function DualUnitQtyInput({
   value,
   mainUnit,
   unitsPerPackage,
+  pieceUnit,
+  allowFractions = false,
   disabled,
   onCommit,
   variant = "input",
@@ -58,19 +65,22 @@ export function DualUnitQtyInput({
   compact = false,
   defaultMode = "main",
 }: DualUnitQtyInputProps) {
-  const dualEnabled = canUsePieceInput(mainUnit, unitsPerPackage);
+  const dualEnabled = hasPieceBreakdown(unitsPerPackage);
   const factor = unitsPerPackage ?? 1;
+  const fractional = allowFractions && !dualEnabled;
+  const step = fractional ? 0.1 : 1;
   const initialMode: InputMode = dualEnabled && defaultMode === "pieces" ? "pieces" : "main";
   const [mode, setMode] = useState<InputMode>(initialMode);
   const [local, setLocal] = useState(value);
   const [bump, setBump] = useState(false);
 
   useEffect(() => {
-    setLocal(toDisplayQty(value, mode, dualEnabled, factor));
-  }, [value, mode, dualEnabled, factor]);
+    setLocal(toDisplayQty(value, mode, dualEnabled, factor, fractional));
+  }, [value, mode, dualEnabled, factor, fractional]);
 
   function commitFromDisplay(displayQty: number) {
-    const v = Math.max(min, Math.round(displayQty));
+    const rounded = fractional ? Math.round(displayQty * 100) / 100 : Math.round(displayQty);
+    const v = Math.max(min, rounded);
     const mainQty = mode === "pieces" && dualEnabled ? piecesToMainUnit(v, factor) : v;
     setLocal(v);
     setBump(true);
@@ -80,10 +90,11 @@ export function DualUnitQtyInput({
   function switchMode(next: InputMode) {
     if (next === mode) return;
     setMode(next);
-    setLocal(toDisplayQty(value, next, dualEnabled, factor));
+    setLocal(toDisplayQty(value, next, dualEnabled, factor, fractional));
   }
 
-  const unitLabel = mode === "pieces" ? BASE_UNIT : (mainUnit ?? "");
+  const pieceLabel = pieceUnitLabel(pieceUnit);
+  const unitLabel = mode === "pieces" ? pieceLabel : (mainUnit ?? "");
   const stepBtn = compact
     ? "grid h-6 w-6 place-items-center rounded-md text-text-3 transition-[transform,background-color,color] duration-[160ms] [transition-timing-function:var(--ease-out)] hover:bg-surface-2 hover:text-text active:scale-[0.97] disabled:opacity-35"
     : "grid h-7 w-7 place-items-center rounded-md text-text-3 transition-[transform,background-color,color] duration-[160ms] [transition-timing-function:var(--ease-out)] hover:bg-surface-2 hover:text-text active:scale-[0.97] disabled:opacity-35";
@@ -104,7 +115,7 @@ export function DualUnitQtyInput({
         onClick={() => switchMode("pieces")}
         className={`rounded px-2 py-0.5 transition-colors ${mode === "pieces" ? "bg-surface text-text shadow-sm" : "text-text-3"}`}
       >
-        {BASE_UNIT}
+        {pieceLabel}
       </button>
     </div>
   ) : null;
@@ -118,7 +129,7 @@ export function DualUnitQtyInput({
             <button
               type="button"
               disabled={disabled}
-              onClick={() => commitFromDisplay(local - 1)}
+              onClick={() => commitFromDisplay(local - step)}
               className={stepBtn}
               aria-label="הפחתה"
             >
@@ -127,12 +138,12 @@ export function DualUnitQtyInput({
             <input
               type="number"
               min={min}
-              step={1}
-              inputMode="numeric"
+              step={step}
+              inputMode={fractional ? "decimal" : "numeric"}
               dir="ltr"
               value={local}
               disabled={disabled}
-              onChange={(e) => setLocal(parseIntegerInput(e.target.value))}
+              onChange={(e) => setLocal(parseQtyInput(e.target.value, fractional))}
               onBlur={() => commitFromDisplay(local)}
               onAnimationEnd={() => setBump(false)}
               className={`min-w-[2.25rem] w-10 shrink-0 bg-transparent px-0.5 text-center text-[13px] font-bold tabular-nums text-text outline-none ${bump ? "inventory-qty-bump" : ""}`}
@@ -140,7 +151,7 @@ export function DualUnitQtyInput({
             <button
               type="button"
               disabled={disabled}
-              onClick={() => commitFromDisplay(local + 1)}
+              onClick={() => commitFromDisplay(local + step)}
               className={stepBtn}
               aria-label="הוספה"
             >
@@ -159,7 +170,7 @@ export function DualUnitQtyInput({
             <button
               type="button"
               disabled={disabled}
-              onClick={() => commitFromDisplay(local - 1)}
+              onClick={() => commitFromDisplay(local - step)}
               className={stepBtn}
               aria-label="הפחתה"
             >
@@ -168,12 +179,12 @@ export function DualUnitQtyInput({
             <input
               type="number"
               min={min}
-              step={1}
-              inputMode="numeric"
+              step={step}
+              inputMode={fractional ? "decimal" : "numeric"}
               dir="ltr"
               value={local}
               disabled={disabled}
-              onChange={(e) => setLocal(parseIntegerInput(e.target.value))}
+              onChange={(e) => setLocal(parseQtyInput(e.target.value, fractional))}
               onBlur={() => commitFromDisplay(local)}
               onAnimationEnd={() => setBump(false)}
               className={`min-w-[2.5rem] w-12 shrink-0 bg-transparent px-0.5 text-center text-[15px] font-bold tabular-nums text-text outline-none ${bump ? "inventory-qty-bump" : ""}`}
@@ -181,7 +192,7 @@ export function DualUnitQtyInput({
             <button
               type="button"
               disabled={disabled}
-              onClick={() => commitFromDisplay(local + 1)}
+              onClick={() => commitFromDisplay(local + step)}
               className={stepBtn}
               aria-label="הוספה"
             >
@@ -201,13 +212,13 @@ export function DualUnitQtyInput({
         <Input
           type="number"
           min={min}
-          step={1}
-          inputMode="numeric"
+          step={step}
+          inputMode={fractional ? "decimal" : "numeric"}
           dir="ltr"
           value={local === 0 && !value ? "" : local}
           placeholder={placeholder}
           disabled={disabled}
-          onChange={(e) => setLocal(e.target.value === "" ? 0 : parseIntegerInput(e.target.value))}
+          onChange={(e) => setLocal(e.target.value === "" ? 0 : parseQtyInput(e.target.value, fractional))}
           onBlur={() => commitFromDisplay(local)}
           className="flex-1"
         />
@@ -215,7 +226,7 @@ export function DualUnitQtyInput({
       </div>
       {dualEnabled && (
         <p className="text-[11px] text-text-3">
-          1 {mainUnit} = {factor} {BASE_UNIT}
+          1 {mainUnit} = {factor} {pieceLabel}
         </p>
       )}
     </div>

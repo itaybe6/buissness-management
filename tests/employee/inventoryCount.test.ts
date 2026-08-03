@@ -9,39 +9,42 @@ import { describe, expect, it } from "vitest";
 import {
   BASE_UNIT,
   INVENTORY_UNITS,
-  canUsePieceInput,
+  formatItemQty,
   formatQtyWithPieces,
+  hasPieceBreakdown,
   isTrackedLowStock,
+  itemHasPieces,
   itemWarehouseQty,
   mainUnitToPieces,
+  pieceUnitLabel,
   piecesToMainUnit,
   splitPackageQty,
-  supportsPieceInput,
 } from "@/api/inventory";
 import { WAREHOUSE, makeItemWithQty, makeWarehouseStock } from "../helpers/factories";
 
 describe("מתי אפשר להזין יחידות בודדות", () => {
-  it("«יחידות» היא יחידת הבסיס — אין בה פירוק לבודדים", () => {
-    expect(BASE_UNIT).toBe("יחידות");
-    expect(supportsPieceInput(BASE_UNIT)).toBe(false);
+  it("רק גודל אריזה מפורש יוצר פירוק — לא שם היחידה", () => {
+    expect(hasPieceBreakdown(24)).toBe(true);
+    expect(hasPieceBreakdown(null)).toBe(false);
+    expect(hasPieceBreakdown(0)).toBe(false);
+    expect(hasPieceBreakdown(undefined)).toBe(false);
   });
 
-  it("ארגז / ק״ג / ליטר תומכים בהזנת בודדים", () => {
-    expect(supportsPieceInput("ארגז")).toBe(true);
-    expect(supportsPieceInput("ק״ג")).toBe(true);
-    expect(supportsPieceInput("ליטר")).toBe(true);
+  it("מוצר שהיחידה שלו היא הפריט עצמו לא מקבל שכבה שנייה", () => {
+    expect(itemHasPieces(makeItemWithQty({ unit: "בקבוק", units_per_package: null }))).toBe(false);
+    expect(itemHasPieces(makeItemWithQty({ unit: "ק״ג", units_per_package: null }))).toBe(false);
+    expect(itemHasPieces(makeItemWithQty({ unit: "ליטר", units_per_package: null }))).toBe(false);
   });
 
-  it("יחידת מידה ריקה או חסרה לא תומכת", () => {
-    expect(supportsPieceInput(null)).toBe(false);
-    expect(supportsPieceInput(undefined)).toBe(false);
-    expect(supportsPieceInput("")).toBe(false);
+  it("מארז עם גודל אריזה כן מקבל שכבה שנייה", () => {
+    const crate = makeItemWithQty({ unit: "ארגז", units_per_package: 24, piece_unit: "בקבוק" });
+    expect(itemHasPieces(crate)).toBe(true);
   });
 
-  it("בלי «כמה בודדים באריזה» אי אפשר להזין בודדים", () => {
-    expect(canUsePieceInput("ארגז", null)).toBe(false);
-    expect(canUsePieceInput("ארגז", 0)).toBe(false);
-    expect(canUsePieceInput("ארגז", 24)).toBe(true);
+  it("שם הפריט הבודד נופל ליחידת הבסיס כשלא הוגדר", () => {
+    expect(pieceUnitLabel("בקבוק")).toBe("בקבוק");
+    expect(pieceUnitLabel(null)).toBe(BASE_UNIT);
+    expect(pieceUnitLabel("   ")).toBe(BASE_UNIT);
   });
 
   it("כל יחידות המידה בקטלוג ייחודיות", () => {
@@ -113,7 +116,17 @@ describe("פיצול לאריזות + בודדים", () => {
 
 describe("תצוגת כמות לעובד", () => {
   it("אריזות + בודדים", () => {
-    expect(formatQtyWithPieces(2.5, "ארגז", 6)).toBe("2 ארגז + 3 יח׳");
+    expect(formatQtyWithPieces(2.5, "ארגז", 6)).toBe("2 ארגז + 3 יחידות");
+  });
+
+  it("הפריט הבודד מוצג בשם שהמנהל נתן לו", () => {
+    const crate = makeItemWithQty({ unit: "ארגז", units_per_package: 6, piece_unit: "בקבוק" });
+    expect(formatItemQty(crate, 2.5)).toBe("2 ארגז + 3 בקבוק");
+  });
+
+  it("מוצר שהוא פריט בודד מוצג בשורה אחת בלי שכבה שנייה", () => {
+    const bottle = makeItemWithQty({ unit: "בקבוק", units_per_package: null });
+    expect(formatItemQty(bottle, 7)).toBe("7 בקבוק");
   });
 
   it("אריזות שלמות בלבד", () => {
@@ -121,7 +134,7 @@ describe("תצוגת כמות לעובד", () => {
   });
 
   it("בודדים בלבד", () => {
-    expect(formatQtyWithPieces(0.25, "ארגז", 24)).toBe("6 יח׳");
+    expect(formatQtyWithPieces(0.25, "ארגז", 24)).toBe("6 יחידות");
   });
 
   it("אפס מוצג עם יחידת המידה", () => {

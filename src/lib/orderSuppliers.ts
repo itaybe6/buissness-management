@@ -1,9 +1,16 @@
-import { canUsePieceInput } from "@/api/inventory";
+import { hasPieceBreakdown, pieceUnitLabel } from "@/api/inventory";
 import { effectiveMainUnitPrice, type SupplierItemPriceIndex, type SupplierItemPrices } from "@/api/suppliers";
 import { HE_DAYS } from "@/lib/db";
 
-/** How a single piece is named in a price context ("יח׳" is used for quantities). */
+/** Fallback when a product has no unit name at all. */
 const PIECE_PRICE_LABEL = "יחידה";
+
+/** The unit fields pricing labels are built from. */
+type PricedItemUnits = {
+  unit: string | null;
+  units_per_package: number | null;
+  piece_unit?: string | null;
+};
 
 /** Per-piece prices are often a few agorot — keep the decimals formatCurrency drops. */
 export function formatPrice(n: number): string {
@@ -104,14 +111,14 @@ export interface SupplierUnitPrice {
  * the total the user is asked to approve.
  */
 export function supplierUnitPrices(
-  item: { unit: string | null; units_per_package: number | null },
+  item: PricedItemUnits,
   prices: SupplierItemPrices | null | undefined,
 ): SupplierUnitPrice[] {
   const mainPrice = effectiveMainUnitPrice(prices ?? undefined, item.units_per_package);
   if (mainPrice <= 0) return [];
 
   const mainLabel = item.unit?.trim() || PIECE_PRICE_LABEL;
-  if (!canUsePieceInput(item.unit, item.units_per_package)) {
+  if (!hasPieceBreakdown(item.units_per_package)) {
     return [{ label: mainLabel, price: mainPrice, derived: false }];
   }
 
@@ -119,30 +126,35 @@ export function supplierUnitPrices(
   return [
     { label: mainLabel, price: mainPrice, derived: !quotedPerMainUnit },
     {
-      label: PIECE_PRICE_LABEL,
+      label: pieceUnitLabel(item.piece_unit),
       price: Math.round((mainPrice / item.units_per_package!) * 10000) / 10000,
       derived: quotedPerMainUnit,
     },
   ];
 }
 
-/** What a line total is made of, e.g. "1 ארגז × ₪100 + 2 יח׳ × ₪4.17". */
+/** What a line total is made of, e.g. "1 ארגז × ₪100 + 2 בקבוק × ₪4.17". */
 export function orderCalcLabel(
-  item: { unit: string | null; units_per_package: number | null },
+  item: PricedItemUnits,
   draft: { packs: number; pieces: number },
   prices: SupplierItemPrices | null | undefined,
 ): string {
   const unitPrices = supplierUnitPrices(item, prices);
   const mainLabel = item.unit?.trim() || PIECE_PRICE_LABEL;
+  const pieceLabel = pieceUnitLabel(item.piece_unit);
   const parts: string[] = [];
 
   if (draft.packs > 0) {
     const perPack = unitPrices[0];
     parts.push(perPack ? `${draft.packs} ${mainLabel} × ${formatPrice(perPack.price)}` : `${draft.packs} ${mainLabel}`);
   }
-  if (canUsePieceInput(item.unit, item.units_per_package) && draft.pieces > 0) {
+  if (hasPieceBreakdown(item.units_per_package) && draft.pieces > 0) {
     const perPiece = unitPrices[1];
-    parts.push(perPiece ? `${draft.pieces} יח׳ × ${formatPrice(perPiece.price)}` : `${draft.pieces} יח׳`);
+    parts.push(
+      perPiece
+        ? `${draft.pieces} ${pieceLabel} × ${formatPrice(perPiece.price)}`
+        : `${draft.pieces} ${pieceLabel}`,
+    );
   }
 
   return parts.join(" + ");
@@ -166,12 +178,13 @@ export interface DraftOrderLine {
   image_url: string | null;
   unit: string | null;
   units_per_package: number | null;
+  piece_unit: string | null;
   supplier_id: string;
   /** Quantity in the product's main unit. */
   quantity: number;
-  /** Human label, e.g. "2 ארגז + 5 יח׳". */
+  /** Human label, e.g. "2 ארגז + 5 בקבוק". */
   qty_label: string;
-  /** How the total breaks down, e.g. "2 ארגז × ₪100 + 5 יח׳ × ₪4.17". */
+  /** How the total breaks down, e.g. "2 ארגז × ₪100 + 5 בקבוק × ₪4.17". */
   calc_label: string;
   unit_price: number;
   line_total: number;

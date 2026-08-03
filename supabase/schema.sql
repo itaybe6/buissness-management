@@ -609,7 +609,9 @@ create table public.inventory_units (
   business_id uuid not null references public.businesses(id) on delete cascade,
   name        text not null,
   sort_order  integer not null default 0,
-  is_base     boolean not null default false,
+  is_base     boolean not null default false,  -- תאימות לאחור; הסיווג האמיתי ב-kind
+  kind        text not null default 'single'
+    check (kind in ('single', 'package', 'measure')),  -- פריט בודד / מארז / מידה רציפה
   active      boolean not null default true,
   created_at  timestamptz not null default now()
 );
@@ -621,13 +623,16 @@ create table public.inventory_items (
   id            uuid primary key default gen_random_uuid(),
   business_id   uuid not null references public.businesses(id) on delete cascade,
   name          text not null,
-  unit          text,                 -- יחידה (יחידות, ארגז, ק"ג, ליטר)
-  units_per_package numeric(12,2) check (units_per_package is null or units_per_package > 0),  -- יחידים ביחידת מידה (למשל 24 בארגז)
+  unit          text,                 -- היחידה שבה סופרים ומזמינים (יחידות, בקבוק, ארגז, ק"ג)
+  units_per_package numeric(12,2) check (units_per_package is null or units_per_package > 0),  -- יחידים במארז (למשל 24 בארגז); null = ללא פירוק
+  piece_unit    text,                 -- שם היחיד בתוך המארז (בקבוק, שקית)
   image_url     text,                 -- תמונת המוצר ב-Storage
   min_quantity  numeric(12,2) not null default 0,  -- סף מלאי נמוך
   category_id   uuid references public.inventory_categories(id) on delete set null,
   active        boolean not null default true,
-  created_at    timestamptz not null default now()
+  created_at    timestamptz not null default now(),
+  constraint inventory_items_piece_unit_needs_pack
+    check (piece_unit is null or units_per_package is not null)
 );
 
 create table public.suppliers (

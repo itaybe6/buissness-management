@@ -49,7 +49,11 @@ describe("הפרש כמות ביחידות בודדות", () => {
 
 describe("תצוגת השינוי ביומן", () => {
   it("תוספת של בודדים בלבד", () => {
-    expect(formatQtyChangeWithPieces(2, 2.5, "ארגז", 24)).toBe("+12 יח׳");
+    expect(formatQtyChangeWithPieces(2, 2.5, "ארגז", 24)).toBe("+12 יחידות");
+  });
+
+  it("הבודדים מוצגים בשם שניתן להם", () => {
+    expect(formatQtyChangeWithPieces(2, 2.5, "ארגז", 24, "בקבוק")).toBe("+12 בקבוק");
   });
 
   it("תוספת של אריזות שלמות", () => {
@@ -57,12 +61,12 @@ describe("תצוגת השינוי ביומן", () => {
   });
 
   it("תוספת מעורבת — אריזות + בודדים", () => {
-    expect(formatQtyChangeWithPieces(0, 1.25, "ארגז", 24)).toBe("+1 ארגז + 6 יח׳");
+    expect(formatQtyChangeWithPieces(0, 1.25, "ארגז", 24)).toBe("+1 ארגז + 6 יחידות");
   });
 
   it("הפחתה מוצגת עם מינוס", () => {
     expect(formatQtyChangeWithPieces(4, 2, "ארגז", 24)).toBe("-2 ארגז");
-    expect(formatQtyChangeWithPieces(2.5, 2, "ארגז", 24)).toBe("-12 יח׳");
+    expect(formatQtyChangeWithPieces(2.5, 2, "ארגז", 24)).toBe("-12 יחידות");
   });
 
   it("בלי שינוי מוצג «0»", () => {
@@ -81,7 +85,7 @@ describe("תצוגת השינוי ביומן", () => {
 
   it("לעולם אין עשרוניות בתצוגת אריזות", () => {
     const label = formatQtyChangeWithPieces(0, 1.125, "ארגז", 8);
-    expect(label).toBe("+1 ארגז + 1 יח׳");
+    expect(label).toBe("+1 ארגז + 1 יחידות");
     expect(label).not.toContain(".");
   });
 
@@ -109,7 +113,7 @@ describe("עקביות בין התצוגות", () => {
 
   it("הפיצול לאריזות תואם לתווית שמוצגת", () => {
     const { packages, pieces } = splitPackageQty(3.25, 24);
-    expect(formatQtyWithPieces(3.25, "ארגז", 24)).toBe(`${packages} ארגז + ${pieces} יח׳`);
+    expect(formatQtyWithPieces(3.25, "ארגז", 24)).toBe(`${packages} ארגז + ${pieces} יחידות`);
   });
 
   it("סדרת שינויים קטנים לא צוברת סחף", () => {

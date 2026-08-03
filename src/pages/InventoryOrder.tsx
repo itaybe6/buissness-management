@@ -38,6 +38,7 @@ import {
   type ProductPick,
 } from "@/components/inventory/ProductSupplierModal";
 import { OrderReviewModal } from "@/components/inventory/OrderReviewModal";
+import { OrderDraftPrompt } from "@/components/inventory/OrderDraftPrompt";
 import { RecurringOrderPicker } from "@/components/inventory/RecurringOrderPicker";
 import { SaveRecurringOrderModal } from "@/components/inventory/SaveRecurringOrderModal";
 import {
@@ -53,6 +54,7 @@ import {
   draftSavedAgoLabel,
   loadOrderDraft,
   saveOrderDraft,
+  type OrderDraft,
 } from "@/lib/orderDraftStorage";
 import { recurringTemplateCart, recurringTemplateNotice } from "@/lib/recurringOrders";
 import {
@@ -382,8 +384,7 @@ export function InventoryOrder() {
   const [addingItemId, setAddingItemId] = useState<string | null>(null);
   const [flashId, setFlashId] = useState<string | null>(null);
   const [batchMissing, setBatchMissing] = useState(false);
-  const [restoredAt, setRestoredAt] = useState<string | null>(null);
-  const [draftReady, setDraftReady] = useState(false);
+  const [draftPrompt, setDraftPrompt] = useState<OrderDraft | null>(null);
   const [recurringOpen, setRecurringOpen] = useState(false);
   const [saveRecurringOpen, setSaveRecurringOpen] = useState(false);
   const [recurringBusyId, setRecurringBusyId] = useState<string | null>(null);
@@ -394,6 +395,9 @@ export function InventoryOrder() {
   const editInitRef = useRef(false);
   const presetRef = useRef(false);
   const flashTimer = useRef<number>();
+  const draftPromptRef = useRef(false);
+  /** The saved draft is only mirrored once the user actually changes the cart. */
+  const cartTouchedRef = useRef(false);
   const userId = profile?.id ?? null;
 
   const list = useMemo(() => items ?? [], [items]);
@@ -437,36 +441,32 @@ export function InventoryOrder() {
 
   /**
    * A cart the user never sent is kept in localStorage, so leaving the page or
-   * closing the app mid-order does not throw the work away. Editing an existing
-   * order is hydrated from the database instead and never touches the draft.
+   * closing the app mid-order does not throw the work away. Coming back offers
+   * it instead of restoring it silently — the user may well want a fresh order.
+   * Editing an existing order is hydrated from the database and never prompts.
    */
   useEffect(() => {
-    if (isEditing || draftReady || !userId || !businessId || !items) return;
-    setDraftReady(true);
+    if (isEditing || draftPromptRef.current || !userId || !businessId || !items) return;
+    draftPromptRef.current = true;
     const draft = loadOrderDraft(userId, businessId);
     if (!draft) return;
     // Products deleted since the draft was saved cannot be ordered any more.
-    const next: Record<string, CartLine> = {};
-    for (const line of draft.lines) {
-      if (!items.some((i) => i.id === line.item_id)) continue;
-      next[line.item_id] = { supplier_id: line.supplier_id, packs: line.packs, pieces: line.pieces };
-    }
-    if (!Object.keys(next).length) {
+    const lines = draft.lines.filter((line) => items.some((i) => i.id === line.item_id));
+    if (!lines.length) {
       clearOrderDraft(userId, businessId);
       return;
     }
-    setCart(next);
-    setRestoredAt(draft.saved_at);
-  }, [isEditing, draftReady, userId, businessId, items]);
+    setDraftPrompt({ saved_at: draft.saved_at, lines });
+  }, [isEditing, userId, businessId, items]);
 
   useEffect(() => {
-    if (isEditing || !draftReady || !userId || !businessId) return;
+    if (isEditing || !cartTouchedRef.current || !userId || !businessId) return;
     saveOrderDraft(
       userId,
       businessId,
       Object.entries(cart).map(([item_id, line]) => ({ item_id, ...line })),
     );
-  }, [cart, isEditing, draftReady, userId, businessId]);
+  }, [cart, isEditing, userId, businessId]);
 
   useEffect(() => () => window.clearTimeout(flashTimer.current), []);
 
@@ -512,6 +512,7 @@ export function InventoryOrder() {
         image_url: item.image_url,
         unit: item.unit,
         units_per_package: item.units_per_package,
+        piece_unit: item.piece_unit,
         supplier_id: line.supplier_id,
         quantity,
         qty_label: draftLabel(item, line),
@@ -522,6 +523,23 @@ export function InventoryOrder() {
     }
     return result;
   }, [cart, itemById, supplierPriceIndex]);
+
+  /** What the saved order held, for the "continue where you left off" dialog. */
+  const draftPromptLines = useMemo(() => {
+    if (!draftPrompt) return [];
+    return draftPrompt.lines.flatMap((line) => {
+      const item = itemById.get(line.item_id);
+      if (!item) return [];
+      return [
+        {
+          item_id: line.item_id,
+          name: item.name,
+          image_url: item.image_url,
+          qty_label: draftLabel(item, line),
+        },
+      ];
+    });
+  }, [draftPrompt, itemById]);
 
   const supplierGroups = useMemo(
     () => groupDraftLinesBySupplier(draftLines, supplierList),
@@ -589,6 +607,7 @@ export function InventoryOrder() {
   function confirmPick(itemId: string, pick: ProductPick) {
     setError(null);
     setAddingItemId(itemId);
+    cartTouchedRef.current = true;
     startApplying(() => {
       setCart((prev) => {
         const next: Record<string, CartLine> = { ...prev };
@@ -606,6 +625,7 @@ export function InventoryOrder() {
   }
 
   const removeItem = useCallback((id: string) => {
+    cartTouchedRef.current = true;
     setCart((prev) => {
       const { [id]: _removed, ...rest } = prev;
       return rest;
@@ -613,10 +633,29 @@ export function InventoryOrder() {
   }, []);
 
   function clearAll() {
+    cartTouchedRef.current = true;
     setCart({});
     setError(null);
-    setRestoredAt(null);
     setRecurringNotice(null);
+  }
+
+  /** The user chose to pick up the unsent order where they left off. */
+  function restoreDraft() {
+    if (!draftPrompt) return;
+    const next: Record<string, CartLine> = {};
+    for (const line of draftPrompt.lines) {
+      next[line.item_id] = { supplier_id: line.supplier_id, packs: line.packs, pieces: line.pieces };
+    }
+    cartTouchedRef.current = true;
+    startApplying(() => {
+      setCart(next);
+      setDraftPrompt(null);
+    });
+  }
+
+  function discardDraft() {
+    if (userId && businessId) clearOrderDraft(userId, businessId);
+    setDraftPrompt(null);
   }
 
   /** Start the order from a saved template instead of picking every product again. */
@@ -630,11 +669,11 @@ export function InventoryOrder() {
       supplierPriceIndex,
     );
     const added = Object.keys(lines).length;
+    cartTouchedRef.current = true;
     startApplying(() => {
       setCart(lines);
       setRecurringOpen(false);
       setRecurringBusyId(null);
-      setRestoredAt(null);
       setRecurringNotice(recurringTemplateNotice(template.name, added, skipped));
     });
     if (added > 0) touchRecurringOrder.mutate(template.id);
@@ -779,28 +818,7 @@ export function InventoryOrder() {
     </p>
   );
 
-  const noticeBar = restoredAt ? (
-    <div className="ordc-notice" role="status">
-      <span className="ordc-notice-icon">
-        <Icon name="history" size={16} />
-      </span>
-      <span className="ordc-notice-text">
-        המשך ההזמנה שלא נשלחה
-        <small>נשמרה {draftSavedAgoLabel(restoredAt)} · הפריטים שנבחרו נשמרו אוטומטית</small>
-      </span>
-      <button type="button" className="ordc-notice-action" onClick={clearAll}>
-        התחלה מחדש
-      </button>
-      <button
-        type="button"
-        className="ordc-notice-close"
-        aria-label="סגירה"
-        onClick={() => setRestoredAt(null)}
-      >
-        <Icon name="close" size={15} />
-      </button>
-    </div>
-  ) : recurringNotice ? (
+  const noticeBar = recurringNotice ? (
     <div className="ordc-notice" role="status">
       <span className="ordc-notice-icon">
         <Icon name="event_repeat" size={16} />
@@ -1147,6 +1165,16 @@ export function InventoryOrder() {
         onClose={() => setReviewOpen(false)}
         onRemoveLine={removeItem}
         onSubmit={submit}
+      />
+
+      <OrderDraftPrompt
+        open={!!draftPrompt && draftPromptLines.length > 0}
+        savedAgo={draftPrompt ? draftSavedAgoLabel(draftPrompt.saved_at) : ""}
+        lines={draftPromptLines}
+        busy={applying}
+        onRestore={restoreDraft}
+        onDiscard={discardDraft}
+        onClose={() => setDraftPrompt(null)}
       />
 
       <RecurringOrderPicker

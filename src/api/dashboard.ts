@@ -236,7 +236,7 @@ export function useDashboardStats(businessId: string | null, enabledFeatures: Se
         activity.push({
           id: `ord-${o.id}`,
           type: "order",
-          title: `הזמנה · ${o.quantity} יח׳`,
+          title: `הזמנה · ${o.quantity}`,
           subtitle: o.status === "received" ? "התקבלה" : o.status === "ordered" ? "הוזמנה" : "ממתינה",
           at: o.created_at,
           icon: "inventory_2",

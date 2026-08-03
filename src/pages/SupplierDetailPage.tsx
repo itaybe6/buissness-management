@@ -23,6 +23,7 @@ import {
   useCreateOrdersBatch,
   useDeleteOrdersBatch,
   formatQtyWithPieces,
+  pieceUnitLabel,
   splitPackageQty,
   inventoryLineTotal,
   inventorySaveError,
@@ -483,7 +484,13 @@ function SupplierProductCard({
           <span className="spd-pcard-name">{product.item_name}</span>
           <span className="spd-pcard-meta">
             {product.category_name && <span>{product.category_name}</span>}
-            {pack > 0 ? <span>{pack} יח׳ ב{mainUnit}</span> : <span>{mainUnit}</span>}
+            {pack > 0 ? (
+              <span>
+                {pack} {pieceUnitLabel(item?.piece_unit)} ב{mainUnit}
+              </span>
+            ) : (
+              <span>{mainUnit}</span>
+            )}
             {item?.barcode && (
               <span className="spd-pcard-bc" dir="ltr">
                 {item.barcode}

@@ -449,12 +449,22 @@ export interface InventoryCategory {
   created_at: string;
 }
 
+/**
+ * How a unit behaves:
+ * - `single`  — one countable item (יחידה, בקבוק, פחית). May sit inside a package.
+ * - `package` — a container holding N single items (ארגז, מארז, שישייה).
+ * - `measure` — a continuous measure, never split into pieces (ק״ג, ליטר).
+ */
+export type InventoryUnitKind = "single" | "package" | "measure";
+
 export interface InventoryUnit {
   id: string;
   business_id: string;
   name: string;
   sort_order: number;
+  /** Legacy flag kept in sync with `kind === "single"`; prefer `kind`. */
   is_base: boolean;
+  kind: InventoryUnitKind;
   active: boolean;
   created_at: string;
 }
@@ -484,9 +494,12 @@ export interface InventoryItem {
   name: string;
   /** Optional product barcode (unique per business when set). */
   barcode: string | null;
+  /** The unit quantities are stored, counted and ordered in. */
   unit: string | null;
-  /** Individual pieces per main unit (e.g. 24 units per box). null when unit is יחידות. */
+  /** Single pieces inside one `unit` (e.g. 24 bottles per crate). null = no breakdown. */
   units_per_package: number | null;
+  /** Name of the single piece inside the package (e.g. בקבוק). null when there is no breakdown. */
+  piece_unit: string | null;
   image_url: string | null;
   min_quantity: number;
   /** FK to inventory_categories; null = uncategorized */

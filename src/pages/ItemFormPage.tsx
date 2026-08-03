@@ -8,9 +8,10 @@ import {
   MultiSelect,
   PageLoader,
   Select,
+  Switch,
 } from "@/components/ui";
 import { DualUnitQtyInput } from "@/components/inventory/DualUnitQtyInput";
-import { InventoryUnitSelect, inventoryUnitIsBase } from "@/components/inventory/InventoryUnitSelect";
+import { InventoryUnitSelect } from "@/components/inventory/InventoryUnitSelect";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId, formatCurrency } from "@/lib/db";
 import { canSeeInventoryPrices } from "@/lib/constants";
@@ -24,7 +25,8 @@ import {
   itemWarehouseQty,
   formatQtyWithPieces,
   normalizeInventoryBarcode,
-  canUsePieceInput,
+  hasPieceBreakdown,
+  pieceUnitLabel,
   mainUnitToPieces,
   inventorySaveError,
   BASE_UNIT,
@@ -33,7 +35,14 @@ import {
 import { useWarehouses } from "@/api/warehouses";
 import { useDepartments } from "@/api/departments";
 import { useInventoryCategories } from "@/api/inventoryCategories";
-import { useInventoryUnits } from "@/api/inventoryUnits";
+import {
+  UNIT_KINDS,
+  inventoryUnitKind,
+  unitAllowsFractions,
+  unitAllowsPackaging,
+  unitExpectsPackaging,
+  useInventoryUnits,
+} from "@/api/inventoryUnits";
 import {
   useItemSuppliers,
   useSaveItemSuppliers,
@@ -47,8 +56,13 @@ type ItemFormState = {
   name: string;
   barcode: string;
   categoryId: string;
+  /** The unit quantities are counted and stored in. */
   unit: string;
+  /** Whether one `unit` is a container holding several single pieces. */
+  hasPackage: boolean;
   unitsPerPackage: string;
+  /** What one piece inside the container is called. */
+  pieceUnit: string;
   minQty: string;
   departmentIds: string[];
   imageUrl: string | null;
@@ -77,7 +91,9 @@ const EMPTY_FORM: ItemFormState = {
   barcode: "",
   categoryId: "",
   unit: "יחידות",
+  hasPackage: false,
   unitsPerPackage: "",
+  pieceUnit: "",
   minQty: "0",
   departmentIds: [],
   imageUrl: null,
@@ -85,12 +101,15 @@ const EMPTY_FORM: ItemFormState = {
 };
 
 function formFromItem(item: ItemWithQty): ItemFormState {
+  const packed = hasPieceBreakdown(item.units_per_package);
   return {
     name: item.name,
     barcode: item.barcode ?? "",
     categoryId: item.category_id ?? "",
     unit: item.unit ?? "יחידות",
-    unitsPerPackage: item.units_per_package != null ? String(item.units_per_package) : "",
+    hasPackage: packed,
+    unitsPerPackage: packed ? String(item.units_per_package) : "",
+    pieceUnit: packed ? pieceUnitLabel(item.piece_unit) : "",
     minQty: String(item.min_quantity),
     departmentIds: [...item.department_ids],
     imageUrl: item.image_url,
@@ -177,6 +196,8 @@ function WarehouseRow({
   qty,
   unit,
   unitsPerPackage,
+  pieceUnit,
+  allowFractions,
   totalQty,
   lastUpdatedAt,
   lastUpdatedBy,
@@ -186,6 +207,8 @@ function WarehouseRow({
   qty: number;
   unit: string;
   unitsPerPackage: number | null;
+  pieceUnit: string;
+  allowFractions: boolean;
   totalQty: number;
   lastUpdatedAt: string | null;
   lastUpdatedBy: string | null;
@@ -212,6 +235,8 @@ function WarehouseRow({
           value={qty}
           mainUnit={unit}
           unitsPerPackage={unitsPerPackage}
+          pieceUnit={pieceUnit}
+          allowFractions={allowFractions}
           onCommit={onQty}
           variant="stepper"
         />
@@ -223,7 +248,7 @@ function WarehouseRow({
         <span className="iwz-wh-meta">
           {qty > 0 ? (
             <>
-              {formatQtyWithPieces(qty, unit, unitsPerPackage)}
+              {formatQtyWithPieces(qty, unit, unitsPerPackage, pieceUnit)}
               {totalQty > 0 && <em>{share}% מהמלאי</em>}
             </>
           ) : (
@@ -281,6 +306,7 @@ function SupplierRow({
   supplier,
   line,
   unit,
+  pieceUnit,
   dual,
   cheapest,
   missing,
@@ -293,6 +319,7 @@ function SupplierRow({
   supplier: Supplier;
   line: SupplierLine | undefined;
   unit: string;
+  pieceUnit: string;
   dual: boolean;
   cheapest: boolean;
   missing: boolean;
@@ -304,7 +331,7 @@ function SupplierRow({
 }) {
   const selected = !!line;
   const mainUnitLabel = unit.trim() || BASE_UNIT;
-  const pieceUnitLabel = supplierPriceUnitLabel("piece", unit);
+  const pieceLabel = supplierPriceUnitLabel("piece", unit, pieceUnit);
 
   return (
     <article className="ipf-sup" data-selected={selected} data-missing={selected && missing}>
@@ -357,8 +384,8 @@ function SupplierRow({
           {dual && (
             <PriceBox
               value={line?.piecePrice ?? ""}
-              unitLabel={pieceUnitLabel}
-              ariaLabel={`מחיר ל${pieceUnitLabel} אצל ${supplier.name}`}
+              unitLabel={pieceLabel}
+              ariaLabel={`מחיר ל${pieceLabel} אצל ${supplier.name}`}
               selected={selected}
               onChange={onPiecePrice}
             />
@@ -481,10 +508,14 @@ export function ItemFormPage() {
     return () => URL.revokeObjectURL(url);
   }, [form.file]);
 
-  const unitsPerPackage = !inventoryUnitIsBase(form.unit, inventoryUnits)
-    ? Number(form.unitsPerPackage) || null
-    : null;
-  const dualUnit = canUsePieceInput(form.unit, unitsPerPackage);
+  const unitKind = inventoryUnitKind(form.unit, inventoryUnits);
+  const canPackage = unitAllowsPackaging(form.unit, inventoryUnits);
+  const allowFractions = unitAllowsFractions(form.unit, inventoryUnits);
+  /** A pack size counts only when the manager explicitly turned the breakdown on. */
+  const unitsPerPackage =
+    form.hasPackage && canPackage ? Number(form.unitsPerPackage) || null : null;
+  const dualUnit = hasPieceBreakdown(unitsPerPackage);
+  const pieceLabel = pieceUnitLabel(form.pieceUnit);
 
   const totalQty = useMemo(
     () => warehouses.reduce((sum, w) => sum + (drafts[w.id] ?? 0), 0),
@@ -637,7 +668,7 @@ export function ItemFormPage() {
     setDrafts((d) => ({ ...d, [transferFrom]: plan.nextFromQty, [transferTo]: plan.nextToQty }));
     setTransferQty(0);
     setTransferNote(
-      `הועברו ${formatQtyWithPieces(plan.amount, form.unit, unitsPerPackage)} מ${fromName} ל${toName} — יישמר בלחיצה על «שמירה»`,
+      `הועברו ${formatQtyWithPieces(plan.amount, form.unit, unitsPerPackage, pieceLabel)} מ${fromName} ל${toName} — יישמר בלחיצה על «שמירה»`,
     );
   }
 
@@ -666,9 +697,15 @@ export function ItemFormPage() {
   function validateStep(id: StepId): string | null {
     if (id === "basics" && !form.name.trim()) return "נא להזין שם מוצר";
     if (id === "unit") {
-      const raw = form.unitsPerPackage.trim();
-      if (!inventoryUnitIsBase(form.unit, inventoryUnits) && raw !== "" && (Number(raw) || 0) < 1) {
-        return `נא להזין כמה יחידות יש ב${form.unit} — מספר מ-1 ומעלה`;
+      if (!form.unit.trim()) return "נא לבחור יחידת מידה";
+      if (form.hasPackage && canPackage) {
+        if ((Number(form.unitsPerPackage) || 0) < 2) {
+          return `נא להזין כמה פריטים יש ב${form.unit} — לפחות 2`;
+        }
+        if (!form.pieceUnit.trim()) return "נא לבחור איך נקרא הפריט הבודד שבתוך האריזה";
+        if (form.pieceUnit.trim() === form.unit.trim()) {
+          return "הפריט הבודד חייב להיות יחידה אחרת מהאריזה";
+        }
       }
       if ((Number(form.minQty) || 0) < 0) return "כמות מינימום לא יכולה להיות שלילית";
     }
@@ -734,9 +771,8 @@ export function ItemFormPage() {
       const barcode = normalizeInventoryBarcode(form.barcode);
       const min_quantity = Math.max(0, Number(form.minQty) || 0);
       const category_id = form.categoryId || null;
-      const units_per_package = !inventoryUnitIsBase(form.unit, inventoryUnits)
-        ? Math.max(0, Number(form.unitsPerPackage) || 0) || null
-        : null;
+      const units_per_package = unitsPerPackage;
+      const piece_unit = units_per_package != null ? pieceLabel : null;
       const department_ids = form.departmentIds;
 
       const supplierPayload: { supplier_id: string; unit_price: number; price_unit: SupplierPriceUnit }[] = [];
@@ -756,7 +792,8 @@ export function ItemFormPage() {
         if (form.name.trim() !== editing.name) changed.push("שם");
         if (barcode !== editing.barcode) changed.push("ברקוד");
         if (form.unit !== (editing.unit ?? "יחידות")) changed.push("יחידת מידה");
-        if (units_per_package !== editing.units_per_package) changed.push("יחידים ביחידת מידה");
+        if (units_per_package !== editing.units_per_package) changed.push("פריטים באריזה");
+        if (piece_unit !== editing.piece_unit) changed.push("שם הפריט הבודד");
         if (min_quantity !== editing.min_quantity) changed.push("כמות מינימום");
         if (category_id !== editing.category_id) changed.push("קטגוריה");
         if (image_url !== editing.image_url) changed.push("תמונה");
@@ -784,6 +821,7 @@ export function ItemFormPage() {
             barcode,
             unit: form.unit,
             units_per_package,
+            piece_unit,
             image_url,
             min_quantity,
             category_id,
@@ -820,6 +858,7 @@ export function ItemFormPage() {
           barcode,
           unit: form.unit,
           units_per_package,
+          piece_unit,
           image_url,
           min_quantity,
           category_id,
@@ -987,74 +1026,124 @@ export function ItemFormPage() {
     );
   }
 
+  /** Picking a unit re-derives the packaging default: only containers get a breakdown. */
+  function changeUnit(unit: string) {
+    setForm((f) => {
+      const expectsPack = unitExpectsPackaging(unit, inventoryUnits);
+      const allowsPack = unitAllowsPackaging(unit, inventoryUnits);
+      const keepPack = allowsPack && expectsPack;
+      return {
+        ...f,
+        unit,
+        hasPackage: keepPack,
+        unitsPerPackage: keepPack ? f.unitsPerPackage : "",
+        pieceUnit: keepPack ? f.pieceUnit || BASE_UNIT : "",
+      };
+    });
+  }
+
+  function togglePackaging(on: boolean) {
+    setForm((f) => ({
+      ...f,
+      hasPackage: on,
+      unitsPerPackage: on ? f.unitsPerPackage : "",
+      pieceUnit: on ? f.pieceUnit || BASE_UNIT : "",
+    }));
+  }
+
   function renderUnit() {
-    const isPackUnit = !inventoryUnitIsBase(form.unit, inventoryUnits);
     const minQtyNum = Math.max(0, Number(form.minQty) || 0);
+    const kindMeta = UNIT_KINDS.find((k) => k.value === unitKind);
+    const packOpen = form.hasPackage && canPackage;
+    /** One full package plus two loose pieces, so the preview shows both levels. */
+    const previewQty = dualUnit ? 1 + 2 / unitsPerPackage! : 3;
 
     return (
       <div className="iwz-unit">
-        <div className="iwz-unit-hero">
-          <div className="iwz-unit-hero-copy">
-            <span className="iwz-unit-hero-kicker">מדידה</span>
-            <h3 className="iwz-unit-hero-title">יחידת מידה</h3>
-            <p className="iwz-unit-hero-sub">באיזו יחידה סופרים, מזמינים ומנהלים מלאי עבור מוצר זה</p>
-          </div>
-          <span className="iwz-unit-hero-icon" aria-hidden>
-            <Icon name="straighten" size={22} />
-          </span>
-        </div>
-
         <div className="iwz-unit-picker">
-          <span className="iwz-unit-picker-label">יחידה נבחרת</span>
+          <span className="iwz-unit-picker-label">איך סופרים את המוצר?</span>
           <InventoryUnitSelect
             businessId={businessId}
             value={form.unit}
             canManage={canManage}
             className="iwz-unit-select"
-            onChange={(unit) => {
-              setForm((f) => ({
-                ...f,
-                unit,
-                unitsPerPackage: inventoryUnitIsBase(unit, inventoryUnits) ? "" : f.unitsPerPackage,
-              }));
-            }}
+            onChange={changeUnit}
           />
+          {kindMeta && (
+            <p className="iwz-unit-kind">
+              <Icon name={kindMeta.icon} size={15} />
+              <b>{kindMeta.label}</b>
+              <span>{kindMeta.hint}</span>
+            </p>
+          )}
         </div>
 
-        {isPackUnit && (
-          <div className="iwz-unit-pack">
+        {canPackage ? (
+          <div className="iwz-unit-pack" data-open={packOpen}>
             <div className="iwz-unit-pack-head">
-              <Icon name="widgets" size={17} />
-              <span>פירוק ליחידים בודדים</span>
+              <span className="iwz-unit-pack-icon" aria-hidden>
+                <Icon name="widgets" size={18} />
+              </span>
+              <div className="min-w-0">
+                <h4 className="iwz-unit-pack-title">{form.unit} אחד מכיל כמה פריטים</h4>
+                <p className="iwz-unit-pack-sub">
+                  {packOpen
+                    ? `אפשר יהיה לספור ולהזמין גם ב${form.unit} שלמים וגם בפריטים בודדים.`
+                    : `הפעילו רק אם ${form.unit} הוא אריזה שסופרים גם את תכולתה.`}
+                </p>
+              </div>
+              <Switch checked={packOpen} onChange={togglePackaging} />
             </div>
-            <div className="iwz-unit-pack-grid">
-              <label className="iwz-unit-pack-field">
-                <span className="iwz-unit-pack-label">יחידים ב{form.unit}</span>
-                <Input
-                  className="spf-input iwz-unit-pack-input"
-                  type="number"
-                  min={1}
-                  value={form.unitsPerPackage}
-                  onChange={(e) => setForm({ ...form, unitsPerPackage: e.target.value })}
-                  placeholder="לדוגמה: 24"
-                />
-              </label>
 
-              {dualUnit && (
-                <div className="iwz-unit-ratio" aria-live="polite">
-                  <span className="iwz-unit-ratio-chip">
-                    <b>1</b>
-                    <span>{form.unit}</span>
-                  </span>
-                  <Icon name="sync_alt" size={18} className="iwz-unit-ratio-arrow" />
-                  <span className="iwz-unit-ratio-chip iwz-unit-ratio-chip--accent">
-                    <b>{unitsPerPackage}</b>
-                    <span>{BASE_UNIT}</span>
-                  </span>
+            {packOpen && (
+              <div className="iwz-unit-pack-body">
+                <div className="iwz-unit-pack-grid">
+                  <label className="iwz-unit-pack-field">
+                    <span className="iwz-unit-pack-label">כמה פריטים ב{form.unit}</span>
+                    <Input
+                      className="spf-input iwz-unit-pack-input"
+                      type="number"
+                      min={2}
+                      value={form.unitsPerPackage}
+                      onChange={(e) => setForm({ ...form, unitsPerPackage: e.target.value })}
+                      placeholder="לדוגמה: 24"
+                    />
+                  </label>
+
+                  <label className="iwz-unit-pack-field">
+                    <span className="iwz-unit-pack-label">איך קוראים לפריט הבודד</span>
+                    <InventoryUnitSelect
+                      businessId={businessId}
+                      value={form.pieceUnit}
+                      canManage={canManage}
+                      className="iwz-unit-select"
+                      pieceOnly
+                      onChange={(pieceUnit) => setForm({ ...form, pieceUnit })}
+                    />
+                  </label>
                 </div>
-              )}
-            </div>
+
+                {dualUnit && (
+                  <div className="iwz-unit-ratio" aria-live="polite">
+                    <span className="iwz-unit-ratio-chip">
+                      <b>1</b>
+                      <span>{form.unit}</span>
+                    </span>
+                    <Icon name="sync_alt" size={18} className="iwz-unit-ratio-arrow" />
+                    <span className="iwz-unit-ratio-chip iwz-unit-ratio-chip--accent">
+                      <b>{unitsPerPackage}</b>
+                      <span>{pieceLabel}</span>
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
+        ) : (
+          <p className="iwz-unit-note">
+            <Icon name="info" size={15} />
+            {form.unit} נמדד בכמות רציפה — אין פירוק לפריטים בודדים, ואפשר להזין שברים כמו 2.5.
+          </p>
         )}
 
         <div className="iwz-unit-threshold">
@@ -1072,6 +1161,7 @@ export function ItemFormPage() {
               className="spf-input iwz-unit-threshold-input"
               type="number"
               min={0}
+              step={allowFractions ? 0.1 : 1}
               value={form.minQty}
               onChange={(e) => setForm({ ...form, minQty: e.target.value })}
               placeholder="0"
@@ -1085,6 +1175,12 @@ export function ItemFormPage() {
             </p>
           )}
         </div>
+
+        <p className="iwz-unit-preview" aria-live="polite">
+          <Icon name="visibility" size={14} />
+          כך תוצג כמות במלאי:{" "}
+          <b>{formatQtyWithPieces(previewQty, form.unit, unitsPerPackage, pieceLabel)}</b>
+        </p>
       </div>
     );
   }
@@ -1122,6 +1218,8 @@ export function ItemFormPage() {
                 qty={drafts[w.id] ?? 0}
                 unit={form.unit}
                 unitsPerPackage={unitsPerPackage}
+                pieceUnit={pieceLabel}
+                allowFractions={allowFractions}
                 totalQty={totalQty}
                 lastUpdatedAt={stock?.last_updated_at ?? null}
                 lastUpdatedBy={stock?.last_updated_by_name ?? null}
@@ -1136,7 +1234,7 @@ export function ItemFormPage() {
             סה״כ {isEdit ? "במלאי" : "מלאי התחלתי"}
             {stockedCount > 0 && <em>ב-{stockedCount} מחסנים</em>}
           </span>
-          <b>{formatQtyWithPieces(totalQty, form.unit, unitsPerPackage)}</b>
+          <b>{formatQtyWithPieces(totalQty, form.unit, unitsPerPackage, pieceLabel)}</b>
         </div>
 
         <p className="ipf-hint">
@@ -1200,6 +1298,8 @@ export function ItemFormPage() {
                       value={transferQty}
                       mainUnit={form.unit}
                       unitsPerPackage={unitsPerPackage}
+                      pieceUnit={pieceLabel}
+                      allowFractions={allowFractions}
                       onCommit={setTransferQty}
                       variant="input"
                     />
@@ -1218,9 +1318,9 @@ export function ItemFormPage() {
 
                 {transferFrom && (
                   <p className="ipf-transfer-max">
-                    זמין להעברה: {formatQtyWithPieces(transferMax, form.unit, unitsPerPackage)}
+                    זמין להעברה: {formatQtyWithPieces(transferMax, form.unit, unitsPerPackage, pieceLabel)}
                     {dualUnit && transferMax > 0 && (
-                      <> ({mainUnitToPieces(transferMax, unitsPerPackage!)} יח׳)</>
+                      <> ({mainUnitToPieces(transferMax, unitsPerPackage!)} {pieceLabel})</>
                     )}
                   </p>
                 )}
@@ -1288,6 +1388,7 @@ export function ItemFormPage() {
                 supplier={s}
                 line={line}
                 unit={form.unit}
+                pieceUnit={pieceLabel}
                 dual={dualUnit}
                 cheapest={!!cheapest && cheapest.id === s.id && effectivePrices.size > 1}
                 missing={attempted && !!line && !lineHasValidPrice(line, dualUnit)}
@@ -1308,7 +1409,7 @@ export function ItemFormPage() {
         <p className="ipf-hint">
           <Icon name="info" size={14} />
           {dualUnit
-            ? `אפשר להזין מחיר ל${form.unit} וגם ליחידה בודדת — המחיר משמש בהזמנות מהספק.`
+            ? `אפשר להזין מחיר ל${form.unit} וגם ל${pieceLabel} בודד — המחיר משמש בהזמנות מהספק.`
             : `המחיר נשמר לספק הזה בלבד, ל${form.unit || "יחידה"} אחת — ומשמש בהזמנות.`}
         </p>
       </>
@@ -1333,7 +1434,7 @@ export function ItemFormPage() {
             <span className="iwz-rev-tags">
               {categoryLabel && <em>{categoryLabel}</em>}
               <em>{form.unit}</em>
-              {dualUnit && <em>{unitsPerPackage} יח׳ ליחידה</em>}
+              {dualUnit && <em>{unitsPerPackage} {pieceLabel} ל{form.unit}</em>}
               {form.barcode.trim() && (
                 <em dir="ltr" className="font-mono">
                   {form.barcode.trim()}
@@ -1347,7 +1448,7 @@ export function ItemFormPage() {
           <ReviewFact
             icon="inventory"
             label="מלאי התחלתי"
-            value={formatQtyWithPieces(totalQty, form.unit, unitsPerPackage)}
+            value={formatQtyWithPieces(totalQty, form.unit, unitsPerPackage, pieceLabel)}
           />
           <ReviewFact icon="warehouse" label="מחסנים" value={`${stocked.length} מתוך ${warehouses.length}`} />
           <ReviewFact icon="low_priority" label="סף התראה" value={minQtyValue > 0 ? `${minQtyValue}` : "לא הוגדר"} />
@@ -1369,7 +1470,7 @@ export function ItemFormPage() {
               {stocked.map((w) => (
                 <li key={w.id}>
                   <span>{w.name}</span>
-                  <b>{formatQtyWithPieces(drafts[w.id] ?? 0, form.unit, unitsPerPackage)}</b>
+                  <b>{formatQtyWithPieces(drafts[w.id] ?? 0, form.unit, unitsPerPackage, pieceLabel)}</b>
                 </li>
               ))}
             </ul>
@@ -1481,11 +1582,11 @@ export function ItemFormPage() {
                 <span className="spf-hero-fact">
                   <Icon name="straighten" size={13} />
                   {form.unit}
-                  {dualUnit ? ` · ${unitsPerPackage} יח׳` : ""}
+                  {dualUnit ? ` · ${unitsPerPackage} ${pieceLabel}` : ""}
                 </span>
                 <span className="spf-hero-fact">
                   <Icon name="inventory" size={13} />
-                  {formatQtyWithPieces(totalQty, form.unit, unitsPerPackage)}
+                  {formatQtyWithPieces(totalQty, form.unit, unitsPerPackage, pieceLabel)}
                 </span>
                 {lowStock && totalQty > 0 && (
                   <span className="spf-hero-fact ipf-hero-warn">

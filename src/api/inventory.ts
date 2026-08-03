@@ -23,6 +23,9 @@ export function inventorySaveError(e: unknown): string {
   if (msg.includes("min_quantity")) {
     return "עמודת «כמות מינימום» חסרה במסד הנתונים. ב-Supabase: SQL Editor → הריצו את supabase/patches/011_inventory_min_quantity.sql";
   }
+  if (msg.includes("piece_unit")) {
+    return "עמודת «שם היחיד במארז» חסרה במוצרים. ב-Supabase: SQL Editor → הריצו את supabase/migrations/20260801220000_inventory_unit_kind.sql";
+  }
   if (msg.includes("units_per_package")) {
     return "עמודת «יחידים ביחידת מידה» חסרה במסד הנתונים. ב-Supabase: SQL Editor → הריצו את supabase/patches/030_inventory_units_per_package.sql";
   }
@@ -216,21 +219,35 @@ export async function logInventory(input: {
 }
 
 export const INVENTORY_UNITS = [
-  { value: "יחידות", label: "יחידות" },
-  { value: "ארגז", label: "ארגז" },
-  { value: "ק״ג", label: "ק״ג" },
-  { value: "ליטר", label: "ליטר" },
+  { value: "יחידות", label: "יחידות", kind: "single" },
+  { value: "בקבוק", label: "בקבוק", kind: "single" },
+  { value: "ארגז", label: "ארגז", kind: "package" },
+  { value: "ק״ג", label: "ק״ג", kind: "measure" },
+  { value: "ליטר", label: "ליטר", kind: "measure" },
 ] as const;
 
+/** Fallback label for a single piece when the product did not name one. */
 export const BASE_UNIT = "יחידות" as const;
 
-/** Whether the item's main unit allows entering quantities as individual pieces. */
-export function supportsPieceInput(unit: string | null | undefined): boolean {
-  return !!unit && unit !== BASE_UNIT;
+/** The three unit fields every quantity formatter needs. */
+export type ItemUnitInfo = Pick<InventoryItem, "unit" | "units_per_package" | "piece_unit">;
+
+/** What one piece inside the package is called — e.g. "בקבוק" for a crate of bottles. */
+export function pieceUnitLabel(pieceUnit: string | null | undefined): string {
+  return pieceUnit?.trim() || BASE_UNIT;
 }
 
-export function canUsePieceInput(unit: string | null | undefined, unitsPerPackage: number | null | undefined): boolean {
-  return supportsPieceInput(unit) && (unitsPerPackage ?? 0) > 0;
+/**
+ * A product is split into two levels only when a pack size was explicitly set.
+ * The unit's own name says nothing: "בקבוק" and "ק״ג" are single-level, "ארגז" of 24 is not.
+ */
+export function hasPieceBreakdown(unitsPerPackage: number | null | undefined): boolean {
+  return (unitsPerPackage ?? 0) > 0;
+}
+
+/** Same rule, from an item. */
+export function itemHasPieces(item: ItemUnitInfo): boolean {
+  return hasPieceBreakdown(item.units_per_package);
 }
 
 /** Convert individual pieces to the item's main unit. */
@@ -263,24 +280,34 @@ export function splitPackageQty(
 
 /**
  * Format quantity for display.
- * Package units with units_per_package → "7 ארגז + 2 יח׳" (never a decimal package count).
+ * With a pack size → "7 ארגז + 2 בקבוק" (never a decimal package count);
+ * without one → plain "7 בקבוק" / "2.5 ק״ג".
  */
 export function formatQtyWithPieces(
   qty: number,
   unit: string | null,
   unitsPerPackage: number | null | undefined,
+  pieceUnit?: string | null,
 ): string {
   const unitLabel = unit?.trim() || "";
-  if (!canUsePieceInput(unit, unitsPerPackage)) {
+  if (!hasPieceBreakdown(unitsPerPackage)) {
     return unitLabel ? `${qty} ${unitLabel}` : String(qty);
   }
+  const pieceLabel = pieceUnitLabel(pieceUnit);
   const { packages, pieces } = splitPackageQty(qty, unitsPerPackage!);
   if (packages === 0 && pieces === 0) {
     return unitLabel ? `0 ${unitLabel}` : "0";
   }
-  if (packages === 0) return `${pieces} יח׳`;
+  if (packages === 0) return `${pieces} ${pieceLabel}`;
   if (pieces === 0) return unitLabel ? `${packages} ${unitLabel}` : String(packages);
-  return unitLabel ? `${packages} ${unitLabel} + ${pieces} יח׳` : `${packages} + ${pieces} יח׳`;
+  return unitLabel
+    ? `${packages} ${unitLabel} + ${pieces} ${pieceLabel}`
+    : `${packages} + ${pieces} ${pieceLabel}`;
+}
+
+/** `formatQtyWithPieces` for a whole item. */
+export function formatItemQty(item: ItemUnitInfo, qty: number): string {
+  return formatQtyWithPieces(qty, item.unit, item.units_per_package, item.piece_unit);
 }
 
 /** Integer piece delta between two main-unit quantities (avoids float drift). */
@@ -296,29 +323,33 @@ export function qtyChangeInPieces(
 }
 
 /**
- * Format a quantity change for logs — e.g. "+13 יח׳" or "+1 ארגז + 3 יח׳" (never decimals).
+ * Format a quantity change for logs — e.g. "+13 בקבוק" or "+1 ארגז + 3 בקבוק" (never decimals).
  */
 export function formatQtyChangeWithPieces(
   previousQty: number,
   newQty: number,
   unit: string | null,
   unitsPerPackage: number | null | undefined,
+  pieceUnit?: string | null,
 ): string {
-  if (!canUsePieceInput(unit, unitsPerPackage)) {
+  if (!hasPieceBreakdown(unitsPerPackage)) {
     const delta = Math.round((newQty - previousQty) * 10000) / 10000;
     if (delta === 0) return "0";
     return delta > 0 ? `+${delta}` : String(delta);
   }
   const deltaPieces = qtyChangeInPieces(previousQty, newQty, unitsPerPackage!);
   if (deltaPieces === 0) return "0";
+  const pieceLabel = pieceUnitLabel(pieceUnit);
   const sign = deltaPieces > 0 ? "+" : "-";
   const abs = Math.abs(deltaPieces);
   const pkg = Math.floor(abs / unitsPerPackage!);
   const pcs = abs % unitsPerPackage!;
   const unitLabel = unit?.trim() || "";
-  if (pkg === 0) return `${sign}${pcs} יח׳`;
+  if (pkg === 0) return `${sign}${pcs} ${pieceLabel}`;
   if (pcs === 0) return unitLabel ? `${sign}${pkg} ${unitLabel}` : `${sign}${pkg}`;
-  return unitLabel ? `${sign}${pkg} ${unitLabel} + ${pcs} יח׳` : `${sign}${pkg} + ${pcs} יח׳`;
+  return unitLabel
+    ? `${sign}${pkg} ${unitLabel} + ${pcs} ${pieceLabel}`
+    : `${sign}${pkg} + ${pcs} ${pieceLabel}`;
 }
 
 async function fetchItemDepartmentMap(businessId: string): Promise<Map<string, string[]>> {
@@ -487,6 +518,7 @@ export function useCreateItem(businessId: string | null) {
       barcode?: string | null;
       unit?: string;
       units_per_package?: number | null;
+      piece_unit?: string | null;
       image_url?: string | null;
       min_quantity?: number;
       category_id?: string | null;
@@ -959,6 +991,8 @@ export function useCorrectReceivedOrder(businessId: string | null) {
       supplier_id: string | null;
       employee_id: string | null;
       remainder_order_id: string | null;
+      /** Where the correction lands; falls back to the default warehouse. */
+      warehouse_id?: string | null;
     }) => {
       const received = input.received_quantity;
       const plan = planReceiveCorrection({

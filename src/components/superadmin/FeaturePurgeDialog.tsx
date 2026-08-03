@@ -18,9 +18,9 @@ import type { FeatureKey } from "@/types/database";
 /**
  * The airlock in front of an irreversible delete.
  *
- * Switching a module off wipes that module's data for the business, so this is
- * deliberately not a yes/no box: it shows the real row counts per table, names
- * the modules dragged down by the dependency cascade, says out loud what
+ * Switching a feature off wipes that feature's data for the business, so this
+ * is deliberately not a yes/no box: it shows the real row counts per table,
+ * names the features dragged down by the dependency cascade, says out loud what
  * survives, and only arms the button once the super admin has typed the
  * business name. After confirming, the same panel plays back what was deleted
  * — the receipt is the last thing left of that data.
@@ -95,18 +95,10 @@ function PurgeCore({ keys, phase }: { keys: FeatureKey[]; phase: Phase }) {
 export interface FeaturePurgeDialogProps {
   open: boolean;
   businessName: string;
-  /** Modules being switched off, cascade included, lead module first. */
+  /** Features being switched off, cascade included, lead feature first. */
   keys: FeatureKey[];
-  /** The module the super admin actually clicked — the rest came from the cascade. */
+  /** The feature the super admin actually clicked — the rest came from the cascade. */
   leadKey: FeatureKey;
-  /**
-   * "module" — one switch was flipped, the rest of `keys` is its dependency
-   * cascade. "plan" — a whole package was applied and several modules dropped
-   * out at once, so no module is to blame for the others.
-   */
-  mode?: "module" | "plan";
-  /** Name of the package being applied, when mode is "plan". */
-  planLabel?: string;
   report: FeatureDataReport | undefined;
   reportLoading: boolean;
   reportError?: boolean;
@@ -123,8 +115,6 @@ export function FeaturePurgeDialog({
   businessName,
   keys,
   leadKey,
-  mode = "module",
-  planLabel,
   report,
   reportLoading,
   reportError,
@@ -198,11 +188,9 @@ export function FeaturePurgeDialog({
             <h2 className="purge-title">
               {phase === "done"
                 ? "הנתונים נמחקו"
-                : mode === "plan"
-                  ? `מעבר לחבילת ${planLabel} מכבה ${keys.length} מודולים`
-                  : keys.length > 1
-                    ? `כיבוי ${keys.length} מודולים ומחיקת הנתונים שלהם`
-                    : `כיבוי ${moduleLabel(leadKey)} ומחיקת הנתונים שלו`}
+                : keys.length > 1
+                  ? `כיבוי ${keys.length} פיצ'רים ומחיקת הנתונים שלהם`
+                  : `כיבוי ${moduleLabel(leadKey)} ומחיקת הנתונים שלו`}
             </h2>
             <p className="purge-sub">
               <Icon name="storefront" size={14} />
@@ -249,7 +237,7 @@ export function FeaturePurgeDialog({
                     ))}
                   </ul>
                 ) : (
-                  <p className="purge-receipt-empty">לא היו נתונים למחיקה — המודול פשוט כובה.</p>
+                  <p className="purge-receipt-empty">לא היו נתונים למחיקה — הפיצ'ר פשוט כובה.</p>
                 )}
 
                 {filesRemoved > 0 && (
@@ -266,25 +254,15 @@ export function FeaturePurgeDialog({
                 animate={{ opacity: 1 }}
                 className="purge-review"
               >
-                {mode === "plan" ? (
+                {cascade.length > 0 && (
                   <div className="purge-cascade">
-                    <Icon name="workspace_premium" size={17} />
+                    <Icon name="account_tree" size={17} />
                     <span>
-                      חבילת <b>{planLabel}</b> אינה כוללת את{" "}
-                      {keys.map((k) => moduleLabel(k)).join(", ")}. הנתונים שלהם יימחקו עם המעבר.
+                      <b>{moduleLabel(leadKey)}</b> מפעיל את{" "}
+                      {cascade.map((k) => moduleLabel(k)).join(", ")} — הנתונים של{" "}
+                      {cascade.length > 1 ? "כולם" : "שניהם"} יימחקו יחד.
                     </span>
                   </div>
-                ) : (
-                  cascade.length > 0 && (
-                    <div className="purge-cascade">
-                      <Icon name="account_tree" size={17} />
-                      <span>
-                        <b>{moduleLabel(leadKey)}</b> מפעיל את{" "}
-                        {cascade.map((k) => moduleLabel(k)).join(", ")} — הנתונים של{" "}
-                        {cascade.length > 1 ? "כולם" : "שניהם"} יימחקו יחד.
-                      </span>
-                    </div>
-                  )
                 )}
 
                 <div className="purge-meter" data-empty={nothingToDelete}>
@@ -303,7 +281,7 @@ export function FeaturePurgeDialog({
                       : reportError
                         ? "לא הצלחנו לספור את הנתונים — אפשר להמשיך, המחיקה עצמה תדווח מה נמחק."
                         : nothingToDelete
-                          ? "אין נתונים למודול הזה בעסק. הכיבוי לא ימחק כלום."
+                          ? "אין נתונים לפיצ'ר הזה בעסק. הכיבוי לא ימחק כלום."
                           : "שורות יימחקו מהמסד. אין שחזור, אין סל מיחזור, אין גיבוי בתוך המערכת."}
                   </div>
                 </div>
@@ -327,9 +305,7 @@ export function FeaturePurgeDialog({
                             <Icon name={module?.icon ?? "layers"} size={17} />
                           </span>
                           <span className="purge-ledger-name">{module?.label ?? key}</span>
-                          {mode === "module" && key !== leadKey && (
-                            <span className="purge-ledger-tag">נגרר בתלות</span>
-                          )}
+                          {key !== leadKey && <span className="purge-ledger-tag">נגרר בתלות</span>}
                         </header>
 
                         <p className="purge-ledger-loses">{scope.loses}</p>
@@ -384,7 +360,7 @@ export function FeaturePurgeDialog({
                       ))}
                       <li>
                         <Icon name="check_small" size={16} />
-                        אפשר להדליק את המודול מחדש בכל רגע — הוא יחזור ריק
+                        אפשר להדליק את הפיצ'ר מחדש בכל רגע — הוא יחזור ריק
                       </li>
                     </ul>
                   </div>
@@ -460,7 +436,7 @@ export function FeaturePurgeDialog({
                   ) : (
                     <>
                       <Icon name="delete_forever" size={19} />
-                      {nothingToDelete ? "כיבוי המודול" : `מחיקה וכיבוי`}
+                      {nothingToDelete ? "כיבוי הפיצ'ר" : `מחיקה וכיבוי`}
                     </>
                   )}
                   <span className="purge-btn-fill" aria-hidden />

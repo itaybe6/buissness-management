@@ -37,7 +37,8 @@ import {
   type InventoryOrderWithUser,
   useItemLogs,
   inventorySaveError,
-  supportsPieceInput,
+  hasPieceBreakdown,
+  pieceUnitLabel,
   mainUnitToPieces,
   splitPackageQty,
   type ItemWithQty,
@@ -49,6 +50,7 @@ import {
   batchHasActivePartialDelivery,
   itemWarehouseQty,
   formatQtyWithPieces,
+  formatItemQty,
   formatQtyChangeWithPieces,
   inventoryItemMatchesQuery,
 } from "@/api/inventory";
@@ -99,6 +101,7 @@ function QtyStepper({
   value,
   unit,
   unitsPerPackage,
+  pieceUnit,
   disabled,
   onCommit,
   compact,
@@ -106,6 +109,7 @@ function QtyStepper({
   value: number;
   unit: string | null;
   unitsPerPackage: number | null;
+  pieceUnit?: string | null;
   disabled?: boolean;
   onCommit: (qty: number) => void;
   compact?: boolean;
@@ -115,6 +119,7 @@ function QtyStepper({
       value={value}
       mainUnit={unit}
       unitsPerPackage={unitsPerPackage}
+      pieceUnit={pieceUnit}
       disabled={disabled}
       onCommit={onCommit}
       variant="stepper"
@@ -953,10 +958,9 @@ function ItemDetailModal({
 
   const status = stockStatus(item);
   const meta = STOCK_META[status];
-  const pieceUnit = supportsPieceInput(item.unit);
-  const effectiveFactor =
-    pieceUnit && (item.units_per_package ?? 0) > 0 ? item.units_per_package! : pieceUnit ? 12 : 0;
-  const showPieces = pieceUnit && effectiveFactor > 0;
+  const showPieces = hasPieceBreakdown(item.units_per_package);
+  const effectiveFactor = showPieces ? item.units_per_package! : 0;
+  const pieceLabel = pieceUnitLabel(item.piece_unit);
   const stockSplit = showPieces ? splitPackageQty(item.current_qty, effectiveFactor) : null;
   const orderedSplit = showPieces && item.ordered_qty > 0 ? splitPackageQty(item.ordered_qty, effectiveFactor) : null;
   const draftDirty = draftQty !== selectedWarehouseQty;
@@ -1039,7 +1043,7 @@ function ItemDetailModal({
                 </span>
                 <span className="pd-stat-unit">
                   {item.unit ?? "ארגז"}
-                  {stockSplit.pieces > 0 ? ` + ${stockSplit.pieces} יח׳` : ""}
+                  {stockSplit.pieces > 0 ? ` + ${stockSplit.pieces} ${pieceLabel}` : ""}
                 </span>
               </>
             ) : (
@@ -1073,7 +1077,7 @@ function ItemDetailModal({
                   <span className="pd-stat-num text-[var(--info)]">+{orderedSplit.packages}</span>
                   <span className="pd-stat-unit text-[var(--info)]">
                     {item.unit ?? "ארגז"}
-                    {orderedSplit.pieces > 0 ? ` + ${orderedSplit.pieces} יח׳` : ""}
+                    {orderedSplit.pieces > 0 ? ` + ${orderedSplit.pieces} ${pieceLabel}` : ""}
                     {" · "}
                     {orderPanelOpen ? "סגירה" : "הגיע / לא הגיע"}
                   </span>
@@ -1097,7 +1101,7 @@ function ItemDetailModal({
                     <span className="pd-stat-num text-[var(--info)]">+{orderedSplit.packages}</span>
                     <span className="pd-stat-unit text-[var(--info)]">
                       {item.unit ?? "ארגז"}
-                      {orderedSplit.pieces > 0 ? ` + ${orderedSplit.pieces} יח׳` : ""}
+                      {orderedSplit.pieces > 0 ? ` + ${orderedSplit.pieces} ${pieceLabel}` : ""}
                     </span>
                   </>
                 ) : (
@@ -1141,7 +1145,7 @@ function ItemDetailModal({
                   <div className="mb-2.5 flex items-center justify-between gap-2">
                     <div>
                       <div className="text-[15px] font-extrabold tabular-nums text-[var(--info)]">
-                        {formatQtyWithPieces(Number(order.quantity), item.unit, item.units_per_package)}
+                        {formatItemQty(item, Number(order.quantity))}
                       </div>
                       <div className="mt-0.5 text-[11px] text-text-3">
                         {new Date(order.created_at).toLocaleDateString("he-IL", {
@@ -1157,6 +1161,7 @@ function ItemDetailModal({
                     orderedQty={Number(order.quantity)}
                     unit={item.unit}
                     unitsPerPackage={item.units_per_package}
+                    pieceUnit={item.piece_unit}
                     warehouses={warehouses}
                     defaultWarehouseId={primaryWarehouseId}
                     busy={orderArrivalBusy}
@@ -1227,7 +1232,7 @@ function ItemDetailModal({
                   >
                     <span className="text-[13px] font-semibold text-text">{w.name}</span>
                     <span className="text-[14px] font-extrabold tabular-nums text-text-2">
-                      {formatQtyWithPieces(whQty, item.unit, item.units_per_package)}
+                      {formatItemQty(item, whQty)}
                     </span>
                   </button>
                 );
@@ -1316,6 +1321,7 @@ function ItemDetailModal({
                         log.new_qty!,
                         item.unit,
                         item.units_per_package,
+                        item.piece_unit,
                       )
                     : null;
                 return (
@@ -1409,10 +1415,10 @@ function ItemCard({
   const status = stockStatus(item);
   const meta = STOCK_META[status];
   const categoryLabel = item.category_id ? categoryNames[item.category_id] ?? null : null;
-  const qtySplit =
-    supportsPieceInput(item.unit) && (item.units_per_package ?? 0) > 0
-      ? splitPackageQty(item.current_qty, item.units_per_package!)
-      : null;
+  const pieceLabel = pieceUnitLabel(item.piece_unit);
+  const qtySplit = hasPieceBreakdown(item.units_per_package)
+    ? splitPackageQty(item.current_qty, item.units_per_package!)
+    : null;
   const orderedSplit =
     qtySplit && item.ordered_qty > 0
       ? splitPackageQty(item.ordered_qty, item.units_per_package!)
@@ -1592,7 +1598,7 @@ function ItemCard({
                     <div className="mt-1 text-[22px] font-extrabold tabular-nums leading-none">{qtySplit.packages}</div>
                     <div className="mt-0.5 text-[11px] font-medium text-text-3">
                       {item.unit ?? "ארגז"}
-                      {qtySplit.pieces > 0 ? ` + ${qtySplit.pieces} יח׳` : ""}
+                      {qtySplit.pieces > 0 ? ` + ${qtySplit.pieces} ${pieceLabel}` : ""}
                     </div>
                   </>
                 ) : (
@@ -1600,7 +1606,7 @@ function ItemCard({
                 )}
                 {item.ordered_qty > 0 && (
                   <div className="mt-1 text-[12px] font-bold tabular-nums text-[var(--info)]">
-                    +{formatQtyWithPieces(item.ordered_qty, item.unit, item.units_per_package)} בהזמנה
+                    +{formatItemQty(item, item.ordered_qty)} בהזמנה
                   </div>
                 )}
               </div>
@@ -1686,8 +1692,8 @@ function OrderDetailLine({
   const isPartialReceived =
     !pending && line.received_quantity != null && line.received_quantity < line.quantity;
   const pieces =
-    item && supportsPieceInput(item.unit) && item.units_per_package
-      ? mainUnitToPieces(Number(line.quantity), item.units_per_package)
+    item && hasPieceBreakdown(item.units_per_package)
+      ? mainUnitToPieces(Number(line.quantity), item.units_per_package!)
       : null;
   const deliveryDays = lineDeliveryDays(line, suppliers);
   const receivedLabel = formatOrderReceivedLabel(line);
@@ -1746,7 +1752,7 @@ function OrderDetailLine({
             {!pending && line.received_quantity != null && line.received_quantity < line.quantity && (
               <span> · הוזמן {line.quantity}</span>
             )}
-            {pieces != null && <span>({pieces} יח׳)</span>}
+            {pieces != null && <span>({pieces} {pieceUnitLabel(item?.piece_unit)})</span>}
             {deliveryDays.length > 0 && (
               <span>· {deliveryDaysLabel(deliveryDays)}</span>
             )}
@@ -1791,6 +1797,7 @@ function OrderDetailLine({
           orderedQty={Number(line.quantity)}
           unit={item?.unit ?? null}
           unitsPerPackage={item?.units_per_package ?? null}
+          pieceUnit={item?.piece_unit ?? null}
           warehouses={warehouses}
           defaultWarehouseId={defaultWarehouseId}
           busy={busy}
@@ -2015,19 +2022,18 @@ function SplitQtyValue({
   qty,
   unit,
   unitsPerPackage,
+  pieceUnit,
   numClassName = "font-extrabold tabular-nums",
   unitClassName = "text-[10px] font-semibold text-text-3",
 }: {
   qty: number;
   unit: string | null;
   unitsPerPackage: number | null | undefined;
+  pieceUnit?: string | null;
   numClassName?: string;
   unitClassName?: string;
 }) {
-  const split =
-    supportsPieceInput(unit) && (unitsPerPackage ?? 0) > 0
-      ? splitPackageQty(qty, unitsPerPackage!)
-      : null;
+  const split = hasPieceBreakdown(unitsPerPackage) ? splitPackageQty(qty, unitsPerPackage!) : null;
   if (!split) {
     return <span className={numClassName}>{qty}</span>;
   }
@@ -2036,7 +2042,7 @@ function SplitQtyValue({
       <span className={numClassName}>{split.packages}</span>
       <span className={unitClassName}>
         {unit ?? "ארגז"}
-        {split.pieces > 0 ? ` + ${split.pieces} יח׳` : ""}
+        {split.pieces > 0 ? ` + ${split.pieces} ${pieceUnitLabel(pieceUnit)}` : ""}
       </span>
     </span>
   );
@@ -2091,9 +2097,10 @@ function HistoryModal({
   const { data: logs, isLoading, isError } = useItemLogs(businessId, item?.id ?? null);
   const unit = item?.unit ?? null;
   const unitsPerPackage = item?.units_per_package ?? null;
+  const pieceUnit = item?.piece_unit ?? null;
 
   function formatLogQty(qty: number): string {
-    return formatQtyWithPieces(qty, unit, unitsPerPackage);
+    return formatQtyWithPieces(qty, unit, unitsPerPackage, pieceUnit);
   }
 
   function detail(log: ItemLog): string {
@@ -2152,6 +2159,7 @@ function HistoryModal({
                         log.new_qty!,
                         unit,
                         unitsPerPackage,
+                        pieceUnit,
                       )
                     : null;
                   return (

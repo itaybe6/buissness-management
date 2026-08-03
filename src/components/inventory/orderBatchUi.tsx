@@ -250,7 +250,7 @@ export function OrderBatchCard({
             ) : null}
           </div>
           <p className="inventory-order-sub">
-            <b>{batch.lines.length}</b> פריטים · <b>{totalQty}</b> יח׳
+            <b>{batch.lines.length}</b> פריטים · <b>{totalQty}</b> בסך הכול
             {isReceived ? " התקבלו" : pendingQty < totalQty ? ` · ${pendingQty} ממתין` : ""} · הוזמן{" "}
             {date.time} · {batchOrderedByLabel(batch)}
             {showBatchTotal ? ` · ${formatCurrency(batchTotal)}` : ""}

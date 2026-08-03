@@ -8,6 +8,7 @@ import {
   MODULE_BY_KEY,
   applyFeatureToggle,
   dependentsOf,
+  enabledKeysOf,
   featureStateFromKeys,
   missingRecommendations,
   type FeatureModule,
@@ -43,6 +44,7 @@ function FeatureCard({
   index,
   pulls,
   breaks,
+  pending,
   onToggle,
 }: {
   module: FeatureModule;
@@ -52,6 +54,8 @@ function FeatureCard({
   pulls: FeatureModule[];
   /** Features this click would switch off as well (they depend on it). */
   breaks: FeatureModule[];
+  /** Waiting on the purge dialog — still lit, but marked for removal. */
+  pending?: boolean;
   onToggle: () => void;
 }) {
   const reduce = useReducedMotion();
@@ -72,13 +76,15 @@ function FeatureCard({
     el?.style.setProperty("--spot-y", "50%");
   };
 
-  const note = enabled
-    ? breaks.length > 0
-      ? { icon: "link", text: `כיבוי יכבה גם ${breaks.map((b) => b.label).join(", ")}` }
-      : null
-    : pulls.length > 0
-      ? { icon: "bolt", text: `ידליק גם ${pulls.map((p) => p.label).join(", ")}` }
-      : null;
+  const note = pending
+    ? { icon: "hourglass_top", text: "ממתין לאישור מחיקה" }
+    : enabled
+      ? breaks.length > 0
+        ? { icon: "link", text: `כיבוי יכבה גם ${breaks.map((b) => b.label).join(", ")}` }
+        : null
+      : pulls.length > 0
+        ? { icon: "bolt", text: `ידליק גם ${pulls.map((p) => p.label).join(", ")}` }
+        : null;
 
   return (
     // Entrance is CSS, not Motion: Motion would leave an inline transform on the
@@ -90,6 +96,7 @@ function FeatureCard({
       onMouseMove={onMove}
       onMouseLeave={onLeave}
       data-on={enabled}
+      data-pending={!!pending}
       data-feature={module.key}
       aria-pressed={enabled}
       title={module.dependencyNote}
@@ -127,7 +134,7 @@ function FeatureCard({
             {note.text}
           </span>
         )}
-        <span className="fpk-card-state">{enabled ? "פעיל" : "כבוי"}</span>
+        <span className="fpk-card-state">{pending ? "נמחק" : enabled ? "פעיל" : "כבוי"}</span>
       </span>
     </button>
   );
@@ -136,10 +143,25 @@ function FeatureCard({
 export function FeaturePicker({
   enabledSet,
   onChange,
+  onRequestDisable,
+  pendingOff,
+  title = "בחירת פיצ'רים",
+  lede = "לחיצה על כרטיס מדליקה או מכבה אותו. מה שכבוי פשוט לא קיים עבור העסק — לא בתפריט ולא בנתונים.",
 }: {
   enabledSet: Set<FeatureKey>;
   /** Every key the click changed, including the dependency cascade. */
   onChange: (changes: { key: FeatureKey; enabled: boolean }[]) => void;
+  /**
+   * When given, switching a feature *off* is handed to the parent instead of
+   * applied — an existing business loses that feature's data, so it goes
+   * through confirmation first. `cascade` is the clicked key plus everything
+   * that depends on it. Switching on stays free and still goes to `onChange`.
+   */
+  onRequestDisable?: (key: FeatureKey, cascade: FeatureKey[]) => void;
+  /** Features awaiting that confirmation — still lit, but marked. */
+  pendingOff?: Set<FeatureKey>;
+  title?: string;
+  lede?: string;
 }) {
   const [cascade, setCascade] = useState<string | null>(null);
   const reduce = useReducedMotion();
@@ -157,6 +179,15 @@ export function FeaturePicker({
 
   function toggle(key: FeatureKey) {
     const next = !state[key];
+
+    // Switching off destroys data — when the parent owns that decision, hand it
+    // the whole cascade and change nothing until it comes back.
+    if (!next && onRequestDisable) {
+      const { turnedOff } = applyFeatureToggle(state, key, false);
+      onRequestDisable(key, [key, ...turnedOff]);
+      return;
+    }
+
     const result = applyFeatureToggle(state, key, next);
 
     onChange([
@@ -176,6 +207,13 @@ export function FeaturePicker({
 
   function setAll(enabled: boolean) {
     setCascade(null);
+
+    if (!enabled && onRequestDisable) {
+      const lit = enabledKeysOf(state);
+      if (lit.length) onRequestDisable(lit[0], lit);
+      return;
+    }
+
     onChange(ALL_FEATURE_KEYS.map((key) => ({ key, enabled })));
   }
 
@@ -190,10 +228,8 @@ export function FeaturePicker({
           <Icon name="apps" size={22} />
         </span>
         <div className="fpk-head-copy">
-          <h2 className="fpk-title">בחירת פיצ'רים</h2>
-          <p className="fpk-lede">
-            לחיצה על כרטיס מדליקה או מכבה אותו. מה שכבוי פשוט לא קיים עבור העסק — לא בתפריט ולא בנתונים.
-          </p>
+          <h2 className="fpk-title">{title}</h2>
+          <p className="fpk-lede">{lede}</p>
         </div>
         <span className="fpk-ring-wrap" aria-label={`${on} מתוך ${total} פיצ'רים פעילים`}>
           <svg className="fpk-ring" viewBox="0 0 48 48" aria-hidden>
@@ -260,6 +296,7 @@ export function FeaturePicker({
               breaks={
                 lit ? dependentsOf(m.key).filter((k) => enabledSet.has(k)).map((k) => MODULE_BY_KEY.get(k)!) : []
               }
+              pending={pendingOff?.has(m.key)}
               onToggle={() => toggle(m.key)}
             />
           );
