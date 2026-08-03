@@ -17,6 +17,8 @@ import {
   applyFeatureToggle,
   dependentsOf,
   detectPlan,
+  effectiveEnabledKeysFromRows,
+  effectiveFeatureStateFromRows,
   emptyFeatureState,
   enabledKeysOf,
   featureStateForPlan,
@@ -271,5 +273,29 @@ describe("בניית מצב מודולים", () => {
   it("סדר המפתחות בפלט עקבי עם סדר הקטלוג", () => {
     const state = featureStateFromKeys(ALL_FEATURE_KEYS);
     expect(enabledKeysOf(state)).toEqual(ALL_FEATURE_KEYS);
+  });
+});
+
+describe("נרמול שורות business_features", () => {
+  it("מפתח legacy forms נספר כ-agreements", () => {
+    const keys = effectiveEnabledKeysFromRows([{ feature_key: "forms", enabled: true }]);
+    expect(keys).toEqual(["agreements"]);
+  });
+
+  it("payroll דלוק מדליק גם attendance גם כשהדגל שלו כבוי בטבלה", () => {
+    const keys = effectiveEnabledKeysFromRows([
+      { feature_key: "payroll", enabled: true },
+      { feature_key: "attendance", enabled: false },
+    ]);
+    expect(keys.sort()).toEqual(["attendance", "payroll"]);
+  });
+
+  it("מפתחות לא מוכרים לא נספרים", () => {
+    const keys = effectiveEnabledKeysFromRows([
+      { feature_key: "forms", enabled: true },
+      { feature_key: "legacy_module", enabled: true },
+      { feature_key: "tasks", enabled: true },
+    ]);
+    expect(keys.sort()).toEqual(["agreements", "tasks"]);
   });
 });

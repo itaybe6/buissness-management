@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
-import { enabledKeysOf, type FeatureState } from "@/lib/features";
+import { enabledKeysOf, effectiveEnabledKeysFromRows, type FeatureState } from "@/lib/features";
 import {
   businessInsertRow,
   featureRowsFor,
@@ -26,7 +26,7 @@ export function useBusinesses() {
       const [{ data: bizs, error }, { data: profiles }, { data: feats }] = await Promise.all([
         supabase.from("businesses").select("*").order("created_at", { ascending: false }),
         supabase.from("profiles").select("id, business_id, role"),
-        supabase.from("business_features").select("business_id, enabled"),
+        supabase.from("business_features").select("business_id, feature_key, enabled"),
       ]);
       if (error) throw error;
       return (bizs ?? []).map((b) => {
@@ -37,7 +37,9 @@ export function useBusinesses() {
           ...biz,
           employee_count: members.length,
           manager_count: managers,
-          feature_count: (feats ?? []).filter((f) => f.business_id === biz.id && f.enabled).length,
+          feature_count: effectiveEnabledKeysFromRows(
+            (feats ?? []).filter((f) => f.business_id === biz.id),
+          ).length,
           seats_left: biz.max_users == null ? null : Math.max(0, biz.max_users - members.length),
         };
       });

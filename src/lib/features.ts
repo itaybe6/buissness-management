@@ -228,6 +228,41 @@ export function enabledKeysOf(state: FeatureState): FeatureKey[] {
   return ALL_FEATURE_KEYS.filter((k) => state[k]);
 }
 
+/** Renamed modules still stored under old keys in legacy rows. */
+const LEGACY_FEATURE_KEYS: Record<string, FeatureKey> = {
+  forms: "agreements",
+};
+
+export function normalizeFeatureKey(key: string): FeatureKey | null {
+  const mapped = LEGACY_FEATURE_KEYS[key] ?? key;
+  return ALL_FEATURE_KEYS.includes(mapped as FeatureKey) ? (mapped as FeatureKey) : null;
+}
+
+/**
+ * Resolve the modules a business effectively has on: legacy keys are mapped,
+ * unknown keys are ignored, and hard dependencies are pulled in when a child
+ * module is on (payroll → attendance, waste → inventory).
+ */
+export function effectiveFeatureStateFromRows(
+  rows: readonly { feature_key: string; enabled: boolean }[],
+): FeatureState {
+  const state = emptyFeatureState(false);
+  for (const row of rows) {
+    if (!row.enabled) continue;
+    const key = normalizeFeatureKey(row.feature_key);
+    if (!key) continue;
+    state[key] = true;
+    for (const dep of MODULE_BY_KEY.get(key)?.requires ?? []) state[dep] = true;
+  }
+  return state;
+}
+
+export function effectiveEnabledKeysFromRows(
+  rows: readonly { feature_key: string; enabled: boolean }[],
+): FeatureKey[] {
+  return enabledKeysOf(effectiveFeatureStateFromRows(rows));
+}
+
 /** What a toggle would change beyond the module the user clicked. */
 export interface ToggleResult {
   state: FeatureState;

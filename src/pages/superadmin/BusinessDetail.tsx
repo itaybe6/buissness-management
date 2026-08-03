@@ -19,8 +19,8 @@ import {
   ALL_FEATURE_KEYS,
   MODULE_BY_KEY,
   detectPlan,
+  effectiveFeatureStateFromRows,
   enabledKeysOf,
-  featureStateFromKeys,
   type FeatureState,
 } from "@/lib/features";
 import { colorFor, initialsOf } from "@/lib/db";
@@ -66,11 +66,8 @@ export function BusinessDetail() {
   const [purgeResult, setPurgeResult] = useState<ApplyFeaturesResult | null>(null);
   const [purgeError, setPurgeError] = useState<string | null>(null);
 
-  const enabledSet = useMemo(
-    () => new Set((features ?? []).filter((f) => f.enabled).map((f) => f.feature_key)),
-    [features],
-  );
-  const state = useMemo(() => featureStateFromKeys(enabledSet), [enabledSet]);
+  const state = useMemo(() => effectiveFeatureStateFromRows(features ?? []), [features]);
+  const enabledSet = useMemo(() => new Set(enabledKeysOf(state)), [state]);
   const pendingOff = useMemo(() => new Set(pending?.off ?? []), [pending]);
   const enabledFeatures = useMemo(() => enabledKeysOf(state).map((k) => MODULE_BY_KEY.get(k)!), [state]);
 

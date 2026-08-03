@@ -120,18 +120,18 @@ describe("איזה ספק נבחר כברירת מחדל", () => {
 });
 
 describe("מחיר הספק לכל יחידת מידה", () => {
-  const crate = { unit: "ארגז", units_per_package: 24 };
+  const crate = { unit: "ארגז", units_per_package: 24, piece_unit: "בקבוק" };
 
   it("מחיר לארגז מוצג כמו שהוזן, ומחיר ליחידה מחושב ממנו", () => {
     const [perCrate, perPiece] = supplierUnitPrices(crate, { main: 100 });
     expect(perCrate).toEqual({ label: "ארגז", price: 100, derived: false });
-    expect(perPiece).toEqual({ label: "יחידה", price: 4.1667, derived: true });
+    expect(perPiece).toEqual({ label: "בקבוק", price: 4.1667, derived: true });
   });
 
   it("כשהוזן רק מחיר ליחידה — הוא המקורי והארגז הוא המחושב", () => {
     const [perCrate, perPiece] = supplierUnitPrices(crate, { piece: 5 });
     expect(perCrate).toEqual({ label: "ארגז", price: 120, derived: true });
-    expect(perPiece).toEqual({ label: "יחידה", price: 5, derived: false });
+    expect(perPiece).toEqual({ label: "בקבוק", price: 5, derived: false });
   });
 
   it("מוצר שנמכר ביחידות בלבד מקבל שורת מחיר אחת", () => {
@@ -162,7 +162,7 @@ describe("פירוק הסכום שהמשתמש רואה", () => {
 
   it("ארגזים ויחידות בודדות מוצגים כל אחד במחיר שלו", () => {
     expect(orderCalcLabel(crate, { packs: 1, pieces: 2 }, { main: 100 })).toBe(
-      "1 ארגז × ₪100 + 2 יח׳ × ₪4.17",
+      "1 ארגז × ₪100 + 2 יחידות × ₪4.17",
     );
   });
 
@@ -171,11 +171,11 @@ describe("פירוק הסכום שהמשתמש רואה", () => {
   });
 
   it("רק יחידות בודדות", () => {
-    expect(orderCalcLabel(crate, { packs: 0, pieces: 5 }, { main: 100 })).toBe("5 יח׳ × ₪4.17");
+    expect(orderCalcLabel(crate, { packs: 0, pieces: 5 }, { main: 100 })).toBe("5 יחידות × ₪4.17");
   });
 
   it("בלי מחיר מוצגת רק הכמות", () => {
-    expect(orderCalcLabel(crate, { packs: 2, pieces: 3 }, null)).toBe("2 ארגז + 3 יח׳");
+    expect(orderCalcLabel(crate, { packs: 2, pieces: 3 }, null)).toBe("2 ארגז + 3 יחידות");
   });
 
   it("מוצר שנמכר ביחידות בלבד לא מפוצל לשני חלקים", () => {

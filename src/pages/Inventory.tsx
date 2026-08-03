@@ -1763,15 +1763,30 @@ function OrderDetailLine({
         </div>
         {pending ? (
           receiveOpen ? null : (
-            <button
-              type="button"
-              className="inventory-order-receive-btn shrink-0"
-              disabled={busy}
-              onClick={() => setReceiveOpen(true)}
-            >
-              <Icon name="check_circle" size={16} />
-              התקבל
-            </button>
+            <div className="inventory-order-receive-actions shrink-0">
+              <button
+                type="button"
+                className="inventory-order-receive-btn inventory-order-receive-btn--partial"
+                disabled={busy}
+                onClick={() => setReceiveOpen(true)}
+              >
+                <Icon name="call_split" size={16} />
+                חלקית
+              </button>
+              <button
+                type="button"
+                className="inventory-order-receive-btn"
+                disabled={busy || !defaultWarehouseId}
+                onClick={() => {
+                  if (!defaultWarehouseId) return;
+                  savePendingRef.current = true;
+                  onReceive({ receivedQty: Number(line.quantity), warehouseId: defaultWarehouseId });
+                }}
+              >
+                <Icon name="check_circle" size={16} />
+                הגיע
+              </button>
+            </div>
           )
         ) : isPartialReceived && canUpdateOrderArrival && onCorrectReceived ? (
           editOpen ? null : (
@@ -1844,6 +1859,7 @@ function OrderDetailsModal({
   defaultWarehouseId,
   onClose,
   onReceive,
+  onReceiveAll,
   onNotArrived,
   onCorrectReceived,
   partialUiState = "none",
@@ -1860,6 +1876,7 @@ function OrderDetailsModal({
   defaultWarehouseId: string | null;
   onClose: () => void;
   onReceive: (line: OrderLine, payload: { receivedQty: number; warehouseId: string }) => void;
+  onReceiveAll?: () => void;
   onNotArrived: (line: OrderLine) => void;
   onCorrectReceived: (line: OrderLine, receivedQty: number) => void;
   partialUiState?: PartialBatchUiState;
@@ -1956,9 +1973,22 @@ function OrderDetailsModal({
         </div>
       ) : null}
       {pendingCount > 0 && (
-        <p className="mb-3 text-[12px] font-medium text-text-3">
-          {pendingCount} פריטים ממתינים לקבלה במלאי
-        </p>
+        <div className="mb-3 flex flex-col gap-2.5">
+          <p className="text-[12px] font-medium text-text-3">
+            {pendingCount} פריטים ממתינים לקבלה במלאי
+          </p>
+          {canUpdateOrderArrival && onReceiveAll ? (
+            <Button
+              icon="done_all"
+              disabled={receiveBusy || !defaultWarehouseId}
+              loading={receiveBusy}
+              onClick={onReceiveAll}
+              className="w-full !bg-ink"
+            >
+              אשר את כל ההזמנה
+            </Button>
+          ) : null}
+        </div>
       )}
       <div className="flex flex-col">
         {batch.lines.map((line, idx) => (
@@ -2629,16 +2659,16 @@ export function Inventory() {
   async function handleReceive(
     line: OrderLine | InventoryOrderWithUser,
     payload?: { receivedQty?: number; warehouseId?: string },
-  ) {
-    if (!canManageOrders && !canUpdateOrderArrival) return;
+  ): Promise<boolean> {
+    if (!canManageOrders && !canUpdateOrderArrival) return false;
     const item = list.find((i) => i.id === line.item_id);
-    if (!item) return;
+    if (!item) return false;
     const ordered = Number(line.quantity);
     const received = payload?.receivedQty ?? ordered;
     const warehouseId = payload?.warehouseId ?? primaryWarehouseId;
     if (!warehouseId) {
       window.alert("לא נמצא מחסן לעדכון המלאי");
-      return;
+      return false;
     }
     try {
       await receiveOrder.mutateAsync({
@@ -2654,8 +2684,10 @@ export function Inventory() {
         ordered_by: line.ordered_by,
         supplier_id: line.supplier_id,
       });
+      return true;
     } catch (e) {
       window.alert(inventorySaveError(e));
+      return false;
     }
   }
 
@@ -2673,6 +2705,21 @@ export function Inventory() {
       });
     } catch (e) {
       window.alert(inventorySaveError(e));
+    }
+  }
+
+  async function handleReceiveAll(batch: OrderBatch) {
+    if (!canManageOrders && !canUpdateOrderArrival) return;
+    const warehouseId = primaryWarehouseId;
+    if (!warehouseId) {
+      window.alert("לא נמצא מחסן לעדכון המלאי");
+      return;
+    }
+    const pendingLines = batch.lines.filter((l) => l.status !== "received");
+    if (!pendingLines.length) return;
+    for (const line of pendingLines) {
+      const ok = await handleReceive(line, { receivedQty: Number(line.quantity), warehouseId });
+      if (!ok) break;
     }
   }
 
@@ -3010,6 +3057,7 @@ export function Inventory() {
         defaultWarehouseId={primaryWarehouseId}
         onClose={() => setDetailBatchId(null)}
         onReceive={(line, payload) => handleReceive(line, payload)}
+        onReceiveAll={detailBatch ? () => handleReceiveAll(detailBatch) : undefined}
         onNotArrived={(line) => handleMarkNotArrived(line)}
         onCorrectReceived={(line, receivedQty) =>
           detailBatch && handleCorrectReceived(line, receivedQty, detailBatch.lines)

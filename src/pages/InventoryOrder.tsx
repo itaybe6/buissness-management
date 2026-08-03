@@ -41,6 +41,7 @@ import { OrderReviewModal } from "@/components/inventory/OrderReviewModal";
 import { OrderDraftPrompt } from "@/components/inventory/OrderDraftPrompt";
 import { RecurringOrderPicker } from "@/components/inventory/RecurringOrderPicker";
 import { SaveRecurringOrderModal } from "@/components/inventory/SaveRecurringOrderModal";
+import { SaveRecurringBeforeSendPrompt } from "@/components/inventory/SaveRecurringBeforeSendPrompt";
 import {
   useDeleteRecurringOrder,
   useRecurringOrders,
@@ -387,6 +388,8 @@ export function InventoryOrder() {
   const [draftPrompt, setDraftPrompt] = useState<OrderDraft | null>(null);
   const [recurringOpen, setRecurringOpen] = useState(false);
   const [saveRecurringOpen, setSaveRecurringOpen] = useState(false);
+  const [recurringBeforeSendOpen, setRecurringBeforeSendOpen] = useState(false);
+  const [saveRecurringThenSubmit, setSaveRecurringThenSubmit] = useState(false);
   const [recurringBusyId, setRecurringBusyId] = useState<string | null>(null);
   const [recurringSaveError, setRecurringSaveError] = useState<string | null>(null);
   const [recurringNotice, setRecurringNotice] = useState<string | null>(null);
@@ -682,6 +685,7 @@ export function InventoryOrder() {
   async function saveAsRecurring({ id, name }: { id: string | null; name: string }) {
     setRecurringSaveError(null);
     setRecurringBusyId(id ?? "new");
+    const shouldSubmit = saveRecurringThenSubmit;
     try {
       await saveRecurringOrder.mutateAsync({
         id: id ?? undefined,
@@ -695,7 +699,12 @@ export function InventoryOrder() {
         })),
       });
       setSaveRecurringOpen(false);
-      setRecurringNotice(`ההזמנה נשמרה כהזמנה קבועה "${name}"`);
+      setSaveRecurringThenSubmit(false);
+      if (shouldSubmit) {
+        await submit();
+      } else {
+        setRecurringNotice(`ההזמנה נשמרה כהזמנה קבועה "${name}"`);
+      }
     } catch (e) {
       setRecurringSaveError(recurringOrderSaveError(e));
     } finally {
@@ -740,6 +749,44 @@ export function InventoryOrder() {
     setReviewOpen(true);
   }
 
+  function requestSubmit() {
+    setError(null);
+    if (!supplierGroups.length) {
+      setError("נא לבחור לפחות מוצר אחד עם כמות");
+      return;
+    }
+    if (isEditing) {
+      submit();
+      return;
+    }
+    setReviewOpen(false);
+    setRecurringBeforeSendOpen(true);
+  }
+
+  function sendWithoutSavingRecurring() {
+    setRecurringBeforeSendOpen(false);
+    submit();
+  }
+
+  function openSaveRecurringThenSend() {
+    setRecurringBeforeSendOpen(false);
+    setRecurringSaveError(null);
+    setSaveRecurringThenSubmit(true);
+    setSaveRecurringOpen(true);
+  }
+
+  function closeRecurringBeforeSend() {
+    setRecurringBeforeSendOpen(false);
+    setReviewOpen(true);
+  }
+
+  function closeSaveRecurringModal() {
+    const wasSubmitFlow = saveRecurringThenSubmit;
+    setSaveRecurringOpen(false);
+    setSaveRecurringThenSubmit(false);
+    if (wasSubmitFlow) setReviewOpen(true);
+  }
+
   async function submit() {
     setError(null);
     if (!supplierGroups.length) {
@@ -772,6 +819,7 @@ export function InventoryOrder() {
       navigate("/inventory?tab=orders", { replace: true });
     } catch (e) {
       setError(inventorySaveError(e));
+      if (!isEditing) setReviewOpen(true);
     } finally {
       setBusy(false);
     }
@@ -842,6 +890,7 @@ export function InventoryOrder() {
         className="ordc-cart-link"
         onClick={() => {
           setRecurringSaveError(null);
+          setSaveRecurringThenSubmit(false);
           setSheetOpen(false);
           setSaveRecurringOpen(true);
         }}
@@ -1164,7 +1213,7 @@ export function InventoryOrder() {
         isEditing={isEditing}
         onClose={() => setReviewOpen(false)}
         onRemoveLine={removeItem}
-        onSubmit={submit}
+        onSubmit={requestSubmit}
       />
 
       <OrderDraftPrompt
@@ -1189,13 +1238,23 @@ export function InventoryOrder() {
         onDelete={deleteRecurring}
       />
 
+      <SaveRecurringBeforeSendPrompt
+        open={recurringBeforeSendOpen}
+        lineCount={draftLines.length}
+        supplierCount={supplierGroups.length}
+        onSendOnly={sendWithoutSavingRecurring}
+        onSaveAndSend={openSaveRecurringThenSend}
+        onClose={closeRecurringBeforeSend}
+      />
+
       <SaveRecurringOrderModal
         open={saveRecurringOpen}
         lines={draftLines}
         templates={recurringList}
         busy={!!recurringBusyId}
         error={recurringSaveError}
-        onClose={() => setSaveRecurringOpen(false)}
+        thenSubmit={saveRecurringThenSubmit}
+        onClose={closeSaveRecurringModal}
         onSave={saveAsRecurring}
       />
 

@@ -10,6 +10,8 @@ interface SaveRecurringOrderModalProps {
   templates: RecurringOrderWithItems[];
   busy: boolean;
   error: string | null;
+  /** After saving, the order will be sent — not just stored as a template. */
+  thenSubmit?: boolean;
   onClose: () => void;
   onSave: (input: { id: string | null; name: string }) => void;
 }
@@ -22,6 +24,7 @@ export function SaveRecurringOrderModal({
   templates,
   busy,
   error,
+  thenSubmit = false,
   onClose,
   onSave,
 }: SaveRecurringOrderModalProps) {
@@ -62,7 +65,13 @@ export function SaveRecurringOrderModal({
             loading={busy}
             onClick={() => onSave({ id: overwriting ? target : null, name: effectiveName })}
           >
-            {overwriting ? "עדכון התבנית" : "שמירה"}
+            {thenSubmit
+              ? overwriting
+                ? "עדכון ושליחה"
+                : "שמירה ושליחה"
+              : overwriting
+                ? "עדכון התבנית"
+                : "שמירה"}
           </Button>
         </>
       }
@@ -70,7 +79,9 @@ export function SaveRecurringOrderModal({
       <div className="rord-save">
         <p className="rord-note">
           <Icon name="info" size={14} />
-          נשמרים המוצרים, הכמויות והספקים — ההזמנה עצמה לא נשלחת עכשיו.
+          {thenSubmit
+            ? "נשמרים המוצרים, הכמויות והספקים — ואז ההזמנה נשלחת לספקים."
+            : "נשמרים המוצרים, הכמויות והספקים — ההזמנה עצמה לא נשלחת עכשיו."}
         </p>
 
         {templates.length > 0 && (

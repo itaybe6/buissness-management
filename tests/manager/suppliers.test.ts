@@ -24,9 +24,11 @@ import {
   resolveItemUnitPrice,
 } from "@/api/inventory";
 import {
-  inventoryUnitIsBase,
+  inventoryUnitKind,
   inventoryUnitOptions,
   inventoryUnitSaveError,
+  unitAllowsPackaging,
+  unitExpectsPackaging,
 } from "@/api/inventoryUnits";
 import { makeInventoryItem, makeOrder, makeSupplier } from "../helpers/factories";
 import type { InventoryUnit } from "@/types/database";
@@ -234,6 +236,7 @@ function unit(name: string, over: Partial<InventoryUnit> = {}): InventoryUnit {
     name,
     sort_order: 0,
     is_base: false,
+    kind: "single",
     active: true,
     created_at: "2026-01-01T00:00:00.000Z",
     ...over,
@@ -243,8 +246,8 @@ function unit(name: string, over: Partial<InventoryUnit> = {}): InventoryUnit {
 describe("יחידות מידה של העסק", () => {
   const units = [
     unit("יחידות", { is_base: true, sort_order: 0 }),
-    unit("ארגז", { sort_order: 1 }),
-    unit("ק״ג", { sort_order: 2 }),
+    unit("ארגז", { sort_order: 1, kind: "package" }),
+    unit("ק״ג", { sort_order: 2, kind: "measure" }),
   ];
 
   it("הרשימה מוצגת לפי סדר התצוגה שהמנהל קבע", () => {
@@ -272,25 +275,39 @@ describe("יחידות מידה של העסק", () => {
     expect(inventoryUnitOptions(units, "  ארגז  ").filter((u) => u.name === "ארגז")).toHaveLength(1);
   });
 
-  it("«יחידות» היא יחידת הבסיס — אין בה פירוק לבודדים", () => {
-    expect(inventoryUnitIsBase("יחידות", units)).toBe(true);
-    expect(inventoryUnitIsBase("ארגז", units)).toBe(false);
+  it("כל יחידה מסווגת לפי ההתנהגות שלה, לא לפי השם «יחידות»", () => {
+    expect(inventoryUnitKind("יחידות", units)).toBe("single");
+    expect(inventoryUnitKind("ארגז", units)).toBe("package");
+    expect(inventoryUnitKind("ק״ג", units)).toBe("measure");
   });
 
-  it("יחידה שלא מוכרת נבדקת מול שם ברירת המחדל", () => {
-    expect(inventoryUnitIsBase("יחידות")).toBe(true);
-    expect(inventoryUnitIsBase("חבית")).toBe(false);
+  it("רק מארז מקבל פירוק לבודדים כברירת מחדל", () => {
+    expect(unitExpectsPackaging("ארגז", units)).toBe(true);
+    expect(unitExpectsPackaging("יחידות", units)).toBe(false);
+    expect(unitExpectsPackaging("ק״ג", units)).toBe(false);
   });
 
-  it("יחידה ריקה נחשבת בסיס — מוצר בלי יחידת מידה", () => {
-    expect(inventoryUnitIsBase(null, units)).toBe(true);
-    expect(inventoryUnitIsBase("", units)).toBe(true);
-    expect(inventoryUnitIsBase("   ", units)).toBe(true);
+  it("מידה רציפה לא ניתנת לפירוק בכלל", () => {
+    expect(unitAllowsPackaging("ק״ג", units)).toBe(false);
+    expect(unitAllowsPackaging("ארגז", units)).toBe(true);
+    expect(unitAllowsPackaging("יחידות", units)).toBe(true);
   });
 
-  it("המנהל יכול לסמן יחידה אחרת כבסיס", () => {
-    const custom = [unit("מנה", { is_base: true })];
-    expect(inventoryUnitIsBase("מנה", custom)).toBe(true);
+  it("יחידה שלא בקטלוג מסווגת לפי השם שלה", () => {
+    expect(inventoryUnitKind("ליטר")).toBe("measure");
+    expect(inventoryUnitKind("מארז")).toBe("package");
+    expect(inventoryUnitKind("בקבוק")).toBe("single");
+  });
+
+  it("יחידה ריקה נחשבת פריט בודד — מוצר בלי יחידת מידה", () => {
+    expect(inventoryUnitKind(null, units)).toBe("single");
+    expect(inventoryUnitKind("", units)).toBe("single");
+    expect(inventoryUnitKind("   ", units)).toBe("single");
+  });
+
+  it("הסיווג שהמנהל בחר גובר על ניחוש לפי השם", () => {
+    const custom = [unit("ק״ג", { kind: "single" })];
+    expect(inventoryUnitKind("ק״ג", custom)).toBe("single");
   });
 
   it("שם יחידה כפול מוחזר כהודעה ברורה", () => {

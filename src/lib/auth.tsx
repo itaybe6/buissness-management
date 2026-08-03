@@ -8,6 +8,7 @@ import {
 } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
+import { effectiveEnabledKeysFromRows } from "@/lib/features";
 import type { FeatureKey, Profile } from "@/types/database";
 
 interface AuthContextValue {
@@ -50,9 +51,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { data: feats } = await supabase
         .from("business_features")
         .select("feature_key, enabled")
-        .eq("business_id", prof.business_id)
-        .eq("enabled", true);
-      setFeatures(new Set((feats ?? []).map((f) => f.feature_key as FeatureKey)));
+        .eq("business_id", prof.business_id);
+      setFeatures(new Set(effectiveEnabledKeysFromRows(feats ?? [])));
     } else {
       // super admin (no business) — gets everything by default
       setFeatures(new Set());

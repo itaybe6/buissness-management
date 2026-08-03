@@ -82,7 +82,7 @@ describe("הפחתת בלאי מהמלאי", () => {
 describe("תצוגת הכמות שנזרקה", () => {
   it("כמות עם יחידת מידה, תמיד עם מינוס", () => {
     const item = makeItemWithQty({ unit: "ארגז", units_per_package: 24 });
-    expect(formatWasteQty({ quantity: 2 }, item)).toBe("−2 ארגז (48 יח׳)");
+    expect(formatWasteQty({ quantity: 2 }, item)).toBe("−2 ארגז (48 יחידות)");
   });
 
   it("יחידת בסיס לא מציגה המרה לבודדים", () => {
@@ -101,7 +101,7 @@ describe("תצוגת הכמות שנזרקה", () => {
 
   it("כמות שברירית מומרת נכון לבודדים", () => {
     const item = makeItemWithQty({ unit: "ארגז", units_per_package: 6 });
-    expect(formatWasteQty({ quantity: 0.5 }, item)).toBe("−0.5 ארגז (3 יח׳)");
+    expect(formatWasteQty({ quantity: 0.5 }, item)).toBe("−0.5 ארגז (3 יחידות)");
   });
 });
 

@@ -16,7 +16,6 @@ on conflict (id) do update set name = excluded.name;
 -- מודולים פעילים (הכל)
 insert into public.business_features (business_id, feature_key, enabled) values
   ('044389b9-62b4-4f8b-ab05-6b069b9a2d3e', 'agreements', true),
-  ('044389b9-62b4-4f8b-ab05-6b069b9a2d3e', 'forms', true),
   ('044389b9-62b4-4f8b-ab05-6b069b9a2d3e', 'shifts', true),
   ('044389b9-62b4-4f8b-ab05-6b069b9a2d3e', 'payroll', true),
   ('044389b9-62b4-4f8b-ab05-6b069b9a2d3e', 'attendance', true),
