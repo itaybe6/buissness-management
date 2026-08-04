@@ -39,11 +39,9 @@ import {
 } from "@/components/inventory/ProductSupplierModal";
 import { OrderReviewModal } from "@/components/inventory/OrderReviewModal";
 import { OrderDraftPrompt } from "@/components/inventory/OrderDraftPrompt";
-import { RecurringOrderPicker } from "@/components/inventory/RecurringOrderPicker";
 import { SaveRecurringOrderModal } from "@/components/inventory/SaveRecurringOrderModal";
 import { SaveRecurringBeforeSendPrompt } from "@/components/inventory/SaveRecurringBeforeSendPrompt";
 import {
-  useDeleteRecurringOrder,
   useRecurringOrders,
   useSaveRecurringOrder,
   useTouchRecurringOrder,
@@ -57,7 +55,7 @@ import {
   saveOrderDraft,
   type OrderDraft,
 } from "@/lib/orderDraftStorage";
-import { recurringTemplateCart, recurringTemplateNotice } from "@/lib/recurringOrders";
+import { recurringTemplateCart, recurringTemplateNotice, recurringOrdersPagePath } from "@/lib/recurringOrders";
 import {
   deliveryDaysLabel,
   draftLinesTotal,
@@ -369,9 +367,8 @@ export function InventoryOrder() {
   const { data: supplierPriceIndex, isPending: priceIndexPending } = useSupplierItemPriceIndex(businessId);
   const createOrdersBatch = useCreateOrdersBatch(businessId);
   const updateOrdersBatch = useUpdateOrdersBatch(businessId);
-  const { data: recurringOrders, isLoading: recurringLoading } = useRecurringOrders(businessId);
+  const { data: recurringOrders } = useRecurringOrders(businessId);
   const saveRecurringOrder = useSaveRecurringOrder(businessId);
-  const deleteRecurringOrder = useDeleteRecurringOrder(businessId);
   const touchRecurringOrder = useTouchRecurringOrder(businessId);
 
   const [cart, setCart] = useState<Record<string, CartLine>>({});
@@ -386,7 +383,6 @@ export function InventoryOrder() {
   const [flashId, setFlashId] = useState<string | null>(null);
   const [batchMissing, setBatchMissing] = useState(false);
   const [draftPrompt, setDraftPrompt] = useState<OrderDraft | null>(null);
-  const [recurringOpen, setRecurringOpen] = useState(false);
   const [saveRecurringOpen, setSaveRecurringOpen] = useState(false);
   const [recurringBeforeSendOpen, setRecurringBeforeSendOpen] = useState(false);
   const [saveRecurringThenSubmit, setSaveRecurringThenSubmit] = useState(false);
@@ -395,8 +391,10 @@ export function InventoryOrder() {
   const [recurringNotice, setRecurringNotice] = useState<string | null>(null);
   const [applying, startApplying] = useTransition();
   const preferredSupplierId = searchParams.get("supplier");
+  const recurringParam = searchParams.get("recurring");
   const editInitRef = useRef(false);
   const presetRef = useRef(false);
+  const recurringInitRef = useRef(false);
   const flashTimer = useRef<number>();
   const draftPromptRef = useRef(false);
   /** The saved draft is only mirrored once the user actually changes the cart. */
@@ -442,6 +440,31 @@ export function InventoryOrder() {
     if (items.some((i) => i.id === preset)) setPickerItemId(preset);
   }, [items, searchParams]);
 
+  /** Opened from ספקים / סחורות with ?recurring= — hydrate the cart from the saved template. */
+  useEffect(() => {
+    if (
+      !recurringParam ||
+      recurringInitRef.current ||
+      isEditing ||
+      priceIndexPending ||
+      !recurringList.length ||
+      !items
+    ) {
+      return;
+    }
+    const template = recurringList.find((row) => row.id === recurringParam);
+    if (!template) return;
+    recurringInitRef.current = true;
+    applyRecurringTemplate(template, preferredSupplierId);
+  }, [
+    recurringParam,
+    recurringList,
+    isEditing,
+    priceIndexPending,
+    items,
+    preferredSupplierId,
+  ]);
+
   /**
    * A cart the user never sent is kept in localStorage, so leaving the page or
    * closing the app mid-order does not throw the work away. Coming back offers
@@ -449,7 +472,7 @@ export function InventoryOrder() {
    * Editing an existing order is hydrated from the database and never prompts.
    */
   useEffect(() => {
-    if (isEditing || draftPromptRef.current || !userId || !businessId || !items) return;
+    if (isEditing || draftPromptRef.current || !userId || !businessId || !items || recurringParam) return;
     draftPromptRef.current = true;
     const draft = loadOrderDraft(userId, businessId);
     if (!draft) return;
@@ -460,7 +483,7 @@ export function InventoryOrder() {
       return;
     }
     setDraftPrompt({ saved_at: draft.saved_at, lines });
-  }, [isEditing, userId, businessId, items]);
+  }, [isEditing, userId, businessId, items, recurringParam]);
 
   useEffect(() => {
     if (isEditing || !cartTouchedRef.current || !userId || !businessId) return;
@@ -662,7 +685,7 @@ export function InventoryOrder() {
   }
 
   /** Start the order from a saved template instead of picking every product again. */
-  function applyRecurringTemplate(template: RecurringOrderWithItems) {
+  function applyRecurringTemplate(template: RecurringOrderWithItems, onlySupplierId?: string | null) {
     setError(null);
     setRecurringBusyId(template.id);
     const { lines, skipped } = recurringTemplateCart(
@@ -670,12 +693,12 @@ export function InventoryOrder() {
       itemById,
       supplierList,
       supplierPriceIndex,
+      onlySupplierId ? { supplierId: onlySupplierId } : undefined,
     );
     const added = Object.keys(lines).length;
     cartTouchedRef.current = true;
     startApplying(() => {
       setCart(lines);
-      setRecurringOpen(false);
       setRecurringBusyId(null);
       setRecurringNotice(recurringTemplateNotice(template.name, added, skipped));
     });
@@ -707,17 +730,6 @@ export function InventoryOrder() {
       }
     } catch (e) {
       setRecurringSaveError(recurringOrderSaveError(e));
-    } finally {
-      setRecurringBusyId(null);
-    }
-  }
-
-  async function deleteRecurring(template: RecurringOrderWithItems) {
-    setRecurringBusyId(template.id);
-    try {
-      await deleteRecurringOrder.mutateAsync(template.id);
-    } catch (e) {
-      setError(inventorySaveError(e));
     } finally {
       setRecurringBusyId(null);
     }
@@ -913,13 +925,13 @@ export function InventoryOrder() {
       <p className="ordc-cart-empty-sub">
         בכל מוצר בוחרים את הספק שממנו מזמינים — אפשר לשלב כמה ספקים בהזמנה אחת.
       </p>
-      {!isEditing && recurringCount > 0 && (
+      {!isEditing && (
         <button
           type="button"
           className="ordc-cart-link"
           onClick={() => {
             setSheetOpen(false);
-            setRecurringOpen(true);
+            navigate(recurringOrdersPagePath({ from: "inventory" }));
           }}
         >
           <Icon name="event_repeat" size={14} />
@@ -992,8 +1004,7 @@ export function InventoryOrder() {
                     <button
                       type="button"
                       className="ordc-recurring-btn"
-                      onClick={() => setRecurringOpen(true)}
-                      disabled={priceIndexPending}
+                      onClick={() => navigate(recurringOrdersPagePath({ from: "inventory" }))}
                     >
                       <Icon name="event_repeat" size={17} />
                       <span>הזמנה קבועה</span>
@@ -1224,18 +1235,6 @@ export function InventoryOrder() {
         onRestore={restoreDraft}
         onDiscard={discardDraft}
         onClose={() => setDraftPrompt(null)}
-      />
-
-      <RecurringOrderPicker
-        open={recurringOpen}
-        templates={recurringList}
-        loading={recurringLoading}
-        itemById={itemById}
-        cartHasLines={draftLines.length > 0}
-        busyId={recurringBusyId}
-        onClose={() => setRecurringOpen(false)}
-        onUse={applyRecurringTemplate}
-        onDelete={deleteRecurring}
       />
 
       <SaveRecurringBeforeSendPrompt

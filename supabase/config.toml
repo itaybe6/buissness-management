@@ -3,3 +3,6 @@ project_id = "wufvmxalvnouyddrjmyb"
 
 [functions.create-user]
 verify_jwt = true
+
+[functions.order-pdf]
+verify_jwt = true

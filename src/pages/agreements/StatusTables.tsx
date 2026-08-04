@@ -5,7 +5,7 @@ import type { AgreementSignature, AgreementTemplate, EmployeeIdCard, Profile } f
 import { colorFor, initialsOf } from "@/lib/db";
 import { IdCardStatusCell, openIdCard } from "./EmployeeIdCardPanel";
 import { ReadSignModal } from "./AgreementModals";
-import { FORM_101_BLANK_URL, TAX_YEAR } from "./types";
+import { TAX_YEAR } from "./types";
 
 function StatusIcon({
   done,
@@ -287,11 +287,9 @@ export function Form101OverviewTable({
     const template = globalTemplate;
     const sig = template ? signatureOf(signatures, template.id, empId) : undefined;
     const done = !!sig?.agreed;
-    const blankUrl = template?.file_url ?? FORM_101_BLANK_URL;
-    const link = done && sig?.signed_file_url
-      ? { href: sig.signed_file_url, icon: "visibility" as const, label: "צפייה ב-PDF" }
-      : template
-        ? { href: blankUrl, icon: "download" as const, label: "הורדת טופס ריק" }
+    const link =
+      done && sig?.signed_file_url
+        ? { href: sig.signed_file_url, icon: "visibility" as const, label: "צפייה ב-PDF" }
         : null;
     return { template, done, link };
   }

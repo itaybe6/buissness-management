@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Badge, Button, Card, Icon, Input, PageHeader, PageLoader, ErrorState } from "@/components/ui";
+import { Badge, Button, Card, Icon, Input, MonthPickerButton, PageHeader, PageLoader, ErrorState } from "@/components/ui";
+import { useSalaryIssueBadgeCount } from "@/hooks/useSalaryIssueBadgeCount";
 import { useAuth } from "@/lib/auth";
 import { WAGE_TYPE_LABELS } from "@/lib/constants";
 import { useBusinessId, formatCurrency, initialsOf, colorFor } from "@/lib/db";
@@ -70,6 +71,40 @@ function toExportRows(
   }));
 }
 
+function SalaryIssuesButton({
+  count,
+  onClick,
+  compact = false,
+}: {
+  count: number;
+  onClick: () => void;
+  compact?: boolean;
+}) {
+  const badge =
+    count > 0 ? (
+      <span className="ui-btn-count" aria-label={`${count} בעיות שכר חדשות`}>
+        {count > 99 ? "99+" : count}
+      </span>
+    ) : null;
+
+  if (compact) {
+    return (
+      <button type="button" className="payroll-hero-action" onClick={onClick}>
+        <Icon name="report_problem" size={17} />
+        <span>בעיות שכר</span>
+        {badge}
+      </button>
+    );
+  }
+
+  return (
+    <Button variant="secondary" icon="report_problem" onClick={onClick}>
+      בעיות שכר
+      {badge}
+    </Button>
+  );
+}
+
 export function Payroll() {
   const businessId = useBusinessId();
   const { profile } = useAuth();
@@ -86,6 +121,7 @@ export function Payroll() {
   const { data: monthAdjustments } = usePayrollMonthAdjustments(businessId, month);
 
   const isPayrollManager = profile && ["manager", "office_manager"].includes(profile.role);
+  const { count: salaryIssueCount } = useSalaryIssueBadgeCount();
 
   const rows = useMemo(() => {
     const employees = (users ?? []).filter((u) => isPayrollManager || u.id === profile?.id);
@@ -186,7 +222,10 @@ export function Payroll() {
               />
             </div>
             <div className="hidden items-center gap-2.5 md:flex">
-              <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="!w-[150px]" />
+              <MonthPickerButton value={month} onChange={setMonth} formatLabel={monthLabel} />
+              {isPayrollManager && (
+                <SalaryIssuesButton count={salaryIssueCount} onClick={() => navigate("/salary-issues")} />
+              )}
               {isPayrollManager && (
                 <Button
                   variant="secondary"
@@ -204,37 +243,29 @@ export function Payroll() {
       {/* ── Mobile — app-style payroll ── */}
       <div className="payroll-mobile md:hidden">
         <section className="payroll-hero">
-          <div className="payroll-hero-top">
-            <div className="payroll-month-nav">
-              <button
-                type="button"
-                className="payroll-month-btn"
-                aria-label="חודש קודם"
-                onClick={() => setMonth(shiftMonth(month, -1))}
-              >
-                <Icon name="chevron_right" size={20} />
-              </button>
-              <span className="payroll-month-label">{monthLabel(month)}</span>
-              <button
-                type="button"
-                className="payroll-month-btn"
-                aria-label="חודש הבא"
-                onClick={() => setMonth(shiftMonth(month, 1))}
-              >
-                <Icon name="chevron_left" size={20} />
-              </button>
-            </div>
-            {isPayrollManager && (
-              <button
-                type="button"
-                className="payroll-tip-btn btn-press"
-                onClick={() => exportPayrollExcel(toExportRows(filteredRows), month)}
-              >
-                <Icon name="download" size={17} />
-                אקסל
-              </button>
-            )}
+          <div className="payroll-hero-month" aria-label="בחירת חודש">
+            <button
+              type="button"
+              className="payroll-month-btn"
+              aria-label="חודש קודם"
+              onClick={() => setMonth(shiftMonth(month, -1))}
+            >
+              <Icon name="chevron_right" size={20} />
+            </button>
+            <span className="payroll-month-label">
+              <Icon name="calendar_month" size={15} />
+              {monthLabel(month)}
+            </span>
+            <button
+              type="button"
+              className="payroll-month-btn"
+              aria-label="חודש הבא"
+              onClick={() => setMonth(shiftMonth(month, 1))}
+            >
+              <Icon name="chevron_left" size={20} />
+            </button>
           </div>
+
           <span className="payroll-hero-label">סה״כ לתשלום</span>
           <div className="payroll-hero-total">{formatCurrency(totals.total)}</div>
           <div className="payroll-hero-chips">
@@ -247,6 +278,24 @@ export function Payroll() {
               {filteredRows.length} עובדים
             </span>
           </div>
+
+          {isPayrollManager && (
+            <div className="payroll-hero-actions">
+              <SalaryIssuesButton
+                compact
+                count={salaryIssueCount}
+                onClick={() => navigate("/salary-issues")}
+              />
+              <button
+                type="button"
+                className="payroll-hero-action"
+                onClick={() => exportPayrollExcel(toExportRows(filteredRows), month)}
+              >
+                <Icon name="download" size={17} />
+                <span>ייצוא אקסל</span>
+              </button>
+            </div>
+          )}
         </section>
 
         <div className="payroll-stats">

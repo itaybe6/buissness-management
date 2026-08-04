@@ -3,6 +3,12 @@ import { Field, Icon, Input } from "@/components/ui";
 
 export type EventPeriodFilter = "all" | "upcoming" | "past";
 
+const PERIOD_OPTIONS: { key: EventPeriodFilter; label: string }[] = [
+  { key: "all", label: "הכל" },
+  { key: "upcoming", label: "עתידיים" },
+  { key: "past", label: "עברו" },
+];
+
 export function EventsFilter({
   query,
   onQueryChange,
@@ -76,6 +82,28 @@ export function EventsFilter({
             </button>
           )}
         </div>
+
+        {filtersEnabled && (
+          <div className="evt-seg" role="group" aria-label="תקופת האירועים">
+            {PERIOD_OPTIONS.map((opt) => (
+              <button
+                key={opt.key}
+                type="button"
+                className="evt-seg-btn"
+                data-active={opt.key === "all" ? period === "all" && !dateFilter : period === opt.key}
+                onClick={() => {
+                  onPeriodChange(opt.key);
+                  onDateFilterChange(null);
+                }}
+              >
+                {opt.label}
+                {opt.key !== "all" && (
+                  <span className="evt-seg-n">{opt.key === "upcoming" ? upcomingCount : pastCount}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
 
         {filtersEnabled && (
           <div className="inv-filters-anchor">
@@ -181,6 +209,7 @@ export function EventsFilter({
         {canManage && (
           <button type="button" className="evt-action-btn evt-action-btn--add" onClick={onAdd} aria-label="אירוע חדש">
             <Icon name="add" size={22} />
+            <span className="evt-action-add-label">אירוע חדש</span>
           </button>
         )}
       </div>

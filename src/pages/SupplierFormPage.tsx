@@ -24,6 +24,7 @@ type SupplierForm = {
   taxId: string;
   notes: string;
   deliveryDays: string[];
+  orderDays: string[];
   active: boolean;
 };
 
@@ -33,13 +34,14 @@ const EMPTY_FORM: SupplierForm = {
   taxId: "",
   notes: "",
   deliveryDays: [],
+  orderDays: [],
   active: true,
 };
 
 const NO_CATEGORY = "__none__";
-const DELIVERY_DAY_OPTIONS = HE_DAYS.map((d, i) => ({ value: String(i), label: `יום ${d}` }));
+const DAY_OPTIONS = HE_DAYS.map((d, i) => ({ value: String(i), label: `יום ${d}` }));
 
-function deliveryDaysFromSupplier(days: number[] | null | undefined): string[] {
+function daysFromSupplier(days: number[] | null | undefined): string[] {
   if (!days?.length) return [];
   return [...new Set(days.filter((d) => d >= 0 && d <= 6))].sort((a, b) => a - b).map(String);
 }
@@ -50,7 +52,8 @@ function formFromSupplier(s: Supplier): SupplierForm {
     phone: s.phone ?? "",
     taxId: s.tax_id ?? "",
     notes: s.notes ?? "",
-    deliveryDays: deliveryDaysFromSupplier(s.delivery_days),
+    deliveryDays: daysFromSupplier(s.delivery_days),
+    orderDays: daysFromSupplier(s.order_days),
     active: s.active,
   };
 }
@@ -424,6 +427,9 @@ export function SupplierFormPage() {
     const delivery_days = form.deliveryDays.length
       ? form.deliveryDays.map(Number).sort((a, b) => a - b)
       : null;
+    const order_days = form.orderDays.length
+      ? form.orderDays.map(Number).sort((a, b) => a - b)
+      : null;
     try {
       let id = editing?.id;
       if (editing) {
@@ -434,6 +440,7 @@ export function SupplierFormPage() {
           tax_id: form.taxId,
           notes: form.notes,
           delivery_days,
+          order_days,
           active: form.active,
         });
       } else {
@@ -444,6 +451,7 @@ export function SupplierFormPage() {
           tax_id: form.taxId,
           notes: form.notes,
           delivery_days,
+          order_days,
         });
         id = created.id;
       }
@@ -597,7 +605,17 @@ export function SupplierFormPage() {
                     className="spf-input spf-select"
                     values={form.deliveryDays}
                     onChange={(deliveryDays) => setForm({ ...form, deliveryDays: [...deliveryDays].sort() })}
-                    options={DELIVERY_DAY_OPTIONS}
+                    options={DAY_OPTIONS}
+                    placeholder="לא הוגדר"
+                  />
+                </SpfField>
+
+                <SpfField icon="event" label="ימי הזמנה" hint="בימים אלה בדרך כלל יוצאת הזמנה לספק">
+                  <MultiSelect
+                    className="spf-input spf-select"
+                    values={form.orderDays}
+                    onChange={(orderDays) => setForm({ ...form, orderDays: [...orderDays].sort() })}
+                    options={DAY_OPTIONS}
                     placeholder="לא הוגדר"
                   />
                 </SpfField>

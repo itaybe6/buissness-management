@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Badge, Button, Card, EmptyState, Field, Icon, Input, InlineLoader, Select, Textarea } from "@/components/ui";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Badge, Button, Card, EmptyState, Field, Icon, Input, InlineLoader, MonthPickerButton, Select, Textarea } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import {
   uploadReceiptFile,
+  useAllOfficeReceipts,
   useCreateOfficeReceipt,
   useDeleteOfficeReceipt,
   useOfficeReceipts,
@@ -12,6 +13,7 @@ import { useSuppliers } from "@/api/suppliers";
 import { formatCurrency, todayISO } from "@/lib/db";
 import type { OfficeReceipt, ReceiptType } from "@/types/database";
 import { PdfFirstPagePreview } from "./pdf";
+import { SupplierSpendPanel } from "./SupplierSpendPanel";
 import { RECEIPT_TYPE_ICONS, RECEIPT_TYPE_LABELS, RECEIPT_TYPES } from "./types";
 
 function monthNow() {
@@ -33,6 +35,13 @@ const TYPE_TONE: Record<ReceiptType, "info" | "violet" | "success"> = {
   receipt: "success",
 };
 
+type ReceiptsView = "docs" | "analysis";
+
+const RECEIPT_VIEWS: { key: ReceiptsView; label: string; icon: string }[] = [
+  { key: "docs", label: "כל המסמכים", icon: "receipt_long" },
+  { key: "analysis", label: "ניתוח ספקים", icon: "insights" },
+];
+
 export function OfficeReceiptsPanel({
   businessId,
   profileId,
@@ -43,10 +52,12 @@ export function OfficeReceiptsPanel({
   canManage: boolean;
 }) {
   const [month, setMonth] = useState(monthNow());
+  const [view, setView] = useState<ReceiptsView>("docs");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [successOpen, setSuccessOpen] = useState(false);
   const [successInfo, setSuccessInfo] = useState<{ vendor: string; type: ReceiptType; amount: number } | null>(null);
   const { data: receipts, isLoading } = useOfficeReceipts(businessId, month);
+  const { data: allReceipts, isLoading: allLoading } = useAllOfficeReceipts(businessId);
   const create = useCreateOfficeReceipt(businessId);
   const del = useDeleteOfficeReceipt(businessId);
 
@@ -71,12 +82,24 @@ export function OfficeReceiptsPanel({
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-[17px] font-extrabold tracking-tight">חשבוניות וקבלות</h2>
-          <p className="mt-0.5 text-[13px] text-text-2">מעקב וארכיון מסמכים פיננסיים</p>
+        <div className="receipts-viewswitch" role="tablist" aria-label="תצוגת מסמכים">
+          {RECEIPT_VIEWS.map((v) => (
+            <button
+              key={v.key}
+              type="button"
+              role="tab"
+              aria-selected={view === v.key}
+              data-active={view === v.key}
+              className="receipts-viewswitch__btn"
+              onClick={() => setView(v.key)}
+            >
+              <Icon name={v.icon} size={18} />
+              <span>{v.label}</span>
+            </button>
+          ))}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="!w-[150px]" />
+          <MonthPickerButton value={month} onChange={setMonth} variant="primary" />
           {canManage && (
             <Button icon="add" onClick={() => setUploadOpen(true)} className="hidden sm:inline-flex">
               מסמך חדש
@@ -85,37 +108,43 @@ export function OfficeReceiptsPanel({
         </div>
       </div>
 
-      <section className="min-w-0">
-        {isLoading ? (
-          <InlineLoader label="טוען מסמכים..." />
-        ) : (receipts ?? []).length === 0 ? (
-          <EmptyState
-            icon="receipt_long"
-            title="אין מסמכים בחודש זה"
-            description="העלי חשבונית או קבלה חדשה באמצעות כפתור הפלוס."
-            action={
-              canManage ? (
-                <Button icon="add" onClick={() => setUploadOpen(true)}>
-                  העלאת מסמך
-                </Button>
-              ) : undefined
-            }
-          />
-        ) : (
-          <div className="space-y-3">
-            {(receipts ?? []).map((r, i) => (
-              <ReceiptRow
-                key={r.id}
-                receipt={r}
-                index={i}
-                canManage={canManage}
-                deleting={del.isPending}
-                onDelete={() => confirm("למחוק את המסמך?") && del.mutate(r.id)}
-              />
-            ))}
-          </div>
-        )}
-      </section>
+      {view === "analysis" ? (
+        <section className="min-w-0 page-enter">
+          <SupplierSpendPanel receipts={allReceipts ?? []} isLoading={allLoading} month={month} />
+        </section>
+      ) : (
+        <section className="min-w-0">
+          {isLoading ? (
+            <InlineLoader label="טוען מסמכים..." />
+          ) : (receipts ?? []).length === 0 ? (
+            <EmptyState
+              icon="receipt_long"
+              title="אין מסמכים בחודש זה"
+              description="העלי חשבונית או קבלה חדשה באמצעות כפתור הפלוס."
+              action={
+                canManage ? (
+                  <Button icon="add" onClick={() => setUploadOpen(true)}>
+                    העלאת מסמך
+                  </Button>
+                ) : undefined
+              }
+            />
+          ) : (
+            <div className="space-y-3">
+              {(receipts ?? []).map((r, i) => (
+                <ReceiptRow
+                  key={r.id}
+                  receipt={r}
+                  index={i}
+                  canManage={canManage}
+                  deleting={del.isPending}
+                  onDelete={() => confirm("למחוק את המסמך?") && del.mutate(r.id)}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       {canManage && (
         <button
@@ -316,6 +345,77 @@ function ReceiptRow({
   );
 }
 
+function ReceiptFilePreview({
+  file,
+  preview,
+  isImage,
+  isPdf,
+  onClear,
+  onReplace,
+  empty,
+}: {
+  file: File | null;
+  preview: string | null;
+  isImage: boolean;
+  isPdf: boolean;
+  onClear: () => void;
+  onReplace?: () => void;
+  empty?: ReactNode;
+}) {
+  if (!file) return empty ?? null;
+
+  return (
+    <div className="receipt-file-preview">
+      {preview && isImage ? (
+        <div className="receipt-file-preview__media">
+          <img src={preview} alt="תצוגה מקדימה" className="receipt-file-preview__img" />
+        </div>
+      ) : preview && isPdf ? (
+        <div className="receipt-file-preview__media" onClick={(e) => e.stopPropagation()}>
+          <PdfFirstPagePreview url={preview} maxHeight={200} className="min-h-[140px] p-2" />
+        </div>
+      ) : (
+        <div className="receipt-file-preview__fallback">
+          <Icon name="picture_as_pdf" size={36} />
+        </div>
+      )}
+
+      <div className="receipt-file-preview__meta">
+        <div className="receipt-file-preview__info">
+          <span className="receipt-file-preview__badge" aria-hidden>
+            <Icon name={isPdf ? "picture_as_pdf" : "image"} size={16} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[13px] font-bold text-text">{file.name}</span>
+            <span className="block text-[11.5px] text-text-3">
+              {isPdf ? "מסמך PDF" : isImage ? "תמונה" : "קובץ"}
+            </span>
+          </span>
+        </div>
+        <div className="receipt-file-preview__actions">
+          {onReplace && (
+            <button type="button" className="receipt-file-preview__replace press" onClick={onReplace}>
+              <Icon name="swap_horiz" size={16} />
+              החלפה
+            </button>
+          )}
+          <button
+            type="button"
+            className="receipt-file-preview__remove press"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClear();
+            }}
+            aria-label="הסרת קובץ"
+          >
+            <Icon name="close" size={16} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function UploadForm({
   businessId,
   profileId,
@@ -333,7 +433,6 @@ function UploadForm({
   const [amount, setAmount] = useState("");
   const [supplierId, setSupplierId] = useState("");
   const [vendorName, setVendorName] = useState("");
-  const [vendorDetails, setVendorDetails] = useState("");
   const [documentDate, setDocumentDate] = useState(todayISO());
   const [notes, setNotes] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -341,7 +440,11 @@ function UploadForm({
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [mobilePickerOpen, setMobilePickerOpen] = useState(true);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const galleryRef = useRef<HTMLInputElement>(null);
+  const filesRef = useRef<HTMLInputElement>(null);
+  const desktopInputRef = useRef<HTMLInputElement>(null);
   const { data: suppliers } = useSuppliers(businessId, { activeOnly: true });
 
   useEffect(() => {
@@ -354,13 +457,18 @@ function UploadForm({
     setFile(null);
     if (preview) URL.revokeObjectURL(preview);
     setPreview(null);
-    if (inputRef.current) inputRef.current.value = "";
+    setMobilePickerOpen(true);
+    if (cameraRef.current) cameraRef.current.value = "";
+    if (galleryRef.current) galleryRef.current.value = "";
+    if (filesRef.current) filesRef.current.value = "";
+    if (desktopInputRef.current) desktopInputRef.current.value = "";
   }
 
   function pickFile(f: File | null) {
     if (!f) return;
     setFile(f);
     setError(null);
+    setMobilePickerOpen(false);
     if (preview) URL.revokeObjectURL(preview);
     if (f.type.startsWith("image/") || f.type === "application/pdf") {
       setPreview(URL.createObjectURL(f));
@@ -369,24 +477,31 @@ function UploadForm({
     }
   }
 
+  function openMobileSource(source: "camera" | "gallery" | "files") {
+    setError(null);
+    window.setTimeout(() => {
+      if (source === "camera") cameraRef.current?.click();
+      else if (source === "gallery") galleryRef.current?.click();
+      else filesRef.current?.click();
+    }, 80);
+  }
+
   function pickSupplier(id: string) {
     setSupplierId(id);
     const s = (suppliers ?? []).find((x) => x.id === id);
-    if (s) {
-      setVendorName(s.name);
-      if (s.tax_id && !vendorDetails.trim()) setVendorDetails(s.tax_id);
-    }
+    setVendorName(s?.name ?? "");
   }
+
+  const linkedSupplier = supplierId ? (suppliers ?? []).find((x) => x.id === supplierId) : null;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     const parsedAmount = parseFloat(amount.replace(/,/g, ""));
-    if (!vendorName.trim()) return setError("יש למלא את שם הספק / מי הוציא את המסמך");
+    const savedVendor = linkedSupplier?.name ?? vendorName.trim();
+    if (!savedVendor) return setError("יש לבחור ספק או למלא את שם מי שהוציא את המסמך");
     if (!parsedAmount || parsedAmount <= 0) return setError("יש למלא סכום תקין");
     if (!file) return setError("יש להעלות תמונה או קובץ של המסמך");
-
-    const savedVendor = vendorName.trim();
     const savedType = type;
     const savedAmount = parsedAmount;
 
@@ -398,7 +513,6 @@ function UploadForm({
         type,
         amount: parsedAmount,
         vendor_name: savedVendor,
-        vendor_details: vendorDetails.trim() || null,
         supplier_id: supplierId || null,
         document_date: documentDate || null,
         file_url: fileUrl,
@@ -457,27 +571,24 @@ function UploadForm({
               </option>
             ))}
           </Select>
-          <p className="mt-1 text-[12px] text-text-3">בחירת ספק תמלא את השם ותאפשר לראות מסמכים והזמנות בעמוד הספקים.</p>
+          <p className="mt-1 text-[12px] text-text-3">
+            {linkedSupplier
+              ? `המסמך יקושר ל${linkedSupplier.name} — לא צריך למלא שם ספק בנפרד.`
+              : "בחירת ספק תקשר את המסמך לעמוד הספקים. ללא קישור — מלאי שם חופשי למטה."}
+          </p>
         </Field>
       )}
 
-      <Field label="שם הספק / מי הוציא את המסמך">
-        <Input
-          value={vendorName}
-          onChange={(e) => setVendorName(e.target.value)}
-          placeholder="לדוגמה: סלקום, רמי לוי, חברת חשמל"
-          required
-        />
-      </Field>
-
-      <Field label="פרטים נוספים (ח.פ, כתובת, הערות על הספק)">
-        <Textarea
-          rows={2}
-          value={vendorDetails}
-          onChange={(e) => setVendorDetails(e.target.value)}
-          placeholder="מספר עוסק, כתובת, איש קשר..."
-        />
-      </Field>
+      {!linkedSupplier && (
+        <Field label="שם הספק / מי הוציא את המסמך">
+          <Input
+            value={vendorName}
+            onChange={(e) => setVendorName(e.target.value)}
+            placeholder="לדוגמה: סלקום, רמי לוי, חברת חשמל"
+            required
+          />
+        </Field>
+      )}
 
       <div className="grid grid-cols-2 gap-3">
         <Field label="סכום (₪)">
@@ -503,10 +614,103 @@ function UploadForm({
       </Field>
 
       <Field label="תמונה / קובץ של המסמך">
+        {/* Mobile: camera / gallery / files */}
+        <div className="receipt-upload-mobile sm:hidden">
+          <input
+            ref={cameraRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={(e) => {
+              pickFile(e.target.files?.[0] ?? null);
+              e.target.value = "";
+            }}
+          />
+          <input
+            ref={galleryRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              pickFile(e.target.files?.[0] ?? null);
+              e.target.value = "";
+            }}
+          />
+          <input
+            ref={filesRef}
+            type="file"
+            accept="application/pdf,image/*,.pdf"
+            className="hidden"
+            onChange={(e) => {
+              pickFile(e.target.files?.[0] ?? null);
+              e.target.value = "";
+            }}
+          />
+
+          {file && !mobilePickerOpen ? (
+            <ReceiptFilePreview
+              file={file}
+              preview={preview}
+              isImage={isImage}
+              isPdf={isPdf}
+              onClear={clearFile}
+              onReplace={() => setMobilePickerOpen(true)}
+            />
+          ) : (
+            <div className="receipt-upload-sources" role="group" aria-label="בחירת מקור הקובץ">
+              <button
+                type="button"
+                className="receipt-upload-source press"
+                data-kind="camera"
+                onClick={() => openMobileSource("camera")}
+              >
+                <span className="receipt-upload-source__icon" aria-hidden>
+                  <Icon name="photo_camera" size={24} />
+                </span>
+                <span className="receipt-upload-source__label">מצלמה</span>
+                <span className="receipt-upload-source__hint">צילום מסמך</span>
+              </button>
+              <button
+                type="button"
+                className="receipt-upload-source press"
+                data-kind="gallery"
+                onClick={() => openMobileSource("gallery")}
+              >
+                <span className="receipt-upload-source__icon" aria-hidden>
+                  <Icon name="photo_library" size={24} />
+                </span>
+                <span className="receipt-upload-source__label">גלריה</span>
+                <span className="receipt-upload-source__hint">תמונה מהמכשיר</span>
+              </button>
+              <button
+                type="button"
+                className="receipt-upload-source press"
+                data-kind="files"
+                onClick={() => openMobileSource("files")}
+              >
+                <span className="receipt-upload-source__icon" aria-hidden>
+                  <Icon name="folder_open" size={24} />
+                </span>
+                <span className="receipt-upload-source__label">מסמכים</span>
+                <span className="receipt-upload-source__hint">PDF או קובץ</span>
+              </button>
+            </div>
+          )}
+
+          {!file && (
+            <p className="receipt-upload-mobile__note">
+              <Icon name="info" size={14} />
+              JPG, PNG או PDF — עד 10MB
+            </p>
+          )}
+        </div>
+
+        {/* Desktop: drag & drop */}
         <div
           role="button"
           tabIndex={0}
-          onKeyDown={(e) => e.key === "Enter" && inputRef.current?.click()}
+          onKeyDown={(e) => e.key === "Enter" && desktopInputRef.current?.click()}
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
           onDrop={(e) => {
@@ -514,63 +718,29 @@ function UploadForm({
             setDragOver(false);
             pickFile(e.dataTransfer.files[0] ?? null);
           }}
-          onClick={() => inputRef.current?.click()}
-          className={`receipt-dropzone relative cursor-pointer overflow-hidden rounded-[14px] border-2 border-dashed transition ${
+          onClick={() => desktopInputRef.current?.click()}
+          className={`receipt-dropzone relative hidden cursor-pointer overflow-hidden rounded-[14px] border-2 border-dashed transition sm:block ${
             dragOver ? "border-accent bg-[var(--accent-tint)]" : "border-border hover:border-accent/40 hover:bg-surface-2"
           }`}
         >
-          {preview && isImage ? (
-            <div className="relative">
-              <img src={preview} alt="תצוגה מקדימה" className="max-h-48 w-full object-contain p-2" />
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); clearFile(); }}
-                className="absolute left-2 top-2 grid h-7 w-7 place-items-center rounded-lg bg-black/55 text-white hover:bg-black/75"
-                aria-label="הסרת קובץ"
-              >
-                <Icon name="close" size={16} />
-              </button>
-            </div>
-          ) : preview && isPdf ? (
-            <div className="relative" onClick={(e) => e.stopPropagation()}>
-              <PdfFirstPagePreview url={preview} maxHeight={200} className="min-h-[140px] p-2" />
-              <div className="flex items-center gap-2 border-t border-border bg-surface px-3 py-2">
-                <Icon name="picture_as_pdf" size={18} className="shrink-0 text-danger" />
-                <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-text-2">{file?.name}</span>
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); clearFile(); }}
-                  className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-surface-2 text-text-2 hover:bg-black/10"
-                  aria-label="הסרת קובץ"
-                >
-                  <Icon name="close" size={16} />
-                </button>
+          <ReceiptFilePreview
+            file={file}
+            preview={preview}
+            isImage={isImage}
+            isPdf={isPdf}
+            onClear={clearFile}
+            empty={
+              <div className="flex flex-col items-center gap-2 py-8 text-text-3">
+                <span className="grid h-12 w-12 place-items-center rounded-full bg-surface-2">
+                  <Icon name="cloud_upload" size={26} />
+                </span>
+                <span className="text-[13px] font-bold text-text-2">גררי קובץ לכאן או לחצי לבחירה</span>
+                <span className="text-[11.5px]">תמונה (JPG, PNG) או PDF</span>
               </div>
-            </div>
-          ) : file ? (
-            <div className="relative flex flex-col items-center gap-2 py-8 text-text-2">
-              <Icon name="picture_as_pdf" size={36} />
-              <span className="max-w-[90%] truncate text-[13px] font-semibold">{file.name}</span>
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); clearFile(); }}
-                className="absolute left-2 top-2 grid h-7 w-7 place-items-center rounded-lg bg-black/55 text-white hover:bg-black/75"
-                aria-label="הסרת קובץ"
-              >
-                <Icon name="close" size={16} />
-              </button>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center gap-2 py-8 text-text-3">
-              <span className="grid h-12 w-12 place-items-center rounded-full bg-surface-2">
-                <Icon name="cloud_upload" size={26} />
-              </span>
-              <span className="text-[13px] font-bold text-text-2">גררי קובץ לכאן או לחצי לבחירה</span>
-              <span className="text-[11.5px]">תמונה (JPG, PNG) או PDF</span>
-            </div>
-          )}
+            }
+          />
           <input
-            ref={inputRef}
+            ref={desktopInputRef}
             type="file"
             accept="image/*,application/pdf"
             className="hidden"

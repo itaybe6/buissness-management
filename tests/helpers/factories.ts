@@ -505,6 +505,7 @@ export function makeSupplier(over: Partial<Supplier> = {}): Supplier {
     tax_id: null,
     notes: null,
     delivery_days: null,
+    order_days: null,
     active: true,
     created_at: T0,
     updated_at: T0,

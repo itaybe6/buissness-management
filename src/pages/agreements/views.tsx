@@ -365,9 +365,20 @@ export function ManagerDocumentsView({
                       העובדים מורידים את הטופס, ממלאים וחותמים ידנית, ומעלים PDF סרוק.
                     </span>
                   </div>
-                  <Button variant="secondary" onClick={() => setEditForm101(true)}>
-                    עריכת טופס ריק
-                  </Button>
+                  <div className="form101-setup__actions">
+                    <Button
+                      variant="secondary"
+                      icon="download"
+                      onClick={() =>
+                        window.open(globalForm101.file_url ?? FORM_101_BLANK_URL, "_blank", "noopener,noreferrer")
+                      }
+                    >
+                      הורדת טופס
+                    </Button>
+                    <Button variant="secondary" onClick={() => setEditForm101(true)}>
+                      עריכת טופס
+                    </Button>
+                  </div>
                 </div>
               )}
               <Form101OverviewTable staff={visibleStaff} agreements={agreements} signatures={signatures ?? []} taxYear={TAX_YEAR} />

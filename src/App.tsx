@@ -24,9 +24,11 @@ import { Attendance } from "@/pages/Attendance";
 import { MyShifts } from "@/pages/MyShifts";
 import { Payroll } from "@/pages/Payroll";
 import { EmployeePayrollDetail } from "@/pages/EmployeePayrollDetail";
+import { SalaryIssues } from "@/pages/SalaryIssues";
 import { Inventory } from "@/pages/Inventory";
 import { ItemFormPage } from "@/pages/ItemFormPage";
 import { InventoryOrder } from "@/pages/InventoryOrder";
+import { RecurringOrdersPage } from "@/pages/RecurringOrdersPage";
 import { Suppliers } from "@/pages/Suppliers";
 import { SupplierFormPage } from "@/pages/SupplierFormPage";
 import { SupplierDetailPage } from "@/pages/SupplierDetailPage";
@@ -93,8 +95,10 @@ export function App() {
           <Route path="my-shifts" element={<MyShifts />} />
           <Route path="payroll" element={<FeatureGate feature="payroll"><Payroll /></FeatureGate>} />
           <Route path="payroll/:employeeId" element={<FeatureGate feature="payroll"><EmployeePayrollDetail /></FeatureGate>} />
+          <Route path="salary-issues" element={<FeatureGate feature="payroll"><SalaryIssues /></FeatureGate>} />
           <Route path="inventory" element={<FeatureGate feature="inventory"><Inventory /></FeatureGate>} />
           <Route path="inventory/order" element={<FeatureGate feature="inventory"><InventoryOrder /></FeatureGate>} />
+          <Route path="inventory/recurring-orders" element={<FeatureGate feature="inventory"><RecurringOrdersPage /></FeatureGate>} />
           <Route path="inventory/items/new" element={<FeatureGate feature="inventory"><ItemFormPage /></FeatureGate>} />
           <Route path="inventory/items/:itemId/edit" element={<FeatureGate feature="inventory"><ItemFormPage /></FeatureGate>} />
           <Route path="suppliers" element={<FeatureGate feature="inventory"><Suppliers /></FeatureGate>} />

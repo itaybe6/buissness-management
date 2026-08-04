@@ -1,4 +1,6 @@
-import { Icon } from "@/components/ui";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import { Icon, Spinner } from "@/components/ui";
 import { formatCurrency, HE_DAYS } from "@/lib/db";
 import { orderBatchTotal } from "@/api/inventory";
 import type { InventoryOrderWithUser, ItemWithQty } from "@/api/inventory";
@@ -106,6 +108,16 @@ export function formatOrderDate(iso: string) {
   };
 }
 
+/** Short, human day label for the card: "היום" / "אתמול" / "3 אוג׳". */
+export function orderDayLabel(iso: string): string {
+  const d = new Date(iso);
+  const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((startOfDay(new Date()) - startOfDay(d)) / 86_400_000);
+  if (diff === 0) return "היום";
+  if (diff === 1) return "אתמול";
+  return d.toLocaleDateString("he-IL", { day: "numeric", month: "short" });
+}
+
 export function orderPreviewLabel(lines: OrderLine[]): string {
   const names = lines.map((l) => l.item?.name ?? "פריט");
   if (names.length <= 2) return names.join(", ");
@@ -138,7 +150,13 @@ export function orderDeliversToday(
   return lines.some((l) => lineDeliveryDays(l, suppliers).includes(today));
 }
 
-export function ArrivingTodayChip({ className }: { className?: string }) {
+export function ArrivingTodayChip({
+  className,
+  label = "אמור להגיע היום",
+}: {
+  className?: string;
+  label?: string;
+}) {
   return (
     <span
       className={`inventory-order-arriving-today-chip${className ? ` ${className}` : ""}`}
@@ -146,30 +164,112 @@ export function ArrivingTodayChip({ className }: { className?: string }) {
     >
       <span className="inventory-order-arriving-today-pulse" aria-hidden />
       <Icon name="local_shipping" size={13} />
-      אמור להגיע היום
+      {label}
     </span>
   );
 }
 
-export function OrderPreviewStack({ lines }: { lines: OrderLine[] }) {
-  const shown = lines.slice(0, 3);
-  const extra = lines.length - shown.length;
+/** Leading visual: one product image, or a mosaic of up to 4 (last cell becomes "+N"). */
+export function OrderThumbMosaic({ lines }: { lines: OrderLine[] }) {
+  const shown = lines.slice(0, 4);
+  const extra = lines.length - 4;
+  const cells = extra > 0 ? shown.slice(0, 3) : shown;
 
   return (
-    <div className="inventory-order-avatars">
-      {shown.map((line, i) => (
-        <div key={line.id} className="inventory-order-avatar" style={{ zIndex: shown.length - i }}>
+    <span
+      className={`inventory-order-thumbs inventory-order-thumbs--${Math.min(lines.length, 4)}`}
+      aria-hidden
+    >
+      {cells.map((line) => (
+        <span key={line.id} className="inventory-order-thumb-cell">
           {line.item?.image_url ? (
-            <img src={line.item.image_url} alt={line.item.name} />
+            <img src={line.item.image_url} alt="" loading="lazy" />
           ) : (
-            <span className="inventory-order-avatar-fallback">
-              <Icon name="inventory_2" size={14} />
-            </span>
+            <Icon name="inventory_2" size={lines.length === 1 ? 20 : 13} />
           )}
-        </div>
+        </span>
       ))}
-      {extra > 0 && <span className="inventory-order-avatar-more">+{extra}</span>}
-    </div>
+      {extra > 0 && (
+        <span className="inventory-order-thumb-cell inventory-order-thumb-cell--more">
+          +{extra + 1}
+        </span>
+      )}
+    </span>
+  );
+}
+
+export interface OrderCardAction {
+  icon: string;
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+}
+
+/** Mobile action sheet behind the card's ⋯ button — keeps the row itself uncluttered. */
+function OrderCardMenu({ title, actions }: { title: string; actions: OrderCardAction[] }) {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  const run = (fn: () => void) => () => {
+    setOpen(false);
+    fn();
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        className="inventory-order-kebab"
+        onClick={() => setOpen(true)}
+        aria-label="פעולות על ההזמנה"
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        <Icon name="more_vert" size={19} />
+      </button>
+
+      {open &&
+        createPortal(
+          <div className="inventory-order-sheet-overlay" onClick={() => setOpen(false)}>
+            <div
+              className="inventory-order-sheet"
+              role="menu"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <span className="inventory-order-sheet-handle" aria-hidden />
+              <p className="inventory-order-sheet-title">{title}</p>
+              {actions.map((action) => (
+                <button
+                  key={action.label}
+                  type="button"
+                  role="menuitem"
+                  className={`inventory-order-sheet-item${action.danger ? " inventory-order-sheet-item--danger" : ""}`}
+                  onClick={run(action.onClick)}
+                >
+                  <Icon name={action.icon} size={20} />
+                  {action.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="inventory-order-sheet-cancel"
+                onClick={() => setOpen(false)}
+              >
+                ביטול
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
 
@@ -184,6 +284,8 @@ export function OrderBatchCard({
   onDetails,
   onEdit,
   onDelete,
+  onPdf,
+  pdfBusy,
   partialUiState = "none",
   footChipLabel,
   footChipIcon = "store",
@@ -198,19 +300,17 @@ export function OrderBatchCard({
   onDetails: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  /** Offered only where prices may be shown — the document lists them. */
+  onPdf?: () => void;
+  pdfBusy?: boolean;
   partialUiState?: PartialBatchUiState;
-  /** When set, replaces the default supplier chip in the card footer. */
+  /** When set, replaces the supplier name in the card's meta line. */
   footChipLabel?: string;
   footChipIcon?: string;
 }) {
   const isReceived = received ?? batchIsFullyReceived(batch);
-  const pendingQty = batch.lines
-    .filter((l) => l.status !== "received")
-    .reduce((sum, l) => sum + Number(l.quantity), 0);
-  const totalQty = isReceived
-    ? batchReceivedUnits(batch)
-    : batch.lines.reduce((sum, l) => sum + Number(l.quantity), 0);
   const date = formatOrderDate(batch.created_at);
+  const title = orderPreviewLabel(batch.lines);
   const supplierLabel = footChipLabel ?? batchSupplierLabel(batch, suppliers);
   const supplierPrices = supplierPricesFor(supplierPriceIndex, batch.supplier_id);
   const batchTotal = canSeePrices ? orderBatchTotal(batch.lines, supplierPrices) : 0;
@@ -223,54 +323,72 @@ export function OrderBatchCard({
       : "";
   const needsPartialAttention = partialUiState === "needs_attention";
   const deliversToday = !isReceived && orderDeliversToday(batch.lines, suppliers);
+  const canEditThis = canManageOrders && !isReceived;
 
   return (
     <article
       className={`inventory-order-card inventory-item-enter${needsPartialAttention ? " inventory-order-card--partial-attention" : deliversToday ? " inventory-order-card--arriving-today" : ""}`}
       style={{ animationDelay: `${Math.min(index, 10) * 45}ms` }}
     >
-      <button type="button" className="inventory-order-card-main" onClick={onDetails}>
-        <div className={`inventory-order-date${deliversToday ? " inventory-order-date--arriving-today" : ""}`}>
-          <span className="inventory-order-date-day">{date.day}</span>
-          <span className="inventory-order-date-month">{date.month}</span>
-        </div>
-        <div className="inventory-order-heading">
-          <div className="inventory-order-title-row">
-            <h3 className="inventory-order-title">{orderPreviewLabel(batch.lines)}</h3>
-            {deliversToday ? <ArrivingTodayChip /> : null}
-            <span className={`inventory-order-status${statusModifier}`}>
-              <span className="inventory-order-status-dot" aria-hidden />
-              {statusLabel}
+      <button
+        type="button"
+        className="inventory-order-card-main"
+        onClick={onDetails}
+        aria-label={`${title} — ${statusLabel}, ${batch.lines.length} פריטים`}
+      >
+        <OrderThumbMosaic lines={batch.lines} />
+
+        <span className="inventory-order-heading">
+          <span className="inventory-order-title">{title}</span>
+
+          <span className="inventory-order-sub">
+            <span className="inventory-order-sub-main" title={footChipLabel ? undefined : supplierLabel}>
+              <Icon name={footChipIcon} size={13} />
+              {supplierLabel}
             </span>
+            <span className="inventory-order-sub-dot" aria-hidden />
+            <span>{batch.lines.length} פריטים</span>
+            {showBatchTotal ? (
+              <>
+                <span className="inventory-order-sub-dot" aria-hidden />
+                <b>{formatCurrency(batchTotal)}</b>
+              </>
+            ) : null}
+          </span>
+
+          <span className="inventory-order-chips">
             {needsPartialAttention ? (
               <span className="inventory-order-partial-chip" title="הגיעה כמות חלקית — נדרשת התייחסות">
                 <Icon name="priority_high" size={13} />
                 לא הגיע במלואו
               </span>
-            ) : null}
-          </div>
-          <p className="inventory-order-sub">
-            <b>{batch.lines.length}</b> פריטים · <b>{totalQty}</b> בסך הכול
-            {isReceived ? " התקבלו" : pendingQty < totalQty ? ` · ${pendingQty} ממתין` : ""} · הוזמן{" "}
-            {date.time} · {batchOrderedByLabel(batch)}
-            {showBatchTotal ? ` · ${formatCurrency(batchTotal)}` : ""}
-          </p>
-        </div>
+            ) : (
+              <span className={`inventory-order-status${statusModifier}`}>
+                <span className="inventory-order-status-dot" aria-hidden />
+                {statusLabel}
+              </span>
+            )}
+            {deliversToday ? <ArrivingTodayChip label="מגיע היום" /> : null}
+            <span className="inventory-order-chips-tail">
+              {orderDayLabel(batch.created_at)} {date.time}
+            </span>
+          </span>
+        </span>
       </button>
 
-      <div className="inventory-order-card-foot">
-        <OrderPreviewStack lines={batch.lines} />
-        <span className="inventory-order-delivery-chip" title={footChipLabel ? undefined : supplierLabel}>
-          <Icon name={footChipIcon} size={13} />
-          {supplierLabel}
-        </span>
-        {showBatchTotal && (
-          <span className="inventory-order-delivery-chip" title="סה״כ הזמנה">
-            <Icon name="payments" size={13} />
-            {formatCurrency(batchTotal)}
-          </span>
+      <div className="inventory-order-actions-inline">
+        {onPdf && (
+          <button
+            type="button"
+            className="inventory-order-icon-btn inventory-order-icon-btn-pdf"
+            onClick={onPdf}
+            disabled={pdfBusy}
+            aria-label="הורדת מסמך הזמנה PDF"
+            title="מסמך הזמנה (PDF)"
+          >
+            {pdfBusy ? <Spinner size={16} /> : <Icon name="picture_as_pdf" size={17} />}
+          </button>
         )}
-        <span className="inventory-order-foot-spacer" />
         <button
           type="button"
           className="inventory-order-icon-btn"
@@ -280,7 +398,7 @@ export function OrderBatchCard({
         >
           <Icon name="visibility" size={17} />
         </button>
-        {canManageOrders && !isReceived && (
+        {canEditThis && (
           <>
             <button
               type="button"
@@ -303,6 +421,24 @@ export function OrderBatchCard({
           </>
         )}
       </div>
+
+      {/* Nothing to offer beyond "details" when the order is closed and carries
+          no document — the card tap already does that */}
+      {(canEditThis || onPdf) && (
+        <OrderCardMenu
+          title={title}
+          actions={[
+            { icon: "visibility", label: "פרטי ההזמנה", onClick: onDetails },
+            ...(onPdf ? [{ icon: "picture_as_pdf", label: "הורדת מסמך PDF", onClick: onPdf }] : []),
+            ...(canEditThis
+              ? [
+                  { icon: "edit", label: "עריכת ההזמנה", onClick: onEdit },
+                  { icon: "delete", label: "מחיקת ההזמנה", onClick: onDelete, danger: true },
+                ]
+              : []),
+          ]}
+        />
+      )}
     </article>
   );
 }
@@ -319,6 +455,8 @@ export function OrderBatchListSection({
   onDetails,
   onEdit,
   onDelete,
+  onPdf,
+  pdfBusyBatchId,
   getBatchPartialUiState,
   footChipLabel,
   footChipIcon,
@@ -334,6 +472,8 @@ export function OrderBatchListSection({
   onDetails: (batch: OrderBatch) => void;
   onEdit: (batch: OrderBatch) => void;
   onDelete: (batch: OrderBatch) => void;
+  onPdf?: (batch: OrderBatch) => void;
+  pdfBusyBatchId?: string | null;
   getBatchPartialUiState?: (batch: OrderBatch) => PartialBatchUiState;
   footChipLabel?: string;
   footChipIcon?: string;
@@ -362,6 +502,8 @@ export function OrderBatchListSection({
             onDetails={() => onDetails(batch)}
             onEdit={() => onEdit(batch)}
             onDelete={() => onDelete(batch)}
+            onPdf={onPdf ? () => onPdf(batch) : undefined}
+            pdfBusy={pdfBusyBatchId === batch.id}
             partialUiState={getBatchPartialUiState?.(batch) ?? "none"}
             footChipLabel={footChipLabel}
             footChipIcon={footChipIcon}

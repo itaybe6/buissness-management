@@ -13,6 +13,7 @@ import {
   type SupplierWithStats,
 } from "@/api/suppliers";
 import { useInventory } from "@/api/inventory";
+import { RecurringOrdersEntry } from "@/components/inventory/RecurringOrdersEntry";
 
 /** Thumbnails shown in a card's price-list strip. */
 const STRIP_MAX = 6;
@@ -125,6 +126,20 @@ export function Suppliers() {
       </header>
 
       <div className="spf-body">
+        <div
+          className="inventory-summary spl-summary mb-4 md:mb-5"
+          style={{ gridTemplateColumns: "repeat(2, 1fr)" }}
+        >
+          <div className="inventory-summary-cell">
+            <div className="text-[18px] font-extrabold leading-none tabular-nums tracking-tight md:text-[26px]">
+              {filtered.length}
+            </div>
+            <div className="inventory-tab-cell-label mt-1 text-[10px] font-medium text-text-3 md:mt-1.5 md:text-[12px]">
+              ספקים
+            </div>
+          </div>
+          <RecurringOrdersEntry businessId={businessId} variant="summary-cell" from="suppliers" />
+        </div>
 
         {/* ── Cards ── */}
         {filtered.length === 0 ? (

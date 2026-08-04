@@ -14,6 +14,7 @@ export { Icon };
 export { Select } from "./Select";
 export { TimePicker } from "./TimePicker";
 export { MultiSelect, type MultiSelectOption } from "./MultiSelect";
+export { MonthPickerButton } from "./MonthPickerButton";
 export { GlobalLoadingBar } from "./GlobalLoadingBar";
 
 /* ----------------------------- Button ----------------------------- */

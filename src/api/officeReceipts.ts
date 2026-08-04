@@ -1,29 +1,42 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { compressImage } from "@/lib/compressImage";
 import { supabase } from "@/lib/supabase";
+import { receiptMonth } from "@/lib/supplierSpend";
 import type { OfficeReceipt, ReceiptType } from "@/types/database";
+
+/**
+ * All office receipts of the business, newest first.
+ *
+ * One shared fetch backs both the month list and the supplier trend analysis,
+ * so switching months or suppliers never triggers another round-trip.
+ */
+function receiptsQuery(businessId: string | null) {
+  return {
+    queryKey: ["office_receipts", businessId, "all"] as const,
+    enabled: !!businessId,
+    queryFn: async (): Promise<OfficeReceipt[]> => {
+      const { data, error } = await supabase
+        .from("office_receipts")
+        .select("*")
+        .eq("business_id", businessId!)
+        .order("created_at", { ascending: false })
+        .limit(3000);
+      if (error) throw error;
+      return (data ?? []) as OfficeReceipt[];
+    },
+  };
+}
+
+/** Every receipt the business has — used for the per-supplier monthly trends. */
+export function useAllOfficeReceipts(businessId: string | null) {
+  return useQuery(receiptsQuery(businessId));
+}
 
 /** Office receipts within a month (yyyy-mm), newest first. */
 export function useOfficeReceipts(businessId: string | null, monthISO: string) {
   return useQuery({
-    queryKey: ["office_receipts", businessId, monthISO],
-    enabled: !!businessId,
-    queryFn: async (): Promise<OfficeReceipt[]> => {
-      const start = `${monthISO}-01`;
-      const d = new Date(start);
-      d.setMonth(d.getMonth() + 1);
-      const end = d.toISOString().slice(0, 10);
-      const { data, error } = await supabase
-        .from("office_receipts")
-        .select("*")
-        .eq("business_id", businessId)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return ((data ?? []) as OfficeReceipt[]).filter((r) => {
-        const effective = r.document_date ?? r.created_at.slice(0, 10);
-        return effective >= start && effective < end;
-      });
-    },
+    ...receiptsQuery(businessId),
+    select: (rows: OfficeReceipt[]) => rows.filter((r) => receiptMonth(r) === monthISO),
   });
 }
 

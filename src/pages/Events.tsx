@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { motion, useReducedMotion } from "motion/react";
 import { Button, Field, Icon, Input, PageLoader, ErrorState, Textarea } from "@/components/ui";
+import { EASE_OUT } from "@/components/motion/shared-motion";
 import { Modal } from "@/components/ui/Modal";
 import { EventCountdown } from "@/components/events/EventCountdown";
 import { EventMediaPicker, revokeEventMediaEntries, type MediaEntry } from "@/components/events/EventMediaPicker";
@@ -13,6 +15,91 @@ import { isVideoUrl } from "@/lib/media";
 import { useEvents, useCreateEvent, uploadEventMediaFiles } from "@/api/events";
 import { EventsSubNav } from "@/components/events/EventsSubNav";
 import type { EventRecord } from "@/types/database";
+
+function EventsHero({
+  upcomingCount,
+  pastCount,
+  todayCount,
+}: {
+  upcomingCount: number;
+  pastCount: number;
+  todayCount: number;
+}) {
+  const reduce = useReducedMotion();
+  const rise = (delay: number) =>
+    reduce
+      ? {}
+      : {
+          initial: { opacity: 0, transform: "translateY(10px)" },
+          animate: { opacity: 1, transform: "translateY(0)" },
+          transition: { duration: 0.34, delay, ease: EASE_OUT },
+        };
+
+  return (
+    <header className="evid-hero" aria-label="לוח אירועים">
+      <span className="evid-glow evid-glow--1" aria-hidden />
+      <span className="evid-glow evid-glow--2" aria-hidden />
+      <span className="evid-grid-lines" aria-hidden />
+      <span className="evid-orb evid-orb--1" aria-hidden>
+        <Icon name="event" size={15} />
+      </span>
+      <span className="evid-orb evid-orb--2" aria-hidden>
+        <Icon name="schedule" size={13} />
+      </span>
+      <span className="evid-orb evid-orb--3" aria-hidden>
+        <Icon name="celebration" size={14} />
+      </span>
+
+      <div className="evid-hero-inner">
+        <motion.div className="evid-hero-bar" {...rise(0)}>
+          <span className="evid-kicker">
+            <span className="evid-kicker-dot" aria-hidden />
+            לוח אירועים
+          </span>
+        </motion.div>
+
+        <motion.div className="evid-hero-copy" {...rise(0.05)}>
+          <h1 className="evid-title">
+            מה קורה
+            <br />
+            <span className="evid-title-em">על הבמה?</span>
+          </h1>
+          <p className="evid-sub">
+            כל אירוע במקום אחד — מה שקרוב, מה שעבר, ומה שמחכה להדליק את הערב.
+          </p>
+        </motion.div>
+
+        <motion.div className="evid-stats" {...rise(0.12)}>
+          <div className="evid-stat">
+            <span className="evid-stat-label">
+              <Icon name="event_upcoming" size={13} />
+              עתידיים
+            </span>
+            <span className="evid-stat-value">{upcomingCount}</span>
+          </div>
+          <div className="evid-stat">
+            <span className="evid-stat-label">
+              <Icon name="history" size={13} />
+              עברו
+            </span>
+            <span className="evid-stat-value">{pastCount}</span>
+          </div>
+          <div className="evid-stat" data-tone={todayCount > 0 ? "live" : undefined}>
+            <span className="evid-stat-label">
+              <Icon name="today" size={13} />
+              היום
+            </span>
+            <span className="evid-stat-value">{todayCount}</span>
+          </div>
+        </motion.div>
+
+        <motion.div className="evid-hero-nav" {...rise(0.18)}>
+          <EventsSubNav active="list" variant="ink" />
+        </motion.div>
+      </div>
+    </header>
+  );
+}
 
 export function Events() {
   const businessId = useBusinessId();
@@ -47,6 +134,7 @@ export function Events() {
     : allEvents;
   const upcomingAll = allEvents.filter((e) => e.event_date.slice(0, 10) >= now);
   const pastAll = allEvents.filter((e) => e.event_date.slice(0, 10) < now).reverse();
+  const todayCount = allEvents.filter((e) => e.event_date.slice(0, 10) === now).length;
   const searchedUpcoming = searchedEvents.filter((e) => e.event_date.slice(0, 10) >= now);
   const searchedPast = searchedEvents.filter((e) => e.event_date.slice(0, 10) < now).reverse();
   const hasEvents = allEvents.length > 0;
@@ -106,11 +194,10 @@ export function Events() {
   }
 
   return (
-    <div className="w-full page-enter">
-      <div className="evt-toolbar">
-        <EventsSubNav active="list" />
-      </div>
+    <div className="evt-page page-enter">
+      <EventsHero upcomingCount={upcomingAll.length} pastCount={pastAll.length} todayCount={todayCount} />
 
+      <div className="evt-body">
       <EventsFilter
         query={searchQuery}
         onQueryChange={setSearchQuery}
@@ -168,23 +255,19 @@ export function Events() {
           </Button>
         </div>
       ) : (
-        <div className="flex flex-col gap-6">
+        <div className="evt-sections">
           {upcoming.length > 0 && periodFilter !== "past" && (
-            <>
+            <div className="evt-upcoming">
               {featured && (isDefaultView || periodFilter === "upcoming" || dateFilter) && (
                 <FeaturedEvent event={featured} />
               )}
               {(isDefaultView ? rest : featured ? upcoming.slice(1) : upcoming).length > 0 && (
-                <section>
-                  <h2 className="page-section-label">
-                    {isDefaultView ? (
-                      <>בהמשך <span>({rest.length})</span></>
-                    ) : dateFilter ? (
-                      <>אירועים בתאריך <span>({upcoming.length})</span></>
-                    ) : (
-                      <>אירועים עתידיים <span>({upcoming.length})</span></>
-                    )}
-                  </h2>
+                <section className="evt-sec">
+                  <SectionHead
+                    icon="event_upcoming"
+                    label={isDefaultView ? "בהמשך" : dateFilter ? "אירועים בתאריך" : "אירועים עתידיים"}
+                    count={isDefaultView ? rest.length : upcoming.length}
+                  />
                   <div className="evt-rows">
                     {(isDefaultView ? rest : featured ? upcoming.slice(1) : upcoming).map((e, i) => (
                       <EventRow key={e.id} event={e} index={i} />
@@ -192,25 +275,26 @@ export function Events() {
                   </div>
                 </section>
               )}
-            </>
+            </div>
           )}
 
           {upcoming.length === 0 && periodFilter !== "past" && isDefaultView && (
             <div className="evt-none">
-              <Icon name="event_upcoming" size={22} />
-              <span>אין אירועים קרובים כרגע</span>
+              <span className="evt-none-icon" aria-hidden>
+                <Icon name="event_upcoming" size={22} />
+              </span>
+              <p className="evt-none-title">אין אירועים קרובים</p>
+              <p className="evt-none-sub">כשיעלה אירוע חדש ללו״ז הוא יופיע כאן ראשון.</p>
             </div>
           )}
 
           {past.length > 0 && periodFilter !== "upcoming" && (
-            <section>
-              <h2 className="page-section-label">
-                {periodFilter === "past" || dateFilter ? (
-                  <>אירועים שעברו <span>({past.length})</span></>
-                ) : (
-                  <>היו כבר <span>({past.length})</span></>
-                )}
-              </h2>
+            <section className="evt-sec">
+              <SectionHead
+                icon="history"
+                label={periodFilter === "past" || dateFilter ? "אירועים שעברו" : "היו כבר"}
+                count={past.length}
+              />
               <div className="evt-past-strip">
                 {past.map((e) => (
                   <PastCard key={e.id} event={e} />
@@ -220,6 +304,7 @@ export function Events() {
           )}
         </div>
       )}
+      </div>
 
       <Modal
         open={open}
@@ -252,6 +337,21 @@ export function Events() {
           {error && <p className="text-[13px] text-danger">{error}</p>}
         </div>
       </Modal>
+    </div>
+  );
+}
+
+/* --------------- Section head --------------- */
+
+function SectionHead({ icon, label, count }: { icon: string; label: string; count: number }) {
+  return (
+    <div className="evt-sec-head">
+      <span className="evt-sec-icon" aria-hidden>
+        <Icon name={icon} size={15} />
+      </span>
+      <h2 className="evt-sec-title">{label}</h2>
+      <span className="evt-sec-count">{count}</span>
+      <span className="evt-sec-line" aria-hidden />
     </div>
   );
 }
@@ -390,7 +490,7 @@ function PastCard({ event: e }: { event: EventRecord }) {
 
   return (
     <Link to={`/events/${e.id}`} className="evt-past-card">
-      <span className="evt-past-media" aria-hidden>
+      <span className="evt-past-media">
         {cover ? (
           isVideoUrl(cover) ? (
             <video src={cover} muted playsInline preload="metadata" />
@@ -398,11 +498,17 @@ function PastCard({ event: e }: { event: EventRecord }) {
             <img src={cover} alt="" />
           )
         ) : (
-          <Icon name="celebration" size={22} />
+          <span className="evt-past-empty" aria-hidden>
+            <Icon name="celebration" size={24} />
+          </span>
         )}
+        <span className="evt-past-scrim" aria-hidden />
+        <span className="evt-past-date">{d.toLocaleDateString("he-IL", dateOpts)}</span>
       </span>
-      <span className="evt-past-title">{e.title}</span>
-      <span className="evt-past-date">{d.toLocaleDateString("he-IL", dateOpts)}</span>
+      <span className="evt-past-body">
+        <span className="evt-past-title">{e.title}</span>
+        <Icon name="chevron_left" size={16} className="evt-past-go" aria-hidden />
+      </span>
     </Link>
   );
 }

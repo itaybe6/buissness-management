@@ -18,6 +18,14 @@ export function formatPrice(n: number): string {
 }
 
 export function deliveryDaysLabel(days: number[] | null | undefined): string {
+  return weekDaysLabel(days);
+}
+
+export function orderDaysLabel(days: number[] | null | undefined): string {
+  return weekDaysLabel(days);
+}
+
+function weekDaysLabel(days: number[] | null | undefined): string {
   if (!days?.length) return "לא הוגדר";
   const valid = [...new Set(days.filter((d) => d >= 0 && d <= 6))].sort((a, b) => a - b);
   if (valid.length === 0) return "לא הוגדר";

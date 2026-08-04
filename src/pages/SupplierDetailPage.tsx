@@ -3,7 +3,7 @@ import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import { Button, EmptyState, ErrorState, Icon, Input, LoadingOverlay, MultiSelect, PageLoader, Textarea } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useBusinessId, formatCurrency, HE_DAYS } from "@/lib/db";
-import { deliveryDaysLabel } from "@/lib/orderSuppliers";
+import { deliveryDaysLabel, orderDaysLabel } from "@/lib/orderSuppliers";
 import { useAuth } from "@/lib/auth";
 import {
   useSupplierItems,
@@ -30,6 +30,8 @@ import {
   type ItemWithQty,
 } from "@/api/inventory";
 import { useInventoryCategories } from "@/api/inventoryCategories";
+import { useOrderPdfDownload } from "@/api/orderPdf";
+import { RecurringOrdersEntry } from "@/components/inventory/RecurringOrdersEntry";
 import { QtyEditor, draftLabel, draftTotal, type QtyDraft } from "@/components/inventory/orderDraft";
 import {
   type OrderBatch,
@@ -90,14 +92,14 @@ function formatWhen(iso: string) {
 }
 
 /** 050-1234567 → https://wa.me/972501234567 */
-const DELIVERY_DAY_OPTIONS = HE_DAYS.map((d, i) => ({ value: String(i), label: `יום ${d}` }));
+const DAY_OPTIONS = HE_DAYS.map((d, i) => ({ value: String(i), label: `יום ${d}` }));
 
-function deliveryDaysFromSupplier(days: number[] | null | undefined): string[] {
+function daysFromSupplier(days: number[] | null | undefined): string[] {
   if (!days?.length) return [];
   return [...new Set(days.filter((d) => d >= 0 && d <= 6))].sort((a, b) => a - b).map(String);
 }
 
-function deliveryDaysEqual(a: string[], b: string[]): boolean {
+function daysEqual(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
   return a.every((v, i) => v === b[i]);
 }
@@ -137,7 +139,15 @@ function SheetField({
 /* Details sheet — edits the supplier identity in place, so fixing a  */
 /* phone number never means opening the heavy price-list form.        */
 /* ---------------------------------------------------------------- */
-type DetailsDraft = { name: string; phone: string; taxId: string; notes: string; deliveryDays: string[]; active: boolean };
+type DetailsDraft = {
+  name: string;
+  phone: string;
+  taxId: string;
+  notes: string;
+  deliveryDays: string[];
+  orderDays: string[];
+  active: boolean;
+};
 
 function draftOf(s: SupplierWithStats): DetailsDraft {
   return {
@@ -145,7 +155,8 @@ function draftOf(s: SupplierWithStats): DetailsDraft {
     phone: s.phone ?? "",
     taxId: s.tax_id ?? "",
     notes: s.notes ?? "",
-    deliveryDays: deliveryDaysFromSupplier(s.delivery_days),
+    deliveryDays: daysFromSupplier(s.delivery_days),
+    orderDays: daysFromSupplier(s.order_days),
     active: s.active,
   };
 }
@@ -204,7 +215,8 @@ function SupplierDetailsSheet({
     draft.phone.trim() !== (supplier.phone ?? "") ||
     draft.taxId.trim() !== (supplier.tax_id ?? "") ||
     draft.notes.trim() !== (supplier.notes ?? "") ||
-    !deliveryDaysEqual(draft.deliveryDays, deliveryDaysFromSupplier(supplier.delivery_days)) ||
+    !daysEqual(draft.deliveryDays, daysFromSupplier(supplier.delivery_days)) ||
+    !daysEqual(draft.orderDays, daysFromSupplier(supplier.order_days)) ||
     draft.active !== supplier.active;
 
   function requestClose() {
@@ -232,6 +244,9 @@ function SupplierDetailsSheet({
         notes: draft.notes,
         delivery_days: draft.deliveryDays.length
           ? draft.deliveryDays.map(Number).sort((a, b) => a - b)
+          : null,
+        order_days: draft.orderDays.length
+          ? draft.orderDays.map(Number).sort((a, b) => a - b)
           : null,
         active: draft.active,
       });
@@ -334,7 +349,17 @@ function SupplierDetailsSheet({
             className="spf-input spf-select"
             values={draft.deliveryDays}
             onChange={(deliveryDays) => setDraft({ ...draft, deliveryDays: [...deliveryDays].sort() })}
-            options={DELIVERY_DAY_OPTIONS}
+            options={DAY_OPTIONS}
+            placeholder="לא הוגדר"
+          />
+        </SheetField>
+
+        <SheetField icon="event" label="ימי הזמנה" hint="בימים אלה בדרך כלל יוצאת הזמנה">
+          <MultiSelect
+            className="spf-input spf-select"
+            values={draft.orderDays}
+            onChange={(orderDays) => setDraft({ ...draft, orderDays: [...orderDays].sort() })}
+            options={DAY_OPTIONS}
             placeholder="לא הוגדר"
           />
         </SheetField>
@@ -733,6 +758,12 @@ export function SupplierDetailPage() {
   const { data: inventoryCategories } = useInventoryCategories(businessId);
   const { data: supplierPriceIndex } = useSupplierItemPriceIndex(businessId);
   const { getPartialBatchUiState } = usePartialDeliveryOrderCount();
+  const {
+    download: downloadOrderPdf,
+    busyBatchId: pdfBusyBatchId,
+    error: pdfError,
+    clearError: clearPdfError,
+  } = useOrderPdfDownload(businessId);
   const stockKnown = !!inventoryItems;
 
   const itemsById = useMemo(() => {
@@ -855,6 +886,14 @@ export function SupplierDetailPage() {
   const resolveBatchPartialUiState = useCallback(
     (batch: OrderBatch) => getPartialBatchUiState(batch.id, batch.lines),
     [getPartialBatchUiState],
+  );
+
+  const handleOrderPdf = useCallback(
+    (batch: OrderBatch) => {
+      if (!supplier) return;
+      void downloadOrderPdf({ batchId: batch.id, supplierName: supplier.name });
+    },
+    [downloadOrderPdf, supplier],
   );
 
   useEffect(() => () => timers.current.forEach((t) => window.clearTimeout(t)), []);
@@ -1127,6 +1166,11 @@ export function SupplierDetailPage() {
                 <Icon name="local_shipping" size={15} />
                 <span className="spd-fact-val">{deliveryDaysLabel(supplier.delivery_days)}</span>
               </span>
+
+              <span className="spd-fact spd-fact--static" data-label="ימי הזמנה">
+                <Icon name="event" size={15} />
+                <span className="spd-fact-val">{orderDaysLabel(supplier.order_days)}</span>
+              </span>
             </div>
           </div>
 
@@ -1178,6 +1222,29 @@ export function SupplierDetailPage() {
             </span>
           </p>
         )}
+
+        {pdfError && (
+          <p className="spd-cart-alert spd-pdf-alert" role="alert">
+            <Icon name="error" size={16} />
+            <span>{pdfError}</span>
+            <button type="button" onClick={clearPdfError} aria-label="סגירת ההודעה">
+              <Icon name="close" size={15} />
+            </button>
+          </p>
+        )}
+
+        <div
+          className="inventory-summary spd-summary mb-4 md:mb-5"
+          style={{ gridTemplateColumns: "1fr" }}
+        >
+          <RecurringOrdersEntry
+            businessId={businessId}
+            variant="summary-cell"
+            supplierId={supplier.id}
+            supplierName={supplier.name}
+            from="supplier"
+          />
+        </div>
 
         <div className="spd-tabs" role="tablist">
           {tabs.map((t) => (
@@ -1389,6 +1456,8 @@ export function SupplierDetailPage() {
                     onDetails={openOrderDetails}
                     onEdit={openEditOrder}
                     onDelete={handleDeleteOrder}
+                    onPdf={handleOrderPdf}
+                    pdfBusyBatchId={pdfBusyBatchId}
                     getBatchPartialUiState={resolveBatchPartialUiState}
                     footChipLabel={deliveryDaysLabel(supplier.delivery_days)}
                     footChipIcon="local_shipping"
@@ -1407,6 +1476,8 @@ export function SupplierDetailPage() {
                     onDetails={openOrderDetails}
                     onEdit={openEditOrder}
                     onDelete={handleDeleteOrder}
+                    onPdf={handleOrderPdf}
+                    pdfBusyBatchId={pdfBusyBatchId}
                     footChipLabel={deliveryDaysLabel(supplier.delivery_days)}
                     footChipIcon="local_shipping"
                   />
@@ -1494,6 +1565,7 @@ export function SupplierDetailPage() {
             <span className="spd-cart-supplier-body">
               <b>{supplier.name}</b>
               <span>אספקה: {deliveryDaysLabel(supplier.delivery_days)}</span>
+              <span>הזמנה: {orderDaysLabel(supplier.order_days)}</span>
             </span>
             <span className="spd-cart-supplier-tag">
               <Icon name="lock" size={12} />
@@ -1595,6 +1667,8 @@ export function SupplierDetailPage() {
               <b>{supplier.name}</b>
               <span>
                 אספקה: {deliveryDaysLabel(supplier.delivery_days)}
+                {" · "}
+                הזמנה: {orderDaysLabel(supplier.order_days)}
                 {supplier.phone ? ` · ${supplier.phone}` : ""}
               </span>
             </span>

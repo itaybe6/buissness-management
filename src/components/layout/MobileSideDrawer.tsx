@@ -52,6 +52,8 @@ interface MobileSideDrawerProps {
 
   partialDeliveryOrderCount?: number;
 
+  salaryIssueCount?: number;
+
 }
 
 
@@ -87,6 +89,8 @@ export function MobileSideDrawer({
   newFaultCount = 0,
 
   partialDeliveryOrderCount = 0,
+
+  salaryIssueCount = 0,
 
 }: MobileSideDrawerProps) {
 
@@ -327,6 +331,13 @@ export function MobileSideDrawer({
                             count={partialDeliveryOrderCount}
                             className="mobile-drawer-badge"
                             ariaLabel={`${partialDeliveryOrderCount} הזמנות שלא הגיעו במלואן`}
+                          />
+                        ) : null}
+                        {(role === "manager" || role === "office_manager") && item.key === "payroll" ? (
+                          <NavItemBadge
+                            count={salaryIssueCount}
+                            className="mobile-drawer-badge"
+                            ariaLabel={`${salaryIssueCount} בעיות שכר חדשות`}
                           />
                         ) : null}
 

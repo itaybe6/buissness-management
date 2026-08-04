@@ -198,12 +198,13 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "shift-reports", label: "דוח משמרת", icon: "receipt_long", group: "shifts", roles: ["manager", "shift_manager"], feature: "shift_reports" },
   { key: "attendance", label: "שעון נוכחות", icon: "schedule", group: "shifts", roles: ["manager"], feature: "attendance" },
   { key: "my-shifts", label: "מעקב שכר", icon: "event_available", group: "shifts", roles: ["manager", "shift_manager", "office_manager", "employee", "maintenance"] },
+  { key: "salary-issues", label: "בעיות שכר", icon: "report_problem", group: "shifts", roles: ["employee", "shift_manager", "maintenance"], feature: "payroll" },
 
   { key: "tasks", label: "משימות", icon: "checklist", group: "ops", roles: ["manager", "shift_manager", "office_manager"], feature: "tasks" },
   { key: "faults", label: "תקלות", icon: "build", group: "ops", roles: ["manager", "shift_manager"], feature: "faults" },
   { key: "events", label: "אירועים", icon: "celebration", group: "ops", roles: ["manager", "event_manager", "shift_manager", "office_manager", "employee"], feature: "events" },
 
-  { key: "inventory", label: "סחורות", icon: "inventory_2", group: "inventory", roles: ["manager", "shift_manager", "office_manager", "employee"], feature: "inventory" },
+  { key: "inventory", label: "מוצרים", icon: "inventory_2", group: "inventory", roles: ["manager", "shift_manager", "office_manager", "employee"], feature: "inventory" },
   { key: "suppliers", label: "ספקים", icon: "local_shipping", group: "inventory", roles: ["manager", "office_manager"], feature: "inventory" },
 
   { key: "users", label: "משתמשים", icon: "group", group: "team", roles: ["manager", "office_manager"] },

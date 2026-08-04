@@ -4,6 +4,7 @@ import { Badge, Button, EmptyState, Field, Icon, Input, ErrorState, InlineLoader
 import { useQueryClient } from "@tanstack/react-query";
 import { Modal } from "@/components/ui/Modal";
 import { WastePanel } from "@/components/waste/WastePanel";
+import { RecurringOrdersEntry } from "@/components/inventory/RecurringOrdersEntry";
 import { DualUnitQtyInput } from "@/components/inventory/DualUnitQtyInput";
 import { InventoryQtyUpdatePanel } from "@/components/inventory/InventoryQtyUpdatePanel";
 import { formatOrderReceivedLabel, OrderReceiveControls } from "@/components/inventory/OrderReceiveControls";
@@ -137,6 +138,7 @@ function TabBar({
   showOrders,
   showWaste,
   onChange,
+  recurringAction,
 }: {
   tab: InventoryTab;
   total: number;
@@ -146,6 +148,7 @@ function TabBar({
   showOrders: boolean;
   showWaste: boolean;
   onChange: (tab: InventoryTab) => void;
+  recurringAction?: ReactNode;
 }) {
   const tabs = [
     { key: "items" as const, label: "מלאי", count: total },
@@ -156,11 +159,12 @@ function TabBar({
       ? [{ key: "waste" as const, label: "בלאי", count: wasteCount }]
       : []),
   ];
+  const columnCount = tabs.length + (recurringAction ? 1 : 0);
 
   return (
     <div
       className="inventory-summary mb-4 md:mb-6"
-      style={{ gridTemplateColumns: `repeat(${tabs.length}, 1fr)` }}
+      style={{ gridTemplateColumns: `repeat(${columnCount}, 1fr)` }}
     >
       {tabs.map(({ key, label, count }) => (
         <button
@@ -185,6 +189,7 @@ function TabBar({
           ) : null}
         </button>
       ))}
+      {recurringAction}
     </div>
   );
 }
@@ -209,6 +214,7 @@ function TabSearchBar<T extends string>({
   filterTrigger,
   filterTokens,
   topContent,
+  trailingActions,
 }: {
   query: string;
   onQueryChange: (q: string) => void;
@@ -229,6 +235,7 @@ function TabSearchBar<T extends string>({
   filterTrigger?: ReactNode;
   filterTokens?: ReactNode;
   topContent?: ReactNode;
+  trailingActions?: ReactNode;
 }) {
   const hasFilter =
     query.trim() ||
@@ -263,6 +270,7 @@ function TabSearchBar<T extends string>({
           )}
         </div>
         {filterTrigger}
+        {trailingActions}
         {showAdd && onAdd && (
           <Button
             icon={addIcon}
@@ -2747,6 +2755,10 @@ export function Inventory() {
     }
   }
 
+  const recurringOrdersSummary = canManageOrders ? (
+    <RecurringOrdersEntry businessId={businessId} variant="summary-cell" />
+  ) : null;
+
   return (
     <div className="w-full animate-fadeUp">
       <TabBar
@@ -2758,6 +2770,7 @@ export function Inventory() {
         showOrders={canManageOrders}
         showWaste={showWaste}
         onChange={changeTab}
+        recurringAction={recurringOrdersSummary}
       />
 
       {tab === "waste" && showWaste ? (

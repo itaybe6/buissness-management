@@ -8,7 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { SupplierItemPriceIndex } from "@/api/suppliers";
 import type { SupplierBasics } from "@/lib/orderSuppliers";
-import { recurringTemplateCart, recurringTemplateNotice } from "@/lib/recurringOrders";
+import { recurringTemplateCart, recurringTemplateNotice, recurringTemplateSupplierGroups } from "@/lib/recurringOrders";
 import {
   clearOrderDraft,
   draftSavedAgoLabel,
@@ -97,6 +97,59 @@ describe("התחלת הזמנה מהזמנה קבועה", () => {
     expect(recurringTemplateNotice("הזמנת בר", 4, 0)).toBe('נטענו 4 מוצרים מ"הזמנת בר"');
     expect(recurringTemplateNotice("הזמנת בר", 4, 2)).toContain("2 מוצרים דולגו");
     expect(recurringTemplateNotice("הזמנת בר", 0, 3)).toBe('אף מוצר מ"הזמנת בר" לא זמין להזמנה כרגע');
+  });
+
+  it("סינון לפי ספק טוען רק מוצרים שמסתיימים אצל אותו ספק", () => {
+    const { lines, skipped } = recurringTemplateCart(
+      [
+        { item_id: "item-beer", supplier_id: "sup-a", quantity: 2 },
+        { item_id: "item-milk", supplier_id: "sup-a", quantity: 5 },
+      ],
+      CATALOG,
+      SUPPLIERS,
+      PRICES,
+      { supplierId: "sup-a" },
+    );
+    expect(skipped).toBe(0);
+    expect(Object.keys(lines)).toEqual(["item-beer", "item-milk"]);
+
+    const onlyBeta = recurringTemplateCart(
+      [
+        { item_id: "item-beer", supplier_id: "sup-b", quantity: 1 },
+        { item_id: "item-milk", supplier_id: "sup-a", quantity: 1 },
+      ],
+      CATALOG,
+      SUPPLIERS,
+      PRICES,
+      { supplierId: "sup-b" },
+    );
+    expect(onlyBeta.skipped).toBe(1);
+    expect(Object.keys(onlyBeta.lines)).toEqual(["item-beer"]);
+  });
+
+  it("קיבוץ לפי ספק מציג שם מוצר, כמות וספק לכל שורה", () => {
+    const template = {
+      id: "tpl-1",
+      name: "הזמנת בר",
+      items: [
+        { item_id: "item-beer", supplier_id: "sup-a", quantity: 2 },
+        { item_id: "item-milk", supplier_id: "sup-a", quantity: 5 },
+        { item_id: "item-beer", supplier_id: "sup-b", quantity: 1 },
+      ],
+    } as const;
+
+    const groups = recurringTemplateSupplierGroups(
+      template as never,
+      CATALOG,
+      new Map(SUPPLIERS.map((s) => [s.id, s])),
+      (item, qty) => `${qty} ${item.unit ?? ""}`.trim(),
+    );
+
+    expect(groups).toHaveLength(2);
+    expect(groups[0]?.supplier_name).toBe("אלפא");
+    expect(groups[0]?.lines).toHaveLength(2);
+    expect(groups[1]?.supplier_name).toBe("בטא");
+    expect(groups[1]?.lines[0]?.item_name).toBe("בירה");
   });
 });
 

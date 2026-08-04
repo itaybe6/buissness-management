@@ -26,6 +26,10 @@ interface RecurringOrderPickerProps {
   /** Loading a template replaces the cart — warn before throwing work away. */
   cartHasLines: boolean;
   busyId: string | null;
+  /** When listing templates for one supplier only. */
+  supplierName?: string;
+  /** Total templates before supplier filter — shown when the filter hides some. */
+  totalTemplateCount?: number;
   onClose: () => void;
   onUse: (template: RecurringOrderWithItems) => void;
   onDelete: (template: RecurringOrderWithItems) => void;
@@ -38,18 +42,28 @@ export function RecurringOrderPicker({
   itemById,
   cartHasLines,
   busyId,
+  supplierName,
+  totalTemplateCount,
   onClose,
   onUse,
   onDelete,
 }: RecurringOrderPickerProps) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const filteredEmpty =
+    !!supplierName &&
+    templates.length === 0 &&
+    (totalTemplateCount ?? 0) > 0;
 
   return (
     <Modal
       open={open}
       onClose={onClose}
       title="הזמנות קבועות"
-      subtitle="בחרו תבנית שמורה כדי להתחיל ממנה את ההזמנה"
+      subtitle={
+        supplierName
+          ? `תבניות שמורות ל${supplierName} — בחירה תפתח הזמנה חדשה`
+          : "בחרו תבנית שמורה כדי להתחיל ממנה את ההזמנה"
+      }
       icon="event_repeat"
       maxWidth={560}
       footer={
@@ -65,9 +79,13 @@ export function RecurringOrderPicker({
           <span className="rord-empty-icon">
             <Icon name="event_repeat" size={26} />
           </span>
-          <p className="rord-empty-title">אין עדיין הזמנות קבועות</p>
+          <p className="rord-empty-title">
+            {filteredEmpty ? `אין הזמנות קבועות ל${supplierName}` : "אין עדיין הזמנות קבועות"}
+          </p>
           <p className="rord-empty-sub">
-            בנו הזמנה כרגיל ולחצו על "שמירה כהזמנה קבועה" — בפעם הבאה תוכלו להתחיל ממנה בלחיצה אחת.
+            {filteredEmpty
+              ? "יש תבניות שמורות לספקים אחרים. בנו הזמנה מהמחירון של הספק ושמרו אותה כהזמנה קבועה."
+              : 'בנו הזמנה כרגיל ולחצו על "שמירה כהזמנה קבועה" — בפעם הבאה תוכלו להתחיל ממנה בלחיצה אחת.'}
           </p>
         </div>
       ) : (

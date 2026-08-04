@@ -213,78 +213,142 @@ export function EventDetail() {
       </section>
 
       <div className="evtd-body">
-        {days > 0 && (
-          <section className="evtd-countdown" aria-label="ספירה לאחור לאירוע">
-            <div className="evtd-countdown-head">
-              <span className="evtd-countdown-icon" aria-hidden>
-                <Icon name="hourglass_top" size={14} />
-              </span>
-              <p className="evtd-countdown-kicker">הספירה לאחור</p>
-              <span className="evtd-countdown-day">{weekday}</span>
-            </div>
-            <EventCountdown dateStr={event.event_date} />
-          </section>
-        )}
-
-        {isToday && (
-          <div className="evtd-today">
-            <span className="evtd-today-ring" aria-hidden>
-              <span className="evt-live-dot" />
-            </span>
-            <div>
-              <p className="evtd-today-title">הערב זה קורה</p>
-              <p className="evtd-today-sub">האירוע מתקיים היום — בהצלחה!</p>
-            </div>
-          </div>
-        )}
-
-        {event.description && (
-          <section className="evtd-section">
-            <h2 className="evtd-label">
-              <Icon name="notes" size={15} />
-              פרטי האירוע
-            </h2>
-            <p className="evtd-desc-text">{event.description}</p>
-          </section>
-        )}
-
-        {profile?.role && (
-          <EventTasksPanel
-            businessId={businessId!}
-            event={event}
-            profileId={profile.id}
-            role={profile.role}
-          />
-        )}
-
-        {mediaUrls.length > 1 && (
-          <section className="evtd-section evtd-section--flush">
-            <div className="evtd-gallery-head">
+        <div className="evtd-main">
+          {event.description && (
+            <section className="evtd-section">
               <h2 className="evtd-label">
-                <Icon name="photo_library" size={15} />
-                גלריה
+                <Icon name="notes" size={15} />
+                פרטי האירוע
               </h2>
-              <span className="evtd-gallery-count">{mediaUrls.length} קבצים</span>
-            </div>
-            <div className="evtd-gallery">
-              {mediaUrls.map((url, i) => (
-                <GalleryTile key={url} url={url} index={i} total={mediaUrls.length} />
-              ))}
-            </div>
-          </section>
-        )}
+              <p className="evtd-desc-text">{event.description}</p>
+            </section>
+          )}
 
-        <footer className="evtd-foot">
-          <Icon name="history" size={13} />
-          <span>
-            נוסף ללו״ז ב־
-            {new Date(event.created_at).toLocaleDateString("he-IL", {
-              day: "numeric",
-              month: "long",
-              year: "numeric",
-            })}
-          </span>
-        </footer>
+          {profile?.role && (
+            <EventTasksPanel
+              businessId={businessId!}
+              event={event}
+              profileId={profile.id}
+              role={profile.role}
+            />
+          )}
+
+          {mediaUrls.length > 1 && (
+            <section className="evtd-section evtd-section--flush">
+              <div className="evtd-gallery-head">
+                <h2 className="evtd-label">
+                  <Icon name="photo_library" size={15} />
+                  גלריה
+                </h2>
+                <span className="evtd-gallery-count">{mediaUrls.length} קבצים</span>
+              </div>
+              <div className="evtd-gallery">
+                {mediaUrls.map((url, i) => (
+                  <GalleryTile key={url} url={url} index={i} total={mediaUrls.length} />
+                ))}
+              </div>
+            </section>
+          )}
+
+          <footer className="evtd-foot">
+            <Icon name="history" size={13} />
+            <span>
+              נוסף ללו״ז ב־
+              {new Date(event.created_at).toLocaleDateString("he-IL", {
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+              })}
+            </span>
+          </footer>
+        </div>
+
+        {/* Rail: above the content on mobile (order), beside it from 1024px. */}
+        <aside className="evtd-rail">
+          <div className="evtd-rail-inner">
+            {days > 0 && (
+              <section className="evtd-countdown" aria-label="ספירה לאחור לאירוע">
+                <div className="evtd-countdown-head">
+                  <span className="evtd-countdown-icon" aria-hidden>
+                    <Icon name="hourglass_top" size={14} />
+                  </span>
+                  <p className="evtd-countdown-kicker">הספירה לאחור</p>
+                  <span className="evtd-countdown-day">{weekday}</span>
+                </div>
+                <EventCountdown dateStr={event.event_date} />
+              </section>
+            )}
+
+            {isToday && (
+              <div className="evtd-today">
+                <span className="evtd-today-ring" aria-hidden>
+                  <span className="evt-live-dot" />
+                </span>
+                <div>
+                  <p className="evtd-today-title">הערב זה קורה</p>
+                  <p className="evtd-today-sub">האירוע מתקיים היום — בהצלחה!</p>
+                </div>
+              </div>
+            )}
+
+            {/* Desktop-only: the facts the poster can only hint at. */}
+            <section className="evtd-facts" aria-label="פרטים">
+              <h2 className="evtd-label">
+                <Icon name="info" size={15} />
+                על האירוע
+              </h2>
+              <dl className="evtd-facts-list">
+                <div className="evtd-fact">
+                  <dt>
+                    <Icon name="calendar_month" size={15} />
+                    תאריך
+                  </dt>
+                  <dd>{d.toLocaleDateString("he-IL", { day: "numeric", month: "long", year: "numeric" })}</dd>
+                </div>
+                <div className="evtd-fact">
+                  <dt>
+                    <Icon name="today" size={15} />
+                    יום
+                  </dt>
+                  <dd>{weekday}</dd>
+                </div>
+                <div className="evtd-fact">
+                  <dt>
+                    <Icon name="schedule" size={15} />
+                    סטטוס
+                  </dt>
+                  <dd>
+                    <span className="evtd-fact-status" data-tone={statusTone}>
+                      {statusLabel}
+                    </span>
+                  </dd>
+                </div>
+                <div className="evtd-fact">
+                  <dt>
+                    <Icon name="photo_library" size={15} />
+                    מדיה
+                  </dt>
+                  <dd>{mediaUrls.length > 0 ? `${mediaUrls.length} קבצים` : "אין קבצים"}</dd>
+                </div>
+              </dl>
+
+              {canManage && (
+                <div className="evtd-facts-actions">
+                  <Button variant="secondary" icon="edit" className="flex-1" onClick={openEdit}>
+                    עריכה
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    icon="delete"
+                    className="evtd-fact-del"
+                    onClick={() => setDeleteOpen(true)}
+                    aria-label="מחיקת האירוע"
+                  />
+                </div>
+              )}
+            </section>
+          </div>
+        </aside>
       </div>
 
       <Modal

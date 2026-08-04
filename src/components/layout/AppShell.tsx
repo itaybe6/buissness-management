@@ -22,6 +22,7 @@ import { ROLE_LABELS, groupNavItems, visibleNavItems } from "@/lib/constants";
 
 import { useMaintenanceNewFaultCount } from "@/hooks/useMaintenanceNewFaultCount";
 import { usePartialDeliveryOrderCount } from "@/hooks/usePartialDeliveryOrderCount";
+import { useSalaryIssueBadgeCount } from "@/hooks/useSalaryIssueBadgeCount";
 
 import type { NavItem } from "@/lib/constants";
 
@@ -48,6 +49,7 @@ export function AppShell() {
 
   const { count: newFaultCount } = useMaintenanceNewFaultCount();
   const { count: partialDeliveryOrderCount } = usePartialDeliveryOrderCount();
+  const { count: salaryIssueCount } = useSalaryIssueBadgeCount();
 
   const role = profile?.role ?? "employee";
 
@@ -76,7 +78,9 @@ export function AppShell() {
     /^\/inventory\/items\/[^/]+\/edit$/.test(location.pathname) ||
     location.pathname === "/suppliers" ||
     location.pathname.startsWith("/suppliers/") ||
+    location.pathname === "/salary-issues" ||
     /^\/businesses\/[^/]+$/.test(location.pathname) ||
+    location.pathname === "/events" ||
     /^\/events\/[^/]+$/.test(location.pathname);
 
 
@@ -109,7 +113,7 @@ export function AppShell() {
     const headerEl = header;
 
     function update() {
-      const hero = mainEl.querySelector(".spf-hero, .evtd-hero, .evid-hero, .cbp-hero");
+      const hero = mainEl.querySelector(".spf-hero, .evtd-hero, .evid-hero, .cbp-hero, .siq-hero");
       if (!hero) {
         setInkHeaderSolid(true);
         return;
@@ -260,6 +264,12 @@ export function AppShell() {
                         <NavItemBadge
                           count={partialDeliveryOrderCount}
                           ariaLabel={`${partialDeliveryOrderCount} הזמנות שלא הגיעו במלואן`}
+                        />
+                      ) : null}
+                      {(role === "manager" || role === "office_manager") && item.key === "payroll" ? (
+                        <NavItemBadge
+                          count={salaryIssueCount}
+                          ariaLabel={`${salaryIssueCount} בעיות שכר חדשות`}
                         />
                       ) : null}
 
@@ -429,6 +439,7 @@ export function AppShell() {
 
         newFaultCount={newFaultCount}
         partialDeliveryOrderCount={partialDeliveryOrderCount}
+        salaryIssueCount={salaryIssueCount}
 
       />
 

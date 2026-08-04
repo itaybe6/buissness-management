@@ -286,7 +286,7 @@ describe("תצוגה למשתמש", () => {
 
   it("הזמנה פתוחה מסומנת כ«אמור להגיע היום» כשיום האספקה של הספק הוא היום", () => {
     const supplierList: Supplier[] = [
-      { id: "sup-a", name: "אלפא", delivery_days: [5], active: true, business_id: "b1", phone: null, tax_id: null, notes: null, created_at: "" },
+      { id: "sup-a", name: "אלפא", delivery_days: [5], order_days: null, active: true, business_id: "b1", phone: null, tax_id: null, notes: null, created_at: "" },
     ];
     const sunday = new Date("2026-08-02T10:00:00"); // יום ראשון
     const friday = new Date("2026-08-07T10:00:00"); // יום שישי

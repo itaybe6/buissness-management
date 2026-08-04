@@ -15,6 +15,7 @@ export type WageType = "hourly" | "tips";
 export type FaultStatus = "needs_handling" | "in_progress" | "handled";
 /** Manager approval for maintenance work price on a fault. null = not submitted yet. */
 export type FaultPayApproval = "pending" | "approved";
+export type SalaryIssueStatus = "open" | "in_treatment" | "closed";
 export type AgreementType = "work" | "sexual_harassment" | "other" | "form_101";
 export type TaskType = "one_time" | "recurring";
 export type TaskStatus = "open" | "in_progress" | "done";
@@ -242,6 +243,8 @@ export interface Supplier {
   notes: string | null;
   /** 0=Sunday … 6=Saturday (JS getDay). null or empty = not set */
   delivery_days: number[] | null;
+  /** 0=Sunday … 6=Saturday (JS getDay). null or empty = not set */
+  order_days: number[] | null;
   active: boolean;
   created_at: string;
   updated_at: string;
@@ -601,6 +604,22 @@ export interface Fault {
   updated_at: string;
   /** Populated when faults are loaded with profile joins. */
   reporter?: { full_name: string | null } | null;
+  status_updater?: { full_name: string | null } | null;
+}
+
+export interface SalaryIssue {
+  id: string;
+  business_id: string;
+  employee_id: string;
+  category: string;
+  description: string;
+  status: SalaryIssueStatus;
+  status_updated_by: string | null;
+  status_updated_at: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Populated when loaded with profile joins. */
+  employee?: { full_name: string | null; avatar_url?: string | null } | null;
   status_updater?: { full_name: string | null } | null;
 }
 
