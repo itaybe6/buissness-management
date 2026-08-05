@@ -30,49 +30,43 @@ declare namespace google.maps {
     ): void;
   }
 
+  function importLibrary(library: "places"): Promise<unknown>;
+  function importLibrary(library: string): Promise<unknown>;
+
   namespace places {
-    enum PlacesServiceStatus {
-      OK = "OK",
-      ZERO_RESULTS = "ZERO_RESULTS",
-      INVALID_REQUEST = "INVALID_REQUEST",
-      OVER_QUERY_LIMIT = "OVER_QUERY_LIMIT",
-      REQUEST_DENIED = "REQUEST_DENIED",
-      UNKNOWN_ERROR = "UNKNOWN_ERROR",
-    }
-
-    interface PlaceResult {
-      formatted_address?: string;
-      name?: string;
-      place_id?: string;
-      types?: string[];
-      address_components?: GeocoderAddressComponent[];
-      geometry?: { location?: LatLng };
-    }
-
-    interface AutocompletePrediction {
-      place_id?: string;
-      description: string;
-    }
-
     class AutocompleteSessionToken {}
 
-    class AutocompleteService {
-      getPlacePredictions(
-        request: {
-          input: string;
-          componentRestrictions?: { country: string };
-          sessionToken?: AutocompleteSessionToken;
-        },
-        callback: (results: AutocompletePrediction[] | null, status: PlacesServiceStatus) => void
-      ): void;
+    interface PlacePrediction {
+      placeId: string;
+      text: { text: string };
+      toPlace(): Place;
     }
 
-    class PlacesService {
-      constructor(attrContainer: HTMLDivElement);
-      getDetails(
-        request: { placeId: string; fields?: string[] },
-        callback: (place: PlaceResult | null, status: PlacesServiceStatus) => void
-      ): void;
+    interface AutocompleteSuggestionResult {
+      placePrediction?: PlacePrediction | null;
+    }
+
+    class AutocompleteSuggestion {
+      static fetchAutocompleteSuggestions(request: {
+        input: string;
+        sessionToken?: AutocompleteSessionToken;
+        includedRegionCodes?: string[];
+      }): Promise<{ suggestions: AutocompleteSuggestionResult[] }>;
+    }
+
+    class Place {
+      constructor(options: { id: string });
+      location?: LatLng;
+      types?: string[];
+      addressComponents?: GeocoderAddressComponent[];
+      fetchFields(options: { fields: string[] }): Promise<void>;
     }
   }
 }
+
+declare const google: {
+  maps: typeof google.maps & {
+    Geocoder: typeof google.maps.Geocoder;
+    places: typeof google.maps.places;
+  };
+};

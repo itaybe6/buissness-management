@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/lib/auth";
-import { evaluateClockIn, resolveGeofenceRules } from "@/lib/attendanceGeofence";
+import { resolveGeofenceRules } from "@/lib/attendanceGeofence";
+import { attemptClockIn, clockInSuccessText } from "@/lib/attendancePunch";
 import { useBusinessId, todayISO, weekStart, addDays } from "@/lib/db";
 import { pendingTasksForEmployee } from "@/lib/pendingTasks";
 import { useBusiness } from "@/api/businesses";
@@ -123,56 +124,22 @@ export function useShiftPunch() {
 
     if (!biz) return;
 
-    if (!geofenceRequired) {
-      setBusy(true);
+    setBusy(true);
+    try {
+      const { decision, position } = await attemptClockIn({ business: biz, role: profile.role });
+      if (!decision.allowed) {
+        setClockStatus({ ok: false, text: decision.message });
+        return;
+      }
       try {
-        await clockInRecord(null, null, false);
-        setClockStatus({
-          ok: true,
-          text: geofenceExempt ? "כניסה הוחתמה · ללא בדיקת מיקום" : "כניסה הוחתמה",
-        });
+        await clockInRecord(position?.lat ?? null, position?.lng ?? null, decision.within);
+        setClockStatus({ ok: true, text: clockInSuccessText(decision) });
       } catch {
         setClockStatus({ ok: false, text: "החתמה נכשלה" });
-      } finally {
-        setBusy(false);
       }
-      return;
+    } finally {
+      setBusy(false);
     }
-
-    const preflight = evaluateClockIn({ business: biz, role: profile.role, position: null });
-    if (!preflight.allowed && preflight.reason === "missing_business_location") {
-      setClockStatus({ ok: false, text: preflight.message });
-      return;
-    }
-
-    setBusy(true);
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const decision = evaluateClockIn({
-          business: biz,
-          role: profile.role,
-          position: { lat: pos.coords.latitude, lng: pos.coords.longitude },
-        });
-        if (!decision.allowed) {
-          setClockStatus({ ok: false, text: decision.message });
-          setBusy(false);
-          return;
-        }
-        try {
-          await clockInRecord(pos.coords.latitude, pos.coords.longitude, decision.within);
-          setClockStatus({ ok: true, text: `כניסה הוחתמה · ${Math.round(decision.distanceM ?? 0)} מ׳ מהעסק` });
-        } catch {
-          setClockStatus({ ok: false, text: "החתמה נכשלה" });
-        } finally {
-          setBusy(false);
-        }
-      },
-      () => {
-        setClockStatus({ ok: false, text: "לא ניתן לקבל מיקום מהדפדפן" });
-        setBusy(false);
-      },
-      { enableHighAccuracy: true, timeout: 10000 },
-    );
   }
 
   return {

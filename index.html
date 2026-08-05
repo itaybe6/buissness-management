@@ -1,11 +1,29 @@
 <!DOCTYPE html>
-<html lang="he" dir="rtl" data-theme="light">
+<html lang="he" dir="rtl" data-theme="light" data-mobile-chrome="surface">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#ffffff" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <script>
+      (() => {
+        const path = window.location.pathname.replace(/\/+$/, "") || "/";
+        const chrome =
+          path === "/dashboard"
+            ? { type: "worker", color: "#191e25" }
+            : path === "/salary-issues"
+              ? { type: "ink", color: "#242b38" }
+              : null;
+
+        if (!chrome) return;
+
+        document.documentElement.dataset.mobileChrome = chrome.type;
+        document.querySelector('meta[name="theme-color"]').content = chrome.color;
+        document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]').content =
+          "black-translucent";
+      })();
+    </script>
     <title>AMI · Business Management</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

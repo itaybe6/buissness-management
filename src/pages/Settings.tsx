@@ -12,7 +12,24 @@ import { Badge, Button, EmptyState, Icon, Input, PageLoader, ErrorState, Switch 
 import { Modal } from "@/components/ui/Modal";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { useBusiness, useUpdateBusiness } from "@/api/businesses";
-import { ATTENDANCE_RADIUS_M, ATTENDANCE_GEOFENCE_EXEMPT_ROLE_OPTIONS, DEFAULT_WAREHOUSE_NAME, ROLE_LABELS } from "@/lib/constants";
+import {
+  ATTENDANCE_GEOFENCE_EXEMPT_ROLE_OPTIONS,
+  ATTENDANCE_RADIUS_DEFAULT_M,
+  ATTENDANCE_RADIUS_MAX_M,
+  ATTENDANCE_RADIUS_MIN_M,
+  ATTENDANCE_RADIUS_OPTIONS_M,
+  ATTENDANCE_RADIUS_TIGHT_M,
+  clampAttendanceRadius,
+  DEFAULT_WAREHOUSE_NAME,
+  ROLE_LABELS,
+} from "@/lib/constants";
+import {
+  accuracySlackMeters,
+  distanceMeters,
+  formatDistance,
+  isUnreliableAccuracy,
+} from "@/lib/attendanceGeofence";
+import { geolocationFailureMessage, getBestPosition } from "@/lib/geolocation";
 import {
   useDepartments,
   useCreateDepartment,
@@ -62,8 +79,6 @@ interface ModuleDef {
   key: SettingsPanel;
   group: ModuleGroup;
   icon: string;
-  /** Identity colour the whole card is tinted with (rides on --stx-tone). */
-  tone: string;
   label: string;
   value: string;
   sub: string;
@@ -183,7 +198,7 @@ export function Settings() {
     const warehouseCount = warehouses?.length ?? 0;
     const exemptCount = biz.attendance_geofence_exempt_roles?.length ?? 0;
     const hasCoords = biz.location_lat != null && biz.location_lng != null;
-    const radiusM = biz.location_radius_m ?? ATTENDANCE_RADIUS_M;
+    const radiusM = biz.location_radius_m ?? ATTENDANCE_RADIUS_DEFAULT_M;
     const minRules = hasShiftPrefsMinimumRules({
       minWeekdays: biz.shift_prefs_min_weekdays,
       minWeekend: biz.shift_prefs_min_weekend,
@@ -196,7 +211,6 @@ export function Settings() {
         key: "name",
         group: "identity",
         icon: "storefront",
-        tone: "#6366f1",
         label: "שם העסק",
         value: biz.name,
         sub: "דשבורד, דוחות וממשק עובדים",
@@ -207,7 +221,6 @@ export function Settings() {
         key: "location",
         group: "identity",
         icon: "my_location",
-        tone: "#0ea5e9",
         label: "כתובת לשעון נוכחות",
         value: biz.location_address?.split(",")[0] ?? "לא הוגדרה",
         sub: hasCoords ? biz.location_address ?? "" : "בחרו כתובת מההשלמה של Google",
@@ -226,7 +239,6 @@ export function Settings() {
         key: "maintenance",
         group: "rules",
         icon: "verified_user",
-        tone: "#10b981",
         label: "אישור משימות אחזקה",
         value: biz.maintenance_task_approval ? "דרוש אישור מנהל" : "עובר ישירות",
         sub: "משימות שאחראי משמרת מוריד לאחזקה",
@@ -238,7 +250,6 @@ export function Settings() {
         key: "deadline",
         group: "rules",
         icon: "event_available",
-        tone: "#f59e0b",
         label: "חלון הגשה לשבוע הבא",
         value:
           closeDow != null
@@ -267,7 +278,6 @@ export function Settings() {
         key: "minimum",
         group: "rules",
         icon: "fact_check",
-        tone: "#a855f7",
         label: "מינימום הגשת זמינות",
         value: minRules
           ? formatShiftPrefsMinimumSummary({
@@ -288,7 +298,6 @@ export function Settings() {
         key: "departments",
         group: "structure",
         icon: "category",
-        tone: "#f43f5e",
         label: "מחלקות",
         value: deptCount > 0 ? `${deptCount} ${deptCount === 1 ? "מחלקה" : "מחלקות"}` : "אין מחלקות",
         sub: "סידור עבודה, משימות ושיוך עובדים",
@@ -304,7 +313,6 @@ export function Settings() {
         key: "inventoryCategories",
         group: "structure",
         icon: "inventory_2",
-        tone: "#14b8a6",
         label: "קטגוריות מוצרים",
         value: invCatCount > 0 ? `${invCatCount} ${invCatCount === 1 ? "קטגוריה" : "קטגוריות"}` : "אין קטגוריות",
         sub: "סינון ושיוך מוצרים במלאי",
@@ -320,7 +328,6 @@ export function Settings() {
         key: "warehouses",
         group: "structure",
         icon: "warehouse",
-        tone: "#8b5cf6",
         label: "מחסנים",
         value: warehouseCount > 0 ? `${warehouseCount} ${warehouseCount === 1 ? "מחסן" : "מחסנים"}` : "אין מחסנים",
         sub: "כמות נפרדת לכל מוצר בכל מחסן",
@@ -336,7 +343,6 @@ export function Settings() {
         key: "shifts",
         group: "structure",
         icon: "schedule",
-        tone: "#3b82f6",
         label: "שעות משמרת",
         value: `${activeShifts.length} ${activeShifts.length === 1 ? "משמרת פעילה" : "משמרות פעילות"}`,
         sub: `${templates?.length ?? 0} משמרות מוגדרות בעסק`,
@@ -554,7 +560,7 @@ function ModuleCard({ def, index, onOpen }: { def: ModuleDef; index: number; onO
       className="stx-card"
       data-ready={def.ready || undefined}
       data-wide={def.wide || undefined}
-      style={{ "--stx-tone": def.tone, "--i": index } as CSSProperties}
+      style={{ "--i": index } as CSSProperties}
     >
       <span className="stx-card-spot" aria-hidden />
       <span className="stx-card-edge" aria-hidden />
@@ -814,7 +820,7 @@ function ShiftTimelinePreview({ templates }: { templates: ShiftTemplate[] }) {
                 {
                   left: `${seg.left}%`,
                   width: `${Math.max(seg.width, 2)}%`,
-                  "--seg-tone": t.color ?? "var(--stx-tone)",
+                  "--seg-tone": t.color ?? "var(--accent-2)",
                   "--i": ti,
                 } as CSSProperties
               }
@@ -831,7 +837,7 @@ function ShiftTimelinePreview({ templates }: { templates: ShiftTemplate[] }) {
       </span>
       <span className="stx-chips">
         {templates.slice(0, 3).map((t) => (
-          <span key={t.id} className="stx-chip" style={{ "--chip-tone": t.color ?? "#3b82f6" } as CSSProperties}>
+          <span key={t.id} className="stx-chip" style={{ "--chip-tone": t.color ?? "var(--accent-2)" } as CSSProperties}>
             <span className="stx-chip-dot" aria-hidden />
             {t.name}
             <span className="stx-chip-time">
@@ -888,7 +894,6 @@ function ChecklistCard({
               className="stx-check-row"
               data-ready={m.ready || undefined}
               onClick={() => onOpen(m.key)}
-              style={{ "--stx-tone": m.tone } as CSSProperties}
             >
               <span className="stx-check-mark" aria-hidden>
                 <Icon name={m.ready ? "check" : "add"} size={14} />
@@ -926,17 +931,15 @@ function ToggleRow({
   desc,
   checked,
   onChange,
-  tone,
 }: {
   icon: string;
   title: string;
   desc?: string;
   checked: boolean;
   onChange: (v: boolean) => void;
-  tone: string;
 }) {
   return (
-    <div className="stx-toggle" data-on={checked || undefined} style={{ "--stx-tone": tone } as CSSProperties}>
+    <div className="stx-toggle" data-on={checked || undefined}>
       <span className="stx-toggle-icon" aria-hidden>
         <Icon name={icon} size={19} />
       </span>
@@ -953,16 +956,14 @@ function ToggleRow({
 function DayPicker({
   value,
   onChange,
-  tone,
   label,
 }: {
   value: number;
   onChange: (dow: number) => void;
-  tone: string;
   label: string;
 }) {
   return (
-    <div className="stx-daypick" role="group" aria-label={label} style={{ "--stx-tone": tone } as CSSProperties}>
+    <div className="stx-daypick" role="group" aria-label={label}>
       {HE_DAYS_SHORT.map((letter, i) => (
         <button
           key={i}
@@ -985,17 +986,15 @@ function CountPicker({
   value,
   max,
   onChange,
-  tone,
   label,
 }: {
   value: number;
   max: number;
   onChange: (n: number) => void;
-  tone: string;
   label: string;
 }) {
   return (
-    <div className="stx-count" role="group" aria-label={label} style={{ "--stx-tone": tone } as CSSProperties}>
+    <div className="stx-count" role="group" aria-label={label}>
       {Array.from({ length: max + 1 }, (_, n) => (
         <button
           key={n}
@@ -1031,7 +1030,7 @@ function EditorRow({
   badge?: ReactNode;
 }) {
   return (
-    <div className="stx-erow" style={{ "--stx-tone": color ?? "var(--text-3)" } as CSSProperties}>
+    <div className="stx-erow" style={{ "--chip-tone": color ?? "var(--text-3)" } as CSSProperties}>
       <span className="stx-erow-mark" aria-hidden>
         {icon ? <Icon name={icon} size={16} /> : <span className="stx-erow-dot" />}
       </span>
@@ -1114,7 +1113,7 @@ function BusinessNameModal({
       }
     >
       <ModalBody>
-        <div className="stx-namecard" style={{ "--stx-tone": "#6366f1" } as CSSProperties}>
+        <div className="stx-namecard">
           <span className="stx-namecard-mono" aria-hidden>
             {nameV.trim().charAt(0) || "•"}
           </span>
@@ -1142,6 +1141,97 @@ function BusinessNameModal({
   );
 }
 
+interface SelfTestResult {
+  distanceM: number;
+  accuracyM: number;
+  lat: number;
+  lng: number;
+}
+
+/**
+ * "Why does it say I'm 3 km away?" — answered on the spot.
+ *
+ * Almost every geofence complaint is one of two things: the pin sits on the
+ * wrong building, or the device handed the browser a network-level guess instead
+ * of a GPS fix. This runs the exact measurement the punch clock runs and shows
+ * both numbers, so the manager can tell which one it is.
+ */
+function LocationSelfTest({ lat, lng, radiusM }: { lat: number; lng: number; radiusM: number }) {
+  const [testing, setTesting] = useState(false);
+  const [result, setResult] = useState<SelfTestResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function runTest() {
+    setTesting(true);
+    setError(null);
+    setResult(null);
+    try {
+      const fix = await getBestPosition();
+      setResult({
+        distanceM: distanceMeters(fix.lat, fix.lng, lat, lng),
+        accuracyM: fix.accuracyM,
+        lat: fix.lat,
+        lng: fix.lng,
+      });
+    } catch (e) {
+      setError(geolocationFailureMessage(e));
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  const unreliable = result ? isUnreliableAccuracy(result.accuracyM) : false;
+  const inside = result ? result.distanceM <= radiusM + accuracySlackMeters(result.accuracyM) : false;
+
+  return (
+    <div className="stx-block">
+      <div className="stx-block-head">
+        <Icon name="my_location" size={16} />
+        <span>בדיקה מהמכשיר הזה</span>
+      </div>
+      <p className="stx-block-desc">
+        מודד עכשיו את המרחק בין המכשיר לנקודה שנשמרה — בדיוק כמו שההחתמה עושה.
+      </p>
+      <Button variant="secondary" icon="sensors" loading={testing} onClick={() => void runTest()}>
+        בדיקת מיקום
+      </Button>
+
+      {error && <p className="mt-2 text-[12.5px] font-semibold text-danger">{error}</p>}
+
+      {result && (
+        <div className="mt-2.5 flex flex-col gap-1.5 text-[12.5px] text-text-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone={unreliable ? "warning" : inside ? "success" : "danger"}>
+              {unreliable ? "המדידה לא אמינה" : inside ? "בתוך הרדיוס" : "מחוץ לרדיוס"}
+            </Badge>
+            <span>מרחק: {formatDistance(result.distanceM)}</span>
+            <span>דיוק: ±{formatDistance(result.accuracyM)}</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-text-3">
+            <span style={{ direction: "ltr" }}>
+              {result.lat.toFixed(6)}, {result.lng.toFixed(6)}
+            </span>
+            <a
+              className="font-bold text-accent-2 underline-offset-2 hover:underline"
+              href={`https://www.google.com/maps/search/?api=1&query=${result.lat},${result.lng}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              איפה המכשיר חושב שאתם
+            </a>
+          </div>
+          {unreliable && (
+            <p className="text-[12px] font-semibold text-warning">
+              המכשיר לא נתן מיקום GPS אלא הערכה לפי הרשת — מרחק כזה לא אומר כלום. במחשב זה נורמלי;
+              בדקו מהנייד עם GPS דלוק.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function LocationModal({
   businessId,
   open,
@@ -1156,6 +1246,8 @@ function LocationModal({
   const [address, setAddress] = useState<string | null>(null);
   const [lat, setLat] = useState<number | null>(null);
   const [lng, setLng] = useState<number | null>(null);
+  const [radius, setRadius] = useState<number | null>(null);
+  const [radiusText, setRadiusText] = useState<string | null>(null);
   const [resolvingPlace, setResolvingPlace] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -1169,7 +1261,16 @@ function LocationModal({
   const hasCoords = latV != null && lngV != null;
   const geofenceEnabled = biz.attendance_geofence_enabled;
   const exemptRoles = biz.attendance_geofence_exempt_roles ?? [];
-  const radiusM = biz.location_radius_m ?? ATTENDANCE_RADIUS_M;
+  const savedRadiusM = biz.location_radius_m ?? ATTENDANCE_RADIUS_DEFAULT_M;
+  const radiusM = radius ?? savedRadiusM;
+  const dirty = addressDirty || radiusM !== savedRadiusM;
+
+  function pickRadius(next: number) {
+    setRadius(clampAttendanceRadius(next));
+    setRadiusText(null);
+    setMsg(null);
+    setSaved(false);
+  }
 
   function toggleExemptRole(role: UserRole, checked: boolean) {
     const next = checked ? [...exemptRoles, role] : exemptRoles.filter((r) => r !== role);
@@ -1192,12 +1293,13 @@ function LocationModal({
         location_address: addressV.trim(),
         location_lat: latV,
         location_lng: lngV,
-        location_radius_m: ATTENDANCE_RADIUS_M,
+        location_radius_m: clampAttendanceRadius(radiusM),
       },
       {
         onSuccess: () => {
           setMsg(null);
           setSaved(true);
+          setRadiusText(null);
         },
         onError: () => setMsg("שמירה נכשלה"),
       }
@@ -1211,7 +1313,7 @@ function LocationModal({
       title="כתובת לשעון נוכחות"
       subtitle={
         geofenceEnabled
-          ? `עובדים יוכלו להחתים נוכחות רק במרחק של עד ${radiusM} מטר מהכתובת`
+          ? `עובדים יוכלו להחתים נוכחות רק במרחק של עד ${savedRadiusM} מטר מהכתובת`
           : "בדיקת הרדיוס כבויה — ניתן להחתים מכל מקום"
       }
       icon="my_location"
@@ -1224,10 +1326,10 @@ function LocationModal({
           <Button
             icon="save"
             loading={update.isPending || resolvingPlace}
-            disabled={resolvingPlace}
+            disabled={resolvingPlace || !dirty}
             onClick={handleSave}
           >
-            שמירת כתובת
+            שמירת הגדרות
           </Button>
         </>
       }
@@ -1235,15 +1337,14 @@ function LocationModal({
       <ModalBody>
         <ToggleRow
           icon="gps_fixed"
-          tone="#0ea5e9"
           title="דרישת מיקום GPS ברדיוס מהכתובת"
-          desc={`החתמה תתאפשר רק בטווח ${radiusM} מטר מהנקודה שנשמרה`}
+          desc={`החתמה תתאפשר רק בטווח ${savedRadiusM} מטר מהנקודה שנשמרה`}
           checked={geofenceEnabled}
           onChange={(v) => update.mutate({ id: businessId, attendance_geofence_enabled: v })}
         />
 
         {geofenceEnabled && (
-          <div className="stx-block" style={{ "--stx-tone": "#0ea5e9" } as CSSProperties}>
+          <div className="stx-block">
             <div className="stx-block-head">
               <Icon name="badge" size={16} />
               <span>פטור מבדיקת רדיוס לפי תפקיד</span>
@@ -1303,8 +1404,77 @@ function LocationModal({
             <span style={{ direction: "ltr" }}>
               {latV!.toFixed(6)}, {lngV!.toFixed(6)}
             </span>
+            <a
+              className="font-bold text-accent-2 underline-offset-2 hover:underline"
+              href={`https://www.google.com/maps/search/?api=1&query=${latV},${lngV}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              בדיקת הנקודה במפה
+            </a>
           </div>
         )}
+
+        {geofenceEnabled && (
+          <div className="stx-block">
+            <div className="stx-block-head">
+              <Icon name="radar" size={16} />
+              <span>רדיוס מותר להחתמה</span>
+            </div>
+            <p className="stx-block-desc">
+              מיקום מהדפדפן מדויק בטווח של עשרות מטרים במקרה הטוב, ובתוך מבנה הרבה פחות. רדיוס
+              קטן מדי יחסום עובדים שנמצאים בעסק.
+            </p>
+            <div className="stx-picks">
+              {ATTENDANCE_RADIUS_OPTIONS_M.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  className="stx-pick"
+                  data-on={radiusM === option || undefined}
+                  aria-pressed={radiusM === option}
+                  onClick={() => pickRadius(option)}
+                >
+                  <span className="stx-pick-mark" aria-hidden>
+                    <Icon name={radiusM === option ? "check" : "add"} size={13} />
+                  </span>
+                  {option >= 1000 ? `${option / 1000} ק״מ` : `${option} מ׳`}
+                </button>
+              ))}
+            </div>
+            <label className="mt-2.5 flex items-center gap-2">
+              <span className="label-text shrink-0">ערך מותאם (מ׳)</span>
+              <Input
+                type="number"
+                inputMode="numeric"
+                min={ATTENDANCE_RADIUS_MIN_M}
+                max={ATTENDANCE_RADIUS_MAX_M}
+                className="w-28"
+                value={radiusText ?? String(radiusM)}
+                onChange={(e) => {
+                  setRadiusText(e.target.value);
+                  setMsg(null);
+                  setSaved(false);
+                  const parsed = Number(e.target.value);
+                  if (Number.isFinite(parsed) && e.target.value.trim() !== "") {
+                    setRadius(clampAttendanceRadius(parsed));
+                  }
+                }}
+                onBlur={() => setRadiusText(null)}
+              />
+            </label>
+            {radiusM < ATTENDANCE_RADIUS_TIGHT_M && (
+              <p className="mt-2 text-[12px] font-semibold text-warning">
+                מתחת ל-{ATTENDANCE_RADIUS_TIGHT_M} מ׳ סטיית ה-GPS הרגילה תחסום עובדים שנמצאים בעסק.
+              </p>
+            )}
+          </div>
+        )}
+
+        {geofenceEnabled && hasCoords && (
+          <LocationSelfTest lat={latV!} lng={lngV!} radiusM={radiusM} />
+        )}
+
         {msg && <span className="text-[13px] font-semibold text-danger">{msg}</span>}
         {saved && !msg && !update.isPending && (
           <span className="text-[13px] font-semibold text-success">נשמר בהצלחה</span>
@@ -1340,12 +1510,11 @@ function MaintenanceApprovalModal({
       footer={<Button onClick={onClose}>סגירה</Button>}
     >
       <ModalBody>
-        <div className="stx-flow-stage" style={{ "--stx-tone": "#10b981" } as CSSProperties}>
+        <div className="stx-flow-stage">
           <ApprovalFlowPreview gated={enabled} />
         </div>
         <ToggleRow
           icon="verified_user"
-          tone="#10b981"
           title="דרישת אישור מנהל"
           desc="משימות שאחראי משמרת מוריד לאיש אחזקה יחכו לאישורכם"
           checked={enabled}
@@ -1488,7 +1657,6 @@ function ShiftPrefsDeadlineModal({
       <ModalBody>
         <ToggleRow
           icon="event_available"
-          tone="#f59e0b"
           title="הגבלת חלון הגשה"
           desc="מחוץ לחלון טופס הזמינות ננעל לעובדים"
           checked={isEnabled}
@@ -1497,7 +1665,7 @@ function ShiftPrefsDeadlineModal({
 
         {isEnabled && (
           <>
-            <div className="stx-window-stage" style={{ "--stx-tone": "#f59e0b" } as CSSProperties}>
+            <div className="stx-window-stage">
               <WeekWindowPreview
                 openDow={openDowV}
                 closeDow={closeDowV}
@@ -1509,7 +1677,7 @@ function ShiftPrefsDeadlineModal({
               </span>
             </div>
 
-            <div className="stx-block" data-tone="success" style={{ "--stx-tone": "#10b981" } as CSSProperties}>
+            <div className="stx-block">
               <div className="stx-block-head">
                 <Icon name="lock_open" size={16} />
                 <span>פתיחה</span>
@@ -1519,7 +1687,6 @@ function ShiftPrefsDeadlineModal({
               </p>
               <DayPicker
                 value={openDowV}
-                tone="#10b981"
                 label="יום פתיחה"
                 onChange={(d) => {
                   setOpenDow(d);
@@ -1544,7 +1711,7 @@ function ShiftPrefsDeadlineModal({
               </label>
             </div>
 
-            <div className="stx-block" style={{ "--stx-tone": "#f59e0b" } as CSSProperties}>
+            <div className="stx-block">
               <div className="stx-block-head">
                 <Icon name="lock" size={16} />
                 <span>סגירה</span>
@@ -1554,7 +1721,6 @@ function ShiftPrefsDeadlineModal({
               </p>
               <DayPicker
                 value={closeDowV}
-                tone="#f59e0b"
                 label="יום סגירה"
                 onChange={(d) => {
                   setCloseDow(d);
@@ -1716,7 +1882,6 @@ function ShiftPrefsMinimumModal({
       <ModalBody>
         <ToggleRow
           icon="fact_check"
-          tone="#a855f7"
           title="דרישת מינימום ימים"
           desc="יום נחשב מלא כשהעובד סימן את כל המשמרות הפעילות באותו יום"
           checked={isEnabled}
@@ -1725,7 +1890,7 @@ function ShiftPrefsMinimumModal({
 
         {isEnabled && (
           <>
-            <div className="stx-block" style={{ "--stx-tone": "#a855f7" } as CSSProperties}>
+            <div className="stx-block">
               <div className="stx-block-head">
                 <Icon name="calendar_view_week" size={16} />
                 <span>ימים באמצע שבוע (א׳–ד׳)</span>
@@ -1733,7 +1898,6 @@ function ShiftPrefsMinimumModal({
               <CountPicker
                 value={weekdaysV}
                 max={4}
-                tone="#a855f7"
                 label="ימים באמצע שבוע"
                 onChange={(n) => {
                   setWeekdays(n);
@@ -1743,7 +1907,7 @@ function ShiftPrefsMinimumModal({
               />
             </div>
 
-            <div className="stx-block" style={{ "--stx-tone": "#f59e0b" } as CSSProperties}>
+            <div className="stx-block">
               <div className="stx-block-head">
                 <Icon name="weekend" size={16} />
                 <span>ימים בסופ״ש (ה׳–ש׳)</span>
@@ -1751,7 +1915,6 @@ function ShiftPrefsMinimumModal({
               <CountPicker
                 value={weekendV}
                 max={3}
-                tone="#f59e0b"
                 label="ימים בסופ״ש"
                 onChange={(n) => {
                   setWeekend(n);
@@ -1761,7 +1924,7 @@ function ShiftPrefsMinimumModal({
               />
             </div>
 
-            <div className="stx-window-stage" style={{ "--stx-tone": "#a855f7" } as CSSProperties}>
+            <div className="stx-window-stage">
               <MinimumPreview weekdays={weekdaysV} weekend={weekendV} />
               <span className="stx-window-rule">
                 {formatShiftPrefsMinimumSummary({
@@ -1971,7 +2134,6 @@ function WarehousesModal({
             <div key={w.id} style={{ "--i": i } as CSSProperties} className="stx-elist-item">
               <EditorRow
                 icon="warehouse"
-                color="#8b5cf6"
                 defaultValue={w.name}
                 deleteLabel="מחק מחסן"
                 onRename={(n) => update.mutate({ id: w.id, name: n })}
@@ -2070,7 +2232,7 @@ function ShiftTemplatesModal({
       }
     >
       <ModalBody>
-        <div className="stx-window-stage" style={{ "--stx-tone": "#3b82f6" } as CSSProperties}>
+        <div className="stx-window-stage">
           <ShiftTimelinePreview templates={activeTemplates} />
         </div>
 

@@ -50,6 +50,21 @@ describe("שיוך תבנית קבועה למחלקה", () => {
     expect(templateVisibleForDailyChecklist(tpl, null, "office_manager")).toBe(true);
   });
 
+  it("בדשבורד אישי — גם אחמ״ש בלי מחלקה לא רואה תבניות של מחלקות אחרות", () => {
+    const tpl = makeTaskTemplate({ department_id: DEPT.bar });
+    expect(templateVisibleForDailyChecklist(tpl, null, "shift_manager", { personal: true })).toBe(false);
+    expect(templateVisibleForDailyChecklist(tpl, null, "manager", { personal: true })).toBe(false);
+  });
+
+  it("בדשבורד אישי — עובד בר רואה רק בר + כללי", () => {
+    const bar = makeTaskTemplate({ department_id: DEPT.bar });
+    const wait = makeTaskTemplate({ department_id: DEPT.service });
+    const global = makeTaskTemplate({ department_id: null });
+    expect(templateVisibleForDailyChecklist(bar, DEPT.bar, "employee", { personal: true })).toBe(true);
+    expect(templateVisibleForDailyChecklist(wait, DEPT.bar, "employee", { personal: true })).toBe(false);
+    expect(templateVisibleForDailyChecklist(global, DEPT.bar, "employee", { personal: true })).toBe(true);
+  });
+
   it("איש אחזקה בלי מחלקה לא מקבל את כל התבניות", () => {
     const tpl = makeTaskTemplate({ department_id: DEPT.bar });
     expect(templateVisibleForDailyChecklist(tpl, null, "maintenance")).toBe(false);
@@ -167,6 +182,25 @@ describe("בניית הצ׳ק־ליסט של היום", () => {
       ],
     });
     expect(out.map((t) => t.title)).toEqual(["כללי"]);
+  });
+
+  it("עובד בר לא רואה משימות מלצרות — רק בר + כללי למסעדה", () => {
+    const out = buildTodayTasks(
+      BUSINESS_ID,
+      [],
+      [
+        makeTaskTemplate({ id: "tpl-bar", title: "ניקוי בר", department_id: DEPT.bar }),
+        makeTaskTemplate({ id: "tpl-wait", title: "סידור שולחנות", department_id: DEPT.service }),
+        makeTaskTemplate({ id: "tpl-all", title: "נעילה", department_id: null }),
+      ],
+      USER.employee,
+      DEPT.bar,
+      TODAY,
+      WEDNESDAY,
+      "employee",
+      { personal: true },
+    );
+    expect(out.map((t) => t.title).sort()).toEqual(["נעילה", "ניקוי בר"].sort());
   });
 
   it("רשימות ריקות מחזירות רשימה ריקה", () => {

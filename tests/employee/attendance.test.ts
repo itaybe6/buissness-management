@@ -9,7 +9,9 @@ import { describe, expect, it } from "vitest";
 import { formatShiftElapsed } from "@/hooks/useShiftPunch";
 import {
   ATTENDANCE_GEOFENCE_EXEMPT_ROLE_OPTIONS,
-  ATTENDANCE_RADIUS_M,
+  ATTENDANCE_RADIUS_DEFAULT_M,
+  ATTENDANCE_RADIUS_MIN_M,
+  clampAttendanceRadius,
 } from "@/lib/constants";
 import {
   attendanceBelongsToTodayFeed,
@@ -27,11 +29,14 @@ import {
   shiftWindowForDate,
   totalPunchDurationHours,
 } from "@/lib/attendanceFeed";
+import { attemptClockIn, clockInSuccessText, targetAccuracyFor } from "@/lib/attendancePunch";
+import { GeolocationFailure, geolocationFailureMessage, getBestPosition } from "@/lib/geolocation";
 import {
   TPL,
   USER,
   makeAssignment,
   makeAttendance,
+  makeBusiness,
   makeOpenAttendance,
   shiftTemplates,
 } from "../helpers/factories";
@@ -65,8 +70,15 @@ describe("טיימר המשמרת שרץ על מסך העובד", () => {
 });
 
 describe("גיאופנס — הגדרות ההחתמה", () => {
-  it("רדיוס ברירת המחדל הוא 15 מטר", () => {
-    expect(ATTENDANCE_RADIUS_M).toBe(15);
+  it("רדיוס ברירת המחדל הוא 100 מטר — מתחת לזה רעש ה-GPS חוסם עובדים שנמצאים בעסק", () => {
+    expect(ATTENDANCE_RADIUS_DEFAULT_M).toBe(100);
+  });
+
+  it("רדיוס שהמנהל מזין נחתך לטווח שפוי", () => {
+    expect(clampAttendanceRadius(250)).toBe(250);
+    expect(clampAttendanceRadius(1)).toBe(ATTENDANCE_RADIUS_MIN_M);
+    expect(clampAttendanceRadius(99999)).toBe(5000);
+    expect(clampAttendanceRadius(120.6)).toBe(121);
   });
 
   it("רשימת הפטורים כוללת רק תפקידים אמיתיים ובלי כפילויות", () => {
@@ -89,6 +101,227 @@ describe("גיאופנס — הגדרות ההחתמה", () => {
 
   it("סופר אדמין אינו אופציה לפטור — הוא לא מחתים שעון בעסק", () => {
     expect(ATTENDANCE_GEOFENCE_EXEMPT_ROLE_OPTIONS).not.toContain("super_admin");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// איך העובד מקבל מיקום מהמכשיר, ומה ההחתמה עושה עם מה שהתקבל
+// ---------------------------------------------------------------------------
+
+interface ScriptedFix {
+  afterMs: number;
+  coords?: { lat: number; lng: number; accuracy: number };
+  errorCode?: 1 | 2 | 3;
+}
+
+/** דפדפן מזויף שמזרים תיקוני מיקום לפי תסריט — כמו GPS שמתחמם. */
+function fakeGeolocation(script: ScriptedFix[]) {
+  const cleared: number[] = [];
+  const timers: ReturnType<typeof setTimeout>[] = [];
+  const geolocation = {
+    watchPosition(
+      onFix: (pos: { coords: { latitude: number; longitude: number; accuracy: number }; timestamp: number }) => void,
+      onError?: (err: { code: number; message: string; PERMISSION_DENIED: number; POSITION_UNAVAILABLE: number; TIMEOUT: number }) => void,
+    ) {
+      for (const step of script) {
+        timers.push(
+          setTimeout(() => {
+            if (step.coords) {
+              onFix({
+                coords: { latitude: step.coords.lat, longitude: step.coords.lng, accuracy: step.coords.accuracy },
+                timestamp: Date.now(),
+              });
+            } else if (step.errorCode && onError) {
+              onError({
+                code: step.errorCode,
+                message: "fake",
+                PERMISSION_DENIED: 1,
+                POSITION_UNAVAILABLE: 2,
+                TIMEOUT: 3,
+              });
+            }
+          }, step.afterMs),
+        );
+      }
+      return 7;
+    },
+    clearWatch(id: number) {
+      cleared.push(id);
+      for (const t of timers) clearTimeout(t);
+    },
+  };
+  return { geolocation, cleared };
+}
+
+describe("קבלת מיקום מהדפדפן", () => {
+  const opts = { secureContext: true, maxWaitMs: 120 };
+
+  it("התיקון הראשון הוא הגס — נבחר התיקון המדויק שמגיע אחריו", async () => {
+    const { geolocation, cleared } = fakeGeolocation([
+      { afterMs: 1, coords: { lat: 32.1, lng: 34.8, accuracy: 2400 } },
+      { afterMs: 20, coords: { lat: 32.0853, lng: 34.7818, accuracy: 12 } },
+    ]);
+    const fix = await getBestPosition({ ...opts, targetAccuracyM: 30, geolocation });
+    expect(fix.accuracyM).toBe(12);
+    expect(fix.lat).toBeCloseTo(32.0853, 4);
+    expect(cleared).toContain(7); // לא משאירים watch פתוח שמרוקן סוללה
+  });
+
+  it("כשאף תיקון לא מגיע לרמת הדיוק המבוקשת — מוחזר הטוב מביניהם", async () => {
+    const { geolocation } = fakeGeolocation([
+      { afterMs: 1, coords: { lat: 32.1, lng: 34.8, accuracy: 900 } },
+      { afterMs: 10, coords: { lat: 32.09, lng: 34.79, accuracy: 300 } },
+    ]);
+    const fix = await getBestPosition({ ...opts, targetAccuracyM: 20, geolocation });
+    expect(fix.accuracyM).toBe(300);
+  });
+
+  it("מדידה גסה שלא משתפרת לא מחזיקה את העובד מול ספינר עד סוף התקציב", async () => {
+    const { geolocation } = fakeGeolocation([{ afterMs: 1, coords: { lat: 32.1, lng: 34.8, accuracy: 2400 } }]);
+    const started = Date.now();
+    const fix = await getBestPosition({
+      secureContext: true,
+      maxWaitMs: 5000,
+      graceAfterFirstFixMs: 40,
+      targetAccuracyM: 30,
+      geolocation,
+    });
+    expect(fix.accuracyM).toBe(2400);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it("סירוב הרשאה נכשל מיד עם הודעה שאומרת מה לעשות", async () => {
+    const { geolocation } = fakeGeolocation([{ afterMs: 1, errorCode: 1 }]);
+    await expect(getBestPosition({ ...opts, geolocation })).rejects.toMatchObject({
+      code: "permission_denied",
+    });
+    const failure = await getBestPosition({ ...opts, geolocation }).catch((e) => e);
+    expect(geolocationFailureMessage(failure)).toContain("הרשאת מיקום");
+  });
+
+  it("שגיאה חולפת בזמן שה-GPS מתחמם לא מבטלת תיקון שמגיע אחריה", async () => {
+    const { geolocation } = fakeGeolocation([
+      { afterMs: 1, errorCode: 2 },
+      { afterMs: 15, coords: { lat: 32.0853, lng: 34.7818, accuracy: 18 } },
+    ]);
+    const fix = await getBestPosition({ ...opts, targetAccuracyM: 30, geolocation });
+    expect(fix.accuracyM).toBe(18);
+  });
+
+  it("כשלא מגיע כלום בזמן שהוקצב — כשל timeout, לא המתנה אינסופית", async () => {
+    const { geolocation } = fakeGeolocation([]);
+    await expect(getBestPosition({ ...opts, geolocation })).rejects.toMatchObject({ code: "timeout" });
+  });
+
+  it("חיבור לא מאובטח (http) נחסם בהסבר, לא בשגיאה סתומה", async () => {
+    const { geolocation } = fakeGeolocation([{ afterMs: 1, coords: { lat: 32, lng: 34, accuracy: 5 } }]);
+    const failure = await getBestPosition({ maxWaitMs: 50, secureContext: false, geolocation }).catch((e) => e);
+    expect(failure.code).toBe("insecure_context");
+    expect(geolocationFailureMessage(failure)).toContain("https");
+  });
+});
+
+describe("החתמת כניסה מקצה לקצה", () => {
+  const BIZ_LAT = 32.0853;
+  const BIZ_LNG = 34.7818;
+  const business = makeBusiness({
+    attendance_geofence_enabled: true,
+    location_lat: BIZ_LAT,
+    location_lng: BIZ_LNG,
+    location_radius_m: 100,
+  });
+
+  const fixedPosition = (lat: number, lng: number, accuracyM: number) => async () => ({
+    lat,
+    lng,
+    accuracyM,
+    takenAt: Date.now(),
+  });
+
+  it("עובד שעומד בעסק עם נייד — נכנס, וההודעה מציינת את המרחק", async () => {
+    const { decision, position } = await attemptClockIn({
+      business,
+      role: "employee",
+      getPosition: fixedPosition(BIZ_LAT + 0.0003, BIZ_LNG, 15),
+    });
+    expect(decision).toMatchObject({ allowed: true, reason: "inside_radius" });
+    expect(position?.accuracyM).toBe(15);
+    expect(clockInSuccessText(decision)).toContain("מהעסק");
+  });
+
+  it("מנהל שפתח את המסך במחשב מקבל הסבר על המדידה, לא האשמה שהוא בבית", async () => {
+    const { decision } = await attemptClockIn({
+      business,
+      role: "employee",
+      getPosition: fixedPosition(BIZ_LAT + 0.0332, BIZ_LNG, 3000),
+    });
+    expect(decision.allowed).toBe(false);
+    if (decision.allowed) return;
+    expect(decision.reason).toBe("low_accuracy");
+    expect(decision.message).toContain("מהנייד");
+  });
+
+  it("עובד שבאמת רחוק נחסם עם המרחק והרדיוס", async () => {
+    const { decision } = await attemptClockIn({
+      business,
+      role: "employee",
+      getPosition: fixedPosition(BIZ_LAT + 0.02, BIZ_LNG, 20),
+    });
+    expect(decision.allowed).toBe(false);
+    if (decision.allowed) return;
+    expect(decision.reason).toBe("outside_radius");
+    expect(decision.message).toContain("מחוץ לרדיוס (100 מ׳)");
+  });
+
+  it("תפקיד פטור לא מבקש מיקום מהמכשיר בכלל", async () => {
+    let asked = false;
+    const exempt = { ...business, attendance_geofence_exempt_roles: ["shift_manager" as const] };
+    const { decision, position } = await attemptClockIn({
+      business: exempt,
+      role: "shift_manager",
+      getPosition: async () => {
+        asked = true;
+        throw new Error("לא אמור להיקרא");
+      },
+    });
+    expect(asked).toBe(false);
+    expect(decision).toMatchObject({ allowed: true, reason: "exempt" });
+    expect(position).toBeNull();
+    expect(clockInSuccessText(decision)).toContain("ללא בדיקת מיקום");
+  });
+
+  it("גיאופנס דלוק בלי כתובת — לא מטריחים את העובד בהרשאת מיקום", async () => {
+    let asked = false;
+    const { decision } = await attemptClockIn({
+      business: { ...business, location_lat: null, location_lng: null },
+      role: "employee",
+      getPosition: async () => {
+        asked = true;
+        throw new Error("לא אמור להיקרא");
+      },
+    });
+    expect(asked).toBe(false);
+    expect(decision).toMatchObject({ allowed: false, reason: "missing_business_location" });
+  });
+
+  it("כשל באיתור מיקום מגיע לעובד כהודעה מובנת", async () => {
+    const { decision } = await attemptClockIn({
+      business,
+      role: "employee",
+      getPosition: async () => {
+        throw new GeolocationFailure("permission_denied", "denied");
+      },
+    });
+    expect(decision.allowed).toBe(false);
+    if (decision.allowed) return;
+    expect(decision.reason).toBe("no_position");
+    expect(decision.message).toContain("הרשאת מיקום");
+  });
+
+  it("הדיוק המבוקש נגזר מהרדיוס — אין טעם לחכות לדיוק של מטר", () => {
+    expect(targetAccuracyFor(20)).toBe(20);
+    expect(targetAccuracyFor(100)).toBe(50);
+    expect(targetAccuracyFor(2000)).toBe(50);
   });
 });
 

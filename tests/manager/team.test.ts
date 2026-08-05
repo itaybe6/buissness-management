@@ -126,6 +126,21 @@ describe("שיוך העובד למחלקה", () => {
     expect(checklistFor(null, "manager").sort()).toEqual(["ניקוי מטבח", "נעילה", "סגירת בר"].sort());
   });
 
+  it("בדשבורד אישי אחמ״ש בלי מחלקה רואה רק כלליות — לא את כל המחלקות", () => {
+    const personal = buildTodayTasks(
+      BUSINESS_ID,
+      [],
+      templates,
+      USER.shiftManager,
+      null,
+      TODAY,
+      WEDNESDAY,
+      "shift_manager",
+      { personal: true },
+    ).map((t) => t.title);
+    expect(personal).toEqual(["נעילה"]);
+  });
+
   it("איש אחזקה בלי מחלקה לא מקבל תבניות מחלקתיות", () => {
     expect(templateVisibleForDailyChecklist(barTemplate, null, "maintenance")).toBe(false);
   });

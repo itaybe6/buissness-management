@@ -21,6 +21,7 @@ import { NavItemBadge } from "@/components/layout/NavItemBadge";
 import { ROLE_LABELS, groupNavItems, visibleNavItems } from "@/lib/constants";
 
 import { useMaintenanceNewFaultCount } from "@/hooks/useMaintenanceNewFaultCount";
+import { useMobileChrome } from "@/hooks/useMobileChrome";
 import { usePartialDeliveryOrderCount } from "@/hooks/usePartialDeliveryOrderCount";
 import { useSalaryIssueBadgeCount } from "@/hooks/useSalaryIssueBadgeCount";
 
@@ -73,12 +74,18 @@ export function AppShell() {
   const profileSubtitle = isSuperAdmin ? ROLE_LABELS[role] : business?.name ?? ROLE_LABELS[role];
 
   /** Pages with the dark ink hero — mobile top bar should match that shell. */
+  const workerDashboard =
+    location.pathname === "/dashboard" &&
+    (role === "employee" || role === "shift_manager");
+
   const inkHeroHeader =
+    workerDashboard ||
     location.pathname.startsWith("/inventory/items/new") ||
     /^\/inventory\/items\/[^/]+\/edit$/.test(location.pathname) ||
     location.pathname === "/suppliers" ||
     location.pathname.startsWith("/suppliers/") ||
     location.pathname === "/salary-issues" ||
+    location.pathname === "/settings" ||
     /^\/businesses\/[^/]+$/.test(location.pathname) ||
     location.pathname === "/events" ||
     /^\/events\/[^/]+$/.test(location.pathname);
@@ -113,7 +120,9 @@ export function AppShell() {
     const headerEl = header;
 
     function update() {
-      const hero = mainEl.querySelector(".spf-hero, .evtd-hero, .evid-hero, .cbp-hero, .siq-hero");
+      const hero = mainEl.querySelector(
+        ".spf-hero, .evtd-hero, .evid-hero, .cbp-hero, .siq-hero, .stx-hero, .worker-hero",
+      );
       if (!hero) {
         setInkHeaderSolid(true);
         return;
@@ -141,7 +150,13 @@ export function AppShell() {
     };
   }, [inkHeroHeader, location.pathname]);
 
-
+  useMobileChrome({
+    menuOpen,
+    inkHero: inkHeroHeader,
+    inkHeaderSolid,
+    workerHero: workerDashboard,
+    theme,
+  });
 
   const isNavActive = (key: string) =>
 
@@ -305,7 +320,7 @@ export function AppShell() {
 
       {/* Main column */}
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="app-main-column flex min-w-0 flex-1 flex-col bg-bg">
 
         {/* Mobile-only top bar — desktop has the sidebar, so no empty header strip */}
         <header
@@ -394,7 +409,7 @@ export function AppShell() {
 
         <main
           ref={mainRef}
-          className={`flex-1 overflow-auto bg-bg px-4 pb-[max(1rem,var(--safe-bottom))] pt-[18px] md:px-[30px] md:pb-7 md:pt-7${
+          className={`app-main-scroll flex-1 overflow-auto bg-bg px-4 pb-[max(1rem,var(--safe-bottom))] pt-[18px] md:px-[30px] md:pb-7 md:pt-7${
             inkHeroHeader ? " main--ink-hero" : ""
           }`}
         >

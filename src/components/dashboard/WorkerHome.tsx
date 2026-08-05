@@ -4,9 +4,10 @@ import { Modal } from "@/components/ui/Modal";
 import { AttendancePunchStation } from "@/components/attendance/AttendancePunchStation";
 import { DailyTasksChecklist, useDailyTaskActions } from "@/components/tasks/DailyTasksChecklist";
 import { EventTasksGroupedChecklist } from "@/components/tasks/EventTasksGroupedChecklist";
+import { WorkerWeekDayStrip } from "@/components/tasks/WorkerWeekDayStrip";
 import { PageEnter } from "@/components/motion/shared-motion";
 import { useAuth } from "@/lib/auth";
-import { useBusinessId } from "@/lib/db";
+import { useBusinessId, todayISO, addDays, weekStart } from "@/lib/db";
 import { ROLE_LABELS } from "@/lib/constants";
 import { useShiftPunch } from "@/hooks/useShiftPunch";
 import { useIsMdUp } from "@/hooks/useMediaQuery";
@@ -141,14 +142,25 @@ export function WorkerHome({
   const businessId = useBusinessId();
   const { profile, hasFeature } = useAuth();
   const now = useLiveClock();
+  const today = todayISO();
+  const [selectedDate, setSelectedDate] = useState(today);
+  const [weekAnchor, setWeekAnchor] = useState(() => weekStart());
 
-  const { todayTasks, employeeEventTasks, hasEventTasks, setStatus, setMedia, isLoading: tasksLoading } =
-    useDailyTaskActions(
-      businessId ?? "",
-      profile?.id ?? "",
-      profile?.department_id ?? null,
-      profile?.role,
-    );
+  const {
+    todayTasks,
+    dateTasks,
+    employeeEventTasks,
+    hasEventTasks,
+    setStatus,
+    setMedia,
+    isLoading: tasksLoading,
+  } = useDailyTaskActions(
+    businessId ?? "",
+    profile?.id ?? "",
+    profile?.department_id ?? null,
+    profile?.role,
+    selectedDate,
+  );
 
   const timeStr = now.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const clockStr = now.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
@@ -164,7 +176,42 @@ export function WorkerHome({
   const [taskScope, setTaskScope] = useState<TaskScope>("all");
 
   const showEventTaskFilter = showTasks && showEvents && hasEventTasks;
-  const visibleTasks = taskScope === "events" ? employeeEventTasks : todayTasks;
+  const visibleTasks = taskScope === "events" ? employeeEventTasks : dateTasks;
+  const tasksReadOnly = taskScope === "all" && selectedDate !== today;
+
+  const selectedDateLabel = useMemo(
+    () =>
+      new Date(`${selectedDate}T12:00:00`).toLocaleDateString("he-IL", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+      }),
+    [selectedDate],
+  );
+
+  function shiftWeek(deltaDays: number) {
+    const nextWeek = addDays(weekAnchor, deltaDays);
+    let dayIdx = 0;
+    for (let i = 0; i < 7; i++) {
+      if (addDays(weekAnchor, i) === selectedDate) {
+        dayIdx = i;
+        break;
+      }
+    }
+    setWeekAnchor(nextWeek);
+    setSelectedDate(addDays(nextWeek, dayIdx));
+  }
+
+  function goToday() {
+    const w = weekStart();
+    setWeekAnchor(w);
+    setSelectedDate(today);
+  }
+
+  function selectDate(date: string) {
+    setSelectedDate(date);
+    setWeekAnchor(weekStart(new Date(`${date}T12:00:00`)));
+  }
 
   const showBothPanels = showTasks && showAttendance && !!businessId;
   const splitLayout = showBothPanels && isMdUp;
@@ -301,7 +348,7 @@ export function WorkerHome({
                         onClick={() => setTaskScope("all")}
                       >
                         <Icon name="today" size={16} className="flex-none" />
-                        <span>היום</span>
+                        <span>יומיות</span>
                       </button>
                       <button
                         type="button"
@@ -332,15 +379,34 @@ export function WorkerHome({
                       emptyDescription="כשישייכו אליך או למחלקה שלך משימות לאירוע — הן יופיעו כאן."
                     />
                   ) : (
-                    <DailyTasksChecklist
-                      tasks={visibleTasks}
-                      businessId={businessId}
-                      onStatus={setStatus}
-                      onMedia={setMedia}
-                      variant={variant === "shift_manager" ? "dashboard" : "employee"}
-                      emptyTitle="אין משימות להיום"
-                      emptyDescription="לא שויכו אליך משימות קבועות או חד־פעמיות ליום זה."
-                    />
+                    <>
+                      <WorkerWeekDayStrip
+                        weekStart={weekAnchor}
+                        selectedDate={selectedDate}
+                        onSelectDate={selectDate}
+                        onShiftWeek={shiftWeek}
+                        onGoToday={goToday}
+                      />
+                      <DailyTasksChecklist
+                        tasks={visibleTasks}
+                        businessId={businessId}
+                        onStatus={setStatus}
+                        onMedia={setMedia}
+                        variant={variant === "shift_manager" ? "dashboard" : "employee"}
+                        dateLabel={selectedDateLabel}
+                        readOnly={tasksReadOnly}
+                        emptyTitle={
+                          selectedDate === today
+                            ? "אין משימות להיום"
+                            : `אין משימות ל${selectedDateLabel}`
+                        }
+                        emptyDescription={
+                          selectedDate === today
+                            ? "מוצגות רק משימות המחלקה שלך ומשימות כלליות למסעדה."
+                            : "בחר יום אחר בשבוע או עבור לשבוע הבא כדי לראות משימות מתוכננות."
+                        }
+                      />
+                    </>
                   )}
                 </div>
               </div>

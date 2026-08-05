@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { Button, Icon } from "@/components/ui";
+import { Button, Icon, LoadingOverlay } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { EASE_OUT } from "@/components/motion/shared-motion";
 import { todayISO } from "@/lib/db";
 import {
+  applySessionTaskOrder,
   buildTodayTasks,
+  buildTasksForDate,
   buildEmployeeEventTasks,
+  captureSessionTaskOrder,
+  extendSessionTaskOrder,
   isDepartmentTask,
   isRecurringTaskForDate,
   taskExpansionKey,
@@ -43,27 +47,63 @@ function firstName(fullName: string | null | undefined): string | null {
   return fullName.trim().split(/\s+/)[0] ?? fullName;
 }
 
+type TaskOverride = Partial<
+  Pick<Task, "status" | "completed_at" | "media_urls" | "last_documented_by" | "last_documented_at">
+>;
+
+function applyTaskOverrides(tasks: Task[], overrides: Record<string, TaskOverride>): Task[] {
+  return tasks.map((t) => {
+    const patch = overrides[t.id];
+    return patch ? { ...t, ...patch } : t;
+  });
+}
+
+function stabilizeTaskOrder(
+  merged: Task[],
+  orderRef: React.MutableRefObject<Map<string, number> | null>,
+  ready: boolean,
+): Task[] {
+  if (ready && merged.length > 0 && !orderRef.current) {
+    orderRef.current = captureSessionTaskOrder(merged);
+  }
+  if (orderRef.current) {
+    extendSessionTaskOrder(orderRef.current, merged);
+    return applySessionTaskOrder(merged, orderRef.current);
+  }
+  return merged;
+}
+
+/** Personal worker checklist — department + restaurant-wide only (never all depts). */
+const PERSONAL_CHECKLIST_SCOPE = { personal: true } as const;
+
 export function useDailyTaskActions(
   businessId: string,
   profileId: string,
   deptId: string | null,
   role?: UserRole | null,
+  selectedDate?: string,
 ) {
   const { data: tasks = [], isLoading: tasksLoading } = useTasks(businessId);
   const { data: templates = [], isLoading: templatesLoading } = useTaskTemplates(businessId);
   const update = useUpdateTask(businessId);
   const createTask = useCreateTask();
-  const [overrides, setOverrides] = useState<
-    Record<
-      string,
-      Partial<
-        Pick<Task, "status" | "completed_at" | "media_urls" | "last_documented_by" | "last_documented_at">
-      >
-    >
-  >({});
+  const [overrides, setOverrides] = useState<Record<string, TaskOverride>>({});
+  const todaySessionOrderRef = useRef<Map<string, number> | null>(null);
+  const dateSessionOrderRef = useRef<Map<string, number> | null>(null);
+  const eventSessionOrderRef = useRef<Map<string, number> | null>(null);
+  const sessionOrderDateRef = useRef<string | null>(null);
 
   const today = todayISO();
-  const todayWeekday = new Date().getDay();
+  const viewDate = selectedDate ?? today;
+  const isLoading = tasksLoading || templatesLoading;
+  const orderReady = !isLoading;
+
+  useEffect(() => {
+    if (sessionOrderDateRef.current !== viewDate) {
+      dateSessionOrderRef.current = null;
+      sessionOrderDateRef.current = viewDate;
+    }
+  }, [viewDate]);
 
   function documentedPatch(): Pick<Task, "last_documented_by" | "last_documented_at"> {
     return {
@@ -73,25 +113,54 @@ export function useDailyTaskActions(
   }
 
   const todayTasks = useMemo(() => {
-    const built = buildTodayTasks(businessId, tasks, templates, profileId, deptId, today, todayWeekday, role);
-    return built.map((t) => {
-      const patch = overrides[t.id];
-      return patch ? { ...t, ...patch } : t;
-    });
-  }, [businessId, tasks, templates, profileId, deptId, today, todayWeekday, role, overrides]);
+    const built = buildTodayTasks(
+      businessId,
+      tasks,
+      templates,
+      profileId,
+      deptId,
+      today,
+      new Date().getDay(),
+      role,
+      PERSONAL_CHECKLIST_SCOPE,
+    );
+    return stabilizeTaskOrder(applyTaskOverrides(built, overrides), todaySessionOrderRef, orderReady);
+  }, [businessId, tasks, templates, profileId, deptId, today, role, overrides, orderReady]);
+
+  const dateTasks = useMemo(() => {
+    const built = buildTasksForDate(
+      businessId,
+      tasks,
+      templates,
+      profileId,
+      deptId,
+      viewDate,
+      today,
+      role,
+      PERSONAL_CHECKLIST_SCOPE,
+    );
+    return stabilizeTaskOrder(applyTaskOverrides(built, overrides), dateSessionOrderRef, orderReady);
+  }, [businessId, tasks, templates, profileId, deptId, viewDate, today, role, overrides, orderReady]);
 
   const employeeEventTasks = useMemo(() => {
     const built = buildEmployeeEventTasks(tasks, profileId, deptId);
-    return built.map((t) => {
-      const patch = overrides[t.id];
-      return patch ? { ...t, ...patch } : t;
-    });
-  }, [tasks, profileId, deptId, overrides]);
+    return stabilizeTaskOrder(applyTaskOverrides(built, overrides), eventSessionOrderRef, orderReady);
+  }, [tasks, profileId, deptId, overrides, orderReady]);
 
   // Clear overrides once the virtual row is gone (materialized) or the real row matches.
   useEffect(() => {
     const visibleIds = new Set(
-      buildTodayTasks(businessId, tasks, templates, profileId, deptId, today, todayWeekday, role).map((t) => t.id),
+      buildTodayTasks(
+        businessId,
+        tasks,
+        templates,
+        profileId,
+        deptId,
+        today,
+        new Date().getDay(),
+        role,
+        PERSONAL_CHECKLIST_SCOPE,
+      ).map((t) => t.id),
     );
     setOverrides((prev) => {
       let changed = false;
@@ -131,7 +200,7 @@ export function useDailyTaskActions(
       }
       return changed ? next : prev;
     });
-  }, [businessId, tasks, templates, profileId, deptId, today, todayWeekday, role]);
+  }, [businessId, tasks, templates, profileId, deptId, today, role]);
 
   function materialize(
     templateId: string,
@@ -152,6 +221,7 @@ export function useDailyTaskActions(
       description: tpl.description,
       type: "recurring",
       assigned_to: profileId,
+      department_id: tpl.department_id,
       due_date: today,
       recurrence_weekday: tpl.recurrence_weekday,
       ...extra,
@@ -181,11 +251,12 @@ export function useDailyTaskActions(
 
   return {
     todayTasks,
+    dateTasks,
     employeeEventTasks,
     hasEventTasks: employeeEventTasks.length > 0,
     setStatus,
     setMedia,
-    isLoading: tasksLoading || templatesLoading,
+    isLoading,
   };
 }
 
@@ -198,12 +269,14 @@ export function tasksHeroSummary(open: number, inProgress: number, total: number
   return parts.join(" · ");
 }
 
-function StatusSegmented({
+export function StatusSegmented({
   value,
   onChange,
+  disabled,
 }: {
   value: TaskStatus;
   onChange: (s: TaskStatus) => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="task-status-track" role="group" aria-label="סטטוס המשימה">
@@ -215,6 +288,7 @@ function StatusSegmented({
             key={s}
             type="button"
             onClick={() => onChange(s)}
+            disabled={disabled}
             aria-pressed={active}
             aria-label={m.label}
             data-status={s}
@@ -292,7 +366,7 @@ function MediaThumb({
   );
 }
 
-function TaskMediaBar({
+export function TaskMediaBar({
   media,
   uploading,
   uploadProgress,
@@ -313,16 +387,20 @@ function TaskMediaBar({
   const hasMedia = media.length > 0;
 
   function choose(source: "camera" | "gallery") {
+    // iOS Safari requires the file picker to open inside the same user gesture.
+    if (source === "camera") onCamera();
+    else onGallery();
     setPickerOpen(false);
-    // Let the modal close before opening the native picker
-    window.setTimeout(() => {
-      if (source === "camera") onCamera();
-      else onGallery();
-    }, 180);
   }
+
+  const uploadLabel =
+    uploadProgress > 0 && uploadProgress < 100
+      ? `מעלה תיעוד ${uploadProgress}%`
+      : "מעלה תיעוד";
 
   return (
     <>
+      <LoadingOverlay show={uploading} label={uploadLabel} />
       <div className="task-media-bar">
         {hasMedia && (
           <div className="task-media-strip flex gap-2 overflow-x-auto pb-0.5">
@@ -349,24 +427,13 @@ function TaskMediaBar({
               size={18}
               className={uploading ? "animate-pulse" : ""}
             />
-            <span>{uploading ? "מעלה…" : hasMedia ? "הוספת תיעוד" : "העלאת תיעוד"}</span>
+            <span>{uploading ? "מעלה…" : hasMedia ? "הוסף תמונה נוספת" : "העלאת תיעוד"}</span>
           </button>
           {hasMedia && (
             <span className="ms-auto text-[11px] font-semibold tabular-nums text-text-3">{media.length} קבצים</span>
           )}
         </div>
 
-        {uploading && (
-          <div className="h-1 overflow-hidden rounded-full bg-border-2">
-            <motion.div
-              className="h-full rounded-full"
-              style={{ background: "var(--accent)" }}
-              initial={{ width: "8%" }}
-              animate={{ width: `${Math.max(uploadProgress, 12)}%` }}
-              transition={{ duration: 0.2, ease: EASE_OUT }}
-            />
-          </div>
-        )}
       </div>
 
       <Modal
@@ -417,6 +484,7 @@ function DailyTaskRow({
   expanded,
   onToggle,
   documenterName,
+  readOnly = false,
 }: {
   task: Task;
   index: number;
@@ -428,6 +496,7 @@ function DailyTaskRow({
   expanded?: boolean;
   onToggle?: () => void;
   documenterName?: string | null;
+  readOnly?: boolean;
 }) {
   const reduce = useReducedMotion();
   const cameraRef = useRef<HTMLInputElement | null>(null);
@@ -470,7 +539,9 @@ function DailyTaskRow({
         type="file"
         accept="image/*,video/*"
         capture="environment"
-        className="hidden"
+        className="sr-only"
+        tabIndex={-1}
+        aria-hidden="true"
         onChange={(e) => {
           handleFiles(e.target.files);
           e.target.value = "";
@@ -481,7 +552,9 @@ function DailyTaskRow({
         type="file"
         accept="image/*,video/*"
         multiple
-        className="hidden"
+        className="sr-only"
+        tabIndex={-1}
+        aria-hidden="true"
         onChange={(e) => {
           handleFiles(e.target.files);
           e.target.value = "";
@@ -493,6 +566,7 @@ function DailyTaskRow({
   if (wrapped) {
     return (
       <>
+        {!readOnly && fileInputs}
         <motion.article
           initial={reduce ? false : { opacity: 0, transform: "translateY(8px)" }}
           animate={{ opacity: 1, transform: "translateY(0)" }}
@@ -534,10 +608,11 @@ function DailyTaskRow({
             ) : (
               <button
                 type="button"
-                onClick={() => onStatus(task.id, done ? "open" : "done")}
+                onClick={readOnly ? undefined : () => onStatus(task.id, done ? "open" : "done")}
+                disabled={readOnly}
                 className="task-row-card__thumb task-row-card__thumb--check"
                 aria-label={done ? "סמן כפתוח" : "סמן כבוצע"}
-                title={done ? "סמן כפתוח" : "סמן כבוצע"}
+                title={readOnly ? undefined : done ? "סמן כפתוח" : "סמן כבוצע"}
               >
                 <Icon name={meta.icon} size={22} />
               </button>
@@ -600,20 +675,35 @@ function DailyTaskRow({
                 {task.description && <p className="task-row-card__description">{task.description}</p>}
 
                 <div className="task-row-card__seg">
-                  <span className="task-row-card__seg-label">עדכון סטטוס</span>
-                  <StatusSegmented value={task.status} onChange={(s) => onStatus(task.id, s)} />
+                  <span className="task-row-card__seg-label">{readOnly ? "סטטוס" : "עדכון סטטוס"}</span>
+                  <StatusSegmented
+                    value={task.status}
+                    onChange={(s) => onStatus(task.id, s)}
+                    disabled={readOnly}
+                  />
                 </div>
 
-                {fileInputs}
-                <TaskMediaBar
-                  media={media}
-                  uploading={uploading}
-                  uploadProgress={uploadProgress}
-                  onCamera={() => cameraRef.current?.click()}
-                  onGallery={() => galleryRef.current?.click()}
-                  onPreview={setPreviewUrl}
-                  onRemove={(url) => onMedia(task.id, media.filter((u) => u !== url))}
-                />
+                {readOnly ? (
+                  media.length > 0 && (
+                    <div className="task-media-bar">
+                      <div className="task-media-strip flex gap-2 overflow-x-auto pb-0.5">
+                        {media.map((url) => (
+                          <MediaThumb key={url} url={url} onPreview={() => setPreviewUrl(url)} />
+                        ))}
+                      </div>
+                    </div>
+                  )
+                ) : (
+                  <TaskMediaBar
+                    media={media}
+                    uploading={uploading}
+                    uploadProgress={uploadProgress}
+                    onCamera={() => cameraRef.current?.click()}
+                    onGallery={() => galleryRef.current?.click()}
+                    onPreview={setPreviewUrl}
+                    onRemove={(url) => onMedia(task.id, media.filter((u) => u !== url))}
+                  />
+                )}
 
                 {error && <span className="block text-[12px] font-semibold text-danger">{error}</span>}
               </div>
@@ -640,6 +730,7 @@ function DailyTaskRow({
 
   return (
     <>
+      {fileInputs}
       <motion.div
         initial={reduce ? false : { opacity: 0, transform: "translateY(8px)" }}
         animate={{ opacity: 1, transform: "translateY(0)" }}
@@ -690,7 +781,6 @@ function DailyTaskRow({
         </div>
 
         <div className="mt-3">
-          {fileInputs}
           <TaskMediaBar
             media={media}
             uploading={uploading}
@@ -720,6 +810,8 @@ export function DailyTasksChecklist({
   embedded = false,
   emptyTitle = "אין משימות להיום",
   emptyDescription = "לא שויכו אליך משימות קבועות או חד־פעמיות ליום זה.",
+  dateLabel,
+  readOnly = false,
 }: {
   tasks: Task[];
   businessId: string;
@@ -730,6 +822,8 @@ export function DailyTasksChecklist({
   embedded?: boolean;
   emptyTitle?: string;
   emptyDescription?: string;
+  dateLabel?: string;
+  readOnly?: boolean;
 }) {
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const { data: users = [] } = useProfiles(businessId);
@@ -739,7 +833,7 @@ export function DailyTasksChecklist({
   );
   const openCount = tasks.filter((t) => t.status === "open").length;
   const inProgressCount = tasks.filter((t) => t.status === "in_progress").length;
-  const todayLabel = new Date().toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long" });
+  const headerLabel = dateLabel ?? new Date().toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long" });
   const isEmployee = variant === "employee";
   const isDashboard = variant === "dashboard";
   const wrapped = isEmployee || isDashboard;
@@ -751,7 +845,7 @@ export function DailyTasksChecklist({
       return (
         <section className="task-checklist">
           <header className="task-hero">
-            <p className="task-hero__sub">{todayLabel}</p>
+            <p className="task-hero__sub">{headerLabel}</p>
           </header>
           <div className="px-5 py-11 text-center sm:px-6">
             <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-success-bg">
@@ -794,6 +888,7 @@ export function DailyTasksChecklist({
               t.last_documented_by ? userById.get(t.last_documented_by) : null,
             )}
             onToggle={() => setExpandedKey((prev) => (prev === expandKey ? null : expandKey))}
+            readOnly={readOnly}
           />
         );
       })}
@@ -808,7 +903,12 @@ export function DailyTasksChecklist({
     return (
       <section className="task-checklist">
         <header className="task-hero">
-          <p className="task-hero__sub">{tasksHeroSummary(openCount, inProgressCount, tasks.length)}</p>
+          <p className="task-hero__sub">
+            {readOnly ? headerLabel : tasksHeroSummary(openCount, inProgressCount, tasks.length)}
+          </p>
+          {readOnly && (
+            <p className="task-hero__hint">תצוגה בלבד · ניתן לעדכן משימות רק ביום הנוכחי</p>
+          )}
         </header>
 
         <div className="task-checklist-body">{taskList}</div>

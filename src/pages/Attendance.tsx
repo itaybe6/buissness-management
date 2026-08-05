@@ -12,7 +12,9 @@ import {
   StatusBanner,
 } from "@/components/attendance/attendance-motion";
 import { useAuth } from "@/lib/auth";
-import { ATTENDANCE_RADIUS_M, canForceEmployeeClockOut } from "@/lib/constants";
+import { canForceEmployeeClockOut } from "@/lib/constants";
+import { resolveGeofenceRules } from "@/lib/attendanceGeofence";
+import { attemptClockIn, clockInSuccessText } from "@/lib/attendancePunch";
 import { useBusinessId, todayISO, weekStart, addDays } from "@/lib/db";
 import { pendingTasksForEmployee } from "@/lib/pendingTasks";
 import {
@@ -31,15 +33,6 @@ import { useActiveShiftTemplates, useShiftAssignments } from "@/api/shifts";
 import { AttendanceMobileView } from "@/components/attendance/AttendanceMobileView";
 import { AttendanceTodayFeedSection } from "@/components/attendance/AttendanceTodayFeedSection";
 import { ForceClockOutModal, type ForceClockOutTarget, type OpenForceClockOutOptions } from "@/components/attendance/ForceClockOutModal";
-
-function distanceM(lat1: number, lng1: number, lat2: number, lng2: number) {
-  const R = 6371000;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
 
 function formatElapsed(ms: number) {
   const totalSec = Math.max(0, Math.floor(ms / 1000));
@@ -169,12 +162,12 @@ export function Attendance() {
   const onShift = Boolean(myOpen);
   const shiftElapsed = myOpen?.clock_in ? formatElapsed(now.getTime() - new Date(myOpen.clock_in).getTime()) : null;
   const locationReady = biz.location_lat != null && biz.location_lng != null;
-  const geofenceEnabled = biz.attendance_geofence_enabled;
-  const geofenceExempt = Boolean(
-    profile && biz.attendance_geofence_exempt_roles?.includes(profile.role),
-  );
-  const geofenceRequired = geofenceEnabled && !geofenceExempt;
-  const radiusM = biz.location_radius_m ?? ATTENDANCE_RADIUS_M;
+  const {
+    enabled: geofenceEnabled,
+    exempt: geofenceExempt,
+    required: geofenceRequired,
+    radiusM,
+  } = resolveGeofenceRules(biz, profile?.role);
   const timeStr = now.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const dateStr = now.toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long" });
 
@@ -204,53 +197,24 @@ export function Attendance() {
       return;
     }
 
-    if (!biz) return;
+    if (!biz || !profile) return;
 
-    if (!geofenceRequired) {
-      setBusy(true);
+    setBusy(true);
+    try {
+      const { decision, position } = await attemptClockIn({ business: biz, role: profile.role });
+      if (!decision.allowed) {
+        setStatus({ ok: false, text: decision.message });
+        return;
+      }
       try {
-        await clockInRecord(null, null, false);
-        setStatus({
-          ok: true,
-          text: geofenceExempt ? "כניסה הוחתמה · ללא בדיקת מיקום" : "כניסה הוחתמה",
-        });
+        await clockInRecord(position?.lat ?? null, position?.lng ?? null, decision.within);
+        setStatus({ ok: true, text: clockInSuccessText(decision) });
       } catch {
         setStatus({ ok: false, text: "החתמה נכשלה" });
-      } finally {
-        setBusy(false);
       }
-      return;
+    } finally {
+      setBusy(false);
     }
-
-    if (biz.location_lat == null || biz.location_lng == null) {
-      setStatus({ ok: false, text: "מיקום העסק לא הוגדר. פנו למנהל." });
-      return;
-    }
-    setBusy(true);
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const d = distanceM(pos.coords.latitude, pos.coords.longitude, biz.location_lat!, biz.location_lng!);
-        const within = d <= radiusM;
-        if (!within) {
-          setStatus({ ok: false, text: `אתם במרחק ${Math.round(d)} מ׳ מחוץ לרדיוס (${radiusM} מ׳)` });
-          setBusy(false);
-          return;
-        }
-        try {
-          await clockInRecord(pos.coords.latitude, pos.coords.longitude, within);
-          setStatus({ ok: true, text: `כניסה הוחתמה · ${Math.round(d)} מ׳ מהעסק` });
-        } catch {
-          setStatus({ ok: false, text: "החתמה נכשלה" });
-        } finally {
-          setBusy(false);
-        }
-      },
-      () => {
-        setStatus({ ok: false, text: "לא ניתן לקבל מיקום מהדפדפן" });
-        setBusy(false);
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
   }
 
   return (

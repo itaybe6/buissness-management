@@ -8,10 +8,15 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  accuracySlackMeters,
   distanceMeters,
   evaluateClockIn,
+  formatDistance,
+  isUnreliableAccuracy,
   resolveGeofenceRules,
+  UNRELIABLE_ACCURACY_M,
 } from "@/lib/attendanceGeofence";
+import { ATTENDANCE_RADIUS_DEFAULT_M } from "@/lib/constants";
 import {
   combineDateAndTime,
   endTimeFromHours,
@@ -86,9 +91,9 @@ describe("המנהל מדליק גיאופנס — העובד חייב להיו�
     expect(evaluateClockIn({ business: wide, role: "employee", position }).allowed).toBe(true);
   });
 
-  it("רדיוס לא מוגדר נופל לברירת המחדל של 15 מ׳", () => {
+  it("רדיוס לא מוגדר נופל לברירת המחדל", () => {
     const noRadius = { ...business, location_radius_m: null };
-    expect(resolveGeofenceRules(noRadius, "employee").radiusM).toBe(15);
+    expect(resolveGeofenceRules(noRadius, "employee").radiusM).toBe(ATTENDANCE_RADIUS_DEFAULT_M);
   });
 
   it("גיאופנס דלוק בלי כתובת עסק — חוסם עם הודעה למנהל, לא מאשים את העובד", () => {
@@ -151,6 +156,79 @@ describe("המנהל מגדיר תפקידים פטורים מגיאופנס", (
   it("הסרת תפקיד מהרשימה מחזירה אותו לבדיקת מיקום", () => {
     const narrowed = { ...business, attendance_geofence_exempt_roles: ["maintenance" as const] };
     expect(resolveGeofenceRules(narrowed, "shift_manager").required).toBe(true);
+  });
+});
+
+describe("דיוק המדידה — מה שהרס את הפיצ׳ר בפועל", () => {
+  const business = makeBusiness({
+    attendance_geofence_enabled: true,
+    location_lat: BIZ_LAT,
+    location_lng: BIZ_LNG,
+    location_radius_m: 100,
+  });
+
+  /** מיקום ~130 מ׳ צפונה מהעסק. */
+  const nearby = { lat: BIZ_LAT + 0.00117, lng: BIZ_LNG };
+
+  it("מדידה גסה של מחשב (±3 ק״מ, «3.6 ק״מ מהעסק») נחסמת כלא-אמינה — לא כ«אתם רחוקים»", () => {
+    const decision = evaluateClockIn({
+      business,
+      role: "employee",
+      position: { lat: BIZ_LAT + 0.0332, lng: BIZ_LNG, accuracyM: 3000 },
+    });
+    expect(decision.allowed).toBe(false);
+    if (decision.allowed) return;
+    expect(decision.reason).toBe("low_accuracy");
+    expect(decision.message).toContain("לא הצלחנו לאתר אתכם במדויק");
+    expect(decision.message).not.toContain("מחוץ לרדיוס");
+    expect(decision.accuracyM).toBe(3000);
+  });
+
+  it("מדידה גסה לא פותחת את השער גם כשהיא נופלת במקרה על העסק", () => {
+    const decision = evaluateClockIn({
+      business,
+      role: "employee",
+      position: { lat: BIZ_LAT, lng: BIZ_LNG, accuracyM: 5000 },
+    });
+    expect(decision).toMatchObject({ allowed: false, reason: "low_accuracy" });
+  });
+
+  it("סטיית GPS רגילה של נייד מרחיבה את השער — עובד שנמדד 130 מ׳ עם דיוק ±40 מ׳ נכנס", () => {
+    const strict = evaluateClockIn({ business, role: "employee", position: nearby });
+    expect(strict.allowed).toBe(false);
+
+    const withAccuracy = evaluateClockIn({
+      business,
+      role: "employee",
+      position: { ...nearby, accuracyM: 40 },
+    });
+    expect(withAccuracy).toMatchObject({ allowed: true, reason: "inside_radius", within: true });
+  });
+
+  it("ההרחבה חסומה בתקרה — דיוק גרוע לא מותח את הרדיוס בלי סוף", () => {
+    expect(accuracySlackMeters(30)).toBe(30);
+    expect(accuracySlackMeters(450)).toBe(100);
+    expect(accuracySlackMeters(null)).toBe(0);
+    expect(accuracySlackMeters(-5)).toBe(0);
+
+    // 400 מ׳ מהעסק, רדיוס 100, דיוק ±450 — עדיין מחוץ לתחום
+    const far = { lat: BIZ_LAT + 0.0036, lng: BIZ_LNG, accuracyM: 450 };
+    expect(evaluateClockIn({ business, role: "employee", position: far }).allowed).toBe(false);
+  });
+
+  it("סף חוסר האמינות עובר בין מכשיר אמיתי להערכה לפי רשת", () => {
+    expect(isUnreliableAccuracy(65)).toBe(false); // נייד בתוך מבנה
+    expect(isUnreliableAccuracy(UNRELIABLE_ACCURACY_M)).toBe(false);
+    expect(isUnreliableAccuracy(UNRELIABLE_ACCURACY_M + 1)).toBe(true);
+    expect(isUnreliableAccuracy(Number.POSITIVE_INFINITY)).toBe(true);
+    expect(isUnreliableAccuracy(null)).toBe(false); // דיוק לא ידוע — לא מאשימים את העובד
+  });
+
+  it("מרחק מוצג במטרים עד קילומטר ואז בק״מ", () => {
+    expect(formatDistance(0)).toBe("0 מ׳");
+    expect(formatDistance(142.4)).toBe("142 מ׳");
+    expect(formatDistance(999)).toBe("999 מ׳");
+    expect(formatDistance(3689)).toBe("3.7 ק״מ");
   });
 });
 

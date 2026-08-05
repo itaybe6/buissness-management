@@ -7,6 +7,7 @@ import {
   recurringMaterializedTemplateIds,
   taskBelongsToEmployee,
   templateVisibleForDailyChecklist,
+  type ChecklistDeptScope,
 } from "@/lib/todayTasks";
 
 export interface PendingTask {
@@ -27,6 +28,7 @@ export function pendingTasksForEmployee(
   deptId: string | null,
   weekday: number,
   role?: UserRole | null,
+  scope: ChecklistDeptScope = { personal: true },
 ): PendingTask[] {
   const today = todayISO();
   const result: PendingTask[] = [];
@@ -37,7 +39,7 @@ export function pendingTasksForEmployee(
     if (
       t.active &&
       matchesRecurrenceWeekday(t.recurrence_weekday, weekday) &&
-      templateVisibleForDailyChecklist(t, deptId, role) &&
+      templateVisibleForDailyChecklist(t, deptId, role, scope) &&
       !materializedTemplateIds.has(t.id)
     ) {
       result.push({ title: t.title, type: "recurring" });

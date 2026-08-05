@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { Input } from "@/components/ui";
 import { getGoogleMapsApiKey, loadGoogleMapsPlaces } from "@/lib/googleMaps";
 
@@ -22,48 +23,7 @@ interface AddressAutocompleteProps {
   disabled?: boolean;
 }
 
-function getPlaceDetails(placeId: string, displayAddress: string): Promise<SelectedPlace | null> {
-  return new Promise((resolve) => {
-    const service = new google.maps.places.PlacesService(document.createElement("div"));
-    service.getDetails(
-      { placeId, fields: ["geometry", "address_components", "types"] },
-      (place, status) => {
-        if (status !== google.maps.places.PlacesServiceStatus.OK || !place?.geometry?.location) {
-          resolve(null);
-          return;
-        }
-
-        const loc = place.geometry.location;
-        const types = place.types ?? [];
-        const hasStreetLevelType = types.some((t) =>
-          ["street_address", "premise", "subpremise", "route", "establishment"].includes(t)
-        );
-        const isPostalCodeOnly = types.includes("postal_code") && !hasStreetLevelType;
-
-        if (isPostalCodeOnly && place.address_components?.length) {
-          void geocodeStreetAddress(place.address_components).then((coords) => {
-            if (coords) {
-              resolve({ address: displayAddress, ...coords });
-              return;
-            }
-            resolve({
-              address: displayAddress,
-              lat: loc.lat(),
-              lng: loc.lng(),
-            });
-          });
-          return;
-        }
-
-        resolve({
-          address: displayAddress,
-          lat: loc.lat(),
-          lng: loc.lng(),
-        });
-      }
-    );
-  });
-}
+const STREET_LEVEL_TYPES = ["street_address", "premise", "subpremise", "route", "establishment"];
 
 function geocodeStreetAddress(
   components: google.maps.GeocoderAddressComponent[]
@@ -95,6 +55,43 @@ function geocodeStreetAddress(
   });
 }
 
+async function resolvePlaceDetails(
+  placeId: string,
+  displayAddress: string
+): Promise<SelectedPlace | null> {
+  const place = new google.maps.places.Place({ id: placeId });
+  await place.fetchFields({ fields: ["location", "addressComponents", "types"] });
+
+  const loc = place.location;
+  if (!loc) return null;
+
+  const types = place.types ?? [];
+  const hasStreetLevelType = types.some((t) => STREET_LEVEL_TYPES.includes(t));
+  const isPostalCodeOnly = types.includes("postal_code") && !hasStreetLevelType;
+
+  if (isPostalCodeOnly && place.addressComponents?.length) {
+    const coords = await geocodeStreetAddress(place.addressComponents);
+    if (coords) return { address: displayAddress, ...coords };
+  }
+
+  return {
+    address: displayAddress,
+    lat: loc.lat(),
+    lng: loc.lng(),
+  };
+}
+
+function mapsErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/REQUEST_DENIED|ApiNotActivated|not authorized/i.test(message)) {
+    return "ה-API Key חסום או ש-Places API (New) לא מופעל ב-Google Cloud Console";
+  }
+  if (/referrer|RefererNotAllowed/i.test(message)) {
+    return "ה-API Key מוגבל לדומיין אחר — הוסיפו את הדומיין הנוכחי בהגבלות המפתח";
+  }
+  return "לא ניתן לטעון הצעות כתובת מ-Google Maps";
+}
+
 export function AddressAutocomplete({
   value,
   onChange,
@@ -103,16 +100,18 @@ export function AddressAutocomplete({
   placeholder,
   disabled,
 }: AddressAutocompleteProps) {
+  const menuId = useId();
   const wrapRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const onPlaceSelectRef = useRef(onPlaceSelect);
   const onChangeRef = useRef(onChange);
-  const autocompleteServiceRef = useRef<google.maps.places.AutocompleteService | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sessionTokenRef = useRef<google.maps.places.AutocompleteSessionToken | null>(null);
 
   const [inputValue, setInputValue] = useState(value);
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [open, setOpen] = useState(false);
+  const [menuStyle, setMenuStyle] = useState<CSSProperties>({});
   const [loadingPredictions, setLoadingPredictions] = useState(false);
   const [selectionLocked, setSelectionLocked] = useState(false);
   const [ready, setReady] = useState(false);
@@ -132,20 +131,56 @@ export function AddressAutocomplete({
     }
     loadGoogleMapsPlaces()
       .then(() => {
-        autocompleteServiceRef.current = new google.maps.places.AutocompleteService();
         sessionTokenRef.current = new google.maps.places.AutocompleteSessionToken();
         setReady(true);
       })
-      .catch(() => setLoadError("לא ניתן לטעון את Google Maps"));
+      .catch((error) => setLoadError(mapsErrorMessage(error)));
   }, []);
 
   useEffect(() => {
     const onDocPointerDown = (e: PointerEvent) => {
-      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (wrapRef.current?.contains(target)) return;
+      if ((target as Element).closest?.(`[data-address-menu="${menuId}"]`)) return;
+      setOpen(false);
     };
     document.addEventListener("pointerdown", onDocPointerDown);
     return () => document.removeEventListener("pointerdown", onDocPointerDown);
-  }, []);
+  }, [menuId]);
+
+  useEffect(() => {
+    if (!open || predictions.length === 0) return;
+
+    const updatePosition = () => {
+      const el = inputRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const idealHeight = Math.min(predictions.length * 42 + 8, 240);
+      const spaceBelow = Math.max(0, window.innerHeight - rect.bottom - 8);
+      const spaceAbove = Math.max(0, rect.top - 8);
+      const showAbove = spaceBelow < Math.min(idealHeight, 120) && spaceAbove > spaceBelow;
+      const maxHeight = Math.min(idealHeight, showAbove ? spaceAbove : spaceBelow || idealHeight);
+
+      setMenuStyle({
+        position: "fixed",
+        left: rect.left,
+        width: rect.width,
+        maxHeight: maxHeight > 0 ? maxHeight : idealHeight,
+        zIndex: 10001,
+        ...(showAbove
+          ? { bottom: window.innerHeight - rect.top + 4 }
+          : { top: rect.bottom + 4 }),
+      });
+    };
+
+    updatePosition();
+    window.addEventListener("scroll", updatePosition, true);
+    window.addEventListener("resize", updatePosition);
+    return () => {
+      window.removeEventListener("scroll", updatePosition, true);
+      window.removeEventListener("resize", updatePosition);
+    };
+  }, [open, predictions.length]);
 
   useEffect(() => {
     if (!ready || disabled || selectionLocked) return;
@@ -155,35 +190,45 @@ export function AddressAutocomplete({
     if (query.length < 2) {
       setPredictions([]);
       setOpen(false);
+      setLoadingPredictions(false);
       return;
     }
 
+    let cancelled = false;
+
     debounceRef.current = setTimeout(() => {
-      setLoadingPredictions(true);
-      autocompleteServiceRef.current?.getPlacePredictions(
-        {
-          input: query,
-          componentRestrictions: { country: "il" },
-          sessionToken: sessionTokenRef.current ?? undefined,
-        },
-        (results, status) => {
-          setLoadingPredictions(false);
-          if (status !== google.maps.places.PlacesServiceStatus.OK || !results?.length) {
-            setPredictions([]);
-            setOpen(false);
-            return;
-          }
-          setPredictions(
-            results
-              .filter((r) => r.place_id)
-              .map((r) => ({ placeId: r.place_id!, description: r.description }))
-          );
-          setOpen(true);
+      void (async () => {
+        setLoadingPredictions(true);
+        try {
+          const { suggestions } =
+            await google.maps.places.AutocompleteSuggestion.fetchAutocompleteSuggestions({
+              input: query,
+              includedRegionCodes: ["il"],
+              sessionToken: sessionTokenRef.current ?? undefined,
+            });
+
+          if (cancelled) return;
+
+          const items = suggestions
+            .map((s) => s.placePrediction)
+            .filter((p): p is google.maps.places.PlacePrediction => !!p?.placeId)
+            .map((p) => ({ placeId: p.placeId, description: p.text.text }));
+
+          setPredictions(items);
+          setOpen(items.length > 0);
+        } catch (error) {
+          if (cancelled) return;
+          setPredictions([]);
+          setOpen(false);
+          setLoadError(mapsErrorMessage(error));
+        } finally {
+          if (!cancelled) setLoadingPredictions(false);
         }
-      );
+      })();
     }, 250);
 
     return () => {
+      cancelled = true;
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [inputValue, ready, disabled, selectionLocked]);
@@ -195,25 +240,32 @@ export function AddressAutocomplete({
     setInputValue(item.description);
     onResolvingChange?.(true);
 
-    const details = await getPlaceDetails(item.placeId, item.description);
-    sessionTokenRef.current = new google.maps.places.AutocompleteSessionToken();
-    onResolvingChange?.(false);
+    try {
+      const details = await resolvePlaceDetails(item.placeId, item.description);
+      sessionTokenRef.current = new google.maps.places.AutocompleteSessionToken();
 
-    if (!details) {
+      if (!details) {
+        setSelectionLocked(false);
+        return;
+      }
+
+      setInputValue(details.address);
+      onPlaceSelectRef.current(details);
+    } catch {
       setSelectionLocked(false);
-      return;
+    } finally {
+      onResolvingChange?.(false);
     }
-
-    setInputValue(details.address);
-    onPlaceSelectRef.current(details);
   }
 
   return (
     <div ref={wrapRef} className="relative">
       <Input
+        ref={inputRef}
         value={inputValue}
         onChange={(e) => {
           setSelectionLocked(false);
+          setLoadError(null);
           setInputValue(e.target.value);
           onChange(e.target.value);
         }}
@@ -223,23 +275,31 @@ export function AddressAutocomplete({
         autoComplete="off"
       />
 
-      {open && predictions.length > 0 && (
-        <ul className="address-suggestions" role="listbox">
-          {predictions.map((item) => (
-            <li key={item.placeId} role="option">
-              <button
-                type="button"
-                className="address-suggestion-btn"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => void selectPrediction(item)}
-              >
-                <span className="material-symbols-rounded address-suggestion-icon">location_on</span>
-                <span>{item.description}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      {open &&
+        predictions.length > 0 &&
+        createPortal(
+          <ul
+            data-address-menu={menuId}
+            className="address-suggestions address-suggestions--portal"
+            style={menuStyle}
+            role="listbox"
+          >
+            {predictions.map((item) => (
+              <li key={item.placeId} role="option">
+                <button
+                  type="button"
+                  className="address-suggestion-btn"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => void selectPrediction(item)}
+                >
+                  <span className="material-symbols-rounded address-suggestion-icon">location_on</span>
+                  <span>{item.description}</span>
+                </button>
+              </li>
+            ))}
+          </ul>,
+          document.body
+        )}
 
       {loadingPredictions && !loadError && (
         <p className="mt-1 text-[12px] text-text-3">טוען הצעות...</p>

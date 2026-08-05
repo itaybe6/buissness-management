@@ -1,8 +1,29 @@
 import { FEATURE_MODULES, featureStateForPlan } from "@/lib/features";
 import type { FeatureKey, UserRole, WageType } from "@/types/database";
 
-/** Fixed geofence radius for attendance clock-in (meters). */
-export const ATTENDANCE_RADIUS_M = 15;
+/**
+ * Default geofence radius for attendance clock-in (meters), used when the
+ * business has no `location_radius_m` of its own.
+ *
+ * 100 m is deliberately generous: a browser fix is accurate to a few tens of
+ * metres at best (and only outdoors, on a phone), so a tighter radius rejects
+ * employees who are physically standing in the doorway.
+ */
+export const ATTENDANCE_RADIUS_DEFAULT_M = 100;
+
+/** Radius bounds the manager can pick between (meters). */
+export const ATTENDANCE_RADIUS_MIN_M = 20;
+export const ATTENDANCE_RADIUS_MAX_M = 5000;
+
+/** Quick picks offered in the business-location settings. */
+export const ATTENDANCE_RADIUS_OPTIONS_M = [50, 100, 200, 500, 1000];
+
+/** Below this, ordinary GPS noise starts blocking employees who are on site. */
+export const ATTENDANCE_RADIUS_TIGHT_M = 50;
+
+export function clampAttendanceRadius(value: number): number {
+  return Math.min(ATTENDANCE_RADIUS_MAX_M, Math.max(ATTENDANCE_RADIUS_MIN_M, Math.round(value)));
+}
 
 /** Roles a manager can mark as exempt from attendance geofence checks. */
 export const ATTENDANCE_GEOFENCE_EXEMPT_ROLE_OPTIONS: UserRole[] = [
@@ -89,7 +110,11 @@ export const EVENT_TASK_CREATE_ROLES: UserRole[] = ["manager", "event_manager"];
 /** Roles allowed to open the faults module (report, triage, or maintenance work). */
 export const FAULTS_PAGE_ROLES: UserRole[] = ["manager", "shift_manager", "maintenance"];
 
-/** Without a department assignment, these roles still see all daily checklist templates. */
+/**
+ * Without a department assignment, these roles still see all daily checklist templates
+ * on management boards. Personal worker dashboards always stay department-scoped
+ * (`scope.personal` in `templateVisibleForDailyChecklist`).
+ */
 export const DAILY_CHECKLIST_ALL_DEPT_ROLES: UserRole[] = ["manager", "shift_manager", "office_manager"];
 
 /**

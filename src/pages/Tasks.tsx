@@ -59,12 +59,22 @@ export function Tasks() {
 /* ============================== Employee ============================== */
 
 function EmployeeTasksView({ businessId, profileId }: { businessId: string; profileId: string }) {
+  const { profile } = useAuth();
   const { data: tasks, isLoading, isError, refetch } = useTasks(businessId);
   const { data: templates, isLoading: tplLoading } = useTaskTemplates(businessId);
   const { data: departments, isLoading: deptLoading } = useDepartments(businessId);
   const { data: users } = useProfiles(businessId);
   const update = useUpdateTask(businessId);
   const [weekOpen, setWeekOpen] = useState(false);
+
+  const deptId = profile?.department_id ?? null;
+  const myTemplates = useMemo(
+    () =>
+      (templates ?? []).filter(
+        (t) => t.department_id == null || (deptId != null && t.department_id === deptId),
+      ),
+    [templates, deptId],
+  );
 
   if (isLoading || tplLoading || deptLoading) return <PageLoader />;
   if (isError) return <ErrorState onRetry={refetch} />;
@@ -92,7 +102,7 @@ function EmployeeTasksView({ businessId, profileId }: { businessId: string; prof
             <TaskWeekSchedule
               embedded
               tasks={mine}
-              templates={templates ?? []}
+              templates={myTemplates}
               employees={users ?? []}
               departments={departments ?? []}
               employeeFilter={profileId}
@@ -164,6 +174,8 @@ function ManagerTasksView({ businessId, profileId }: { businessId: string; profi
 
   const trackingBlock = (
     <RecurringTasksBoard
+      businessId={businessId}
+      profileId={profileId}
       tasks={tasks ?? []}
       templates={templates ?? []}
       employees={users ?? []}

@@ -18,6 +18,7 @@ import { Users } from "@/pages/Users";
 import { Settings } from "@/pages/Settings";
 import { Shifts } from "@/pages/Shifts";
 import { ShiftReports, ShiftReportEditorPage } from "@/pages/ShiftReports";
+import { MonthlyTips } from "@/pages/MonthlyTips";
 import { Faults } from "@/pages/Faults";
 import { Tasks } from "@/pages/Tasks";
 import { Attendance } from "@/pages/Attendance";
@@ -90,6 +91,7 @@ export function App() {
             <Route path="new" element={<ShiftReportEditorPage />} />
             <Route path=":reportId/edit" element={<ShiftReportEditorPage />} />
           </Route>
+          <Route path="tips" element={<FeatureGate feature="shift_reports"><MonthlyTips /></FeatureGate>} />
           <Route path="tasks" element={<FeatureGate feature="tasks"><Tasks /></FeatureGate>} />
           <Route path="attendance" element={<FeatureGate feature="attendance"><Attendance /></FeatureGate>} />
           <Route path="my-shifts" element={<MyShifts />} />

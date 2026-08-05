@@ -1,40 +1,82 @@
-const GOOGLE_MAPS_SCRIPT_ID = "google-maps-script";
-
-let loadPromise: Promise<void> | null = null;
+let bootstrapInjected = false;
+let placesPromise: Promise<void> | null = null;
 
 export function getGoogleMapsApiKey(): string | undefined {
   return import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim() || undefined;
 }
 
-export function loadGoogleMapsPlaces(): Promise<void> {
-  if (window.google?.maps?.places) return Promise.resolve();
+function injectGoogleMapsBootstrap(apiKey: string): void {
+  const win = window as Window & { google?: { maps?: { importLibrary?: unknown } } };
+  if (bootstrapInjected || win.google?.maps?.importLibrary) return;
+  bootstrapInjected = true;
 
+  const params = {
+    key: apiKey,
+    v: "weekly",
+    language: "he",
+    region: "IL",
+    authReferrerPolicy: "origin",
+  };
+
+  // Official Google Maps dynamic import bootstrap loader.
+  ((g: Record<string, string>) => {
+    let a: HTMLScriptElement;
+    let k: string;
+    const p = "The Google Maps JavaScript API";
+    const c = "google";
+    const l = "importLibrary";
+    const q = "__ib__";
+    const m = document;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const b = window as any;
+    b.google = b.google || {};
+    const d: Record<string, unknown> = b.google.maps || (b.google.maps = {});
+    const r = new Set<string>();
+    const e = new URLSearchParams();
+    let scriptPromise: Promise<void> | undefined;
+    const u = () =>
+      scriptPromise ||
+      (scriptPromise = new Promise<void>((resolve, reject) => {
+        void (async () => {
+          a = m.createElement("script");
+          e.set("libraries", [...r].join(""));
+          for (k in g) {
+            e.set(k.replace(/[A-Z]/g, (t) => `_${t[0].toLowerCase()}`), g[k]);
+          }
+          e.set("callback", `${c}.maps.${q}`);
+          a.src = `https://maps.${c}apis.com/maps/api/js?${e}`;
+          d[q] = resolve;
+          a.onerror = () => reject(new Error(p + " could not load."));
+          const nonceScript = m.querySelector("script[nonce]");
+          a.nonce = nonceScript instanceof HTMLScriptElement ? nonceScript.nonce : "";
+          m.head.append(a);
+        })();
+      }));
+    if (d[l]) {
+      console.warn(p + " only loads once. Ignoring:", g);
+      return;
+    }
+    d[l] = (f: string, ...n: unknown[]) =>
+      r.add(f) && u().then(() => (d[l] as (...args: unknown[]) => unknown)(f, ...n));
+  })(params);
+}
+
+export function loadGoogleMapsPlaces(): Promise<void> {
   const apiKey = getGoogleMapsApiKey();
   if (!apiKey) return Promise.reject(new Error("missing_api_key"));
 
-  if (loadPromise) return loadPromise;
+  if (placesPromise) return placesPromise;
 
-  loadPromise = new Promise((resolve, reject) => {
-    const existing = document.getElementById(GOOGLE_MAPS_SCRIPT_ID) as HTMLScriptElement | null;
-    if (existing) {
-      if (window.google?.maps?.places) {
-        resolve();
-        return;
-      }
-      existing.addEventListener("load", () => resolve(), { once: true });
-      existing.addEventListener("error", () => reject(new Error("load_failed")), { once: true });
-      return;
-    }
+  placesPromise = Promise.resolve()
+    .then(() => {
+      injectGoogleMapsBootstrap(apiKey);
+      return google.maps.importLibrary("places");
+    })
+    .then(() => undefined)
+    .catch((error) => {
+      placesPromise = null;
+      throw error;
+    });
 
-    const script = document.createElement("script");
-    script.id = GOOGLE_MAPS_SCRIPT_ID;
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places&language=he&region=IL`;
-    script.async = true;
-    script.defer = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error("load_failed"));
-    document.head.appendChild(script);
-  });
-
-  return loadPromise;
+  return placesPromise;
 }

@@ -192,14 +192,6 @@ export function MobileSideDrawer({
 
             className="mobile-drawer fixed top-0 z-[60] flex h-[100dvh] w-[min(288px,calc(100vw-48px))] flex-col md:hidden"
 
-            style={{
-
-              paddingTop: "var(--safe-top)",
-
-              paddingBottom: "var(--safe-bottom)",
-
-            }}
-
           >
 
             <div className="flex items-center justify-between gap-3 px-[18px] pb-3 pt-4">

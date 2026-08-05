@@ -1,4 +1,5 @@
-import { useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { motion, useReducedMotion } from "motion/react";
 import { Icon } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
@@ -6,8 +7,14 @@ import { UserAvatar } from "@/components/ui/UserAvatar";
 import { EASE_OUT } from "@/components/motion/shared-motion";
 import { HE_DAYS, addDays, colorForDepartment, formatDateShort, todayISO, weekStart } from "@/lib/db";
 import { formatRecurrenceWeekday, matchesRecurrenceWeekday } from "@/lib/taskRecurrence";
-import { isRecurringTaskForDate } from "@/lib/todayTasks";
-import { isVideoUrl, taskMedia } from "@/components/tasks/DailyTasksChecklist";
+import { isRecurringTaskForDate, virtualRecurringTask, VIRTUAL_TASK_PREFIX } from "@/lib/todayTasks";
+import {
+  isVideoUrl,
+  StatusSegmented,
+  taskMedia,
+  TaskMediaBar,
+} from "@/components/tasks/DailyTasksChecklist";
+import { useCreateTask, useUpdateTask, uploadTaskMedia } from "@/api/tasks";
 import type { Department, Profile, Task, TaskStatus, TaskTemplate } from "@/types/database";
 
 /* ============================== model ============================== */
@@ -242,6 +249,309 @@ function PerformerChip({ performer }: { performer: Performer }) {
   );
 }
 
+/* ============================== manager actions ============================== */
+
+type OccurrencePatch = Partial<
+  Pick<Task, "status" | "completed_at" | "media_urls" | "last_documented_by" | "last_documented_at">
+>;
+
+function resolveManagerBaseTask(
+  templateId: string,
+  tasks: Task[],
+  templates: TaskTemplate[],
+  profileId: string,
+  businessId: string,
+  date: string,
+): Task | null {
+  const tpl = templates.find((t) => t.id === templateId);
+  if (!tpl) return null;
+
+  const rows = tasks.filter(
+    (t) =>
+      t.template_id === templateId &&
+      t.type === "recurring" &&
+      t.assigned_to === profileId &&
+      isRecurringTaskForDate(t, date),
+  );
+  if (rows[0]) return rows[0];
+
+  return { ...virtualRecurringTask(tpl, profileId, businessId), due_date: date };
+}
+
+function templateIdFromExpandedKey(key: string): string {
+  const idx = key.indexOf(":");
+  return idx >= 0 ? key.slice(idx + 1) : key;
+}
+
+function useOccurrenceActions(
+  businessId: string,
+  profileId: string,
+  tasks: Task[],
+  templates: TaskTemplate[],
+  date: string,
+) {
+  const update = useUpdateTask(businessId);
+  const createTask = useCreateTask();
+  const [localByTemplate, setLocalByTemplate] = useState<Record<string, OccurrencePatch>>({});
+  const localRef = useRef(localByTemplate);
+  localRef.current = localByTemplate;
+
+  function documentedPatch(): Pick<Task, "last_documented_by" | "last_documented_at"> {
+    return {
+      last_documented_by: profileId,
+      last_documented_at: new Date().toISOString(),
+    };
+  }
+
+  function getManagerTask(templateId: string): Task | null {
+    const base = resolveManagerBaseTask(templateId, tasks, templates, profileId, businessId, date);
+    if (!base) return null;
+    const local = localByTemplate[templateId];
+    return local ? { ...base, ...local } : base;
+  }
+
+  function stage(templateId: string, patch: OccurrencePatch) {
+    setLocalByTemplate((prev) => ({
+      ...prev,
+      [templateId]: { ...prev[templateId], ...patch },
+    }));
+  }
+
+  const flush = useCallback(
+    async (templateId: string) => {
+      const patch = localRef.current[templateId];
+      if (!patch) return;
+
+      const base = resolveManagerBaseTask(templateId, tasks, templates, profileId, businessId, date);
+      if (!base) return;
+
+      try {
+        if (base.id.startsWith(VIRTUAL_TASK_PREFIX)) {
+          const tpl = templates.find((t) => t.id === templateId);
+          if (!tpl) return;
+          await createTask.mutateAsync({
+            business_id: businessId,
+            template_id: tpl.id,
+            title: tpl.title,
+            description: tpl.description,
+            type: "recurring",
+            assigned_to: profileId,
+            department_id: tpl.department_id,
+            due_date: date,
+            recurrence_weekday: tpl.recurrence_weekday,
+            ...patch,
+          });
+        } else {
+          await update.mutateAsync({ id: base.id, ...patch });
+        }
+        setLocalByTemplate((prev) => {
+          if (!prev[templateId]) return prev;
+          const next = { ...prev };
+          delete next[templateId];
+          return next;
+        });
+      } catch {
+        // Keep staged changes so the manager can retry by closing again.
+      }
+    },
+    [businessId, profileId, tasks, templates, date, createTask, update],
+  );
+
+  const flushAll = useCallback(async () => {
+    const ids = Object.keys(localRef.current);
+    for (const templateId of ids) {
+      await flush(templateId);
+    }
+  }, [flush]);
+
+  function setStatus(templateId: string, status: TaskStatus) {
+    const completed_at = status === "done" ? new Date().toISOString() : null;
+    stage(templateId, { status, completed_at, ...documentedPatch() });
+  }
+
+  function setMedia(templateId: string, media_urls: string[]) {
+    stage(templateId, { media_urls, ...documentedPatch() });
+  }
+
+  return { getManagerTask, setStatus, setMedia, flush, flushAll };
+}
+
+function OccurrenceActionPanel({
+  task,
+  onStatus,
+  onMedia,
+  cameraRef,
+  galleryRef,
+  uploading,
+  uploadProgress,
+  error,
+  onPreview,
+  previewUrl,
+  onClosePreview,
+}: {
+  task: Task;
+  onStatus: (status: TaskStatus) => void;
+  onMedia: (media_urls: string[]) => void;
+  cameraRef: React.RefObject<HTMLInputElement | null>;
+  galleryRef: React.RefObject<HTMLInputElement | null>;
+  uploading: boolean;
+  uploadProgress: number;
+  error: string | null;
+  onPreview: (url: string) => void;
+  previewUrl: string | null;
+  onClosePreview: () => void;
+}) {
+  const media = taskMedia(task);
+
+  return (
+    <>
+      <section className="rtb-block rtb-actions">
+        <span className="rtb-block-label">
+          <Icon name="edit_note" size={14} />
+          הדיווח שלי
+        </span>
+        <div className="rtb-actions-body">
+          <div className="rtb-actions-seg">
+            <span className="task-row-card__seg-label">עדכון סטטוס</span>
+            <StatusSegmented value={task.status} onChange={onStatus} />
+          </div>
+          <TaskMediaBar
+            media={media}
+            uploading={uploading}
+            uploadProgress={uploadProgress}
+            onCamera={() => cameraRef.current?.click()}
+            onGallery={() => galleryRef.current?.click()}
+            onPreview={onPreview}
+            onRemove={(url) => onMedia(media.filter((u) => u !== url))}
+          />
+          {error && <span className="block text-[12px] font-semibold text-danger">{error}</span>}
+        </div>
+      </section>
+      <Modal open={!!previewUrl} onClose={onClosePreview} title="תמונת תיעוד" maxWidth={720}>
+        {previewUrl && (
+          <div className="overflow-hidden rounded-[14px] bg-black/90">
+            {isVideoUrl(previewUrl) ? (
+              <video src={previewUrl} controls playsInline className="max-h-[70dvh] w-full" />
+            ) : (
+              <img src={previewUrl} alt="תיעוד משימה" className="max-h-[70dvh] w-full object-contain" />
+            )}
+          </div>
+        )}
+      </Modal>
+    </>
+  );
+}
+
+function useOccurrenceMediaUpload(
+  businessId: string,
+  task: Task,
+  onMedia: (media_urls: string[]) => void,
+) {
+  const cameraRef = useRef<HTMLInputElement | null>(null);
+  const galleryRef = useRef<HTMLInputElement | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  async function handleFiles(files: FileList | null) {
+    const list = files ? Array.from(files) : [];
+    if (list.length === 0) return;
+    setError(null);
+    setUploading(true);
+    setUploadProgress(0);
+    const media = taskMedia(task);
+    try {
+      const urls: string[] = [];
+      for (let i = 0; i < list.length; i++) {
+        urls.push(await uploadTaskMedia(businessId, list[i]));
+        setUploadProgress(Math.round(((i + 1) / list.length) * 100));
+      }
+      onMedia([...media, ...urls]);
+    } catch {
+      setError("העלאת המדיה נכשלה");
+    } finally {
+      setUploading(false);
+      setUploadProgress(0);
+    }
+  }
+
+  const fileInputs = (
+    <>
+      <input
+        ref={cameraRef}
+        type="file"
+        accept="image/*,video/*"
+        capture="environment"
+        className="sr-only"
+        tabIndex={-1}
+        aria-hidden="true"
+        onChange={(e) => {
+          void handleFiles(e.target.files);
+          e.target.value = "";
+        }}
+      />
+      <input
+        ref={galleryRef}
+        type="file"
+        accept="image/*,video/*"
+        multiple
+        className="sr-only"
+        tabIndex={-1}
+        aria-hidden="true"
+        onChange={(e) => {
+          void handleFiles(e.target.files);
+          e.target.value = "";
+        }}
+      />
+    </>
+  );
+
+  return {
+    cameraRef,
+    galleryRef,
+    uploading,
+    uploadProgress,
+    error,
+    previewUrl,
+    setPreviewUrl,
+    fileInputs,
+  };
+}
+
+function OccurrenceActionBundle({
+  businessId,
+  task,
+  onStatus,
+  onMedia,
+}: {
+  businessId: string;
+  task: Task;
+  onStatus: (status: TaskStatus) => void;
+  onMedia: (media_urls: string[]) => void;
+}) {
+  const upload = useOccurrenceMediaUpload(businessId, task, onMedia);
+
+  return (
+    <>
+      {createPortal(upload.fileInputs, document.body)}
+      <OccurrenceActionPanel
+        task={task}
+        onStatus={onStatus}
+        onMedia={onMedia}
+        cameraRef={upload.cameraRef}
+        galleryRef={upload.galleryRef}
+        uploading={upload.uploading}
+        uploadProgress={upload.uploadProgress}
+        error={upload.error}
+        onPreview={upload.setPreviewUrl}
+        previewUrl={upload.previewUrl}
+        onClosePreview={() => upload.setPreviewUrl(null)}
+      />
+    </>
+  );
+}
+
 /* ============================== row ============================== */
 
 function occurrenceSummary(occ: Occurrence, lead: Performer | undefined): string {
@@ -265,6 +575,11 @@ function OccurrenceRow({
   expanded,
   onToggle,
   onPreview,
+  canAct,
+  businessId,
+  managerTask,
+  onStatus,
+  onMedia,
 }: {
   occ: Occurrence;
   index: number;
@@ -273,6 +588,11 @@ function OccurrenceRow({
   expanded: boolean;
   onToggle: () => void;
   onPreview: (url: string) => void;
+  canAct?: boolean;
+  businessId?: string;
+  managerTask?: Task | null;
+  onStatus?: (status: TaskStatus) => void;
+  onMedia?: (media_urls: string[]) => void;
 }) {
   const meta = STATUS_META[occ.status];
   const cover = occ.media.slice(0, 2);
@@ -403,6 +723,15 @@ function OccurrenceRow({
               </aside>
 
               <div className="rtb-detail-main">
+                {canAct && expanded && businessId && managerTask && onStatus && onMedia && (
+                  <OccurrenceActionBundle
+                    businessId={businessId}
+                    task={managerTask}
+                    onStatus={onStatus}
+                    onMedia={onMedia}
+                  />
+                )}
+
                 <section className="rtb-block">
                   <span className="rtb-block-label">
                     <Icon name="notes" size={14} />
@@ -490,6 +819,8 @@ function OccurrenceRow({
 /* ============================== board ============================== */
 
 interface RecurringTasksBoardProps {
+  businessId: string;
+  profileId: string;
   tasks: Task[];
   templates: TaskTemplate[];
   employees: Profile[];
@@ -497,6 +828,8 @@ interface RecurringTasksBoardProps {
 }
 
 export function RecurringTasksBoard({
+  businessId,
+  profileId,
   tasks,
   templates,
   employees,
@@ -509,6 +842,47 @@ export function RecurringTasksBoard({
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
+  const expandedIdRef = useRef<string | null>(null);
+  expandedIdRef.current = expandedId;
+
+  const { getManagerTask, setStatus, setMedia, flush, flushAll } = useOccurrenceActions(
+    businessId,
+    profileId,
+    tasks,
+    templates,
+    date,
+  );
+
+  const toggleOccurrence = useCallback(
+    (key: string) => {
+      setExpandedId((cur) => {
+        if (cur === key) {
+          void flush(templateIdFromExpandedKey(key));
+          return null;
+        }
+        if (cur) void flush(templateIdFromExpandedKey(cur));
+        return key;
+      });
+    },
+    [flush],
+  );
+
+  const flushRef = useRef(flush);
+  flushRef.current = flush;
+  const flushAllRef = useRef(flushAll);
+  flushAllRef.current = flushAll;
+
+  useEffect(() => {
+    const cur = expandedIdRef.current;
+    if (cur) void flushRef.current(templateIdFromExpandedKey(cur));
+    setExpandedId(null);
+  }, [date]);
+
+  useEffect(() => {
+    return () => {
+      void flushAllRef.current();
+    };
+  }, []);
 
   const wk = useMemo(() => weekStart(new Date(date + "T12:00:00")), [date]);
   const weekDates = useMemo(() => HE_DAYS.map((_, i) => addDays(wk, i)), [wk]);
@@ -704,7 +1078,7 @@ export function RecurringTasksBoard({
                   ? "יום עתידי — הדיווח ייפתח לעובדים ביום המשימה"
                   : counts.todo === 0 && counts.inProgress === 0
                     ? "כל המשימות הקבועות של היום הושלמו"
-                    : "לחיצה על משימה פותחת את הפרטים, המבצעים והתיעוד"}
+                    : "לחיצה על משימה פותחת את הפרטים — ניתן לעדכן סטטוס ולהעלות תיעוד"}
             </span>
           </div>
         </div>
@@ -837,8 +1211,13 @@ export function RecurringTasksBoard({
                           deptName={section.name}
                           deptTone={section.tone}
                           expanded={expandedId === key}
-                          onToggle={() => setExpandedId((cur) => (cur === key ? null : key))}
+                          onToggle={() => toggleOccurrence(key)}
                           onPreview={setPreview}
+                          canAct={isToday}
+                          businessId={businessId}
+                          managerTask={getManagerTask(occ.template.id)}
+                          onStatus={(status) => setStatus(occ.template.id, status)}
+                          onMedia={(media_urls) => setMedia(occ.template.id, media_urls)}
                         />
                       );
                     })}

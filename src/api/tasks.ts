@@ -1,10 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { compressImage } from "@/lib/compressImage";
 import { todayISO } from "@/lib/db";
 import { supabase } from "@/lib/supabase";
 import { normalizeRecurrenceWeekdays } from "@/lib/taskRecurrence";
-import { oneTimeTaskNeedsDueDateRollover, taskBelongsToEmployee } from "@/lib/todayTasks";
+import {
+  applySessionTaskOrder,
+  captureSessionTaskOrder,
+  extendSessionTaskOrder,
+  oneTimeTaskNeedsDueDateRollover,
+  taskBelongsToEmployee,
+} from "@/lib/todayTasks";
 import type { Task, TaskApproval, TaskStatus, TaskType } from "@/types/database";
 
 function normalizeTask(row: Task): Task {
@@ -182,9 +188,10 @@ export function useEventTaskListActions(
       >
     >
   >({});
+  const sessionOrderRef = useRef<Map<string, number> | null>(null);
 
   const eventTaskList = useMemo(() => {
-    return tasks
+    const merged = tasks
       .filter(
         (t) =>
           t.event_id === eventId &&
@@ -199,7 +206,16 @@ export function useEventTaskListActions(
         if ((a.status === "done") !== (b.status === "done")) return a.status === "done" ? 1 : -1;
         return a.created_at.localeCompare(b.created_at);
       });
-  }, [tasks, eventId, profileId, deptId, manageAll, overrides]);
+
+    if (!isLoading && merged.length > 0 && !sessionOrderRef.current) {
+      sessionOrderRef.current = captureSessionTaskOrder(merged);
+    }
+    if (sessionOrderRef.current) {
+      extendSessionTaskOrder(sessionOrderRef.current, merged);
+      return applySessionTaskOrder(merged, sessionOrderRef.current);
+    }
+    return merged;
+  }, [tasks, eventId, profileId, deptId, manageAll, overrides, isLoading]);
 
   useEffect(() => {
     setOverrides((prev) => {

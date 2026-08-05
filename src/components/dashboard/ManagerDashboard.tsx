@@ -261,6 +261,7 @@ export function ManagerDashboard() {
       format: formatCurrency,
       color: "var(--success)",
       tint: "var(--success-bg)",
+      to: "/tips",
       sub: <span>ממוצע {compactCurrency(avgPerShift)} למשמרת</span>,
     });
     kpis.push({

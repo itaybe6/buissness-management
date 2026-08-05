@@ -1,4 +1,4 @@
-import { ATTENDANCE_RADIUS_M } from "@/lib/constants";
+import { ATTENDANCE_RADIUS_DEFAULT_M } from "@/lib/constants";
 import type { Business, UserRole } from "@/types/database";
 
 /**
@@ -15,6 +15,26 @@ export type GeofenceBusiness = Pick<
   Business,
   "attendance_geofence_enabled" | "attendance_geofence_exempt_roles" | "location_lat" | "location_lng" | "location_radius_m"
 >;
+
+/**
+ * How much of the browser's own uncertainty we hand to the employee.
+ *
+ * A fix reports `accuracy` — the radius it believes it is somewhere inside. If
+ * the business radius is 100 m and the phone is sure only to ±40 m, then a
+ * measured 130 m may well be 90 m in reality, so we widen the gate by the
+ * accuracy. The cap stops a deliberately vague fix from widening it forever.
+ */
+export const ACCURACY_SLACK_CAP_M = 100;
+
+/**
+ * Above this, the fix says nothing about where the person is.
+ *
+ * Desktops with no WiFi scan fall back to IP geolocation and report accuracies
+ * in the kilometres — that is where "you are 3,689 m away" comes from. Such a
+ * fix can neither prove nor disprove presence, so we block and say why instead
+ * of accusing the employee of being somewhere they are not.
+ */
+export const UNRELIABLE_ACCURACY_M = 500;
 
 export interface GeofenceRules {
   /** The business switched geofencing on. */
@@ -40,7 +60,7 @@ export function resolveGeofenceRules(
     enabled,
     exempt,
     required,
-    radiusM: business?.location_radius_m ?? ATTENDANCE_RADIUS_M,
+    radiusM: business?.location_radius_m ?? ATTENDANCE_RADIUS_DEFAULT_M,
     missingLocation: required && (business?.location_lat == null || business?.location_lng == null),
   };
 }
@@ -56,11 +76,48 @@ export function distanceMeters(lat1: number, lng1: number, lat2: number, lng2: n
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+/** Metres the gate is widened by, given the fix's own uncertainty. */
+export function accuracySlackMeters(accuracyM: number | null | undefined): number {
+  if (accuracyM == null || !Number.isFinite(accuracyM) || accuracyM <= 0) return 0;
+  return Math.min(accuracyM, ACCURACY_SLACK_CAP_M);
+}
+
+/** A fix this vague cannot place anyone anywhere. */
+export function isUnreliableAccuracy(accuracyM: number | null | undefined): boolean {
+  if (accuracyM == null) return false;
+  return !Number.isFinite(accuracyM) || accuracyM > UNRELIABLE_ACCURACY_M;
+}
+
+export interface PunchPosition {
+  lat: number;
+  lng: number;
+  /** Radius of the fix's uncertainty circle, in metres. Unknown when omitted. */
+  accuracyM?: number | null;
+}
+
 export type ClockInDecision =
   /** Punch is accepted; `within` is what gets stored on the attendance row. */
-  | { allowed: true; reason: "no_geofence" | "exempt" | "inside_radius"; within: boolean; distanceM: number | null }
+  | {
+      allowed: true;
+      reason: "no_geofence" | "exempt" | "inside_radius";
+      within: boolean;
+      distanceM: number | null;
+      accuracyM: number | null;
+    }
   /** Punch is refused, with the message the employee sees. */
-  | { allowed: false; reason: "missing_business_location" | "outside_radius"; message: string; distanceM: number | null };
+  | {
+      allowed: false;
+      reason: "missing_business_location" | "no_position" | "low_accuracy" | "outside_radius";
+      message: string;
+      distanceM: number | null;
+      accuracyM: number | null;
+    };
+
+/** "142 מ׳" / "3.7 ק״מ" — kilometres once metres stop being readable. */
+export function formatDistance(meters: number): string {
+  if (meters >= 1000) return `${(meters / 1000).toFixed(1)} ק״מ`;
+  return `${Math.round(meters)} מ׳`;
+}
 
 /**
  * Decide whether a clock-in attempt is accepted.
@@ -70,7 +127,7 @@ export type ClockInDecision =
 export function evaluateClockIn(input: {
   business: GeofenceBusiness | null | undefined;
   role: UserRole | null | undefined;
-  position?: { lat: number; lng: number } | null;
+  position?: PunchPosition | null;
 }): ClockInDecision {
   const rules = resolveGeofenceRules(input.business, input.role);
 
@@ -80,6 +137,7 @@ export function evaluateClockIn(input: {
       reason: rules.exempt && rules.enabled ? "exempt" : "no_geofence",
       within: false,
       distanceM: null,
+      accuracyM: null,
     };
   }
 
@@ -89,18 +147,21 @@ export function evaluateClockIn(input: {
       reason: "missing_business_location",
       message: "מיקום העסק לא הוגדר. פנו למנהל.",
       distanceM: null,
+      accuracyM: null,
     };
   }
 
   if (!input.position) {
     return {
       allowed: false,
-      reason: "outside_radius",
+      reason: "no_position",
       message: "לא ניתן לקבל מיקום מהדפדפן",
       distanceM: null,
+      accuracyM: null,
     };
   }
 
+  const accuracyM = input.position.accuracyM ?? null;
   const d = distanceMeters(
     input.position.lat,
     input.position.lng,
@@ -108,14 +169,29 @@ export function evaluateClockIn(input: {
     input.business!.location_lng!,
   );
 
-  if (d > rules.radiusM) {
+  // Order matters: an unreliable fix is judged before the distance, because the
+  // distance it produced is not evidence of anything.
+  if (isUnreliableAccuracy(accuracyM)) {
     return {
       allowed: false,
-      reason: "outside_radius",
-      message: `אתם במרחק ${Math.round(d)} מ׳ מחוץ לרדיוס (${rules.radiusM} מ׳)`,
+      reason: "low_accuracy",
+      message: Number.isFinite(accuracyM ?? Number.POSITIVE_INFINITY)
+        ? `לא הצלחנו לאתר אתכם במדויק (דיוק של ±${formatDistance(accuracyM!)} בלבד). החתימו מהנייד עם GPS דלוק, לא ממחשב.`
+        : "לא הצלחנו לאתר אתכם במדויק. החתימו מהנייד עם GPS דלוק, לא ממחשב.",
       distanceM: d,
+      accuracyM,
     };
   }
 
-  return { allowed: true, reason: "inside_radius", within: true, distanceM: d };
+  if (d > rules.radiusM + accuracySlackMeters(accuracyM)) {
+    return {
+      allowed: false,
+      reason: "outside_radius",
+      message: `אתם במרחק ${formatDistance(d)} מהעסק — מחוץ לרדיוס (${rules.radiusM} מ׳)`,
+      distanceM: d,
+      accuracyM,
+    };
+  }
+
+  return { allowed: true, reason: "inside_radius", within: true, distanceM: d, accuracyM };
 }
