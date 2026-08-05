@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { uploadAgreementBlob, uploadAgreementFile } from "@/api/agreements";
-import { compressImage } from "@/lib/compressImage";
+import { uploadAgreementFile } from "@/api/agreements";
 import { supabase } from "@/lib/supabase";
 import type { EmployeeIdCard } from "@/types/database";
 
@@ -37,11 +36,7 @@ async function uploadIdCardFile(businessId: string, file: File): Promise<{ url: 
   if (!isImage && !isPdf) {
     throw new Error("יש להעלות תמונה (JPG, PNG) או PDF");
   }
-  const payload = isImage ? await compressImage(file, { maxWidth: 1600, maxHeight: 1600, quality: 0.85 }) : file;
-  const ext = isImage ? "jpg" : (file.name.split(".").pop()?.toLowerCase() || "pdf");
-  const url = isPdf
-    ? await uploadAgreementFile(businessId, file)
-    : await uploadAgreementBlob(businessId, payload, ext, payload.type || "image/jpeg");
+  const url = await uploadAgreementFile(businessId, file);
   return { url, name: file.name };
 }
 

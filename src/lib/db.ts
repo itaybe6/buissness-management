@@ -46,6 +46,48 @@ export function formatDateShort(iso: string): string {
   return `${d.getDate()}/${d.getMonth() + 1}`;
 }
 
+function heMonthShort(d: Date): string {
+  return d.toLocaleDateString("he-IL", { month: "short" }).replace(/^ב/, "");
+}
+
+/** RTL-friendly week range for compact UI (e.g. worker day strip). */
+export function formatWeekRangeLabel(
+  startIso: string,
+  endIso: string,
+): { days: string; context: string } {
+  const start = new Date(`${startIso}T12:00:00`);
+  const end = new Date(`${endIso}T12:00:00`);
+  const currentYear = new Date().getFullYear();
+
+  const sDay = start.getDate();
+  const eDay = end.getDate();
+  const sMonth = start.getMonth();
+  const eMonth = end.getMonth();
+  const sYear = start.getFullYear();
+  const eYear = end.getFullYear();
+
+  const yearSuffix = (y: number) => (y !== currentYear ? ` ${y}` : "");
+
+  if (sYear === eYear && sMonth === eMonth) {
+    return {
+      days: `${sDay}–${eDay}`,
+      context: `${start.toLocaleDateString("he-IL", { month: "long" })}${yearSuffix(sYear)}`,
+    };
+  }
+
+  if (sYear === eYear) {
+    return {
+      days: `${sDay} ${heMonthShort(start)} – ${eDay} ${heMonthShort(end)}`,
+      context: String(sYear),
+    };
+  }
+
+  return {
+    days: `${sDay} ${heMonthShort(start)} ${sYear} – ${eDay} ${heMonthShort(end)} ${eYear}`,
+    context: "",
+  };
+}
+
 export function initialsOf(name: string | null | undefined): string {
   if (!name) return "··";
   const parts = name.trim().split(/\s+/);

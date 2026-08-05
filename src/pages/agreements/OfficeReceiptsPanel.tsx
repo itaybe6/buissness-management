@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Badge, Button, Card, EmptyState, Field, Icon, Input, InlineLoader, MonthPickerButton, Select, Textarea } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import {
-  uploadReceiptFile,
+  uploadReceiptFiles,
   useAllOfficeReceipts,
   useCreateOfficeReceipt,
   useDeleteOfficeReceipt,
@@ -345,6 +345,8 @@ function ReceiptRow({
   );
 }
 
+type PreviewItem = { file: File; url: string | null };
+
 function ReceiptFilePreview({
   file,
   preview,
@@ -416,6 +418,82 @@ function ReceiptFilePreview({
   );
 }
 
+function MobileReceiptPhotos({
+  items,
+  onRemoveAt,
+  onClear,
+  onCaptureMore,
+  onAddGallery,
+}: {
+  items: PreviewItem[];
+  onRemoveAt: (index: number) => void;
+  onClear: () => void;
+  onCaptureMore: () => void;
+  onAddGallery: () => void;
+}) {
+  const onlyPdf = items.length === 1 && items[0].file.type === "application/pdf";
+  const first = items[0];
+
+  if (onlyPdf && first) {
+    return (
+      <ReceiptFilePreview
+        file={first.file}
+        preview={first.url}
+        isImage={false}
+        isPdf
+        onClear={onClear}
+        onReplace={onClear}
+      />
+    );
+  }
+
+  return (
+    <div className="receipt-photos">
+      <div className="receipt-photos__strip" role="list" aria-label="תמונות המסמך">
+        {items.map((item, i) => (
+          <div key={`${item.file.name}-${i}`} className="receipt-photos__item" role="listitem">
+            {item.url && item.file.type.startsWith("image/") ? (
+              <img src={item.url} alt={`תמונה ${i + 1}`} className="receipt-photos__thumb" />
+            ) : (
+              <span className="receipt-photos__fallback">
+                <Icon name="image" size={22} />
+              </span>
+            )}
+            <button
+              type="button"
+              className="receipt-photos__remove press"
+              onClick={() => onRemoveAt(i)}
+              aria-label={`הסרת תמונה ${i + 1}`}
+            >
+              <Icon name="close" size={14} />
+            </button>
+            <span className="receipt-photos__page">{i + 1}</span>
+          </div>
+        ))}
+      </div>
+
+      <p className="receipt-photos__count">
+        {items.length === 1 ? "תמונה אחת — אפשר לצלם עוד עמודים" : `${items.length} תמונות ישמרו כמסמך אחד`}
+      </p>
+
+      <div className="receipt-photos__actions">
+        <button type="button" className="receipt-photos__action press" data-kind="camera" onClick={onCaptureMore}>
+          <Icon name="photo_camera" size={18} />
+          צלם עוד
+        </button>
+        <button type="button" className="receipt-photos__action press" data-kind="gallery" onClick={onAddGallery}>
+          <Icon name="add_photo_alternate" size={18} />
+          מהגלריה
+        </button>
+        <button type="button" className="receipt-photos__action press" data-kind="clear" onClick={onClear}>
+          <Icon name="delete" size={18} />
+          נקה
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function UploadForm({
   businessId,
   profileId,
@@ -435,46 +513,91 @@ function UploadForm({
   const [vendorName, setVendorName] = useState("");
   const [documentDate, setDocumentDate] = useState(todayISO());
   const [notes, setNotes] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
+  const [items, setItems] = useState<PreviewItem[]>([]);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [mobilePickerOpen, setMobilePickerOpen] = useState(true);
   const cameraRef = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
   const filesRef = useRef<HTMLInputElement>(null);
   const desktopInputRef = useRef<HTMLInputElement>(null);
+  const itemsRef = useRef<PreviewItem[]>([]);
   const { data: suppliers } = useSuppliers(businessId, { activeOnly: true });
+
+  itemsRef.current = items;
 
   useEffect(() => {
     return () => {
-      if (preview) URL.revokeObjectURL(preview);
+      for (const item of itemsRef.current) {
+        if (item.url) URL.revokeObjectURL(item.url);
+      }
     };
-  }, [preview]);
+  }, []);
+
+  function revokeAll(list: PreviewItem[]) {
+    for (const item of list) {
+      if (item.url) URL.revokeObjectURL(item.url);
+    }
+  }
+
+  function toPreviewItem(f: File): PreviewItem {
+    const url =
+      f.type.startsWith("image/") || f.type === "application/pdf" ? URL.createObjectURL(f) : null;
+    return { file: f, url };
+  }
 
   function clearFile() {
-    setFile(null);
-    if (preview) URL.revokeObjectURL(preview);
-    setPreview(null);
-    setMobilePickerOpen(true);
+    setItems((prev) => {
+      revokeAll(prev);
+      return [];
+    });
     if (cameraRef.current) cameraRef.current.value = "";
     if (galleryRef.current) galleryRef.current.value = "";
     if (filesRef.current) filesRef.current.value = "";
     if (desktopInputRef.current) desktopInputRef.current.value = "";
   }
 
-  function pickFile(f: File | null) {
-    if (!f) return;
-    setFile(f);
+  function removeAt(index: number) {
+    setItems((prev) => {
+      const next = [...prev];
+      const [removed] = next.splice(index, 1);
+      if (removed?.url) URL.revokeObjectURL(removed.url);
+      return next;
+    });
+  }
+
+  /** Replace all files (desktop / PDF / single pick). */
+  function replaceFiles(list: File[]) {
+    if (list.length === 0) return;
     setError(null);
-    setMobilePickerOpen(false);
-    if (preview) URL.revokeObjectURL(preview);
-    if (f.type.startsWith("image/") || f.type === "application/pdf") {
-      setPreview(URL.createObjectURL(f));
-    } else {
-      setPreview(null);
+    setItems((prev) => {
+      revokeAll(prev);
+      return list.map(toPreviewItem);
+    });
+  }
+
+  /** Append images (camera / gallery on mobile). PDF replaces the set. */
+  function appendFiles(list: File[]) {
+    if (list.length === 0) return;
+    setError(null);
+    const pdf = list.find((f) => f.type === "application/pdf");
+    if (pdf) {
+      replaceFiles([pdf]);
+      return;
     }
+    const images = list.filter((f) => f.type.startsWith("image/"));
+    if (images.length === 0) {
+      setError("יש להעלות תמונה (JPG, PNG) או PDF");
+      return;
+    }
+    setItems((prev) => {
+      // Drop a lone PDF if user starts adding photos again
+      if (prev.length === 1 && prev[0].file.type === "application/pdf") {
+        revokeAll(prev);
+        return images.map(toPreviewItem);
+      }
+      return [...prev, ...images.map(toPreviewItem)];
+    });
   }
 
   function openMobileSource(source: "camera" | "gallery" | "files") {
@@ -493,6 +616,9 @@ function UploadForm({
   }
 
   const linkedSupplier = supplierId ? (suppliers ?? []).find((x) => x.id === supplierId) : null;
+  const files = items.map((i) => i.file);
+  const file = files[0] ?? null;
+  const preview = items[0]?.url ?? null;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -501,13 +627,13 @@ function UploadForm({
     const savedVendor = linkedSupplier?.name ?? vendorName.trim();
     if (!savedVendor) return setError("יש לבחור ספק או למלא את שם מי שהוציא את המסמך");
     if (!parsedAmount || parsedAmount <= 0) return setError("יש למלא סכום תקין");
-    if (!file) return setError("יש להעלות תמונה או קובץ של המסמך");
+    if (files.length === 0) return setError("יש להעלות תמונה או קובץ של המסמך");
     const savedType = type;
     const savedAmount = parsedAmount;
 
     setUploading(true);
     try {
-      const fileUrl = await uploadReceiptFile(businessId, file);
+      const fileUrl = await uploadReceiptFiles(businessId, files);
       await onSave({
         business_id: businessId,
         type,
@@ -530,6 +656,7 @@ function UploadForm({
   const busy = saving || uploading;
   const isPdf = file?.type === "application/pdf";
   const isImage = Boolean(file?.type.startsWith("image/"));
+  const hasFiles = items.length > 0;
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -623,7 +750,7 @@ function UploadForm({
             capture="environment"
             className="hidden"
             onChange={(e) => {
-              pickFile(e.target.files?.[0] ?? null);
+              appendFiles(e.target.files ? Array.from(e.target.files) : []);
               e.target.value = "";
             }}
           />
@@ -631,9 +758,10 @@ function UploadForm({
             ref={galleryRef}
             type="file"
             accept="image/*"
+            multiple
             className="hidden"
             onChange={(e) => {
-              pickFile(e.target.files?.[0] ?? null);
+              appendFiles(e.target.files ? Array.from(e.target.files) : []);
               e.target.value = "";
             }}
           />
@@ -643,19 +771,20 @@ function UploadForm({
             accept="application/pdf,image/*,.pdf"
             className="hidden"
             onChange={(e) => {
-              pickFile(e.target.files?.[0] ?? null);
+              const list = e.target.files ? Array.from(e.target.files) : [];
+              if (list[0]?.type === "application/pdf") replaceFiles(list.slice(0, 1));
+              else appendFiles(list);
               e.target.value = "";
             }}
           />
 
-          {file && !mobilePickerOpen ? (
-            <ReceiptFilePreview
-              file={file}
-              preview={preview}
-              isImage={isImage}
-              isPdf={isPdf}
+          {hasFiles ? (
+            <MobileReceiptPhotos
+              items={items}
+              onRemoveAt={removeAt}
               onClear={clearFile}
-              onReplace={() => setMobilePickerOpen(true)}
+              onCaptureMore={() => openMobileSource("camera")}
+              onAddGallery={() => openMobileSource("gallery")}
             />
           ) : (
             <div className="receipt-upload-sources" role="group" aria-label="בחירת מקור הקובץ">
@@ -698,10 +827,10 @@ function UploadForm({
             </div>
           )}
 
-          {!file && (
+          {!hasFiles && (
             <p className="receipt-upload-mobile__note">
               <Icon name="info" size={14} />
-              JPG, PNG או PDF — עד 10MB
+              אפשר לצלם כמה עמודים ברצף · JPG, PNG או PDF
             </p>
           )}
         </div>
@@ -716,35 +845,58 @@ function UploadForm({
           onDrop={(e) => {
             e.preventDefault();
             setDragOver(false);
-            pickFile(e.dataTransfer.files[0] ?? null);
+            const list = Array.from(e.dataTransfer.files);
+            if (list.length > 1 && list.every((f) => f.type.startsWith("image/"))) appendFiles(list);
+            else if (list[0]) replaceFiles([list[0]]);
           }}
           onClick={() => desktopInputRef.current?.click()}
           className={`receipt-dropzone relative hidden cursor-pointer overflow-hidden rounded-[14px] border-2 border-dashed transition sm:block ${
             dragOver ? "border-accent bg-[var(--accent-tint)]" : "border-border hover:border-accent/40 hover:bg-surface-2"
           }`}
         >
-          <ReceiptFilePreview
-            file={file}
-            preview={preview}
-            isImage={isImage}
-            isPdf={isPdf}
-            onClear={clearFile}
-            empty={
-              <div className="flex flex-col items-center gap-2 py-8 text-text-3">
-                <span className="grid h-12 w-12 place-items-center rounded-full bg-surface-2">
-                  <Icon name="cloud_upload" size={26} />
-                </span>
-                <span className="text-[13px] font-bold text-text-2">גררי קובץ לכאן או לחצי לבחירה</span>
-                <span className="text-[11.5px]">תמונה (JPG, PNG) או PDF</span>
-              </div>
-            }
-          />
+          {items.length > 1 ? (
+            <div className="p-3" onClick={(e) => e.stopPropagation()}>
+              <MobileReceiptPhotos
+                items={items}
+                onRemoveAt={removeAt}
+                onClear={clearFile}
+                onCaptureMore={() => desktopInputRef.current?.click()}
+                onAddGallery={() => desktopInputRef.current?.click()}
+              />
+            </div>
+          ) : (
+            <ReceiptFilePreview
+              file={file}
+              preview={preview}
+              isImage={isImage}
+              isPdf={Boolean(isPdf)}
+              onClear={clearFile}
+              empty={
+                <div className="flex flex-col items-center gap-2 py-8 text-text-3">
+                  <span className="grid h-12 w-12 place-items-center rounded-full bg-surface-2">
+                    <Icon name="cloud_upload" size={26} />
+                  </span>
+                  <span className="text-[13px] font-bold text-text-2">גררי קובץ לכאן או לחצי לבחירה</span>
+                  <span className="text-[11.5px]">תמונה (JPG, PNG) או PDF — אפשר כמה תמונות</span>
+                </div>
+              }
+            />
+          )}
           <input
             ref={desktopInputRef}
             type="file"
             accept="image/*,application/pdf"
+            multiple
             className="hidden"
-            onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
+            onChange={(e) => {
+              const list = e.target.files ? Array.from(e.target.files) : [];
+              if (list.length > 1 && list.every((f) => f.type.startsWith("image/"))) appendFiles(list);
+              else if (list[0]) {
+                if (hasFiles && list[0].type.startsWith("image/")) appendFiles(list);
+                else replaceFiles(list.slice(0, 1));
+              }
+              e.target.value = "";
+            }}
           />
         </div>
       </Field>

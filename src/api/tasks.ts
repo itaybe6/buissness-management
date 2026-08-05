@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { compressImage } from "@/lib/compressImage";
+import { compressVideo } from "@/lib/compressVideo";
 import { todayISO } from "@/lib/db";
+import { isVideoFile } from "@/lib/media";
 import { supabase } from "@/lib/supabase";
 import { normalizeRecurrenceWeekdays } from "@/lib/taskRecurrence";
 import {
@@ -20,18 +22,21 @@ function normalizeTask(row: Task): Task {
   };
 }
 
-/** Upload a single task media file (image is compressed to JPEG; video uploaded as-is). */
+/** Upload a single task media file (images compressed to JPEG; videos re-encoded when possible). */
 export async function uploadTaskMedia(businessId: string, file: File): Promise<string> {
-  const isVideo = file.type.startsWith("video/");
-  let body: File = file;
-  let ext = "jpg";
-  let contentType = "image/jpeg";
+  const isVideo = isVideoFile(file);
+  let body: File;
+  let ext: string;
+  let contentType: string;
 
   if (isVideo) {
-    ext = (file.name.match(/\.([a-z0-9]+)$/i)?.[1] || "mp4").toLowerCase();
-    contentType = file.type || "video/mp4";
+    body = await compressVideo(file);
+    ext = (body.name.match(/\.([a-z0-9]+)$/i)?.[1] || "webm").toLowerCase();
+    contentType = body.type || "video/webm";
   } else {
     body = await compressImage(file);
+    ext = "jpg";
+    contentType = "image/jpeg";
   }
 
   const path = `${businessId}/${crypto.randomUUID()}.${ext}`;

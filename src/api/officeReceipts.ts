@@ -1,8 +1,23 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { PDFDocument } from "pdf-lib";
 import { compressImage } from "@/lib/compressImage";
 import { supabase } from "@/lib/supabase";
 import { receiptMonth } from "@/lib/supplierSpend";
 import type { OfficeReceipt, ReceiptType } from "@/types/database";
+
+/** Merge several photos into one multi-page PDF (one page per image). */
+export async function imagesToPdfFile(files: File[]): Promise<File> {
+  const pdf = await PDFDocument.create();
+  for (const file of files) {
+    const compressed = await compressImage(file, { maxWidth: 1600, maxHeight: 1600, quality: 0.85 });
+    const bytes = new Uint8Array(await compressed.arrayBuffer());
+    const jpg = await pdf.embedJpg(bytes);
+    const page = pdf.addPage([jpg.width, jpg.height]);
+    page.drawImage(jpg, { x: 0, y: 0, width: jpg.width, height: jpg.height });
+  }
+  const out = await pdf.save();
+  return new File([out], `receipt-${Date.now()}.pdf`, { type: "application/pdf", lastModified: Date.now() });
+}
 
 /**
  * All office receipts of the business, newest first.
@@ -53,6 +68,20 @@ export async function uploadReceiptFile(businessId: string, file: File): Promise
   if (error) throw error;
   const { data } = supabase.storage.from("invoices").getPublicUrl(path);
   return data.publicUrl;
+}
+
+/**
+ * Upload one or more receipt files. Multiple images are merged into a single PDF
+ * so the receipt row still stores one `file_url`.
+ */
+export async function uploadReceiptFiles(businessId: string, files: File[]): Promise<string> {
+  if (files.length === 0) throw new Error("אין קובץ להעלאה");
+  if (files.length === 1) return uploadReceiptFile(businessId, files[0]);
+  if (!files.every((f) => f.type.startsWith("image/"))) {
+    throw new Error("ניתן לשלב רק תמונות למסמך אחד");
+  }
+  const pdf = await imagesToPdfFile(files);
+  return uploadReceiptFile(businessId, pdf);
 }
 
 export interface CreateOfficeReceiptInput {

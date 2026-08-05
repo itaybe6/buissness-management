@@ -1,6 +1,6 @@
 import { motion, useReducedMotion } from "motion/react";
 import { Icon } from "@/components/ui";
-import { HE_DAYS, addDays, formatDateShort, todayISO, weekStart } from "@/lib/db";
+import { HE_DAYS, addDays, formatDateShort, formatWeekRangeLabel, todayISO, weekStart } from "@/lib/db";
 
 const HE_DAY_LETTERS = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
 
@@ -29,19 +29,36 @@ export function WorkerWeekDayStrip({
   const today = todayISO();
   const isCurrentWeek = wk === weekStart();
   const weekEnd = addDays(wk, 6);
+  const weekRange = formatWeekRangeLabel(wk, weekEnd);
 
   return (
     <section className="worker-week-strip" aria-label="בחירת יום בשבוע">
       <div className="worker-week-strip__head">
-        <div className="worker-week-strip__range">
-          <Icon name="calendar_view_week" size={16} className="flex-none text-accent-2" />
-          <span>
-            {formatDateShort(wk)} – {formatDateShort(weekEnd)}
+        <div
+          className="worker-week-strip__range"
+          aria-label={
+            weekRange.context
+              ? `${weekRange.days}, ${weekRange.context}`
+              : weekRange.days
+          }
+        >
+          <span className="worker-week-strip__range-icon" aria-hidden>
+            <Icon name="calendar_view_week" size={17} />
           </span>
+          <div className="worker-week-strip__range-copy">
+            <span className="worker-week-strip__range-days">{weekRange.days}</span>
+            {weekRange.context && (
+              <span className="worker-week-strip__range-context">{weekRange.context}</span>
+            )}
+          </div>
+          {isCurrentWeek && (
+            <span className="worker-week-strip__week-badge">השבוע</span>
+          )}
         </div>
         <div className="worker-week-strip__actions">
           {(!isCurrentWeek || selectedDate !== today) && (
             <button type="button" onClick={onGoToday} className="worker-week-strip__today press">
+              <Icon name="today" size={14} />
               היום
             </button>
           )}

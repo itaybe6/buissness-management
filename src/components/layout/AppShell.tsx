@@ -74,17 +74,17 @@ export function AppShell() {
   const profileSubtitle = isSuperAdmin ? ROLE_LABELS[role] : business?.name ?? ROLE_LABELS[role];
 
   /** Pages with the dark ink hero — mobile top bar should match that shell. */
-  const workerDashboard =
-    location.pathname === "/dashboard" &&
-    (role === "employee" || role === "shift_manager");
+  const workerShellPage =
+    (location.pathname === "/dashboard" &&
+      (role === "employee" || role === "shift_manager")) ||
+    location.pathname === "/salary-issues";
 
   const inkHeroHeader =
-    workerDashboard ||
+    workerShellPage ||
     location.pathname.startsWith("/inventory/items/new") ||
     /^\/inventory\/items\/[^/]+\/edit$/.test(location.pathname) ||
     location.pathname === "/suppliers" ||
     location.pathname.startsWith("/suppliers/") ||
-    location.pathname === "/salary-issues" ||
     location.pathname === "/settings" ||
     /^\/businesses\/[^/]+$/.test(location.pathname) ||
     location.pathname === "/events" ||
@@ -123,8 +123,10 @@ export function AppShell() {
       const hero = mainEl.querySelector(
         ".spf-hero, .evtd-hero, .evid-hero, .cbp-hero, .siq-hero, .stx-hero, .worker-hero",
       );
+      /* Keep the ink/worker shell while the hero is still mounting (loader)
+         so the status-bar strip doesn't flash white/surface. */
       if (!hero) {
-        setInkHeaderSolid(true);
+        setInkHeaderSolid(false);
         return;
       }
       const headerBottom = headerEl.getBoundingClientRect().bottom;
@@ -154,7 +156,7 @@ export function AppShell() {
     menuOpen,
     inkHero: inkHeroHeader,
     inkHeaderSolid,
-    workerHero: workerDashboard,
+    workerHero: workerShellPage,
     theme,
   });
 

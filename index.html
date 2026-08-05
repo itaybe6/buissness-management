@@ -10,11 +10,9 @@
       (() => {
         const path = window.location.pathname.replace(/\/+$/, "") || "/";
         const chrome =
-          path === "/dashboard"
+          path === "/dashboard" || path === "/salary-issues"
             ? { type: "worker", color: "#191e25" }
-            : path === "/salary-issues"
-              ? { type: "ink", color: "#242b38" }
-              : null;
+            : null;
 
         if (!chrome) return;
 

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { compressImage } from "@/lib/compressImage";
 import { supabase } from "@/lib/supabase";
 import type { AgreementSignature, AgreementTemplate, AgreementType, SignatureField } from "@/types/database";
 
@@ -33,7 +34,12 @@ export function useSignatures(businessId: string | null, employeeId?: string) {
   });
 }
 
+/** Upload an agreement file (images compressed to JPEG; PDF/other kept as-is). */
 export async function uploadAgreementFile(businessId: string, file: File): Promise<string> {
+  if (file.type.startsWith("image/")) {
+    const compressed = await compressImage(file, { maxWidth: 1600, maxHeight: 1600, quality: 0.85 });
+    return uploadAgreementBlob(businessId, compressed, "jpg", compressed.type || "image/jpeg");
+  }
   const ext = file.name.split(".").pop()?.toLowerCase() ?? "pdf";
   return uploadAgreementBlob(businessId, file, ext, file.type || "application/octet-stream");
 }
