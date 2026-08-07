@@ -130,6 +130,12 @@ export function AddEmployeeToShiftSheet({
         </label>
 
         {error && <p className="add-to-shift__error">{error}</p>}
+        {successName && (
+          <p className="add-to-shift__success" role="status">
+            <Icon name="check_circle" size={18} />
+            <span>{successName} נוסף/ה למשמרת</span>
+          </p>
+        )}
 
         {filtered.length === 0 ? (
           <div className="add-to-shift__empty">
@@ -153,7 +159,6 @@ export function AddEmployeeToShiftSheet({
               const roleLabel = ROLE_LABELS[employee.role] ?? employee.role;
               const meta = [dept, roleLabel].filter(Boolean).join(" · ");
               const busy = pendingId === employee.id;
-              const justAdded = justAddedId === employee.id;
 
               return (
                 <li
@@ -166,7 +171,6 @@ export function AddEmployeeToShiftSheet({
                     className="add-to-shift__row"
                     disabled={!!pendingId}
                     data-busy={busy}
-                    data-added={justAdded}
                     onClick={() => handleAdd(employee)}
                     aria-label={`הוסף את ${employee.full_name ?? "עובד/ת"} למשמרת`}
                   >
@@ -186,8 +190,6 @@ export function AddEmployeeToShiftSheet({
                     <span className="add-to-shift__row-action" aria-hidden>
                       {busy ? (
                         <span className="add-to-shift__spinner" />
-                      ) : justAdded ? (
-                        <Icon name="check" size={20} />
                       ) : (
                         <>
                           <Icon name="add" size={18} />
