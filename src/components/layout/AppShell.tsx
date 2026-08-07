@@ -86,6 +86,7 @@ export function AppShell() {
     location.pathname === "/suppliers" ||
     location.pathname.startsWith("/suppliers/") ||
     location.pathname === "/settings" ||
+    location.pathname === "/tips" ||
     /^\/businesses\/[^/]+$/.test(location.pathname) ||
     location.pathname === "/events" ||
     /^\/events\/[^/]+$/.test(location.pathname);
@@ -121,7 +122,7 @@ export function AppShell() {
 
     function update() {
       const hero = mainEl.querySelector(
-        ".spf-hero, .evtd-hero, .evid-hero, .cbp-hero, .siq-hero, .stx-hero, .worker-hero",
+        ".spf-hero, .evtd-hero, .evid-hero, .cbp-hero, .siq-hero, .stx-hero, .tps-hero, .worker-hero",
       );
       /* Keep the ink/worker shell while the hero is still mounting (loader)
          so the status-bar strip doesn't flash white/surface. */
