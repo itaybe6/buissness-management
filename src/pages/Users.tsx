@@ -244,7 +244,7 @@ export function Users() {
           {/* ── Desktop — full table ── */}
           <Card className="hidden overflow-hidden !p-0 shadow-card md:block">
             <div className="overflow-auto">
-              <div className={`min-w-[1040px] grid ${USER_TABLE_COLS} gap-x-2`}>
+              <div className={`min-w-[980px] grid ${USER_TABLE_COLS} gap-x-2`}>
                 <div className={`col-span-8 grid grid-cols-subgrid gap-x-2 border-b border-border bg-surface-2 px-5 py-3 text-[11.5px] font-bold uppercase tracking-wide text-text-3`}>
                   <span>עובד</span>
                   <span>תפקיד</span>

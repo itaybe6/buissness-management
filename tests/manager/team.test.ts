@@ -141,6 +141,21 @@ describe("שיוך העובד למחלקה", () => {
     expect(personal).toEqual(["נעילה"]);
   });
 
+  it("מעקב אחמ״ש רואה את כל המחלקות מחולקות (allDepartments)", () => {
+    const tracking = buildTodayTasks(
+      BUSINESS_ID,
+      [],
+      templates,
+      USER.shiftManager,
+      DEPT.bar,
+      TODAY,
+      WEDNESDAY,
+      "shift_manager",
+      { allDepartments: true },
+    ).map((t) => t.title);
+    expect(tracking.sort()).toEqual(["ניקוי מטבח", "נעילה", "סגירת בר"].sort());
+  });
+
   it("איש אחזקה בלי מחלקה לא מקבל תבניות מחלקתיות", () => {
     expect(templateVisibleForDailyChecklist(barTemplate, null, "maintenance")).toBe(false);
   });

@@ -193,12 +193,18 @@ export type ChecklistDeptScope = {
    * templates. Never expand to all departments (even for shift managers).
    */
   personal?: boolean;
+  /**
+   * Shift-manager / tracking dashboards: every department's templates,
+   * even when the viewer has a department of their own.
+   */
+  allDepartments?: boolean;
 };
 
 /**
  * Which fixed templates belong on an employee's daily checklist.
  * - `department_id = null` → כלל המסעדה (everyone)
  * - matching `department_id` → only that department
+ * - `scope.allDepartments` → every department (אחמ״ש dashboard)
  * - managers/shift managers without a department may see all departments,
  *   unless `scope.personal` (worker home / punch) is set
  */
@@ -209,6 +215,7 @@ export function templateVisibleForDailyChecklist(
   scope?: ChecklistDeptScope,
 ): boolean {
   if (template.department_id == null) return true;
+  if (scope?.allDepartments) return true;
   if (deptId != null && template.department_id === deptId) return true;
   if (
     !scope?.personal &&
@@ -226,14 +233,15 @@ export function buildEmployeeEventTasks(
   tasks: Task[],
   profileId: string,
   deptId: string | null,
+  options?: { manageAll?: boolean },
 ): Task[] {
   return tasks
     .filter(
       (t) =>
         t.event_id != null &&
-        taskBelongsToEmployee(t, profileId, deptId) &&
         t.approval_status !== "pending" &&
-        t.status !== "done",
+        t.status !== "done" &&
+        (options?.manageAll || taskBelongsToEmployee(t, profileId, deptId)),
     )
     .sort((a, b) => {
       const aDue = a.due_date ?? "9999-12-31";

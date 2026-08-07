@@ -63,16 +63,16 @@
   --radius: 16px;
   --radius-sm: 11px;
   --sw: 264px;
+  /* Inline padding of the content column on md+ (mobile keeps its own 1rem). */
+  --page-gutter: 30px;
   /* Mobile status-bar strip — overridden by data-mobile-chrome on <html>. */
   --mobile-chrome-top: var(--surface);
   --mobile-chrome-ink: #242b38;
+  /* Flat worker chrome: theme-color, safe-area, header and hero must match
+     exactly — any gradient/wash here creates a visible seam under the OS bar. */
   --mobile-chrome-worker: #191e25;
-  /* Ink-shell backdrops — shared by html safe-area strip + hero cards. */
-  --shell-worker-bg:
-    radial-gradient(130% 95% at 88% -25%, rgb(125 155 190 / 0.2), transparent 55%),
-    radial-gradient(110% 90% at -15% 120%, rgb(56 189 248 / 0.09), transparent 60%),
-    linear-gradient(155deg, #191e25 0%, var(--sidebar-plum-deep) 58%, #11141a 100%);
-  --shell-ink-bg: linear-gradient(163deg, #242b38 0%, #10141b 76%);
+  --shell-worker-bg: var(--mobile-chrome-worker);
+  --shell-ink-bg: var(--mobile-chrome-ink);
   --icon: "Material Symbols Rounded";
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
@@ -80,10 +80,41 @@
   --ease-bounce: cubic-bezier(0.26, 1.12, 0.4, 1);
 }
 
+/* ------------------------------------------------------------------
+   Laptop shell budget.
+
+   Every desktop layout below keys off the *viewport*, but the space it
+   actually gets is `viewport - sidebar - 2 * gutter`. At the original
+   fixed 264px + 30px that left a 1280px laptop only 956px to work with,
+   which is why two-column rails and wide tables felt cramped there while
+   looking fine on a 1920px monitor. Stepping the chrome down hands the
+   content column back ~60-90px exactly where it runs out.
+   ------------------------------------------------------------------ */
+@media (max-width: 1439px) {
+  :root {
+    --sw: 236px;
+    --page-gutter: 24px;
+  }
+}
+
+@media (max-width: 1279px) {
+  :root {
+    --sw: 220px;
+    --page-gutter: 20px;
+  }
+}
+
+@media (max-width: 1023px) {
+  :root {
+    --sw: 204px;
+    --page-gutter: 16px;
+  }
+}
+
 [data-theme="dark"] {
   color-scheme: dark;
   --mobile-chrome-ink: #282e3a;
-  --shell-ink-bg: linear-gradient(163deg, #282e3a 0%, #151a22 76%);
+  --shell-ink-bg: var(--mobile-chrome-ink);
   --ink: #0c1018;
   --bar: #263040;
   --sidebar-plum: #1c2432;
@@ -160,9 +191,8 @@ body {
   background: var(--bg);
 }
 
-/* Mobile: ink-shell pages paint the status-bar strip with the same grid +
-   gradient shell as the hero (not a flat chrome colour). Regular pages keep
-   a flat --mobile-chrome-top on <html>. */
+/* Mobile: ink-shell pages paint the status-bar strip with the same flat
+   chrome as the hero. Regular pages keep a flat --mobile-chrome-top on <html>. */
 @media (max-width: 767px) {
   html {
     background: var(--mobile-chrome-top);
@@ -170,12 +200,18 @@ body {
 
   html[data-mobile-chrome="ink"] {
     --mobile-chrome-top: var(--mobile-chrome-ink);
-    background: var(--mobile-chrome-ink);
+    /* Always the page colour — never the dark shell — so bottom overscroll stays light.
+       The status-bar / header band is painted by ::before, #root, and the header. */
+    background-color: var(--bg);
+    background-image: none;
   }
 
   html[data-mobile-chrome="worker"] {
     --mobile-chrome-top: var(--mobile-chrome-worker);
-    background: var(--mobile-chrome-worker);
+    /* Always the page colour — never the dark shell — so bottom overscroll stays light.
+       The status-bar / header band is painted by ::before, #root, and the header. */
+    background-color: var(--bg);
+    background-image: none;
   }
 
   html[data-mobile-chrome="sidebar"] {
@@ -186,34 +222,32 @@ body {
     --mobile-chrome-top: var(--surface);
   }
 
-  /* Patterned safe-area + header backdrop for ink shells.
-     Sits behind a transparent #root top so the notch / status-bar
-     strip matches the hero grid instead of flashing --bg / white. */
+  /* Auth screens are edge-to-edge --bg with no header: the status-bar strip
+     and the rubber-band areas above / below the page must match the page
+     itself, not the app's white surface. */
+  html[data-mobile-chrome="auth"] {
+    --mobile-chrome-top: var(--bg);
+    background: var(--bg);
+  }
+
+  /* Dark safe-area + header band only (fixed). Does not extend to the bottom. */
   html[data-mobile-chrome="worker"]::before,
   html[data-mobile-chrome="ink"]::before {
     content: "";
     position: fixed;
     top: 0;
     inset-inline: 0;
-    height: calc(var(--safe-top) + 72px + 4rem);
+    height: calc(var(--safe-top) + 72px + 2rem);
     z-index: 0;
     pointer-events: none;
   }
 
   html[data-mobile-chrome="worker"]::before {
-    background-image:
-      linear-gradient(to right, rgb(255 255 255 / 0.045) 1px, transparent 1px),
-      linear-gradient(to bottom, rgb(255 255 255 / 0.045) 1px, transparent 1px),
-      var(--shell-worker-bg);
-    background-size: 24px 24px, 24px 24px, auto;
+    background: var(--mobile-chrome-worker);
   }
 
   html[data-mobile-chrome="ink"]::before {
-    background-image:
-      linear-gradient(to right, rgb(255 255 255 / 0.045) 1px, transparent 1px),
-      linear-gradient(to bottom, rgb(255 255 255 / 0.045) 1px, transparent 1px),
-      var(--shell-worker-bg);
-    background-size: 24px 24px, 24px 24px, auto;
+    background: var(--mobile-chrome-ink);
   }
 
   #root {
@@ -228,28 +262,52 @@ body {
     );
   }
 
-  /* Let the fixed html::before grid show through the status-bar / header
-     band; page body still paints --bg below the shell. */
+  /* Dark under the status bar + header; page --bg everywhere else.
+     Bottom box-shadow extends the page colour past the fold so rubber-band
+     / empty viewport never reveals a dark shell. */
   html[data-mobile-chrome="worker"] #root,
   html[data-mobile-chrome="ink"] #root {
     background: linear-gradient(
       to bottom,
-      transparent 0,
-      transparent calc(var(--safe-top) + 72px),
+      var(--mobile-chrome-top) 0,
+      var(--mobile-chrome-top) calc(var(--safe-top) + 72px),
+      var(--bg) calc(var(--safe-top) + 72px),
+      var(--bg) 100%
+    );
+    box-shadow: 0 100vmax 0 100vmax var(--bg);
+  }
+
+  /* Column: dark under the header/safe-area, page --bg for the rest. */
+  html[data-mobile-chrome="worker"] .app-main-column,
+  html[data-mobile-chrome="ink"] .app-main-column {
+    background: linear-gradient(
+      to bottom,
+      var(--mobile-chrome-top) 0,
+      var(--mobile-chrome-top) calc(var(--safe-top) + 72px),
       var(--bg) calc(var(--safe-top) + 72px),
       var(--bg) 100%
     );
   }
 
-  /* Don't let the light column fill show through the shell header band. */
-  html[data-mobile-chrome="worker"] .app-main-column,
-  html[data-mobile-chrome="ink"] .app-main-column {
-    background: transparent;
+  html[data-mobile-chrome="worker"] .app-main-scroll,
+  html[data-mobile-chrome="ink"] .app-main-scroll {
+    background: var(--bg);
+    box-shadow: 0 100vmax 0 100vmax var(--bg);
+    overscroll-behavior-y: none;
   }
 
   .app-main-scroll {
     overscroll-behavior-y: contain;
     -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Content-column gutter. Kept here rather than as a Tailwind utility so the
+   full-bleed pages can cancel it with `margin-inline: calc(-1 * var(--page-gutter))`
+   and always land exactly on the column edge. */
+@media (min-width: 768px) {
+  .app-main-scroll {
+    padding-inline: var(--page-gutter);
   }
 }
 
@@ -2960,7 +3018,17 @@ select {
   transform: scale(0.985);
 }
 
-.inventory-product-image img {
+/* The photo fills its frame absolutely rather than via height:100%, so the
+   frame's aspect-ratio stays the only thing deciding its shape — a percentage
+   height inside an aspect-ratio flex item is not resolved the same way by
+   every engine, which left the photo overflowing its tile on some phones. */
+.inventory-product-image > img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
   transition: transform 300ms var(--ease-out);
 }
 
@@ -4093,6 +4161,19 @@ select {
 
 .app-sidebar {
   border-inline-start-color: var(--sidebar-border);
+}
+
+/* The rail gets narrower on laptops (see the shell budget above), so give the
+   business name back the room the 18px gutter and the tagline were taking. */
+@media (max-width: 1279px) {
+  .app-sidebar-head {
+    padding-inline: 12px;
+    gap: 8px;
+  }
+
+  .app-sidebar-sub {
+    display: none;
+  }
 }
 
 .mobile-drawer {
@@ -6037,9 +6118,15 @@ select {
     gap: 1.1rem;
   }
 
+}
+
+/* The team rail needs ~340px of its own before the split is worth taking, and
+   the sidebar eats into the viewport first — so the two columns only appear
+   once the content column can still leave the feed a readable width. */
+@media (min-width: 1100px) {
   .worker-home__panels[data-mode="split"] {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(340px, 400px);
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
     gap: 1rem;
     align-items: start;
   }
@@ -6054,6 +6141,12 @@ select {
   .worker-home__panels[data-mode="split"] .worker-home__panel--team .manager-attendance-feed--worker {
     position: sticky;
     top: 0.5rem;
+  }
+}
+
+@media (min-width: 1440px) {
+  .worker-home__panels[data-mode="split"] {
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 400px);
   }
 }
 
@@ -6089,13 +6182,10 @@ select {
   transition: background 500ms var(--ease-out);
 }
 
-/* While clocked in, the whole card leans into the live green */
+/* While clocked in, keep the same flat chrome (safe-area match) and
+   lean live state into borders / punch accents only. */
 .worker-hero:has(.attendance-station[data-on-shift="true"]) {
   border-color: color-mix(in srgb, var(--success) 26%, rgb(255 255 255 / 0.08));
-  background:
-    radial-gradient(130% 95% at 88% -25%, color-mix(in srgb, var(--success) 15%, transparent), transparent 58%),
-    radial-gradient(110% 90% at -15% 120%, color-mix(in srgb, var(--success) 8%, transparent), transparent 60%),
-    linear-gradient(155deg, #17201c 0%, var(--sidebar-plum-deep) 58%, #11161a 100%);
 }
 
 .worker-hero:has(.attendance-station[data-on-shift="true"])::before {
@@ -6115,22 +6205,26 @@ select {
   border-radius: 999px;
   filter: blur(36px);
   animation: dash-aurora 17s ease-in-out infinite alternate;
+  /* Keep washes out of the status-bar band so chrome stays flat. */
+  top: max(0px, calc(72px + var(--safe-top) - 12px));
 }
 
 .worker-hero-aurora--1 {
-  top: -60%;
   inset-inline-end: -16%;
   width: 70%;
-  height: 135%;
-  background: radial-gradient(ellipse at center, rgb(148 163 184 / 0.3), transparent 65%);
+  height: 90%;
+  opacity: 0.45;
+  background: radial-gradient(ellipse at center, rgb(148 163 184 / 0.22), transparent 65%);
 }
 
 .worker-hero-aurora--2 {
+  top: auto;
   bottom: -75%;
   inset-inline-start: -12%;
   width: 55%;
   height: 125%;
-  background: radial-gradient(ellipse at center, rgb(56 189 248 / 0.14), transparent 65%);
+  opacity: 0.4;
+  background: radial-gradient(ellipse at center, rgb(56 189 248 / 0.1), transparent 65%);
   animation-duration: 23s;
   animation-delay: -9s;
 }
@@ -6139,24 +6233,7 @@ select {
   background: radial-gradient(ellipse at center, color-mix(in srgb, var(--success) 22%, transparent), transparent 65%);
 }
 
-.worker-hero-grid {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgb(255 255 255 / 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(255 255 255 / 0.045) 1px, transparent 1px);
-  background-size: 24px 24px;
-  -webkit-mask-image: radial-gradient(ellipse 95% 70% at 50% 0%, black, transparent 78%);
-  mask-image: radial-gradient(ellipse 95% 70% at 50% 0%, black, transparent 78%);
-}
-
-.worker-hero-grain {
-  position: absolute;
-  inset: 0;
-  opacity: 0.07;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
-  background-size: 160px 160px;
-}
+/* Grid / grain removed — flat shell must match the safe-area chrome. */
 
 /* ---- header ---- */
 .worker-hero-head {
@@ -11011,6 +11088,13 @@ select {
 
 @media (min-width: 1024px) {
   .profile-layout {
+    grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+    gap: 1.25rem;
+  }
+}
+
+@media (min-width: 1280px) {
+  .profile-layout {
     grid-template-columns: minmax(0, 400px) minmax(0, 1fr);
     gap: 1.5rem;
   }
@@ -12448,7 +12532,7 @@ select {
       0 30px 70px -28px rgb(6 8 12 / 0.65);
   }
 
-  /* Shell backdrop continues through the transparent header + safe area. */
+  /* Shell backdrop continues behind the header + safe area. */
   .main--ink-hero .siq-hero::before {
     content: "";
     position: absolute;
@@ -12460,12 +12544,14 @@ select {
     z-index: -3;
   }
 
-  .main--ink-hero .siq-grid-lines {
-    top: calc(-1 * (72px + var(--safe-top)));
-    height: calc(100% + 72px + var(--safe-top));
-    background-size: 24px 24px;
-    -webkit-mask-image: radial-gradient(ellipse 120% 95% at 50% -8%, #000, transparent 82%);
-    mask-image: radial-gradient(ellipse 120% 95% at 50% -8%, #000, transparent 82%);
+  /* No cube/grid texture on ink shells — safe area + hero stay solid. */
+  .main--ink-hero .siq-grid-lines,
+  .main--ink-hero .spf-grid-lines,
+  .main--ink-hero .evid-grid-lines,
+  .main--ink-hero .stx-grid-lines,
+  .main--ink-hero .cbp-grid-lines,
+  .main--ink-hero .worker-hero-grid {
+    display: none;
   }
 
   .main--ink-hero .siq-toolbar {
@@ -12494,11 +12580,6 @@ select {
     height: calc(100% + 72px + var(--safe-top));
   }
 
-  .main--ink-hero .worker-hero-grid {
-    -webkit-mask-image: radial-gradient(ellipse 120% 95% at 50% -8%, black, transparent 82%);
-    mask-image: radial-gradient(ellipse 120% 95% at 50% -8%, black, transparent 82%);
-  }
-
   .mobile-header--ink {
     background: transparent;
     -webkit-backdrop-filter: none;
@@ -12507,25 +12588,28 @@ select {
     box-shadow: none;
   }
 
+  /* Flat chrome fill — identical to theme-color / safe-area. */
+  html[data-mobile-chrome="worker"] .mobile-header--ink:not(.mobile-header--ink-solid) {
+    background: var(--mobile-chrome-worker);
+  }
+
+  html[data-mobile-chrome="ink"] .mobile-header--ink:not(.mobile-header--ink-solid) {
+    background: var(--mobile-chrome-ink);
+  }
+
   /* Keep the default ::before safe-top strip; only tint it on ink shells. */
   .mobile-header--ink::before {
+    top: 0;
+    height: var(--safe-top);
     background: transparent;
   }
 
   html[data-mobile-chrome="worker"] .mobile-header--ink:not(.mobile-header--ink-solid)::before {
-    background-image:
-      linear-gradient(to right, rgb(255 255 255 / 0.045) 1px, transparent 1px),
-      linear-gradient(to bottom, rgb(255 255 255 / 0.045) 1px, transparent 1px),
-      var(--shell-worker-bg);
-    background-size: 24px 24px, 24px 24px, auto;
+    background: var(--mobile-chrome-worker);
   }
 
   html[data-mobile-chrome="ink"] .mobile-header--ink:not(.mobile-header--ink-solid)::before {
-    background-image:
-      linear-gradient(to right, rgb(255 255 255 / 0.045) 1px, transparent 1px),
-      linear-gradient(to bottom, rgb(255 255 255 / 0.045) 1px, transparent 1px),
-      var(--shell-worker-bg);
-    background-size: 24px 24px, 24px 24px, auto;
+    background: var(--mobile-chrome-ink);
   }
 
   .mobile-header--ink .mobile-header-name {
@@ -12626,12 +12710,12 @@ select {
 
 @media (min-width: 768px) {
   .users-role-filter {
-    margin-inline: -30px;
-    padding-inline: 30px;
+    margin-inline: calc(-1 * var(--page-gutter));
+    padding-inline: var(--page-gutter);
   }
 
   .users-role-filter::after {
-    flex-basis: 30px;
+    flex-basis: var(--page-gutter);
   }
 }
 
@@ -16618,8 +16702,8 @@ select {
   }
 
   .docs-mgmt-filters--scroll {
-    margin-inline: -30px;
-    padding-inline: 30px;
+    margin-inline: calc(-1 * var(--page-gutter));
+    padding-inline: var(--page-gutter);
     flex-wrap: wrap;
     overflow: visible;
   }
@@ -18467,6 +18551,244 @@ button.doc-status-doc-row:active {
   transform: scale(0.99);
 }
 
+/* Add employee to live shift — mobile-first sheet */
+.add-to-shift {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-height: min(52vh, 420px);
+}
+
+.add-to-shift__search {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  background: var(--surface-2);
+  color: var(--text-3);
+}
+
+.add-to-shift__search:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: var(--surface);
+  color: var(--text-2);
+}
+
+.add-to-shift__search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.add-to-shift__search input::placeholder {
+  color: var(--text-3);
+  font-weight: 550;
+}
+
+.add-to-shift__search-clear {
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 8px;
+  border: 0;
+  background: color-mix(in srgb, var(--border) 55%, transparent);
+  color: var(--text-2);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.add-to-shift__search-clear:active {
+  transform: scale(0.94);
+}
+
+.add-to-shift__error {
+  margin: 0;
+  padding: 0.65rem 0.8rem;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--danger-bg) 70%, var(--surface));
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.add-to-shift__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.add-to-shift__row-wrap {
+  animation: userCellIn 280ms var(--ease-out) both;
+  animation-delay: calc(min(var(--row-i, 0), 8) * 28ms);
+}
+
+.add-to-shift__row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: 3.85rem;
+  padding: 0.55rem 0.65rem 0.55rem 0.7rem;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: var(--surface);
+  text-align: start;
+  transition:
+    transform 140ms var(--ease-out),
+    border-color 160ms var(--ease-out),
+    background 160ms var(--ease-out);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.add-to-shift__row:disabled {
+  opacity: 0.72;
+}
+
+.add-to-shift__row[data-busy="true"] {
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+  background: color-mix(in srgb, var(--accent-tint) 55%, var(--surface));
+}
+
+.add-to-shift__row[data-added="true"] {
+  border-color: color-mix(in srgb, var(--success) 40%, var(--border));
+  background: color-mix(in srgb, var(--success-bg, #e8f7ef) 55%, var(--surface));
+}
+
+.add-to-shift__row:not(:disabled):active {
+  transform: scale(0.985);
+}
+
+.add-to-shift__row-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.add-to-shift__row-name {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.add-to-shift__row-meta {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.add-to-shift__row-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  flex-shrink: 0;
+  min-width: 4.25rem;
+  height: 2.35rem;
+  padding: 0 0.7rem;
+  border-radius: 12px;
+  background: var(--accent);
+  color: var(--surface);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.add-to-shift__row[data-added="true"] .add-to-shift__row-action {
+  background: var(--success);
+  min-width: 2.35rem;
+  padding: 0;
+}
+
+.add-to-shift__spinner {
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--surface) 35%, transparent);
+  border-top-color: var(--surface);
+  animation: add-to-shift-spin 0.7s linear infinite;
+}
+
+@keyframes add-to-shift-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.add-to-shift__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  flex: 1;
+  min-height: 12rem;
+  padding: 1.5rem 1rem;
+  text-align: center;
+}
+
+.add-to-shift__empty-icon {
+  display: grid;
+  place-items: center;
+  width: 3.25rem;
+  height: 3.25rem;
+  margin-bottom: 0.35rem;
+  border-radius: 14px;
+  background: var(--surface-2);
+  color: var(--text-3);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.add-to-shift__empty-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.add-to-shift__empty-hint {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .add-to-shift__row-wrap {
+    animation: none;
+  }
+
+  .add-to-shift__spinner {
+    animation: none;
+    border-top-color: color-mix(in srgb, #fff 35%, transparent);
+    opacity: 0.7;
+  }
+
+  .add-to-shift__row:not(:disabled):active {
+    transform: none;
+  }
+}
+
 /* Manager dashboard on-shift chips */
 .manager-on-shift-chip {
   display: inline-flex;
@@ -18520,8 +18842,8 @@ button.doc-status-doc-row:active {
 
 @media (min-width: 768px) {
   .manager-attendance-feed--full.manager-attendance-feed--worker {
-    margin-inline: -30px;
-    width: calc(100% + 60px);
+    margin-inline: calc(-1 * var(--page-gutter));
+    width: calc(100% + 2 * var(--page-gutter));
   }
 }
 
@@ -18531,6 +18853,39 @@ button.doc-status-doc-row:active {
   justify-content: space-between;
   gap: 0.75rem;
   padding: 1rem 1.25rem 0;
+}
+
+.manager-attendance-feed__add {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: var(--accent);
+  color: var(--surface);
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 28%, transparent);
+  transition: transform 160ms var(--ease-out), background 160ms var(--ease-out);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.manager-attendance-feed__add:hover {
+  background: var(--accent-2);
+}
+
+.manager-attendance-feed__add:active {
+  transform: scale(0.94);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .manager-attendance-feed__add {
+    transition: none;
+  }
+
+  .manager-attendance-feed__add:active {
+    transform: none;
+  }
 }
 
 .manager-attendance-feed__stats {
@@ -20305,7 +20660,7 @@ main .page-loader {
 
 @media (min-width: 768px) {
   main .page-loader {
-    margin-inline: -30px;
+    margin-inline: calc(-1 * var(--page-gutter));
     margin-top: -1.75rem;
     min-height: calc(100dvh - 3.5rem);
   }
@@ -22097,6 +22452,14 @@ button.pd-stat[aria-expanded="true"] {
 }
 
 @media (min-width: 1024px) {
+  .ordc-layout {
+    /* Narrower cart on laptops so the catalog still holds two tile columns. */
+    grid-template-columns: minmax(0, 1fr) 296px;
+    gap: 1.25rem;
+  }
+}
+
+@media (min-width: 1280px) {
   .ordc-layout {
     grid-template-columns: minmax(0, 1fr) 340px;
     gap: 1.5rem;
@@ -24793,7 +25156,7 @@ button.pd-stat[aria-expanded="true"] {
 
 @media (min-width: 768px) {
   .evt-page {
-    margin-inline: -30px;
+    margin-inline: calc(-1 * var(--page-gutter));
     margin-top: -28px;
     padding-bottom: 0;
   }
@@ -24817,7 +25180,7 @@ button.pd-stat[aria-expanded="true"] {
 @media (min-width: 768px) {
   .evt-body {
     padding-top: 1.65rem;
-    padding-inline: 30px;
+    padding-inline: var(--page-gutter);
   }
 }
 
@@ -25370,7 +25733,8 @@ button.pd-stat[aria-expanded="true"] {
    ══════════════════════════════════════════════════════════════ */
 
 .evid-page {
-  --evid-rail: 340px;
+  /* Laptop default — widened at 1280px/1440px below. */
+  --evid-rail: 296px;
   --evid-spark: #f59e0b;
   margin-inline: -1rem;
   margin-top: -18px;
@@ -25379,13 +25743,19 @@ button.pd-stat[aria-expanded="true"] {
 
 @media (min-width: 768px) {
   .evid-page {
-    margin-inline: -30px;
+    margin-inline: calc(-1 * var(--page-gutter));
     margin-top: -28px;
     padding-bottom: 0;
   }
 }
 
 @media (min-width: 1280px) {
+  .evid-page {
+    --evid-rail: 340px;
+  }
+}
+
+@media (min-width: 1440px) {
   .evid-page {
     --evid-rail: 380px;
   }
@@ -25412,7 +25782,7 @@ button.pd-stat[aria-expanded="true"] {
 
 @media (min-width: 768px) {
   .evid-hero {
-    padding: 1.35rem 30px 1.5rem;
+    padding: 1.35rem var(--page-gutter) 1.5rem;
     border-end-start-radius: 34px;
     border-end-end-radius: 34px;
   }
@@ -25703,7 +26073,7 @@ button.pd-stat[aria-expanded="true"] {
     grid-template-columns: minmax(0, 1fr);
     gap: 1.25rem;
     padding-top: 1.5rem;
-    padding-inline: 30px;
+    padding-inline: var(--page-gutter);
   }
 
   /* Tablet: composer sits above the feed, full width */
@@ -27849,7 +28219,9 @@ button.pd-stat[aria-expanded="true"] {
 @media (min-width: 1024px) {
   .evtd-body {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 20.5rem;
+    /* 17.5rem on laptops — the countdown/today cards still fit and the
+       details column keeps enough width to read. */
+    grid-template-columns: minmax(0, 1fr) 17.5rem;
     /* Deliberately NOT align-items:start — the rail column has to stretch
        to the row height or the sticky inner has nowhere to travel. */
     gap: 1.4rem;
@@ -27876,6 +28248,12 @@ button.pd-stat[aria-expanded="true"] {
   .evtd-countdown,
   .evtd-today {
     margin-top: 0;
+  }
+}
+
+@media (min-width: 1280px) {
+  .evtd-body {
+    grid-template-columns: minmax(0, 1fr) 20.5rem;
   }
 }
 
@@ -31481,14 +31859,22 @@ button.pd-stat[aria-expanded="true"] {
    ══════════════════════════════════════════════════════════════ */
 
 .spf-page {
-  --spf-rail: 380px;
+  /* Laptop default. The rail is the *first* column here, so an oversized one
+     eats the form directly — it only widens once there is room to spare. */
+  --spf-rail: 312px;
   margin-inline: -1rem;
   margin-top: -18px;
 }
 
+@media (min-width: 1280px) {
+  .spf-page {
+    --spf-rail: 380px;
+  }
+}
+
 @media (min-width: 768px) {
   .spf-page {
-    margin-inline: -30px;
+    margin-inline: calc(-1 * var(--page-gutter));
     margin-top: -28px;
   }
 }
@@ -31520,7 +31906,7 @@ button.pd-stat[aria-expanded="true"] {
 
 @media (min-width: 768px) {
   .spf-hero {
-    padding: 1.3rem 30px 1.85rem;
+    padding: 1.3rem var(--page-gutter) 1.85rem;
     border-end-start-radius: 34px;
     border-end-end-radius: 34px;
   }
@@ -31784,7 +32170,7 @@ button.pd-stat[aria-expanded="true"] {
 
 @media (min-width: 768px) {
   .spf-body {
-    padding: 1.25rem 30px 0;
+    padding: 1.25rem var(--page-gutter) 0;
   }
 }
 
@@ -31900,12 +32286,12 @@ button.pd-stat[aria-expanded="true"] {
 
 @media (min-width: 768px) and (max-width: 1023px) {
   .spf-page--split .spf-main {
-    padding-inline: 30px;
+    padding-inline: var(--page-gutter);
   }
 
   .spf-page--split .spf-main .spf-toolbar {
-    margin-inline: -30px;
-    padding-inline: 30px;
+    margin-inline: calc(-1 * var(--page-gutter));
+    padding-inline: var(--page-gutter);
   }
 }
 
@@ -32413,8 +32799,8 @@ button.pd-stat[aria-expanded="true"] {
 
 @media (min-width: 768px) {
   .spf-toolbar {
-    margin-inline: -30px;
-    padding-inline: 30px;
+    margin-inline: calc(-1 * var(--page-gutter));
+    padding-inline: var(--page-gutter);
   }
 }
 
@@ -32572,9 +32958,9 @@ button.pd-stat[aria-expanded="true"] {
 
 @media (min-width: 768px) and (max-width: 1023px) {
   .spf-chips {
-    margin-inline: -30px;
-    padding-inline: 30px;
-    scroll-padding-inline: 30px;
+    margin-inline: calc(-1 * var(--page-gutter));
+    padding-inline: var(--page-gutter);
+    scroll-padding-inline: var(--page-gutter);
   }
 }
 
@@ -35161,7 +35547,7 @@ button.pd-stat[aria-expanded="true"] {
   .spd-cartbar {
     display: flex;
     inset-inline-start: var(--sw);
-    padding-inline: 30px;
+    padding-inline: var(--page-gutter);
   }
 }
 
@@ -35941,6 +36327,77 @@ button.pd-stat[aria-expanded="true"] {
 
 .rtb-strip-day[data-active] .rtb-strip-bar {
   background: color-mix(in srgb, var(--primary-fg) 28%, transparent);
+}
+
+/* Mobile: day deck + week strip bleed to the page edges (cancel .app-main-scroll px-4). */
+@media (max-width: 767px) {
+  .rtb {
+    margin-inline: -1rem;
+    width: calc(100% + 2rem);
+    max-width: none;
+  }
+
+  .rtb-deck {
+    width: 100%;
+    max-width: none;
+    border-radius: 0;
+    border-inline: none;
+    padding-inline: 1rem;
+    padding-bottom: 0;
+  }
+
+  .rtb-deck-top {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+    gap: 0.5rem;
+  }
+
+  .rtb-datenav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 0.35rem 0.3rem;
+  }
+
+  .rtb-datenav-copy {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .rtb-datenav-btn {
+    width: 2.5rem;
+    height: 2.5rem;
+    flex: none;
+  }
+
+  .rtb-today-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .rtb-strip {
+    margin-inline: -1rem;
+    width: calc(100% + 2rem);
+    gap: 0;
+    padding: 0.2rem 0.15rem 0.25rem;
+    border: none;
+    border-block-start: 1px solid var(--border-2);
+    border-radius: 0;
+    background: var(--surface-2);
+  }
+
+  .rtb-strip-day {
+    border-radius: 10px;
+    padding-block: 0.45rem 0.4rem;
+  }
+
+  .rtb-filters,
+  .rtb-sections,
+  .rtb-empty {
+    padding-inline: 1rem;
+  }
 }
 
 @media (min-width: 900px) {
@@ -37900,7 +38357,7 @@ button.pd-stat[aria-expanded="true"] {
 
 @media (min-width: 768px) {
   .iwz-body {
-    padding: 1.5rem 30px 0;
+    padding: 1.5rem var(--page-gutter) 0;
   }
 }
 
@@ -40290,7 +40747,7 @@ button.pd-stat[aria-expanded="true"] {
 @media (min-width: 768px) {
   .cbp-page {
     --cbp-gutter: 30px;
-    margin-inline: -30px;
+    margin-inline: calc(-1 * var(--page-gutter));
     margin-top: -28px;
     padding-bottom: 7rem;
   }
@@ -42158,7 +42615,8 @@ button.pd-stat[aria-expanded="true"] {
    ══════════════════════════════════════════════════════════════ */
 
 .siq-page {
-  --siq-rail: 340px;
+  /* Laptop default — widened at 1280px below. */
+  --siq-rail: 296px;
   margin-inline: -1rem;
   margin-top: -18px;
   padding-bottom: calc(5rem + var(--safe-bottom));
@@ -42170,13 +42628,19 @@ button.pd-stat[aria-expanded="true"] {
 
 @media (min-width: 768px) {
   .siq-page {
-    margin-inline: -30px;
+    margin-inline: calc(-1 * var(--page-gutter));
     margin-top: -28px;
     padding-bottom: 0;
   }
 }
 
 @media (min-width: 1280px) {
+  .siq-page {
+    --siq-rail: 340px;
+  }
+}
+
+@media (min-width: 1440px) {
   .siq-page {
     --siq-rail: 372px;
   }
@@ -42203,7 +42667,7 @@ button.pd-stat[aria-expanded="true"] {
 
 @media (min-width: 768px) {
   .siq-hero {
-    padding: 1.35rem 30px 1.6rem;
+    padding: 1.35rem var(--page-gutter) 1.6rem;
     border-end-start-radius: 34px;
     border-end-end-radius: 34px;
   }
@@ -42517,7 +42981,7 @@ button.pd-stat[aria-expanded="true"] {
     grid-template-columns: minmax(0, 1fr);
     gap: 1.25rem;
     padding-top: 1.5rem;
-    padding-inline: 30px;
+    padding-inline: var(--page-gutter);
   }
 
   /* Tablet: the employee composer sits above the feed, full width */
@@ -43973,7 +44437,7 @@ button.pd-stat[aria-expanded="true"] {
 
 @media (min-width: 768px) {
   .stx-page {
-    margin-inline: -30px;
+    margin-inline: calc(-1 * var(--page-gutter));
     margin-top: -28px;
     padding-bottom: 0;
   }
@@ -44006,7 +44470,7 @@ button.pd-stat[aria-expanded="true"] {
 
 @media (min-width: 768px) {
   .stx-hero {
-    padding: 1.35rem 30px 1.7rem;
+    padding: 1.35rem var(--page-gutter) 1.7rem;
     border-end-start-radius: 34px;
     border-end-end-radius: 34px;
   }
@@ -44372,7 +44836,7 @@ button.pd-stat[aria-expanded="true"] {
 
 @media (min-width: 768px) {
   .stx-body {
-    padding: 1.5rem 30px 1.75rem;
+    padding: 1.5rem var(--page-gutter) 1.75rem;
   }
 }
 

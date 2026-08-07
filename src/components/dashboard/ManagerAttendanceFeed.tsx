@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@/components/ui";
+import { AddEmployeeToShiftSheet } from "@/components/attendance/AddEmployeeToShiftSheet";
 import { AttendanceTodayFeedSection } from "@/components/attendance/AttendanceTodayFeedSection";
 import { ForceClockOutModal, type ForceClockOutTarget, type OpenForceClockOutOptions } from "@/components/attendance/ForceClockOutModal";
 import { useAttendanceToday } from "@/api/attendance";
@@ -8,7 +9,7 @@ import { useProfiles } from "@/api/users";
 import { useActiveShiftTemplates, useShiftAssignments } from "@/api/shifts";
 import { useIsMdUp } from "@/hooks/useMediaQuery";
 import { useAuth } from "@/lib/auth";
-import { canForceEmployeeClockOut } from "@/lib/constants";
+import { canForceEmployeeClockIn, canForceEmployeeClockOut } from "@/lib/constants";
 import {
   filterAttendanceForTodayShift,
   groupAttendanceByDepartment,
@@ -47,6 +48,7 @@ export function ManagerAttendanceFeed({
   const [filter, setFilter] = useState<AttendanceShiftFilter>("on_shift");
   const [clockOutTarget, setClockOutTarget] = useState<ForceClockOutTarget | null>(null);
   const [clockOutEditMode, setClockOutEditMode] = useState(false);
+  const [addToShiftOpen, setAddToShiftOpen] = useState(false);
 
   function handleRequestClockOut(target: ForceClockOutTarget, options?: OpenForceClockOutOptions) {
     setClockOutEditMode(options?.startInEditMode ?? false);
@@ -68,6 +70,7 @@ export function ManagerAttendanceFeed({
 
   const shiftsEnabled = hasFeature("shifts");
   const canForceClockOut = canForceEmployeeClockOut(profile?.role);
+  const canAddToShift = canForceEmployeeClockIn(profile?.role);
 
   const userById = useMemo(() => {
     const m = new Map<string, { name: string | null; role: string; departmentId: string | null }>();
@@ -96,6 +99,10 @@ export function ManagerAttendanceFeed({
   const onShiftCount = todayFeed.filter((g) => g.onShift).length;
   const completedCount = todayFeed.filter((g) => !g.onShift).length;
   const counts = { onShift: onShiftCount, completed: completedCount, total: todayFeed.length };
+  const onShiftEmployeeIds = useMemo(
+    () => todayFeed.filter((g) => g.onShift).map((g) => g.employeeId),
+    [todayFeed],
+  );
 
   return (
     <section
@@ -115,6 +122,16 @@ export function ManagerAttendanceFeed({
             </p>
           </div>
         </div>
+        {canAddToShift && (
+          <button
+            type="button"
+            className="manager-attendance-feed__add"
+            onClick={() => setAddToShiftOpen(true)}
+            aria-label="הוסף עובד למשמרת"
+          >
+            <Icon name="add" size={22} />
+          </button>
+        )}
       </div>
 
       {(!isMdUp || compact) && (
@@ -163,6 +180,17 @@ export function ManagerAttendanceFeed({
         initialEditing={clockOutEditMode}
         onClose={closeClockOutModal}
       />
+
+      {canAddToShift && (
+        <AddEmployeeToShiftSheet
+          open={addToShiftOpen}
+          onClose={() => setAddToShiftOpen(false)}
+          businessId={businessId}
+          users={users}
+          departments={departments}
+          onShiftEmployeeIds={onShiftEmployeeIds}
+        />
+      )}
     </section>
   );
 }

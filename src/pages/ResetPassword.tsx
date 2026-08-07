@@ -1,10 +1,17 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
+import { useTheme } from "@/lib/theme";
+import { usePageMobileChrome } from "@/hooks/useMobileChrome";
 import { Button, Icon } from "@/components/ui";
 
 export function ResetPassword() {
   const navigate = useNavigate();
+  const { theme } = useTheme();
+
+  /* Same edge-to-edge --bg page as the login screen. */
+  usePageMobileChrome("auth", theme);
+
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);

@@ -75,6 +75,15 @@ function stabilizeTaskOrder(
 
 /** Personal worker checklist — department + restaurant-wide only (never all depts). */
 const PERSONAL_CHECKLIST_SCOPE = { personal: true } as const;
+/** Shift-manager tracking — every department's templates. */
+const ALL_DEPTS_CHECKLIST_SCOPE = { allDepartments: true } as const;
+
+export type DailyTaskActionsOptions = {
+  /** Default true — employee dashboard / clock-out scoping. */
+  personal?: boolean;
+  /** Shift manager: include every department's open event tasks. */
+  manageAllEventTasks?: boolean;
+};
 
 export function useDailyTaskActions(
   businessId: string,
@@ -82,7 +91,12 @@ export function useDailyTaskActions(
   deptId: string | null,
   role?: UserRole | null,
   selectedDate?: string,
+  options?: DailyTaskActionsOptions,
 ) {
+  const personal = options?.personal !== false;
+  const manageAllEventTasks = !!options?.manageAllEventTasks;
+  const checklistScope = personal ? PERSONAL_CHECKLIST_SCOPE : ALL_DEPTS_CHECKLIST_SCOPE;
+
   const { data: tasks = [], isLoading: tasksLoading } = useTasks(businessId);
   const { data: templates = [], isLoading: templatesLoading } = useTaskTemplates(businessId);
   const update = useUpdateTask(businessId);
@@ -122,10 +136,10 @@ export function useDailyTaskActions(
       today,
       new Date().getDay(),
       role,
-      PERSONAL_CHECKLIST_SCOPE,
+      checklistScope,
     );
     return stabilizeTaskOrder(applyTaskOverrides(built, overrides), todaySessionOrderRef, orderReady);
-  }, [businessId, tasks, templates, profileId, deptId, today, role, overrides, orderReady]);
+  }, [businessId, tasks, templates, profileId, deptId, today, role, checklistScope, overrides, orderReady]);
 
   const dateTasks = useMemo(() => {
     const built = buildTasksForDate(
@@ -137,15 +151,17 @@ export function useDailyTaskActions(
       viewDate,
       today,
       role,
-      PERSONAL_CHECKLIST_SCOPE,
+      checklistScope,
     );
     return stabilizeTaskOrder(applyTaskOverrides(built, overrides), dateSessionOrderRef, orderReady);
-  }, [businessId, tasks, templates, profileId, deptId, viewDate, today, role, overrides, orderReady]);
+  }, [businessId, tasks, templates, profileId, deptId, viewDate, today, role, checklistScope, overrides, orderReady]);
 
   const employeeEventTasks = useMemo(() => {
-    const built = buildEmployeeEventTasks(tasks, profileId, deptId);
+    const built = buildEmployeeEventTasks(tasks, profileId, deptId, {
+      manageAll: manageAllEventTasks,
+    });
     return stabilizeTaskOrder(applyTaskOverrides(built, overrides), eventSessionOrderRef, orderReady);
-  }, [tasks, profileId, deptId, overrides, orderReady]);
+  }, [tasks, profileId, deptId, manageAllEventTasks, overrides, orderReady]);
 
   // Clear overrides once the virtual row is gone (materialized) or the real row matches.
   useEffect(() => {
@@ -159,7 +175,7 @@ export function useDailyTaskActions(
         today,
         new Date().getDay(),
         role,
-        PERSONAL_CHECKLIST_SCOPE,
+        checklistScope,
       ).map((t) => t.id),
     );
     setOverrides((prev) => {
@@ -200,7 +216,7 @@ export function useDailyTaskActions(
       }
       return changed ? next : prev;
     });
-  }, [businessId, tasks, templates, profileId, deptId, today, role]);
+  }, [businessId, tasks, templates, profileId, deptId, today, role, checklistScope]);
 
   function materialize(
     templateId: string,

@@ -178,7 +178,7 @@ export function AppShell() {
 
       >
 
-        <div className="flex items-center justify-between gap-3 px-[18px] pb-4 pt-5">
+        <div className="app-sidebar-head flex items-center justify-between gap-3 px-[18px] pb-4 pt-5">
           <div className="flex min-w-0 items-center gap-3">
             <div className="avatar-chip h-[38px] w-[38px] rounded-[11px]">
               <Icon name="hub" size={22} />
@@ -187,7 +187,7 @@ export function AppShell() {
               <div className="truncate text-[16px] font-extrabold tracking-tight text-white">
                 {isSuperAdmin ? "AMI" : business?.name ?? "—"}
               </div>
-              <div className="text-[11.5px] text-white/45">Business Management</div>
+              <div className="app-sidebar-sub text-[11.5px] text-white/45">Business Management</div>
             </div>
           </div>
           <button
@@ -409,9 +409,11 @@ export function AppShell() {
 
 
 
+        {/* Inline padding on md+ comes from --page-gutter (.app-main-scroll in index.css),
+            so the full-bleed pages can cancel it with one shared value. */}
         <main
           ref={mainRef}
-          className={`app-main-scroll flex-1 overflow-auto bg-bg px-4 pb-[max(1rem,var(--safe-bottom))] pt-[18px] md:px-[30px] md:pb-7 md:pt-7${
+          className={`app-main-scroll flex-1 overflow-auto bg-bg px-4 pb-[max(1rem,var(--safe-bottom))] pt-[18px] md:pb-7 md:pt-7${
             inkHeroHeader ? " main--ink-hero" : ""
           }`}
         >

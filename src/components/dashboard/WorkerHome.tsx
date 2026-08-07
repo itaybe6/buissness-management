@@ -4,15 +4,22 @@ import { Modal } from "@/components/ui/Modal";
 import { AttendancePunchStation } from "@/components/attendance/AttendancePunchStation";
 import { DailyTasksChecklist, useDailyTaskActions } from "@/components/tasks/DailyTasksChecklist";
 import { EventTasksGroupedChecklist } from "@/components/tasks/EventTasksGroupedChecklist";
+import { RecurringTasksBoard } from "@/components/tasks/RecurringTasksBoard";
 import { WorkerWeekDayStrip } from "@/components/tasks/WorkerWeekDayStrip";
 import { PageEnter } from "@/components/motion/shared-motion";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId, todayISO, addDays, weekStart } from "@/lib/db";
 import { ROLE_LABELS } from "@/lib/constants";
+import { matchesRecurrenceWeekday } from "@/lib/taskRecurrence";
+import { isRecurringTaskForDate } from "@/lib/todayTasks";
 import { useShiftPunch } from "@/hooks/useShiftPunch";
 import { useIsMdUp } from "@/hooks/useMediaQuery";
 import { useAttendanceToday } from "@/api/attendance";
 import { useBusiness } from "@/api/businesses";
+import { useDepartments } from "@/api/departments";
+import { useTasks } from "@/api/tasks";
+import { useTaskTemplates } from "@/api/taskTemplates";
+import { useProfiles } from "@/api/users";
 import { ManagerAttendanceFeed } from "@/components/dashboard/ManagerAttendanceFeed";
 import { TodayEventsBanner } from "@/components/events/TodayEventsBanner";
 import { TodayBirthdaysBanner } from "@/components/dashboard/TodayBirthdaysBanner";
@@ -145,6 +152,7 @@ export function WorkerHome({
   const today = todayISO();
   const [selectedDate, setSelectedDate] = useState(today);
   const [weekAnchor, setWeekAnchor] = useState(() => weekStart());
+  const isShiftManager = variant === "shift_manager";
 
   const {
     todayTasks,
@@ -160,7 +168,22 @@ export function WorkerHome({
     profile?.department_id ?? null,
     profile?.role,
     selectedDate,
+    {
+      // Daily recurring tracking for אחמ״ש uses RecurringTasksBoard (all depts).
+      // Keep personal scope here so unused dateTasks stay light; events use manageAll.
+      personal: true,
+      manageAllEventTasks: isShiftManager,
+    },
   );
+
+  const { data: smTasks = [], isLoading: smTasksLoading } = useTasks(isShiftManager ? businessId : null);
+  const { data: smTemplates = [], isLoading: smTplLoading } = useTaskTemplates(
+    isShiftManager ? businessId : null,
+  );
+  const { data: smDepartments = [], isLoading: smDeptLoading } = useDepartments(
+    isShiftManager ? businessId : null,
+  );
+  const { data: smUsers = [], isLoading: smUsersLoading } = useProfiles(isShiftManager ? businessId : null);
 
   const timeStr = now.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const clockStr = now.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
@@ -177,7 +200,7 @@ export function WorkerHome({
 
   const showEventTaskFilter = showTasks && showEvents && hasEventTasks;
   const visibleTasks = taskScope === "events" ? employeeEventTasks : dateTasks;
-  const tasksReadOnly = taskScope === "all" && selectedDate !== today;
+  const tasksReadOnly = !isShiftManager && taskScope === "all" && selectedDate !== today;
 
   const selectedDateLabel = useMemo(
     () =>
@@ -217,10 +240,21 @@ export function WorkerHome({
   const splitLayout = showBothPanels && isMdUp;
   const tabLayout = showBothPanels && !isMdUp;
 
-  const pendingTasks = useMemo(
-    () => todayTasks.filter((t) => t.status !== "done").length,
-    [todayTasks],
-  );
+  const pendingTasks = useMemo(() => {
+    if (!isShiftManager) {
+      return todayTasks.filter((t) => t.status !== "done").length;
+    }
+    const weekday = new Date(`${today}T12:00:00`).getDay();
+    let open = 0;
+    for (const tpl of smTemplates) {
+      if (!tpl.active || !matchesRecurrenceWeekday(tpl.recurrence_weekday, weekday)) continue;
+      const rows = smTasks.filter(
+        (t) => t.template_id === tpl.id && t.type === "recurring" && isRecurringTaskForDate(t, today),
+      );
+      if (!rows.some((r) => r.status === "done")) open += 1;
+    }
+    return open + employeeEventTasks.length;
+  }, [isShiftManager, todayTasks, smTemplates, smTasks, today, employeeEventTasks.length]);
 
   const { data: attendanceRecords = [], isLoading: attendanceLoading } = useAttendanceToday(
     showBothPanels ? businessId : null,
@@ -232,7 +266,10 @@ export function WorkerHome({
   );
 
   const pageLoading =
-    (showTasks && tasksLoading) || (showBothPanels && attendanceLoading) || (showAttendance && bizLoading);
+    (showTasks && tasksLoading) ||
+    (isShiftManager && showTasks && (smTasksLoading || smTplLoading || smDeptLoading || smUsersLoading)) ||
+    (showBothPanels && attendanceLoading) ||
+    (showAttendance && bizLoading);
 
   if (pageLoading) return <PageLoader label="טוען דשבורד..." />;
 
@@ -243,8 +280,6 @@ export function WorkerHome({
         <div className="worker-hero-fx" aria-hidden>
           <span className="worker-hero-aurora worker-hero-aurora--1" />
           <span className="worker-hero-aurora worker-hero-aurora--2" />
-          <span className="worker-hero-grid" />
-          <span className="worker-hero-grain" />
         </div>
         <div className="worker-hero-head">
           <div className="worker-hero-copy">
@@ -374,10 +409,25 @@ export function WorkerHome({
                       businessId={businessId}
                       onStatus={setStatus}
                       onMedia={setMedia}
-                      variant={variant === "shift_manager" ? "dashboard" : "employee"}
+                      variant={isShiftManager ? "dashboard" : "employee"}
                       emptyTitle="אין משימות אירוע פתוחות"
-                      emptyDescription="כשישייכו אליך או למחלקה שלך משימות לאירוע — הן יופיעו כאן."
+                      emptyDescription={
+                        isShiftManager
+                          ? "כשיוקצו משימות לאירוע — הן יופיעו כאן לפי אירוע."
+                          : "כשישייכו אליך או למחלקה שלך משימות לאירוע — הן יופיעו כאן."
+                      }
                     />
+                  ) : isShiftManager && profile ? (
+                    <div className="worker-home__sm-board">
+                      <RecurringTasksBoard
+                        businessId={businessId}
+                        profileId={profile.id}
+                        tasks={smTasks}
+                        templates={smTemplates}
+                        employees={smUsers}
+                        departments={smDepartments}
+                      />
+                    </div>
                   ) : (
                     <>
                       <WorkerWeekDayStrip
@@ -392,7 +442,7 @@ export function WorkerHome({
                         businessId={businessId}
                         onStatus={setStatus}
                         onMedia={setMedia}
-                        variant={variant === "shift_manager" ? "dashboard" : "employee"}
+                        variant="employee"
                         dateLabel={selectedDateLabel}
                         readOnly={tasksReadOnly}
                         emptyTitle={

@@ -9,6 +9,8 @@ import {
   useTransform,
 } from "motion/react";
 import { useAuth } from "@/lib/auth";
+import { useTheme } from "@/lib/theme";
+import { usePageMobileChrome } from "@/hooks/useMobileChrome";
 import { Icon, Spinner } from "@/components/ui";
 import { EASE_OUT } from "@/components/motion/shared-motion";
 
@@ -48,6 +50,10 @@ export function Login() {
   const { signIn, resetPassword } = useAuth();
   const navigate = useNavigate();
   const reduce = useReducedMotion();
+  const { theme } = useTheme();
+
+  /* Status bar + overscroll strips follow --bg, the colour this page paints. */
+  usePageMobileChrome("auth", theme);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

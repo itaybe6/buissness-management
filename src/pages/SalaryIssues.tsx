@@ -124,7 +124,6 @@ function IssuesHero({
     <header className="siq-hero" aria-label="בעיות שכר">
       <span className="siq-glow siq-glow--1" data-clear={allClear || undefined} aria-hidden />
       <span className="siq-glow siq-glow--2" aria-hidden />
-      <span className="siq-grid-lines" aria-hidden />
 
       <div className="siq-hero-inner">
         <motion.div className="siq-hero-bar" {...rise(0)}>

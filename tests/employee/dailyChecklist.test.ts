@@ -56,6 +56,14 @@ describe("שיוך תבנית קבועה למחלקה", () => {
     expect(templateVisibleForDailyChecklist(tpl, null, "manager", { personal: true })).toBe(false);
   });
 
+  it("מעקב אחמ״ש — רואה את כל המחלקות גם אם משובץ למחלקה", () => {
+    const kitchen = makeTaskTemplate({ department_id: DEPT.kitchen });
+    expect(templateVisibleForDailyChecklist(kitchen, DEPT.bar, "shift_manager", { allDepartments: true })).toBe(
+      true,
+    );
+    expect(templateVisibleForDailyChecklist(kitchen, null, "shift_manager", { allDepartments: true })).toBe(true);
+  });
+
   it("בדשבורד אישי — עובד בר רואה רק בר + כללי", () => {
     const bar = makeTaskTemplate({ department_id: DEPT.bar });
     const wait = makeTaskTemplate({ department_id: DEPT.service });

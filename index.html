@@ -11,15 +11,18 @@
         const path = window.location.pathname.replace(/\/+$/, "") || "/";
         const chrome =
           path === "/dashboard" || path === "/salary-issues"
-            ? { type: "worker", color: "#191e25" }
-            : null;
+            ? { type: "worker", color: "#191e25", statusBar: "black-translucent" }
+            : path === "/login" || path === "/reset-password"
+              ? /* --bg, light theme — the auth pages paint edge-to-edge in it. */
+                { type: "auth", color: "#f0f2f5", statusBar: "default" }
+              : null;
 
         if (!chrome) return;
 
         document.documentElement.dataset.mobileChrome = chrome.type;
         document.querySelector('meta[name="theme-color"]').content = chrome.color;
         document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]').content =
-          "black-translucent";
+          chrome.statusBar;
       })();
     </script>
     <title>AMI · Business Management</title>

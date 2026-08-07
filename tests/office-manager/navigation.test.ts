@@ -14,6 +14,7 @@ import {
   SCHEDULER_ROLES,
   TASK_CREATE_ROLES,
   USER_MANAGE_ROLES,
+  canForceEmployeeClockIn,
   canForceEmployeeClockOut,
   canSeeInventoryPrices,
   getHomePath,
@@ -114,6 +115,12 @@ describe("הרשאות פעולה של מנהלת המשרד", () => {
     expect(canForceEmployeeClockOut("manager")).toBe(true);
     expect(canForceEmployeeClockOut("shift_manager")).toBe(true);
     expect(canForceEmployeeClockOut(null)).toBe(false);
+  });
+
+  it("אינה יכולה להוסיף עובד למשמרת חיה", () => {
+    expect(canForceEmployeeClockIn("office_manager")).toBe(false);
+    expect(canForceEmployeeClockIn("manager")).toBe(true);
+    expect(canForceEmployeeClockIn("shift_manager")).toBe(true);
   });
 
   it("יצירת תבניות משימה קבועות שמורה למנהל בלבד", () => {

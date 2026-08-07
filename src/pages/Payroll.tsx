@@ -359,7 +359,9 @@ export function Payroll() {
       </div>
 
       {/* ── Desktop — stat tiles ── */}
-      <div className="mb-5 hidden grid-cols-2 gap-4 md:grid lg:grid-cols-6">
+      {/* Six tiles only fit once the content column is wide enough for the
+          longer labels ("תוספת מאחוז קופה") — three until then. */}
+      <div className="mb-5 hidden grid-cols-2 gap-4 md:grid lg:grid-cols-3 xl:grid-cols-6">
         {[
           { label: "סה״כ שעות", value: Math.round(totals.hours).toLocaleString("he-IL"), icon: "schedule", color: "var(--info)", tint: "var(--info-bg)" },
           { label: "שכר שעתי", value: formatCurrency(totals.base), icon: "payments", color: "var(--text)", tint: "var(--surface-2)" },
@@ -391,7 +393,9 @@ export function Payroll() {
           </p>
         )}
         <div className="overflow-auto">
-          <div className="min-w-[1124px]">
+          {/* Tightest width the 12 columns still read at — keeps the table
+              inside the card on a 1366px laptop instead of scrolling. */}
+          <div className="min-w-[1040px]">
             <div className={`${PAYROLL_GRID} border-b border-border bg-surface-2 px-5 py-3 text-[10.5px] font-bold uppercase tracking-wide text-text-3`}>
               <span>עובד</span>
               <span>סוג</span>

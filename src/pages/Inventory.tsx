@@ -1442,13 +1442,13 @@ function ItemCard({
         <button
           type="button"
           onClick={onOpen}
-          className="flex flex-col text-right transition-opacity active:opacity-80"
+          className="flex flex-col items-stretch text-right transition-opacity active:opacity-80"
         >
-          <div className="inventory-product-image relative aspect-[5/4] max-h-[100px] shrink-0 overflow-hidden bg-surface-2">
+          <div className="inventory-product-image relative aspect-[4/3] w-full shrink-0 overflow-hidden bg-surface-2">
             {item.image_url ? (
-              <img src={item.image_url} alt={item.name} className="h-full w-full object-cover" />
+              <img src={item.image_url} alt={item.name} loading="lazy" decoding="async" />
             ) : (
-              <div className="grid h-full place-items-center text-text-3/60">
+              <div className="absolute inset-0 grid place-items-center text-text-3/60">
                 <Icon name="inventory_2" size={26} />
               </div>
             )}

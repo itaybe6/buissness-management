@@ -199,7 +199,7 @@ function QuickLinks({ role, hasFeature }: { role: string; hasFeature: (k: Featur
   return (
     <section className="mt-6 md:mt-8">
       <div className="mb-3 text-[12px] font-bold uppercase tracking-wide text-text-3">גישה מהירה</div>
-      <StaggerGrid className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6 lg:gap-3">
+      <StaggerGrid className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 lg:gap-3 xl:grid-cols-6">
         {links.map((item) => (
           <StaggerItem key={item.key}>
             <Link to={`/${item.key}`} className="block">

@@ -118,6 +118,44 @@ export function useClockIn(businessId: string | null) {
   });
 }
 
+/**
+ * Manager / אחמ״ש punches another employee into the live shift (no geofence).
+ * Rejects if that employee already has an open attendance row.
+ */
+export function useForceClockIn(businessId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { business_id: string; employee_id: string }) => {
+      const { data: openRows, error: openError } = await supabase
+        .from("attendance")
+        .select("id")
+        .eq("business_id", input.business_id)
+        .eq("employee_id", input.employee_id)
+        .is("clock_out", null)
+        .limit(1);
+      if (openError) throw openError;
+      if (openRows && openRows.length > 0) {
+        throw new Error("העובד/ת כבר במשמרת");
+      }
+
+      const { error } = await supabase.from("attendance").insert({
+        business_id: input.business_id,
+        employee_id: input.employee_id,
+        clock_in: new Date().toISOString(),
+        clock_in_lat: null,
+        clock_in_lng: null,
+        within_radius: false,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["attendance", businessId] });
+      qc.invalidateQueries({ queryKey: ["attendance_month"] });
+      qc.invalidateQueries({ queryKey: ["attendance_around"] });
+    },
+  });
+}
+
 export function useClockOut(businessId: string | null) {
   const qc = useQueryClient();
   return useMutation({

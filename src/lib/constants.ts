@@ -101,6 +101,11 @@ export function canForceEmployeeClockOut(role: UserRole | string | null | undefi
   return !!role && MANAGER_ROLES.includes(role as UserRole);
 }
 
+/** Same roles as force clock-out: manager / אחמ״ש may punch another employee into the live shift. */
+export function canForceEmployeeClockIn(role: UserRole | string | null | undefined): boolean {
+  return canForceEmployeeClockOut(role);
+}
+
 /** Roles that can create fixed templates and assign one-time tasks. */
 export const TASK_CREATE_ROLES: UserRole[] = ["manager"];
 

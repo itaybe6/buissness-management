@@ -427,7 +427,7 @@ export function ManagerDashboard() {
       <TodayEventsBanner />
 
       {/* ---------------- Employee labor costs ---------------- */}
-      {on("payroll") && <EmployeeCostPanel businessId={businessId} monthRevenue={revenue} />}
+      {on("payroll") && <EmployeeCostPanel businessId={businessId} />}
 
       {/* ---------------- KPI row ---------------- */}
       {kpis.length > 0 && (

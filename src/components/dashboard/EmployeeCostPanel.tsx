@@ -7,7 +7,6 @@ import { useProfiles } from "@/api/users";
 import { useShiftTemplates } from "@/api/shifts";
 import { supabase } from "@/lib/supabase";
 import { formatCurrency } from "@/lib/db";
-import { fmtHours } from "@/lib/payrollShiftRows";
 import {
   aggregateByMonth,
   aggregateDailyLaborCosts,
@@ -61,24 +60,6 @@ async function fetchMonthPayrollData(businessId: string, monthISO: string) {
     bonuses: (bonusesRes.data ?? []) as ShiftBonus[],
     attendance: (attRes.data ?? []) as Attendance[],
   };
-}
-
-function pctChange(current: number, prev: number): number | null {
-  if (prev <= 0 && current <= 0) return null;
-  if (prev <= 0) return 100;
-  return ((current - prev) / prev) * 100;
-}
-
-function TrendBadge({ pct }: { pct: number | null }) {
-  if (pct == null) return null;
-  const dir = pct > 0.5 ? "up" : pct < -0.5 ? "down" : "flat";
-  const icon = dir === "up" ? "trending_up" : dir === "down" ? "trending_down" : "trending_flat";
-  return (
-    <span className="dash-trend" data-dir={dir}>
-      <Icon name={icon} size={13} />
-      {Math.abs(Math.round(pct))}%
-    </span>
-  );
 }
 
 /* ---- Stacked bar chart ---- */
@@ -278,10 +259,8 @@ function BreakdownPill({
 
 export function EmployeeCostPanel({
   businessId,
-  monthRevenue = 0,
 }: {
   businessId: string | null;
-  monthRevenue?: number;
 }) {
   const now = useMemo(() => new Date(), []);
   const todayISO = useMemo(() => {
@@ -376,7 +355,6 @@ export function EmployeeCostPanel({
     const days = extendedDailyRaw.filter((d) => weekStartISO(d.date) === prevWeekStart);
     return sumLaborCosts(days).total;
   }, [extendedDailyRaw, prevWeekStart]);
-  const weekTrend = pctChange(currentWeekTotal.total, prevWeekTotal);
 
   const monthSlices = useMemo(() => {
     const daysByMonth = new Map<string, DayLaborCost[]>();
@@ -419,14 +397,9 @@ export function EmployeeCostPanel({
 
   const displayBreakdown = granularity === "week" ? currentWeekTotal : monthTotal;
   const heroTotal = displayBreakdown.total;
-  const displayHours = displayBreakdown.hours;
-  const avgCostPerHour = displayHours > 0 ? heroTotal / displayHours : 0;
   const breakdownDenom = displayBreakdown.total || 1;
   const hasBreakdownMix =
     [displayBreakdown.hourly, displayBreakdown.topup, displayBreakdown.bonus].filter((v) => v > 0.5).length > 1;
-
-  const monthTrend = pctChange(monthTotal.total, prevMonthTotal);
-  const laborPct = monthRevenue > 0 ? (monthTotal.total / monthRevenue) * 100 : null;
 
   const heToday = now.toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long" });
   const hasData = monthTotal.total > 0 || dailyRaw.some((d) => d.total > 0);
@@ -483,25 +456,13 @@ export function EmployeeCostPanel({
             <span className="labor-cost-hero-amount">
               <CountUp value={heroTotal} format={formatCurrency} />
             </span>
-            {granularity === "week" && weekTrend != null && <TrendBadge pct={weekTrend} />}
-            {granularity === "month" && monthTrend != null && <TrendBadge pct={monthTrend} />}
           </div>
           <div className="labor-cost-hero-meta">
-            {displayHours > 0 && (
-              <span className="labor-hours-chip">
-                <Icon name="timer" size={14} />
-                {fmtHours(displayHours)} שעות
-                {avgCostPerHour > 0 && <> · {formatCurrency(avgCostPerHour)}/שעה</>}
-              </span>
-            )}
             {granularity === "week" && prevWeekTotal > 0 && (
               <span className="labor-meta-note">שבוע קודם {formatCurrency(prevWeekTotal)}</span>
             )}
             {granularity === "month" && prevMonthTotal > 0 && (
               <span className="labor-meta-note">חודש קודם {formatCurrency(prevMonthTotal)}</span>
-            )}
-            {laborPct != null && laborPct > 0 && (
-              <span className="labor-pct-chip">{laborPct.toFixed(1)}% מההכנסות</span>
             )}
           </div>
 
