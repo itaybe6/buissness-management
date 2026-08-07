@@ -21,6 +21,8 @@ export interface EmployeeAttendanceGroup {
   employeeId: string;
   sessions: AttendanceSession[];
   onShift: boolean;
+  /** Open punch continues after an assigned shift template has ended. */
+  exceedingShiftHours: boolean;
   sortKey: number;
 }
 
@@ -222,7 +224,7 @@ export function groupAttendanceByEmployee(records: Attendance[]): EmployeeAttend
     sessions.sort((a, b) => new Date(a.clockIn).getTime() - new Date(b.clockIn).getTime());
     const onShift = sessions.some((s) => !s.clockOut);
     const sortKey = Math.max(...sessions.map((s) => new Date(s.clockOut ?? s.clockIn).getTime()));
-    groups.push({ employeeId, sessions, onShift, sortKey });
+    groups.push({ employeeId, sessions, onShift, exceedingShiftHours: false, sortKey });
   }
 
   groups.sort((a, b) => {
@@ -231,6 +233,62 @@ export function groupAttendanceByEmployee(records: Attendance[]): EmployeeAttend
   });
 
   return groups;
+}
+
+/**
+ * True when the employee is still clocked in after an assigned shift for `today` has ended,
+ * and their open punch overlapped that shift window.
+ */
+export function employeeExceedsAssignedShift(input: {
+  employeeId: string;
+  sessions: AttendanceSession[];
+  today: string;
+  assignments: ShiftAssignment[];
+  templates: ShiftTemplate[];
+  nowMs?: number;
+}): boolean {
+  const { employeeId, sessions, today, assignments, templates, nowMs = Date.now() } = input;
+  const open = sessions.find((s) => !s.clockOut);
+  if (!open) return false;
+
+  const todayAssignments = assignments.filter(
+    (a) => a.employee_id === employeeId && a.shift_date === today,
+  );
+  if (todayAssignments.length === 0) return false;
+
+  const templateById = new Map(templates.map((t) => [t.id, t]));
+
+  return todayAssignments.some((a) => {
+    const template = templateById.get(a.shift_template_id);
+    if (!template) return false;
+    const window = shiftWindowForDate(today, template);
+    if (nowMs <= window.endMs) return false;
+    return punchOverlapsAbsoluteWindow(open.clockIn, null, window, nowMs);
+  });
+}
+
+/** Annotate grouped feed rows with shift-hours overrun (live clock). */
+export function annotateExceedingShiftHours(
+  groups: EmployeeAttendanceGroup[],
+  input: {
+    today: string;
+    assignments: ShiftAssignment[];
+    templates: ShiftTemplate[];
+    nowMs?: number;
+  },
+): EmployeeAttendanceGroup[] {
+  const { today, assignments, templates, nowMs = Date.now() } = input;
+  return groups.map((group) => ({
+    ...group,
+    exceedingShiftHours: employeeExceedsAssignedShift({
+      employeeId: group.employeeId,
+      sessions: group.sessions,
+      today,
+      assignments,
+      templates,
+      nowMs,
+    }),
+  }));
 }
 
 export function formatPunchTime(iso: string): string {

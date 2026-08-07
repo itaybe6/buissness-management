@@ -287,38 +287,6 @@ function text(page: Page, raw: string, x: number, top: number, o: TextOpts): num
   return w;
 }
 
-/** Greedy word wrap over the logical string; each line is reordered on its own. */
-function wrap(raw: string, o: Pick<TextOpts, "size" | "font">, maxWidth: number, maxLines: number): string[] {
-  const source = sanitize(raw).replace(/[ \t]+/g, " ").trim();
-  if (!source) return [];
-  const out: string[] = [];
-
-  for (const paragraph of source.split("\n")) {
-    const words = paragraph.trim().split(" ").filter(Boolean);
-    let line = "";
-    for (const word of words) {
-      const next = line ? `${line} ${word}` : word;
-      if (measure(segmentsOf(next), o) <= maxWidth || !line) {
-        line = next;
-        continue;
-      }
-      out.push(line);
-      line = word;
-      if (out.length === maxLines) break;
-    }
-    if (out.length >= maxLines) break;
-    if (line) out.push(line);
-    if (out.length >= maxLines) break;
-  }
-
-  if (out.length > maxLines) out.length = maxLines;
-  // The last line absorbs the ellipsis when the text was cut short.
-  const total = source.split(/\s+/).length;
-  const shown = out.join(" ").split(/\s+/).length;
-  if (shown < total && out.length > 0) out[out.length - 1] += "…";
-  return out;
-}
-
 /** Small filled pill with a leading dot — the status chip. */
 function pill(
   page: Page,
@@ -363,7 +331,7 @@ export async function renderOrderPdf(
   };
   const c = palette(lib.rgb);
 
-  pdf.setTitle(`הזמנה ${data.order.number} — ${data.supplier.name}`);
+  pdf.setTitle(`הזמנה — ${data.supplier.name}`);
   pdf.setAuthor(data.businessName);
   pdf.setSubject(`הזמנת רכש מהספק ${data.supplier.name}`);
   pdf.setCreator(data.businessName);
@@ -468,21 +436,23 @@ function drawHero(page: Page, fonts: Fonts, c: Palette, data: OrderPdfData) {
 
   // Order card, left column.
   const cardW = 208;
+  const cardH = 56;
   const cardL = MARGIN;
+  const cardTop = 60;
   box(page, {
     left: cardL,
-    top: 44,
+    top: cardTop,
     w: cardW,
-    h: 88,
+    h: cardH,
     radius: 14,
     fill: c.white,
     opacity: 0.075,
   });
   box(page, {
     left: cardL,
-    top: 44,
+    top: cardTop,
     w: cardW,
-    h: 88,
+    h: cardH,
     radius: 14,
     stroke: c.white,
     strokeWidth: 0.8,
@@ -490,28 +460,14 @@ function drawHero(page: Page, fonts: Fonts, c: Palette, data: OrderPdfData) {
   });
 
   const cardRight = cardL + cardW - 16;
-  text(page, "מספר הזמנה", cardRight, 56, {
+  text(page, "תאריך ההזמנה", cardRight, cardTop + 14, {
     size: 7.2,
     font: fonts.med,
     color: c.white,
     opacity: 0.5,
     tracking: 1.1,
   });
-  text(page, data.order.number, cardRight, 68, {
-    size: 14,
-    font: fonts.bold,
-    color: c.white,
-    maxWidth: cardW - 32,
-  });
-  hairline(page, cardL + 16, 90, cardW - 32, c.white, 0.16);
-  text(page, "תאריך ההזמנה", cardRight, 98, {
-    size: 7.2,
-    font: fonts.med,
-    color: c.white,
-    opacity: 0.5,
-    tracking: 1.1,
-  });
-  text(page, `${data.order.date} · ${data.order.time}`, cardRight, 110, {
+  text(page, `${data.order.date} · ${data.order.time}`, cardRight, cardTop + 28, {
     size: 10.5,
     font: fonts.med,
     color: c.white,
@@ -524,7 +480,7 @@ function drawHero(page: Page, fonts: Fonts, c: Palette, data: OrderPdfData) {
 
 function drawRibbon(page: Page, fonts: Fonts, c: Palette, data: OrderPdfData) {
   box(page, { left: 0, top: 0, w: PAGE_W, h: RIBBON_H, fill: c.ink });
-  text(page, `${data.businessName} · הזמנה ${data.order.number}`, RIGHT, 20, {
+  text(page, `${data.businessName} · הזמנה`, RIGHT, 20, {
     size: 11,
     font: fonts.bold,
     color: c.white,
@@ -713,15 +669,14 @@ function drawRow(page: Page, fonts: Fonts, c: Palette, line: OrderPdfLine, index
 
 /* ---- summary ------------------------------------------------------ */
 
-/** Tall enough for three lines of supplier notes plus the four term bullets. */
-const SUMMARY_H = 190;
+/** Totals card only — notes/terms are intentionally omitted from the PDF. */
+const SUMMARY_H = 132;
 
 function drawSummary(page: Page, fonts: Fonts, c: Palette, data: OrderPdfData, top: number) {
   const totalsW = 224;
-  const notesW = CONTENT_W - totalsW - 12;
 
-  /* — totals card (left) — */
-  const tl = MARGIN;
+  /* — totals card (right, primary RTL column) — */
+  const tl = RIGHT - totalsW;
   box(page, { left: tl, top, w: totalsW, h: SUMMARY_H, radius: 14, fill: c.white });
   box(page, { left: tl, top, w: totalsW, h: SUMMARY_H, radius: 14, stroke: c.border, strokeWidth: 0.9 });
 
@@ -764,47 +719,6 @@ function drawSummary(page: Page, fonts: Fonts, c: Palette, data: OrderPdfData, t
     color: c.white,
     maxWidth: totalsW - 48,
   });
-
-  /* — notes / terms panel (right) — */
-  const nl = RIGHT - notesW;
-  box(page, { left: nl, top, w: notesW, h: SUMMARY_H, radius: 14, fill: c.panel });
-  const nr = RIGHT - 18;
-
-  text(page, "הערות ותנאים", nr, top + 18, {
-    size: 7.4,
-    font: fonts.med,
-    color: c.text3,
-    tracking: 1.1,
-  });
-
-  let ny = top + 34;
-  const inner = notesW - 36;
-
-  if (data.supplier.notes) {
-    for (const chunk of wrap(data.supplier.notes, { size: 9.2, font: fonts.reg }, inner, 3)) {
-      text(page, chunk, nr, ny, { size: 9.2, font: fonts.reg, color: c.text });
-      ny += 13.5;
-    }
-    ny += 6;
-  }
-
-  const bullets = [
-    `סך הכמויות: ${data.totals.unitsLabel}`,
-    `ימי אספקה מהספק: ${data.supplier.deliveryDays}`,
-    data.supplier.phone ? `לבירורים: ${data.supplier.phone}` : "",
-    "המחירים לפי מחירון הספק במערכת ואינם כוללים מע״מ, אלא אם סוכם אחרת.",
-  ].filter(Boolean);
-
-  for (const bullet of bullets) {
-    for (const [i, chunk] of wrap(bullet, { size: 8.4, font: fonts.reg }, inner - 10, 2).entries()) {
-      if (i === 0) {
-        page.drawCircle({ x: nr - 3, y: PAGE_H - ny - 4.6, size: 1.5, color: c.text4 });
-      }
-      text(page, chunk, nr - 10, ny, { size: 8.4, font: fonts.reg, color: c.text2 });
-      ny += 12;
-    }
-    ny += 2;
-  }
 }
 
 /* ---- footer ------------------------------------------------------- */
