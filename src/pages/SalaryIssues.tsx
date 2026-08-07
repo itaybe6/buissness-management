@@ -218,7 +218,10 @@ function StatusStepper({
             aria-pressed={s === status}
             data-active={s === status || undefined}
             data-done={m.step < meta.step || undefined}
-            onClick={() => s !== status && onChange(s)}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (s !== status) onChange(s);
+            }}
           >
             <Icon name={m.step < meta.step ? "check" : m.icon} size={15} />
             <span>{m.label}</span>
@@ -685,19 +688,24 @@ export function SalaryIssues() {
   const { markSeen } = useSalaryIssueBadgeCount();
   const isMdUp = useIsMdUp();
 
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  /** Status taps update the card UI only — list/filters stay put until refresh. */
+  const [statusOverrides, setStatusOverrides] = useState<Map<string, SalaryIssueStatus>>(
+    () => new Map(),
+  );
+
   const { data, isLoading, isError, refetch } = useSalaryIssues(businessId, {
     poll: true,
+    freeze: statusOverrides.size > 0,
     employeeId: isManager ? null : (profile?.id ?? null),
   });
   const issues = useMemo(() => data ?? [], [data]);
 
   const createIssue = useCreateSalaryIssue(businessId);
   const updateStatus = useUpdateSalaryIssueStatus(businessId);
-
-  const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [categoryFilter, setCategoryFilter] = useState<string>("all");
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [category, setCategory] = useState("");
@@ -833,9 +841,40 @@ export function SalaryIssues() {
   if (isError || !businessId) return <ErrorState onRetry={refetch} />;
 
   /* Show the new status the moment it is tapped — the stepper thumb should
-     never wait for the round-trip. */
+     never wait for the round-trip. List data stays frozen so filters / layout
+     don't jump until the user refreshes. */
   const pending = updateStatus.isPending ? updateStatus.variables : undefined;
   const hasIssues = issues.length > 0;
+
+  function issueForDisplay(issue: SalaryIssue): SalaryIssue {
+    const next =
+      pending?.id === issue.id
+        ? pending.status
+        : (statusOverrides.get(issue.id) ?? issue.status);
+    return next === issue.status ? issue : { ...issue, status: next };
+  }
+
+  function handleStatusChange(id: string, status: SalaryIssueStatus) {
+    const previous = statusOverrides.get(id);
+    setStatusOverrides((prev) => {
+      const next = new Map(prev);
+      next.set(id, status);
+      return next;
+    });
+    updateStatus.mutate(
+      { id, status },
+      {
+        onError: () => {
+          setStatusOverrides((prev) => {
+            const next = new Map(prev);
+            if (previous === undefined) next.delete(id);
+            else next.set(id, previous);
+            return next;
+          });
+        },
+      },
+    );
+  }
 
   return (
     <div className="siq-page page-enter" data-role={isManager ? "manager" : "employee"}>
@@ -967,16 +1006,14 @@ export function SalaryIssues() {
                     {group.items.map((issue, i) => (
                       <IssueCard
                         key={issue.id}
-                        issue={
-                          pending?.id === issue.id ? { ...issue, status: pending.status } : issue
-                        }
+                        issue={issueForDisplay(issue)}
                         index={i}
                         isManager={isManager}
                         expanded={expanded.has(issue.id)}
                         fresh={issue.id === freshId}
                         busy={pending?.id === issue.id}
                         onToggle={() => toggleCard(issue.id)}
-                        onStatusChange={(status) => updateStatus.mutate({ id: issue.id, status })}
+                        onStatusChange={(status) => handleStatusChange(issue.id, status)}
                       />
                     ))}
                   </div>

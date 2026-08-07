@@ -4,12 +4,14 @@ import type { SalaryIssue, SalaryIssueStatus } from "@/types/database";
 
 export function useSalaryIssues(
   businessId: string | null,
-  options?: { poll?: boolean; employeeId?: string | null },
+  options?: { poll?: boolean; employeeId?: string | null; freeze?: boolean },
 ) {
   return useQuery({
     queryKey: ["salary_issues", businessId, options?.employeeId ?? "all"],
     enabled: !!businessId,
-    refetchInterval: options?.poll ? 30_000 : false,
+    refetchInterval: options?.poll && !options?.freeze ? 30_000 : false,
+    // After a local status change, keep the feed stable until a manual refresh.
+    refetchOnWindowFocus: options?.freeze ? false : undefined,
     queryFn: async (): Promise<SalaryIssue[]> => {
       let query = supabase
         .from("salary_issues")
@@ -62,8 +64,7 @@ export function useCreateSalaryIssue(businessId: string | null) {
   });
 }
 
-export function useUpdateSalaryIssueStatus(businessId: string | null) {
-  const qc = useQueryClient();
+export function useUpdateSalaryIssueStatus(_businessId: string | null) {
   return useMutation({
     mutationFn: async (input: { id: string; status: SalaryIssueStatus }) => {
       const { data: session } = await supabase.auth.getSession();
@@ -85,8 +86,8 @@ export function useUpdateSalaryIssueStatus(businessId: string | null) {
       if (error) throw error;
       return data as SalaryIssue;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["salary_issues", businessId] });
-    },
+    // Intentionally no invalidateQueries: refetching refilters the feed and
+    // collapses the open card. Status shows via local overrides; list syncs
+    // on the next manual page refresh.
   });
 }

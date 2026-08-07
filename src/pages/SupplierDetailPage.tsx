@@ -1733,7 +1733,10 @@ export function SupplierDetailPage() {
         onSaved={flashSaved}
       />
 
-      <LoadingOverlay show={orderBusy} label={`שולח הזמנה ל${supplier.name}...`} />
+      <LoadingOverlay
+        show={orderBusy || !!pdfBusyBatchId}
+        label={orderBusy ? `שולח הזמנה ל${supplier.name}...` : "מכין מסמך הזמנה..."}
+      />
     </div>
   );
 }
