@@ -5,33 +5,26 @@ import { AttendanceTodayFeedSection } from "@/components/attendance/AttendanceTo
 import { ForceClockOutModal, type ForceClockOutTarget, type OpenForceClockOutOptions } from "@/components/attendance/ForceClockOutModal";
 import { useAttendanceToday } from "@/api/attendance";
 import { useDepartments } from "@/api/departments";
-import { useProfiles } from "@/api/users";
 import { useActiveShiftTemplates, useShiftAssignments } from "@/api/shifts";
+import { useProfiles } from "@/api/users";
 import { useIsMdUp } from "@/hooks/useMediaQuery";
 import { useAuth } from "@/lib/auth";
+import { employeeIdsOnOpenPunch } from "@/lib/addEmployeeToShift";
 import { canForceEmployeeClockIn, canForceEmployeeClockOut } from "@/lib/constants";
 import {
-  filterAttendanceForTodayShift,
+  annotateExceedingShiftHours,
+  attendanceBelongsToTodayFeed,
   groupAttendanceByDepartment,
   groupAttendanceByEmployee,
   type AttendanceShiftFilter,
 } from "@/lib/attendanceFeed";
-import { useBusinessId, todayISO, weekStart, addDays } from "@/lib/db";
+import { addDays, useBusinessId, todayISO, weekStart } from "@/lib/db";
 
 const STAT_FILTERS: { filter: AttendanceShiftFilter; label: string; countKey: "onShift" | "completed" | "total" }[] = [
   { filter: "on_shift", label: "במשמרת", countKey: "onShift" },
   { filter: "left", label: "סיימו", countKey: "completed" },
   { filter: "all", label: "סה״כ", countKey: "total" },
 ];
-
-function useLiveClock() {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const id = window.setInterval(() => setNow(new Date()), 1000);
-    return () => window.clearInterval(id);
-  }, []);
-  return now;
-}
 
 export function ManagerAttendanceFeed({
   className = "manager-attendance-feed dash-rise dash-panel",
@@ -44,7 +37,6 @@ export function ManagerAttendanceFeed({
   const businessId = useBusinessId();
   const { profile, hasFeature } = useAuth();
   const isMdUp = useIsMdUp();
-  const now = useLiveClock();
   const [filter, setFilter] = useState<AttendanceShiftFilter>("on_shift");
   const [clockOutTarget, setClockOutTarget] = useState<ForceClockOutTarget | null>(null);
   const [clockOutEditMode, setClockOutEditMode] = useState(false);
@@ -63,10 +55,17 @@ export function ManagerAttendanceFeed({
   const { data: records = [] } = useAttendanceToday(businessId);
   const { data: users = [] } = useProfiles(businessId);
   const { data: departments = [] } = useDepartments(businessId);
-  const { data: shiftTemplates = [] } = useActiveShiftTemplates(businessId);
   const today = todayISO();
   const wk = weekStart();
+  const { data: templates = [] } = useActiveShiftTemplates(businessId);
   const { data: assignments = [] } = useShiftAssignments(businessId, wk, addDays(wk, 6));
+
+  /** Tick so «חריגה» appears once the assigned shift end time has passed. */
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const shiftsEnabled = hasFeature("shifts");
   const canForceClockOut = canForceEmployeeClockOut(profile?.role);
@@ -78,17 +77,18 @@ export function ManagerAttendanceFeed({
     return m;
   }, [users]);
 
+  /** Live presence only — ignore schedule so force-adds / walk-ins always appear. */
   const todayFeed = useMemo(() => {
-    const filtered = filterAttendanceForTodayShift({
-      records,
+    const dayRecords = records.filter((r) => attendanceBelongsToTodayFeed(r, today));
+    const groups = groupAttendanceByEmployee(dayRecords);
+    if (!shiftsEnabled || assignments.length === 0) return groups;
+    return annotateExceedingShiftHours(groups, {
       today,
       assignments,
-      templates: shiftTemplates,
-      shiftsEnabled,
-      now,
+      templates,
+      nowMs,
     });
-    return groupAttendanceByEmployee(filtered);
-  }, [records, today, assignments, shiftTemplates, shiftsEnabled, now]);
+  }, [records, today, shiftsEnabled, assignments, templates, nowMs]);
 
   const feedByDepartment = useMemo(() => {
     const employeeInfo = new Map<string, { departmentId: string | null | undefined; role: string }>();
@@ -99,10 +99,8 @@ export function ManagerAttendanceFeed({
   const onShiftCount = todayFeed.filter((g) => g.onShift).length;
   const completedCount = todayFeed.filter((g) => !g.onShift).length;
   const counts = { onShift: onShiftCount, completed: completedCount, total: todayFeed.length };
-  const onShiftEmployeeIds = useMemo(
-    () => todayFeed.filter((g) => g.onShift).map((g) => g.employeeId),
-    [todayFeed],
-  );
+  /** Any open punch — not only the shift-window feed — so already-on-shift staff stay hidden. */
+  const onShiftEmployeeIds = useMemo(() => employeeIdsOnOpenPunch(records), [records]);
 
   return (
     <section
@@ -118,7 +116,7 @@ export function ManagerAttendanceFeed({
           <div className="min-w-0">
             <h3 className="text-[14.5px] font-extrabold tracking-tight text-text">הצוות כעת</h3>
             <p className="mt-0.5 truncate text-[12px] font-semibold text-text-3">
-              {shiftsEnabled ? "לפי מחלקות · משמרת היום" : "לפי מחלקות · נוכחות בזמן אמת"}
+              לפי מחלקות · נוכחות בזמן אמת
             </p>
           </div>
         </div>

@@ -120,12 +120,27 @@ export function useClockIn(businessId: string | null) {
 
 /**
  * Manager / אחמ״ש punches another employee into the live shift (no geofence).
- * Rejects if that employee already has an open attendance row.
+ * Rejects if that employee already has an open attendance row, or is maintenance.
  */
 export function useForceClockIn(businessId: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: { business_id: string; employee_id: string }) => {
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("role, active")
+        .eq("id", input.employee_id)
+        .eq("business_id", input.business_id)
+        .maybeSingle();
+      if (profileError) throw profileError;
+      if (!profile?.active) throw new Error("העובד/ת לא פעיל/ה");
+      if (profile.role === "maintenance") {
+        throw new Error("לא ניתן להוסיף איש תחזוקה למשמרת");
+      }
+      if (profile.role === "super_admin") {
+        throw new Error("לא ניתן להוסיף משתמש זה למשמרת");
+      }
+
       const { data: openRows, error: openError } = await supabase
         .from("attendance")
         .select("id")

@@ -14,6 +14,7 @@ import {
 } from "@/api/suppliers";
 import { useInventory } from "@/api/inventory";
 import { RecurringOrdersEntry } from "@/components/inventory/RecurringOrdersEntry";
+import { recurringOrdersPagePath } from "@/lib/recurringOrders";
 
 /** Thumbnails shown in a card's price-list strip. */
 const STRIP_MAX = 6;
@@ -126,19 +127,18 @@ export function Suppliers() {
       </header>
 
       <div className="spf-body">
-        <div
-          className="inventory-summary spl-summary mb-4 md:mb-5"
-          style={{ gridTemplateColumns: "repeat(2, 1fr)" }}
-        >
-          <div className="inventory-summary-cell">
-            <div className="text-[18px] font-extrabold leading-none tabular-nums tracking-tight md:text-[26px]">
-              {filtered.length}
-            </div>
-            <div className="inventory-tab-cell-label mt-1 text-[10px] font-medium text-text-3 md:mt-1.5 md:text-[12px]">
-              ספקים
+        <div className="spl-entry mb-4 md:mb-5">
+          <div className="inventory-summary spl-summary" style={{ gridTemplateColumns: "1fr" }}>
+            <div className="inventory-summary-cell">
+              <div className="text-[18px] font-extrabold leading-none tabular-nums tracking-tight md:text-[26px]">
+                {filtered.length}
+              </div>
+              <div className="inventory-tab-cell-label mt-1 text-[10px] font-medium text-text-3 md:mt-1.5 md:text-[12px]">
+                ספקים
+              </div>
             </div>
           </div>
-          <RecurringOrdersEntry businessId={businessId} variant="summary-cell" from="suppliers" />
+          <RecurringOrdersEntry businessId={businessId} variant="panel" from="suppliers" />
         </div>
 
         {/* ── Cards ── */}
@@ -173,6 +173,9 @@ export function Suppliers() {
                 index={i}
                 onOpen={() => navigate(`/suppliers/${s.id}`)}
                 onEdit={() => navigate(`/suppliers/${s.id}/edit`)}
+                onRecurring={() =>
+                  navigate(recurringOrdersPagePath({ supplierId: s.id, from: "supplier" }))
+                }
                 onDelete={() => setToDelete(s)}
               />
             ))}
@@ -206,6 +209,7 @@ function SupplierCard({
   index,
   onOpen,
   onEdit,
+  onRecurring,
   onDelete,
 }: {
   supplier: SupplierWithStats;
@@ -213,6 +217,7 @@ function SupplierCard({
   index: number;
   onOpen: () => void;
   onEdit: () => void;
+  onRecurring: () => void;
   onDelete: () => void;
 }) {
   const thumbs = meta?.thumbs ?? [];
@@ -311,6 +316,18 @@ function SupplierCard({
               <Icon name="call" size={16} />
             </a>
           )}
+          <button
+            type="button"
+            className="spl-act"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRecurring();
+            }}
+            aria-label={`הזמנות קבועות של ${s.name}`}
+            title="הזמנות קבועות של הספק"
+          >
+            <Icon name="event_repeat" size={16} />
+          </button>
           <button
             type="button"
             className="spl-act"

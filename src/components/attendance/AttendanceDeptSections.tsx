@@ -55,8 +55,14 @@ function AttendanceEmployeeRow({
     }
   }
 
+  const exceedChip = group.exceedingShiftHours ? (
+    <span className="attendance-row-exceed" title="המשיך אחרי סיום המשמרת המשובצת">
+      חריגה
+    </span>
+  ) : null;
+
   const badge = group.onShift ? (
-    <div className="attendance-row-badge" data-open={group.onShift}>
+    <div className="attendance-row-badge" data-open={group.onShift} data-exceed={group.exceedingShiftHours || undefined}>
       {rowInteractive ? (
         <>
           <span className="attendance-row-live" aria-hidden />
@@ -82,7 +88,10 @@ function AttendanceEmployeeRow({
         {initialsOf(employeeName)}
       </span>
       <div className="attendance-row-main min-w-0 flex-1">
-        <div className="attendance-row-name">{employeeName}</div>
+        <div className="attendance-row-name-row">
+          <div className="attendance-row-name">{employeeName}</div>
+          {exceedChip}
+        </div>
         <div className="attendance-row-sessions">
           {group.sessions.map((session) => (
             <span key={session.id} className="attendance-row-session" data-live={!session.clockOut}>

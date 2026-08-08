@@ -1233,13 +1233,10 @@ export function SupplierDetailPage() {
           </p>
         )}
 
-        <div
-          className="inventory-summary spd-summary mb-4 md:mb-5"
-          style={{ gridTemplateColumns: "1fr" }}
-        >
+        <div className="spd-summary mb-4 md:mb-5">
           <RecurringOrdersEntry
             businessId={businessId}
-            variant="summary-cell"
+            variant="panel"
             supplierId={supplier.id}
             supplierName={supplier.name}
             from="supplier"

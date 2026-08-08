@@ -8,7 +8,14 @@ import {
   type RecurringOrdersFrom,
 } from "@/lib/recurringOrders";
 
-type RecurringOrdersEntryVariant = "toolbar" | "hero" | "compact" | "supplier-action" | "summary-cell";
+type RecurringOrdersEntryVariant =
+  | "toolbar"
+  | "hero"
+  | "compact"
+  | "supplier-action"
+  | "summary-cell"
+  /** Wide banner that reads as a button — the way into the page from /suppliers. */
+  | "panel";
 
 interface RecurringOrdersEntryProps {
   businessId: string | null;
@@ -48,9 +55,11 @@ export function RecurringOrdersEntry({
   const buttonClass =
     variant === "supplier-action"
       ? `spd-act ${className}`.trim()
-      : variant === "summary-cell"
-        ? `inventory-summary-cell inventory-tab-cell inventory-tab-cell--action ${className}`.trim()
-        : `rord-entry-btn rord-entry-btn--${variant} ${className}`.trim();
+      : variant === "panel"
+        ? `rord-cta ${className}`.trim()
+        : variant === "summary-cell"
+          ? `inventory-summary-cell inventory-tab-cell inventory-tab-cell--action ${className}`.trim()
+          : `rord-entry-btn rord-entry-btn--${variant} ${className}`.trim();
 
   function openPage() {
     navigate(
@@ -70,7 +79,27 @@ export function RecurringOrdersEntry({
       aria-label={ariaLabel}
       title={ariaLabel}
     >
-      {variant === "summary-cell" ? (
+      {variant === "panel" ? (
+        <>
+          <span className="rord-cta-ico" aria-hidden>
+            <Icon name="event_repeat" size={21} />
+          </span>
+          <span className="rord-cta-body">
+            <b>הזמנות קבועות</b>
+            <span>
+              {supplierName
+                ? count > 0
+                  ? `${count} תבניות שמורות עם מוצרים מ${supplierName}`
+                  : `עדיין אין תבנית שמורה ל${supplierName}`
+                : count > 0
+                  ? "תבניות שמורות — הזמנה שלמה בלחיצה אחת"
+                  : "שמרו הזמנה חוזרת כתבנית והתחילו ממנה בכל פעם"}
+            </span>
+          </span>
+          <span className="rord-cta-count">{count}</span>
+          <Icon name="chevron_left" size={20} className="rord-cta-arrow" />
+        </>
+      ) : variant === "summary-cell" ? (
         <>
           <div className="text-[18px] font-extrabold leading-none tabular-nums tracking-tight md:text-[26px]">
             {count}

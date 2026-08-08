@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  canBeAddedToLiveShift,
+  employeeIdsOnOpenPunch,
   employeesAvailableToAddToShift,
   filterEmployeesBySearch,
 } from "@/lib/addEmployeeToShift";
@@ -52,14 +54,31 @@ describe("רשימת עובדים שזמינים להוספה למשמרת", () 
     stubProfile(USER.employee, { full_name: "דני" }),
     stubProfile(USER.employee2, { full_name: "יוסי" }),
     stubProfile(USER.shiftManager, { full_name: "מאיה", role: "shift_manager" }),
+    stubProfile(USER.maintenance, { full_name: "אבי תחזוקה", role: "maintenance" }),
     stubProfile("inactive", { full_name: "לא פעיל", active: false }),
     stubProfile("admin", { full_name: "סופר", role: "super_admin" }),
   ];
 
-  it("מסתירה מי שכבר במשמרת, לא פעילים וסופר־אדמין", () => {
+  it("מסתירה מי שכבר במשמרת, לא פעילים, סופר־אדמין ואיש תחזוקה", () => {
     const available = employeesAvailableToAddToShift(team, [USER.employee]);
-    // Sorted he-IL by name: יוסי → מאיה
+    // Sorted he-IL by name: יוסי → מאיה — without דני (on shift) / תחזוקה / admin
     expect(available.map((u) => u.id)).toEqual([USER.employee2, USER.shiftManager]);
+    expect(available.some((u) => u.role === "maintenance")).toBe(false);
+  });
+
+  it("איש תחזוקה לא ניתן להוספה למשמרת חיה", () => {
+    expect(canBeAddedToLiveShift("maintenance")).toBe(false);
+    expect(canBeAddedToLiveShift("employee")).toBe(true);
+    expect(canBeAddedToLiveShift("shift_manager")).toBe(true);
+  });
+
+  it("מזהה עובדים עם החתמה פתוחה כבר במשמרת", () => {
+    const ids = employeeIdsOnOpenPunch([
+      { employee_id: USER.employee, clock_out: null },
+      { employee_id: USER.employee2, clock_out: "2026-08-08T12:00:00.000Z" },
+      { employee_id: USER.employee, clock_out: null },
+    ]);
+    expect([...ids]).toEqual([USER.employee]);
   });
 
   it("כשכולם במשמרת — הרשימה ריקה", () => {

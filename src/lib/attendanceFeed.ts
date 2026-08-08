@@ -176,7 +176,11 @@ export function attendanceBelongsToTodayFeed(record: Attendance, today: string):
   return false;
 }
 
-/** Keep punches for employees assigned to today's shifts whose times overlap their shift. */
+/**
+ * Keep punches for today's live team feed.
+ * When shifts + assignments exist, completed punches stay schedule-scoped —
+ * but anyone still clocked in always stays visible (force-add / walk-in / unassigned).
+ */
 export function filterAttendanceForTodayShift(input: {
   records: Attendance[];
   today: string;
@@ -197,6 +201,8 @@ export function filterAttendanceForTodayShift(input: {
 
   return dayRecords.filter((record) => {
     if (!record.clock_in) return false;
+    // Live presence always wins over the schedule filter.
+    if (!record.clock_out) return true;
 
     const empAssignments = todayAssignments.filter((a) => a.employee_id === record.employee_id);
     if (empAssignments.length === 0) return false;

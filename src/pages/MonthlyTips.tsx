@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion, useReducedMotion } from "motion/react";
 import { Button, EmptyState, ErrorState, Icon, PageLoader } from "@/components/ui";
@@ -291,13 +291,24 @@ function TipsChart({
           )}
           {geo.area && <path className="tps-chart-area" d={geo.area} fill="url(#tpsArea)" />}
           {geo.line && (
-            <path
-              className="tps-chart-line"
-              d={geo.line}
-              fill="none"
-              pathLength={1}
-              vectorEffect="non-scaling-stroke"
-            />
+            <>
+              {/* Halo as a second stroke — a CSS drop-shadow would be smeared
+                  by the non-uniform viewBox stretch. */}
+              <path
+                className="tps-chart-halo"
+                d={geo.line}
+                fill="none"
+                pathLength={1}
+                vectorEffect="non-scaling-stroke"
+              />
+              <path
+                className="tps-chart-line"
+                d={geo.line}
+                fill="none"
+                pathLength={1}
+                vectorEffect="non-scaling-stroke"
+              />
+            </>
           )}
         </svg>
 
@@ -689,7 +700,12 @@ function ShiftCard({
                       rounded="circle"
                     />
                     <span className="tps-split-name">{nameOf(split.employeeId)}</span>
-                    <span className="tps-split-hours">{fmtHours(split.hours)}ש׳</span>
+                    {/* The pool splits at one shared rate, so this reads as the
+                        calculation behind the row: hours × rate = take-home. */}
+                    <span className="tps-split-hours">
+                      {fmtHours(split.hours)}ש׳
+                      {row.hourly > 0 && ` × ${formatCurrency(row.hourly)}`}
+                    </span>
                     {canManage && <span className="tps-split-amt">{formatCurrency(split.amount)}</span>}
                     <span className="tps-split-bar" aria-hidden>
                       <i style={{ width: `${topSplit > 0 ? (split.amount / topSplit) * 100 : 0}%` }} />
@@ -731,7 +747,7 @@ function Board({
   icon: string;
   title: string;
   sub: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <section className="tps-board">
@@ -937,15 +953,17 @@ export function MonthlyTips() {
 
   const maxWeekday = Math.max(1, ...model.weekday.map((d) => d.tips));
   const topLeader = model.leaders.length > 0 ? model.leaders[0].tips : 0;
+  const hasRows = rows.length > 0;
   const hasBoards = model.leaders.length > 0 || model.byTemplate.length > 0;
+  /* A month with no reports has no second tab — never leave the page parked
+     on a tab whose column isn't rendered. */
+  const activeTab: Tab = hasRows && hasBoards ? tab : "shifts";
 
   if (isLoading) return <PageLoader label="טוען טיפים..." />;
   if (isError) return <ErrorState onRetry={refetch} />;
 
-  const hasRows = rows.length > 0;
-
   return (
-    <div className="tps-page page-enter" data-tab={tab}>
+    <div className="tps-page page-enter" data-tab={activeTab}>
       <TipsHero
         month={month}
         onMonth={(next) => {
@@ -963,7 +981,7 @@ export function MonthlyTips() {
         prevDaily={prevDaily}
         prevTotal={prevTotal}
         todayDay={todayDay}
-        tab={tab}
+        tab={activeTab}
         onTab={setTab}
         showTabs={hasRows && hasBoards}
         peopleLabel={canManage && model.leaders.length > 0 ? "מי הרוויח" : "פילוח"}
@@ -1089,6 +1107,11 @@ export function MonthlyTips() {
                         <span className="tps-lead-meta">
                           {leader.shifts} {leader.shifts === 1 ? "משמרת" : "משמרות"} · {fmtHours(leader.hours)}
                           ש׳
+                        </span>
+                        {/* Blended rate across the month — unlike a single
+                            shift's rate, this really does differ per employee. */}
+                        <span className="tps-lead-rate">
+                          {leader.hours > 0 ? `${formatCurrency(leader.tips / leader.hours)}/ש׳` : "—"}
                         </span>
                         <span className="tps-lead-bar" aria-hidden>
                           <i style={{ width: `${topLeader > 0 ? (leader.tips / topLeader) * 100 : 0}%` }} />

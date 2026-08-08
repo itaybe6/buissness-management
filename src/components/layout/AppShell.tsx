@@ -85,6 +85,7 @@ export function AppShell() {
     /^\/inventory\/items\/[^/]+\/edit$/.test(location.pathname) ||
     location.pathname === "/suppliers" ||
     location.pathname.startsWith("/suppliers/") ||
+    location.pathname === "/inventory/recurring-orders" ||
     location.pathname === "/settings" ||
     location.pathname === "/tips" ||
     /^\/businesses\/[^/]+$/.test(location.pathname) ||

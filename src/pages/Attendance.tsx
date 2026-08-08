@@ -18,6 +18,7 @@ import { attemptClockIn, clockInSuccessText } from "@/lib/attendancePunch";
 import { useBusinessId, todayISO, weekStart, addDays } from "@/lib/db";
 import { pendingTasksForEmployee } from "@/lib/pendingTasks";
 import {
+  annotateExceedingShiftHours,
   filterAttendanceForTodayShift,
   groupAttendanceByDepartment,
   groupAttendanceByEmployee,
@@ -107,7 +108,14 @@ export function Attendance() {
       shiftsEnabled,
       now,
     });
-    return groupAttendanceByEmployee(filtered);
+    const groups = groupAttendanceByEmployee(filtered);
+    if (!shiftsEnabled || !(assignments ?? []).length) return groups;
+    return annotateExceedingShiftHours(groups, {
+      today,
+      assignments: assignments ?? [],
+      templates: shiftTemplates ?? [],
+      nowMs: now.getTime(),
+    });
   }, [list, today, assignments, shiftTemplates, shiftsEnabled, now]);
 
   const feedByDepartment = useMemo(() => {

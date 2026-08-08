@@ -175,40 +175,69 @@ export function useShiftAssignments(
   });
 }
 
+type AssignmentInput = {
+  business_id: string;
+  department_id: string | null;
+  employee_id: string;
+  shift_date: string;
+  shift_template_id: string;
+  assigned_by?: string | null;
+};
+
+async function assertCanAssignOnDate(employeeId: string, shiftDate: string) {
+  const wk = weekStartFromDateISO(shiftDate);
+  const weekEnd = addDays(wk, 6);
+  const { data: weekRows, error: weekError } = await supabase
+    .from("shift_assignments")
+    .select("employee_id, shift_date")
+    .eq("employee_id", employeeId)
+    .gte("shift_date", wk)
+    .lte("shift_date", weekEnd);
+  if (weekError) throw weekError;
+
+  if (
+    !canAssignEmployeeOnDate(
+      (weekRows ?? []) as { employee_id: string; shift_date: string }[],
+      employeeId,
+      shiftDate,
+    )
+  ) {
+    throw new Error(WEEKLY_DAY_OFF_ERROR);
+  }
+}
+
 export function useAddAssignment(businessId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: {
-      business_id: string;
-      department_id: string | null;
-      employee_id: string;
-      shift_date: string;
-      shift_template_id: string;
-      assigned_by?: string | null;
-    }) => {
-      const wk = weekStartFromDateISO(input.shift_date);
-      const weekEnd = addDays(wk, 6);
-      const { data: weekRows, error: weekError } = await supabase
-        .from("shift_assignments")
-        .select("employee_id, shift_date")
-        .eq("employee_id", input.employee_id)
-        .gte("shift_date", wk)
-        .lte("shift_date", weekEnd);
-      if (weekError) throw weekError;
-
-      if (
-        !canAssignEmployeeOnDate(
-          (weekRows ?? []) as { employee_id: string; shift_date: string }[],
-          input.employee_id,
-          input.shift_date,
-        )
-      ) {
-        throw new Error(WEEKLY_DAY_OFF_ERROR);
-      }
+    mutationFn: async (input: AssignmentInput) => {
+      await assertCanAssignOnDate(input.employee_id, input.shift_date);
 
       const { error } = await supabase
         .from("shift_assignments")
         .upsert(input, { onConflict: "employee_id,shift_date,shift_template_id" });
+      if (error) {
+        if (error.message?.includes("WEEKLY_DAY_OFF_REQUIRED")) {
+          throw new Error(WEEKLY_DAY_OFF_ERROR);
+        }
+        throw error;
+      }
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["shift_assignments", businessId] }),
+  });
+}
+
+export function useAddAssignments(businessId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (inputs: AssignmentInput[]) => {
+      if (inputs.length === 0) return;
+      for (const input of inputs) {
+        await assertCanAssignOnDate(input.employee_id, input.shift_date);
+      }
+
+      const { error } = await supabase
+        .from("shift_assignments")
+        .upsert(inputs, { onConflict: "employee_id,shift_date,shift_template_id" });
       if (error) {
         if (error.message?.includes("WEEKLY_DAY_OFF_REQUIRED")) {
           throw new Error(WEEKLY_DAY_OFF_ERROR);

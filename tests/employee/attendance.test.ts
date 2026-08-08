@@ -19,6 +19,8 @@ import {
   filterAttendanceForCalendarDay,
   filterAttendanceForTodayShift,
   filterAttendanceNearReportDate,
+  annotateExceedingShiftHours,
+  employeeExceedsAssignedShift,
   filterEmployeeAttendanceGroups,
   getAttendanceHoursInShiftWindow,
   groupAttendanceByEmployee,
@@ -495,16 +497,17 @@ describe("פיד הנוכחות של היום", () => {
     expect(out.map((r) => r.employee_id)).toEqual([USER.employee]);
   });
 
-  it("עובד ללא שיבוץ היום לא מופיע בפיד המשמרת", () => {
-    const records = [makeAttendance({ employeeId: USER.employee3, date: DATE, from: 18, to: 22 })];
-    const out = filterAttendanceForTodayShift({
-      records,
+  it("עובד ללא שיבוץ — החתמה סגורה לא מופיעה, פתוחה כן (נוכחות חיה)", () => {
+    const completed = makeAttendance({ employeeId: USER.employee3, date: DATE, from: 18, to: 22 });
+    const open = makeOpenAttendance(USER.employee3, DATE, 18);
+    const base = {
       today: DATE,
       assignments: [makeAssignment({ employee_id: USER.employee, shift_date: DATE })],
       templates: shiftTemplates,
       shiftsEnabled: true,
-    });
-    expect(out).toEqual([]);
+    };
+    expect(filterAttendanceForTodayShift({ ...base, records: [completed] })).toEqual([]);
+    expect(filterAttendanceForTodayShift({ ...base, records: [open] })).toHaveLength(1);
   });
 
   it("בלי שיבוצים בכלל היום — נופלים חזרה להצגת כל ההחתמות", () => {
@@ -583,5 +586,68 @@ describe("קיבוץ נוכחות לתצוגה", () => {
 
   it("רשימה ריקה מחזירה אפס קבוצות ולא קורסת", () => {
     expect(groupAttendanceByEmployee([])).toEqual([]);
+  });
+});
+
+describe("חריגה אחרי סיום משמרת משובצת", () => {
+  const eveningEnd = new Date(`${DATE}T23:00:00`).getTime();
+  const afterEvening = eveningEnd + 60_000;
+  const eveningAssignment = makeAssignment({
+    employee_id: USER.employee,
+    shift_date: DATE,
+    shift_template_id: TPL.evening,
+  });
+
+  it("מסמן חריגה כשהעובד עדיין מוחתם אחרי שעת הסיום", () => {
+    const sessions = [{ id: "a", clockIn: `${DATE}T18:05:00`, clockOut: null }];
+    expect(
+      employeeExceedsAssignedShift({
+        employeeId: USER.employee,
+        sessions,
+        today: DATE,
+        assignments: [eveningAssignment],
+        templates: shiftTemplates,
+        nowMs: afterEvening,
+      }),
+    ).toBe(true);
+  });
+
+  it("לא מסמן חריגה לפני שעת הסיום", () => {
+    const sessions = [{ id: "a", clockIn: `${DATE}T18:05:00`, clockOut: null }];
+    expect(
+      employeeExceedsAssignedShift({
+        employeeId: USER.employee,
+        sessions,
+        today: DATE,
+        assignments: [eveningAssignment],
+        templates: shiftTemplates,
+        nowMs: eveningEnd - 60_000,
+      }),
+    ).toBe(false);
+  });
+
+  it("לא מסמן חריגה בלי שיבוץ להיום", () => {
+    const sessions = [{ id: "a", clockIn: `${DATE}T18:05:00`, clockOut: null }];
+    expect(
+      employeeExceedsAssignedShift({
+        employeeId: USER.employee,
+        sessions,
+        today: DATE,
+        assignments: [],
+        templates: shiftTemplates,
+        nowMs: afterEvening,
+      }),
+    ).toBe(false);
+  });
+
+  it("annotateExceedingShiftHours מעדכן את הדגל בקבוצות", () => {
+    const groups = groupAttendanceByEmployee([makeOpenAttendance(USER.employee, DATE, 18)]);
+    const annotated = annotateExceedingShiftHours(groups, {
+      today: DATE,
+      assignments: [eveningAssignment],
+      templates: shiftTemplates,
+      nowMs: afterEvening,
+    });
+    expect(annotated[0].exceedingShiftHours).toBe(true);
   });
 });

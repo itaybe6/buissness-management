@@ -14,6 +14,7 @@ import {
   useClearPreference,
   useShiftAssignments,
   useAddAssignment,
+  useAddAssignments,
   useRemoveAssignment,
 } from "@/api/shifts";
 import { useIsMdUp } from "@/hooks/useMediaQuery";
@@ -1539,6 +1540,7 @@ function SchedulerView() {
   const { data: prefs, isLoading: lp } = useShiftPreferences(businessId, wk);
   const { data: assignments, isLoading: la } = useShiftAssignments(businessId, wk, addDays(wk, 6));
   const addAssign = useAddAssignment(businessId);
+  const addAssignMany = useAddAssignments(businessId);
   const removeAssign = useRemoveAssignment(businessId);
   const [picker, setPicker] = useState<PickerState | null>(null);
 
@@ -1900,6 +1902,7 @@ function SchedulerView() {
                   list={employeesBySection.get(picker.dept ?? "null") ?? []}
                   prefMap={prefMap}
                   assignments={assignments ?? []}
+                  assigning={addAssign.isPending || addAssignMany.isPending}
                   onClose={() => setPicker(null)}
                   onPick={(employeeId) => {
                     addAssign.mutate({
@@ -1911,6 +1914,19 @@ function SchedulerView() {
                       assigned_by: profile?.id ?? null,
                     });
                     setPicker(null);
+                  }}
+                  onPickMany={(employeeIds) => {
+                    addAssignMany.mutate(
+                      employeeIds.map((employeeId) => ({
+                        business_id: businessId!,
+                        department_id: picker.dept,
+                        employee_id: employeeId,
+                        shift_date: picker.date,
+                        shift_template_id: picker.templateId,
+                        assigned_by: profile?.id ?? null,
+                      })),
+                      { onSuccess: () => setPicker(null) },
+                    );
                   }}
                 />
               </motion.div>
@@ -1931,7 +1947,9 @@ function PickerPanel({
   list,
   prefMap,
   assignments,
+  assigning = false,
   onPick,
+  onPickMany,
   onClose,
 }: {
   picker: PickerState;
@@ -1939,23 +1957,79 @@ function PickerPanel({
   list: Profile[];
   prefMap: Map<string, "available" | "cannot">;
   assignments: { employee_id: string; shift_template_id: string; shift_date: string }[];
+  assigning?: boolean;
   onPick: (employeeId: string) => void;
+  onPickMany: (employeeIds: string[]) => void;
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
+  const [multiMode, setMultiMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const q = query.trim();
   const filtered = q ? list.filter((e) => (e.full_name ?? "").includes(q)) : list;
+
+  const selectableIds = useMemo(() => {
+    return filtered
+      .filter((e) => {
+        const already = assignments.some(
+          (a) => a.employee_id === e.id && a.shift_template_id === picker.templateId && a.shift_date === picker.date,
+        );
+        if (already) return false;
+        return canAssignEmployeeOnDate(assignments, e.id, picker.date);
+      })
+      .map((e) => e.id);
+  }, [filtered, assignments, picker.templateId, picker.date]);
+
+  const selectedCount = selected.size;
+  const allSelectableSelected =
+    selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
+
+  function toggleMultiMode() {
+    setMultiMode((prev) => {
+      if (prev) setSelected(new Set());
+      return !prev;
+    });
+  }
+
+  function toggleSelected(employeeId: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(employeeId)) next.delete(employeeId);
+      else next.add(employeeId);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    setSelected((prev) => {
+      if (selectableIds.length > 0 && selectableIds.every((id) => prev.has(id))) {
+        return new Set();
+      }
+      return new Set(selectableIds);
+    });
+  }
 
   return (
     <>
       <div className="shift-picker-head">
         <div>
-          <div className="shift-picker-title">שיבוץ עובד</div>
+          <div className="shift-picker-title">{multiMode ? "שיבוץ עובדים" : "שיבוץ עובד"}</div>
           <div className="mt-0.5 text-[12px] font-semibold text-text-3">{subtitle}</div>
         </div>
-        <button type="button" onClick={onClose} aria-label="סגירה" className="icon-btn !h-8 !w-8 !rounded-[9px]">
-          <Icon name="close" size={18} />
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={toggleMultiMode}
+            aria-pressed={multiMode}
+            className={`shift-picker-multi-toggle${multiMode ? " is-active" : ""}`}
+          >
+            <Icon name="check" size={14} />
+            בחירה מרובה
+          </button>
+          <button type="button" onClick={onClose} aria-label="סגירה" className="icon-btn !h-8 !w-8 !rounded-[9px]">
+            <Icon name="close" size={18} />
+          </button>
+        </div>
       </div>
       {list.length > 6 && (
         <div className="shift-picker-search">
@@ -1964,8 +2038,18 @@ function PickerPanel({
             placeholder="חיפוש עובד..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            autoFocus
+            autoFocus={!multiMode}
           />
+        </div>
+      )}
+      {multiMode && selectableIds.length > 0 && (
+        <div className="shift-picker-multi-bar">
+          <button type="button" className="shift-picker-select-all" onClick={toggleSelectAll}>
+            {allSelectableSelected ? "בטל בחירה" : "בחר הכל"}
+          </button>
+          <span className="text-[12px] font-semibold text-text-3">
+            {selectedCount > 0 ? `${selectedCount} נבחרו` : "בחרו עובדים לשיבוץ"}
+          </span>
         </div>
       )}
       <div className="shift-picker-list">
@@ -1988,16 +2072,32 @@ function PickerPanel({
           const weekStartISO = weekStartFromDateISO(picker.date);
           const assignedDays = countAssignedDaysInWeek(assignments, e.id, weekStartISO);
           const dayOffBlocked = !already && !canAssignEmployeeOnDate(assignments, e.id, picker.date);
-          const disabled = already || dayOffBlocked;
+          const disabled = already || dayOffBlocked || assigning;
+          const isSelected = selected.has(e.id);
           return (
             <button
               key={e.id}
               type="button"
               disabled={disabled}
-              onClick={() => onPick(e.id)}
-              className="shift-picker-item"
+              onClick={() => {
+                if (multiMode) {
+                  if (!disabled) toggleSelected(e.id);
+                  return;
+                }
+                onPick(e.id);
+              }}
+              className={`shift-picker-item${multiMode && isSelected ? " is-selected" : ""}`}
+              aria-pressed={multiMode ? isSelected : undefined}
               title={dayOffBlocked ? "חובה יום חופש אחד לפחות בשבוע (מקסימום 6 ימי שיבוץ)" : undefined}
             >
+              {multiMode && !already && !dayOffBlocked && (
+                <span
+                  className={`shift-picker-check${isSelected ? " is-on" : ""}`}
+                  aria-hidden="true"
+                >
+                  {isSelected && <Icon name="check" size={12} />}
+                </span>
+              )}
               <span
                 className="grid h-9 w-9 flex-none place-items-center rounded-full text-[12.5px] font-bold text-white"
                 style={{ background: colorFor(e.id) }}
@@ -2020,6 +2120,24 @@ function PickerPanel({
           );
         })}
       </div>
+      {multiMode && (
+        <div className="shift-picker-footer">
+          <button
+            type="button"
+            className="shift-picker-assign-btn"
+            disabled={selectedCount === 0 || assigning}
+            onClick={() => onPickMany([...selected])}
+          >
+            {assigning
+              ? "משבץ..."
+              : selectedCount === 0
+                ? "שבץ עובדים"
+                : selectedCount === 1
+                  ? "שבץ עובד אחד"
+                  : `שבץ ${selectedCount} עובדים`}
+          </button>
+        </div>
+      )}
     </>
   );
 }
