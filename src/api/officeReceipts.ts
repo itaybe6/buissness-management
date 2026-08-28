@@ -16,7 +16,10 @@ export async function imagesToPdfFile(files: File[]): Promise<File> {
     page.drawImage(jpg, { x: 0, y: 0, width: jpg.width, height: jpg.height });
   }
   const out = await pdf.save();
-  return new File([out], `receipt-${Date.now()}.pdf`, { type: "application/pdf", lastModified: Date.now() });
+  return new File([out as unknown as BlobPart], `receipt-${Date.now()}.pdf`, {
+    type: "application/pdf",
+    lastModified: Date.now(),
+  });
 }
 
 /**

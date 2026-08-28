@@ -85,12 +85,12 @@ export function RecurringOrdersEntry({
             <Icon name="event_repeat" size={21} />
           </span>
           <span className="rord-cta-body">
-            <b>הזמנות קבועות</b>
+            <b>{supplierName ? `הזמנות קבועות של ${supplierName}` : "הזמנות קבועות"}</b>
             <span>
               {supplierName
                 ? count > 0
-                  ? `${count} תבניות שמורות עם מוצרים מ${supplierName}`
-                  : `עדיין אין תבנית שמורה ל${supplierName}`
+                  ? `${count} ${count === 1 ? "תבנית שמורה" : "תבניות שמורות"} — ההזמנה תיפתח עם המוצרים של הספק הזה בלבד`
+                  : "עדיין אין תבנית שמורה לספק הזה — בנו הזמנה מהמחירון ושמרו אותה"
                 : count > 0
                   ? "תבניות שמורות — הזמנה שלמה בלחיצה אחת"
                   : "שמרו הזמנה חוזרת כתבנית והתחילו ממנה בכל פעם"}

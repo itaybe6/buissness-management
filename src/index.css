@@ -48966,20 +48966,3 @@ a.rcr-group-name:hover {
     color 200ms var(--ease-out);
 }
 
-/* /suppliers — supplier count tile beside the recurring-orders CTA. */
-.spl-entry {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.6rem;
-  align-items: stretch;
-}
-
-@media (min-width: 640px) {
-  .spl-entry {
-    grid-template-columns: minmax(7.5rem, 0.3fr) minmax(0, 1fr);
-  }
-}
-
-.spl-entry .spl-summary {
-  align-content: center;
-}

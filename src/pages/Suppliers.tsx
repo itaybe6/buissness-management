@@ -13,7 +13,6 @@ import {
   type SupplierWithStats,
 } from "@/api/suppliers";
 import { useInventory } from "@/api/inventory";
-import { RecurringOrdersEntry } from "@/components/inventory/RecurringOrdersEntry";
 import { recurringOrdersPagePath } from "@/lib/recurringOrders";
 
 /** Thumbnails shown in a card's price-list strip. */
@@ -127,18 +126,18 @@ export function Suppliers() {
       </header>
 
       <div className="spf-body">
-        <div className="spl-entry mb-4 md:mb-5">
-          <div className="inventory-summary spl-summary" style={{ gridTemplateColumns: "1fr" }}>
-            <div className="inventory-summary-cell">
-              <div className="text-[18px] font-extrabold leading-none tabular-nums tracking-tight md:text-[26px]">
-                {filtered.length}
-              </div>
-              <div className="inventory-tab-cell-label mt-1 text-[10px] font-medium text-text-3 md:mt-1.5 md:text-[12px]">
-                ספקים
-              </div>
+        <div
+          className="inventory-summary spl-summary mb-4 md:mb-5"
+          style={{ gridTemplateColumns: "1fr" }}
+        >
+          <div className="inventory-summary-cell">
+            <div className="text-[18px] font-extrabold leading-none tabular-nums tracking-tight md:text-[26px]">
+              {filtered.length}
+            </div>
+            <div className="inventory-tab-cell-label mt-1 text-[10px] font-medium text-text-3 md:mt-1.5 md:text-[12px]">
+              ספקים
             </div>
           </div>
-          <RecurringOrdersEntry businessId={businessId} variant="panel" from="suppliers" />
         </div>
 
         {/* ── Cards ── */}
