@@ -83,8 +83,7 @@ export function useDeleteUser() {
         body: { user_id: userId },
       });
       if (error) {
-        const msg = (data as { error?: string })?.error || error.message;
-        throw new Error(translateDeleteError(msg));
+        throw new Error(translateDeleteError(await functionErrorMessage(error, data)));
       }
       if ((data as { error?: string })?.error) {
         throw new Error(translateDeleteError((data as { error: string }).error));
@@ -93,6 +92,21 @@ export function useDeleteUser() {
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["profiles"] }),
   });
+}
+
+async function functionErrorMessage(error: { message: string; context?: Response }, data: unknown): Promise<string> {
+  const fromData = (data as { error?: string } | null)?.error;
+  if (fromData) return fromData;
+  const ctx = error.context;
+  if (ctx && typeof ctx.json === "function") {
+    try {
+      const body = (await ctx.clone().json()) as { error?: string };
+      if (body?.error) return body.error;
+    } catch {
+      /* body already consumed or not JSON */
+    }
+  }
+  return error.message;
 }
 
 function translateDeleteError(msg: string): string {
