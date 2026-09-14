@@ -27,6 +27,10 @@ import {
 import { useBusiness } from "@/api/businesses";
 import { useProfiles } from "@/api/users";
 import { useDepartments } from "@/api/departments";
+import { useEmployeePositions } from "@/api/employeePositions";
+import { positionsForEmployee } from "@/lib/employeePositions";
+import { ShiftPositionPickerModal } from "@/components/attendance/ShiftPositionPickerModal";
+import type { EmployeePosition } from "@/types/database";
 import { useTasks } from "@/api/tasks";
 import { useTaskTemplates } from "@/api/taskTemplates";
 import { useAttendanceToday, useClockIn, useClockOut } from "@/api/attendance";
@@ -67,11 +71,25 @@ export function Attendance() {
   const today = todayISO();
   const wk = weekStart();
   const { data: assignments } = useShiftAssignments(businessId, wk, addDays(wk, 6));
+  const {
+    data: allPositions,
+    isPending: positionsPending,
+    isError: positionsError,
+  } = useEmployeePositions(businessId);
   const clockIn = useClockIn(businessId);
   const clockOut = useClockOut(businessId);
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [exitWarn, setExitWarn] = useState(false);
+  const [positionPickerOpen, setPositionPickerOpen] = useState(false);
+  const myPositions = useMemo(
+    () => (profile ? positionsForEmployee(profile, allPositions) : []),
+    [profile, allPositions],
+  );
+  const deptNameOrNull = useMemo(
+    () => (id: string) => (departments ?? []).find((d) => d.id === id)?.name ?? null,
+    [departments],
+  );
   const [feedFilter, setFeedFilter] = useState<AttendanceShiftFilter>("all");
   const [clockOutTarget, setClockOutTarget] = useState<ForceClockOutTarget | null>(null);
   const [clockOutEditMode, setClockOutEditMode] = useState(false);
@@ -179,13 +197,14 @@ export function Attendance() {
   const timeStr = now.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const dateStr = now.toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long" });
 
-  async function clockInRecord(lat: number | null, lng: number | null, within: boolean) {
+  async function clockInRecord(lat: number | null, lng: number | null, within: boolean, position: EmployeePosition | null) {
     await clockIn.mutateAsync({
       business_id: businessId!,
       employee_id: profile!.id,
       lat,
       lng,
       within_radius: within,
+      position_id: position?.id ?? null,
     });
   }
 
@@ -207,15 +226,36 @@ export function Attendance() {
 
     if (!biz || !profile) return;
 
+    // Don't punch in before the position list is known — a blind punch can
+    // land the whole shift on the wrong pay line.
+    if (positionsPending) {
+      setStatus({ ok: false, text: "טוען את התפקידים שלך… נסו שוב בעוד רגע" });
+      return;
+    }
+    if (positionsError) {
+      setStatus({ ok: false, text: "לא ניתן לטעון את התפקידים — ההחתמה לא בוצעה" });
+      return;
+    }
+
+    if (myPositions.length > 1) {
+      setPositionPickerOpen(true);
+      return;
+    }
+    await clockInAs(myPositions[0] ?? null);
+  }
+
+  async function clockInAs(position: EmployeePosition | null) {
+    if (!biz || !profile) return;
+    setPositionPickerOpen(false);
     setBusy(true);
     try {
-      const { decision, position } = await attemptClockIn({ business: biz, role: profile.role });
+      const { decision, position: fix } = await attemptClockIn({ business: biz, role: position?.role ?? profile.role });
       if (!decision.allowed) {
         setStatus({ ok: false, text: decision.message });
         return;
       }
       try {
-        await clockInRecord(position?.lat ?? null, position?.lng ?? null, decision.within);
+        await clockInRecord(fix?.lat ?? null, fix?.lng ?? null, decision.within, position);
         setStatus({ ok: true, text: clockInSuccessText(decision) });
       } catch {
         setStatus({ ok: false, text: "החתמה נכשלה" });
@@ -379,6 +419,15 @@ export function Attendance() {
           ))}
         </div>
       </Modal>
+
+      <ShiftPositionPickerModal
+        open={positionPickerOpen}
+        positions={myPositions}
+        deptName={deptNameOrNull}
+        busy={busy}
+        onPick={clockInAs}
+        onClose={() => setPositionPickerOpen(false)}
+      />
 
       <ForceClockOutModal
         open={!!clockOutTarget}

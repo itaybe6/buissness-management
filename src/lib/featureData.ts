@@ -71,6 +71,12 @@ export const PURGE_ORDER: string[] = [
   // payroll
   "payroll_month_adjustments",
   "payroll_records",
+  // menu (components reference dishes + inventory items → must go before both)
+  "menu_dish_components",
+  "menu_item_conversions",
+  "menu_dishes",
+  "menu_categories",
+  "menu_settings",
   // inventory (leaves → items → catalog)
   "inventory_waste",
   "inventory_logs",
@@ -178,6 +184,19 @@ export const FEATURE_DATA: Record<FeatureKey, FeatureDataScope> = {
     storage: [],
     keeps: ["קטלוג המוצרים והכמויות במלאי"],
     loses: "היסטוריית הבלאי. ההפחתות שכבר בוצעו מהמלאי נשארות כפי שהן.",
+  },
+  menu: {
+    key: "menu",
+    tables: [
+      { table: "menu_dish_components", label: "מרכיבי המנות (עץ המנה)" },
+      { table: "menu_item_conversions", label: "המרות יחידות ומחירים ידניים למוצרים" },
+        { table: "menu_dishes", label: "המנות בתפריט" },
+      { table: "menu_categories", label: "קטגוריות התפריט" },
+      { table: "menu_settings", label: "הגדרות תמחור (מע״מ, יעד Food Cost)" },
+    ],
+    storage: [{ bucket: "menu", label: "תמונות המנות" }],
+    keeps: ["קטלוג המוצרים, הספקים והמחירונים"],
+    loses: "כל התפריט — המנות, המרכיבים ומחירי המכירה. המלאי והספקים נשארים.",
   },
   faults: {
     key: "faults",

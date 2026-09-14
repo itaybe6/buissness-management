@@ -101,7 +101,11 @@ export function useCreateTask() {
       if (error) throw error;
       return data.id as string;
     },
-    onSuccess: (_d, v) => qc.invalidateQueries({ queryKey: ["tasks", v.business_id] }),
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ["tasks", v.business_id] });
+      // Event tasks also feed the manager's event-requests inbox.
+      if (v.event_id) qc.invalidateQueries({ queryKey: ["event_manager_tasks", v.business_id] });
+    },
   });
 }
 

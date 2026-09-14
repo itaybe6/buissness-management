@@ -11,6 +11,7 @@ import {
 } from "@/api/officeReceipts";
 import { useSuppliers } from "@/api/suppliers";
 import { formatCurrency, todayISO } from "@/lib/db";
+import { buildReceiptsZip, saveBlob, type ZipProgress } from "@/lib/receiptsZip";
 import type { OfficeReceipt, ReceiptType } from "@/types/database";
 import { PdfFirstPagePreview } from "./pdf";
 import { SupplierSpendPanel } from "./SupplierSpendPanel";
@@ -60,6 +61,39 @@ export function OfficeReceiptsPanel({
   const { data: allReceipts, isLoading: allLoading } = useAllOfficeReceipts(businessId);
   const create = useCreateOfficeReceipt(businessId);
   const del = useDeleteOfficeReceipt(businessId);
+  const [zipProgress, setZipProgress] = useState<ZipProgress | null>(null);
+  const [zipNotice, setZipNotice] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
+
+  async function downloadMonthZip() {
+    const list = receipts ?? [];
+    if (list.length === 0 || zipProgress) return;
+    setZipNotice(null);
+    setZipProgress({ done: 0, total: list.length });
+    try {
+      const result = await buildReceiptsZip(list, setZipProgress);
+      if (result.included === 0) {
+        setZipNotice({ tone: "danger", text: "לא הצלחנו להוריד את הקבצים. נסי שוב." });
+        return;
+      }
+      saveBlob(result.blob, `קבלות-${month}.zip`);
+      setZipNotice({
+        tone: result.failed.length ? "danger" : "success",
+        text: result.failed.length
+          ? `הורדו ${result.included} מסמכים כ־PDF · ${result.failed.length} קבצים לא ניתן היה להוריד ודולגו`
+          : `הורדו ${result.included} מסמכים כ־PDF לקובץ ZIP`,
+      });
+    } catch (err) {
+      setZipNotice({ tone: "danger", text: err instanceof Error ? err.message : "יצירת קובץ ה־ZIP נכשלה" });
+    } finally {
+      setZipProgress(null);
+    }
+  }
+
+  useEffect(() => {
+    if (!zipNotice) return;
+    const t = window.setTimeout(() => setZipNotice(null), 6000);
+    return () => window.clearTimeout(t);
+  }, [zipNotice]);
 
   const stats = useMemo(() => {
     const list = receipts ?? [];
@@ -100,6 +134,16 @@ export function OfficeReceiptsPanel({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <MonthPickerButton value={month} onChange={setMonth} variant="primary" />
+          <Button
+            variant="secondary"
+            icon="folder_zip"
+            loading={!!zipProgress}
+            disabled={isLoading || (receipts ?? []).length === 0}
+            onClick={downloadMonthZip}
+            title="הורדת כל הקבלות והחשבוניות של החודש כקובץ ZIP"
+          >
+            {zipProgress ? `מוריד ${zipProgress.done}/${zipProgress.total}` : "הורדת ZIP"}
+          </Button>
           {canManage && (
             <Button icon="add" onClick={() => setUploadOpen(true)} className="hidden sm:inline-flex">
               מסמך חדש
@@ -107,6 +151,20 @@ export function OfficeReceiptsPanel({
           )}
         </div>
       </div>
+
+      {zipNotice && (
+        <div
+          role="status"
+          className={`flex items-center gap-2 rounded-[11px] px-3 py-2.5 text-[13px] font-semibold ${
+            zipNotice.tone === "success"
+              ? "[background:var(--success-bg)] text-success"
+              : "[background:var(--danger-bg)] text-danger"
+          }`}
+        >
+          <Icon name={zipNotice.tone === "success" ? "check_circle" : "error"} size={18} />
+          {zipNotice.text}
+        </div>
+      )}
 
       {view === "analysis" ? (
         <section className="min-w-0 page-enter">

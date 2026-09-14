@@ -7,6 +7,7 @@ import { useShiftReports } from "@/api/shiftReports";
 import { useProfiles } from "@/api/users";
 import { useTasks } from "@/api/tasks";
 import { useFaults } from "@/api/faults";
+import { useEventRequestBadgeCount } from "@/hooks/useEventRequestBadgeCount";
 import { useInventory, isTrackedLowStock } from "@/api/inventory";
 import { useWaste } from "@/api/waste";
 import { useAttendanceToday } from "@/api/attendance";
@@ -168,6 +169,7 @@ export function ManagerDashboard() {
   const { data: inventory = [], isLoading: inventoryLoading } = useInventory(businessId);
   const { data: waste = [], isLoading: wasteLoading } = useWaste(businessId);
   const { data: attendance = [], isLoading: attendanceLoading } = useAttendanceToday(businessId);
+  const { openRequestCount: openEventRequests } = useEventRequestBadgeCount();
 
   const pageLoading =
     businessLoading ||
@@ -396,6 +398,12 @@ export function ManagerDashboard() {
                 <Link to="/inventory?stock=low" className="dash-hero-chip" data-tone="warning">
                   <Icon name="inventory_2" size={15} />
                   <strong>{lowStock.length}</strong> במלאי נמוך
+                </Link>
+              )}
+              {on("events") && openEventRequests > 0 && (
+                <Link to="/events/requests" className="dash-hero-chip" data-tone="warning">
+                  <Icon name="outgoing_mail" size={15} />
+                  <strong>{openEventRequests}</strong> בקשות מאירועים
                 </Link>
               )}
             </div>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button, Icon, PageLoader } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { AttendancePunchStation } from "@/components/attendance/AttendancePunchStation";
+import { ShiftPositionPickerModal } from "@/components/attendance/ShiftPositionPickerModal";
 import { DailyTasksChecklist, useDailyTaskActions } from "@/components/tasks/DailyTasksChecklist";
 import { EventTasksGroupedChecklist } from "@/components/tasks/EventTasksGroupedChecklist";
 import { RecurringTasksBoard } from "@/components/tasks/RecurringTasksBoard";
@@ -75,6 +76,7 @@ function WorkerClockStation({ time }: { time: string }) {
     clockOutPending,
     biz,
     profile,
+    positionPicker,
   } = useShiftPunch();
 
   if (!showAttendance || !profile) {
@@ -97,6 +99,8 @@ function WorkerClockStation({ time }: { time: string }) {
           bare
         />
       </div>
+
+      <ShiftPositionPickerModal {...positionPicker} />
 
       <Modal
         open={exitWarn}

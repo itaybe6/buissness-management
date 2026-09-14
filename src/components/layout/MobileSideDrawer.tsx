@@ -54,6 +54,8 @@ interface MobileSideDrawerProps {
 
   salaryIssueCount?: number;
 
+  eventRequestCount?: number;
+
 }
 
 
@@ -91,6 +93,8 @@ export function MobileSideDrawer({
   partialDeliveryOrderCount = 0,
 
   salaryIssueCount = 0,
+
+  eventRequestCount = 0,
 
 }: MobileSideDrawerProps) {
 
@@ -330,6 +334,13 @@ export function MobileSideDrawer({
                             count={salaryIssueCount}
                             className="mobile-drawer-badge"
                             ariaLabel={`${salaryIssueCount} בעיות שכר חדשות`}
+                          />
+                        ) : null}
+                        {item.key === "events" ? (
+                          <NavItemBadge
+                            count={eventRequestCount}
+                            className="mobile-drawer-badge"
+                            ariaLabel={`${eventRequestCount} בקשות חדשות מאירועים`}
                           />
                         ) : null}
 

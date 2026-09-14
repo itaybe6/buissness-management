@@ -50,7 +50,18 @@ import {
   effectiveMainUnitPrice,
   supplierPriceUnitLabel,
 } from "@/api/suppliers";
-import type { Supplier, SupplierPriceUnit, Warehouse } from "@/types/database";
+import {
+  itemContentPerMainUnit,
+  measureFromUnitName,
+  pricePerMeasure,
+  MEASURE_LABELS,
+  type ItemContent,
+} from "@/lib/menuCosting";
+import type { MenuMeasure, Supplier, SupplierPriceUnit, Warehouse } from "@/types/database";
+
+/** What one single piece is made of — weight, volume, or it is only counted. */
+type ContentKind = "" | "weight" | "volume" | "count";
+type ContentUnit = "g" | "kg" | "ml" | "l";
 
 type ItemFormState = {
   name: string;
@@ -63,6 +74,10 @@ type ItemFormState = {
   unitsPerPackage: string;
   /** What one piece inside the container is called. */
   pieceUnit: string;
+  /** Measurable content of one piece — required so the price can become ₪ per gram / ml. */
+  contentKind: ContentKind;
+  contentQty: string;
+  contentUnit: ContentUnit;
   minQty: string;
   departmentIds: string[];
   imageUrl: string | null;
@@ -94,11 +109,58 @@ const EMPTY_FORM: ItemFormState = {
   hasPackage: false,
   unitsPerPackage: "",
   pieceUnit: "",
+  contentKind: "",
+  contentQty: "",
+  contentUnit: "g",
   minQty: "0",
   departmentIds: [],
   imageUrl: null,
   file: null,
 };
+
+const CONTENT_KINDS: { value: Exclude<ContentKind, "">; label: string; hint: string; icon: string }[] = [
+  { value: "weight", label: "משקל", hint: "גרם / ק״ג", icon: "scale" },
+  { value: "volume", label: "נפח", hint: "מ״ל / ליטר", icon: "water_drop" },
+  { value: "count", label: "נספר", hint: "יחידות בלבד", icon: "tag" },
+];
+
+const CONTENT_UNITS: Record<Exclude<ContentKind, "" | "count">, { value: ContentUnit; label: string; factor: number }[]> = {
+  weight: [
+    { value: "g", label: "גרם", factor: 1 },
+    { value: "kg", label: "ק״ג", factor: 1000 },
+  ],
+  volume: [
+    { value: "ml", label: "מ״ל", factor: 1 },
+    { value: "l", label: "ליטר", factor: 1000 },
+  ],
+};
+
+/** Stored (g / ml / unit) → form fields; big round numbers are shown in ק״ג / ליטר. */
+function contentFromItem(item: Pick<ItemWithQty, "content_qty" | "content_measure">): Pick<ItemFormState, "contentKind" | "contentQty" | "contentUnit"> {
+  const qty = item.content_qty;
+  const measure = item.content_measure;
+  if (qty == null || qty <= 0 || !measure) return { contentKind: "", contentQty: "", contentUnit: "g" };
+  if (measure === "unit") return { contentKind: "count", contentQty: "", contentUnit: "g" };
+  const big = qty >= 1000 && qty % 1000 === 0;
+  const shown = big ? qty / 1000 : qty;
+  if (measure === "g") return { contentKind: "weight", contentQty: String(shown), contentUnit: big ? "kg" : "g" };
+  return { contentKind: "volume", contentQty: String(shown), contentUnit: big ? "l" : "ml" };
+}
+
+/** Form fields → stored pair. null when the unit itself is a measure (nothing to declare). */
+function contentToStored(
+  form: Pick<ItemFormState, "contentKind" | "contentQty" | "contentUnit">,
+  autoMeasure: boolean,
+): { content_qty: number | null; content_measure: MenuMeasure | null } {
+  if (autoMeasure || !form.contentKind) return { content_qty: null, content_measure: null };
+  if (form.contentKind === "count") return { content_qty: 1, content_measure: "unit" };
+  const units = CONTENT_UNITS[form.contentKind];
+  const factor = units.find((u) => u.value === form.contentUnit)?.factor ?? 1;
+  const n = parseFloat(form.contentQty.replace(/,/g, ""));
+  if (!Number.isFinite(n) || n <= 0) return { content_qty: null, content_measure: null };
+  const qty = Math.round(n * factor * 1000) / 1000;
+  return { content_qty: qty, content_measure: form.contentKind === "weight" ? "g" : "ml" };
+}
 
 function formFromItem(item: ItemWithQty): ItemFormState {
   const packed = hasPieceBreakdown(item.units_per_package);
@@ -110,6 +172,7 @@ function formFromItem(item: ItemWithQty): ItemFormState {
     hasPackage: packed,
     unitsPerPackage: packed ? String(item.units_per_package) : "",
     pieceUnit: packed ? pieceUnitLabel(item.piece_unit) : "",
+    ...contentFromItem(item),
     minQty: String(item.min_quantity),
     departmentIds: [...item.department_ids],
     imageUrl: item.image_url,
@@ -310,6 +373,7 @@ function SupplierRow({
   dual,
   cheapest,
   missing,
+  measureLine,
   onToggle,
   onFocusPrice,
   onMainPrice,
@@ -323,6 +387,8 @@ function SupplierRow({
   dual: boolean;
   cheapest: boolean;
   missing: boolean;
+  /** "₪3.2 ל-100 מ״ל · ₪32 לליטר" — the price as recipes will see it. */
+  measureLine: string | null;
   onToggle: () => void;
   onFocusPrice: () => void;
   onMainPrice: (v: string) => void;
@@ -372,25 +438,33 @@ function SupplierRow({
       </div>
 
       {selected && (
-        <div className="ipf-sup-prices">
-          <PriceBox
-            value={line?.mainPrice ?? ""}
-            unitLabel={mainUnitLabel}
-            ariaLabel={`מחיר ל${mainUnitLabel} אצל ${supplier.name}`}
-            selected={selected}
-            onChange={onMainPrice}
-            registerPrice={registerMainPrice}
-          />
-          {dual && (
+        <>
+          <div className="ipf-sup-prices">
             <PriceBox
-              value={line?.piecePrice ?? ""}
-              unitLabel={pieceLabel}
-              ariaLabel={`מחיר ל${pieceLabel} אצל ${supplier.name}`}
+              value={line?.mainPrice ?? ""}
+              unitLabel={mainUnitLabel}
+              ariaLabel={`מחיר ל${mainUnitLabel} אצל ${supplier.name}`}
               selected={selected}
-              onChange={onPiecePrice}
+              onChange={onMainPrice}
+              registerPrice={registerMainPrice}
             />
+            {dual && (
+              <PriceBox
+                value={line?.piecePrice ?? ""}
+                unitLabel={pieceLabel}
+                ariaLabel={`מחיר ל${pieceLabel} אצל ${supplier.name}`}
+                selected={selected}
+                onChange={onPiecePrice}
+              />
+            )}
+          </div>
+          {measureLine && (
+            <p className="ipf-sup-measure" aria-live="polite">
+              <Icon name="restaurant" size={13} />
+              במנות: <b>{measureLine}</b>
+            </p>
           )}
-        </div>
+        </>
       )}
     </article>
   );
@@ -517,6 +591,32 @@ export function ItemFormPage() {
   const dualUnit = hasPieceBreakdown(unitsPerPackage);
   const pieceLabel = pieceUnitLabel(form.pieceUnit);
 
+  /**
+   * ק״ג / ליטר (or a sack whose piece is ק״ג) already say how much they hold —
+   * nothing to declare. Everything else must say what one piece is made of.
+   */
+  const builtInMeasure =
+    measureFromUnitName(form.unit) ?? (dualUnit ? measureFromUnitName(pieceLabel) : null);
+  const autoMeasure = builtInMeasure != null;
+  const storedContent = useMemo(
+    () => contentToStored(form, autoMeasure),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [form.contentKind, form.contentQty, form.contentUnit, autoMeasure],
+  );
+  /** Content of one main unit as the costing engine will see it. */
+  const itemContent: ItemContent = useMemo(
+    () =>
+      itemContentPerMainUnit({
+        unit: form.unit,
+        units_per_package: unitsPerPackage,
+        piece_unit: dualUnit ? pieceLabel : null,
+        content_qty: storedContent.content_qty,
+        content_measure: storedContent.content_measure,
+      }),
+    [form.unit, unitsPerPackage, dualUnit, pieceLabel, storedContent],
+  );
+  const contentKnown = itemContent.source !== "count";
+
   const totalQty = useMemo(
     () => warehouses.reduce((sum, w) => sum + (drafts[w.id] ?? 0), 0),
     [warehouses, drafts],
@@ -586,8 +686,8 @@ export function ItemFormPage() {
         id: "unit",
         label: "מידות",
         icon: "straighten",
-        title: "יחידת מידה וסף התראה",
-        sub: "איך סופרים את המוצר, ומתי להתריע שהוא עומד להיגמר.",
+        title: "יחידת מידה, תכולה וסף התראה",
+        sub: "איך סופרים את המוצר, מה יש בתוך פריט אחד לתמחור מנות, ומתי להתריע שהוא עומד להיגמר.",
       },
       {
         id: "stock",
@@ -707,6 +807,15 @@ export function ItemFormPage() {
           return "הפריט הבודד חייב להיות יחידה אחרת מהאריזה";
         }
       }
+      if (!autoMeasure) {
+        const piece = dualUnit ? pieceLabel : form.unit.trim() || "יחידה";
+        if (!form.contentKind) {
+          return `נא לציין מה יש בתוך ${piece} אחד — משקל, נפח, או שהמוצר רק נספר`;
+        }
+        if (form.contentKind !== "count" && storedContent.content_qty == null) {
+          return `נא להזין כמה ${form.contentKind === "weight" ? "גרם / ק״ג" : "מ״ל / ליטר"} יש ב${piece} אחד`;
+        }
+      }
       if ((Number(form.minQty) || 0) < 0) return "כמות מינימום לא יכולה להיות שלילית";
     }
     if (id === "suppliers") {
@@ -773,6 +882,7 @@ export function ItemFormPage() {
       const category_id = form.categoryId || null;
       const units_per_package = unitsPerPackage;
       const piece_unit = units_per_package != null ? pieceLabel : null;
+      const { content_qty, content_measure } = storedContent;
       const department_ids = form.departmentIds;
 
       const supplierPayload: { supplier_id: string; unit_price: number; price_unit: SupplierPriceUnit }[] = [];
@@ -794,6 +904,9 @@ export function ItemFormPage() {
         if (form.unit !== (editing.unit ?? "יחידות")) changed.push("יחידת מידה");
         if (units_per_package !== editing.units_per_package) changed.push("פריטים באריזה");
         if (piece_unit !== editing.piece_unit) changed.push("שם הפריט הבודד");
+        if (content_qty !== (editing.content_qty ?? null) || content_measure !== (editing.content_measure ?? null)) {
+          changed.push("תכולה");
+        }
         if (min_quantity !== editing.min_quantity) changed.push("כמות מינימום");
         if (category_id !== editing.category_id) changed.push("קטגוריה");
         if (image_url !== editing.image_url) changed.push("תמונה");
@@ -822,6 +935,8 @@ export function ItemFormPage() {
             unit: form.unit,
             units_per_package,
             piece_unit,
+            content_qty,
+            content_measure,
             image_url,
             min_quantity,
             category_id,
@@ -859,6 +974,8 @@ export function ItemFormPage() {
           unit: form.unit,
           units_per_package,
           piece_unit,
+          content_qty,
+          content_measure,
           image_url,
           min_quantity,
           category_id,
@@ -1146,6 +1263,8 @@ export function ItemFormPage() {
           </p>
         )}
 
+        {renderContent()}
+
         <div className="iwz-unit-threshold">
           <div className="iwz-unit-threshold-head">
             <span className="iwz-unit-threshold-icon" aria-hidden>
@@ -1181,6 +1300,136 @@ export function ItemFormPage() {
           כך תוצג כמות במלאי:{" "}
           <b>{formatQtyWithPieces(previewQty, form.unit, unitsPerPackage, pieceLabel)}</b>
         </p>
+      </div>
+    );
+  }
+
+  function setContentKind(kind: Exclude<ContentKind, "">) {
+    setError(null);
+    setForm((f) => ({
+      ...f,
+      contentKind: kind,
+      contentUnit: kind === "volume" ? (f.contentUnit === "l" ? "l" : "ml") : f.contentUnit === "kg" ? "kg" : "g",
+    }));
+  }
+
+  /**
+   * "What is one piece made of?" — the bridge from the purchase price to a price
+   * per gram / ml that recipes can use. Mandatory unless the unit is a measure.
+   */
+  function renderContent() {
+    const pieceName = dualUnit ? pieceLabel : form.unit.trim() || "יחידה";
+    const missingKind = attempted && !autoMeasure && !form.contentKind;
+    const missingQty =
+      attempted && !autoMeasure && form.contentKind !== "" && form.contentKind !== "count" && storedContent.content_qty == null;
+    const unitOptions = form.contentKind === "weight" || form.contentKind === "volume" ? CONTENT_UNITS[form.contentKind] : null;
+    const measureLabel = itemContent.measure === "unit" ? "יח׳" : MEASURE_LABELS[itemContent.measure];
+
+    return (
+      <div className="iwz-unit-content" data-auto={autoMeasure} data-missing={missingKind || missingQty}>
+        <div className="iwz-unit-pack-head">
+          <span className="iwz-unit-pack-icon iwz-unit-content-icon" aria-hidden>
+            <Icon name="restaurant" size={18} />
+          </span>
+          <div className="min-w-0">
+            <h4 className="iwz-unit-pack-title">
+              מה יש בתוך {pieceName} אחד?
+              {!autoMeasure && <em className="iwz-unit-content-req">חובה</em>}
+            </h4>
+            <p className="iwz-unit-pack-sub">
+              כך מחיר הרכש מהספק הופך למחיר לגרם / מ״ל, והמוצר נכנס לעץ המנה בתפריט.
+            </p>
+          </div>
+        </div>
+
+        {autoMeasure ? (
+          <p className="iwz-unit-content-auto">
+            <Icon name="check_circle" size={16} fill />
+            <span>
+              {form.unit} הוא בעצמו מידה — 1 {dualUnit ? pieceLabel : form.unit} ={" "}
+              {builtInMeasure!.qty.toLocaleString("he-IL")} {MEASURE_LABELS[builtInMeasure!.measure]}. המחיר ל
+              {MEASURE_LABELS[builtInMeasure!.measure]} יחושב אוטומטית.
+            </span>
+          </p>
+        ) : (
+          <div className="iwz-unit-pack-body">
+            <div className="iwz-unit-content-kinds" role="radiogroup" aria-label="סוג התכולה">
+              {CONTENT_KINDS.map((k) => (
+                <button
+                  key={k.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={form.contentKind === k.value}
+                  className="iwz-unit-content-kind"
+                  data-on={form.contentKind === k.value}
+                  onClick={() => setContentKind(k.value)}
+                >
+                  <Icon name={k.icon} size={18} />
+                  <b>{k.label}</b>
+                  <span>{k.hint}</span>
+                </button>
+              ))}
+            </div>
+
+            {unitOptions && (
+              <div className="iwz-unit-content-row">
+                <label className="iwz-unit-pack-field">
+                  <span className="iwz-unit-pack-label">כמה ב{pieceName} אחד</span>
+                  <div className="iwz-unit-content-qty">
+                    <Input
+                      className="spf-input iwz-unit-pack-input"
+                      type="number"
+                      min={0}
+                      step="any"
+                      inputMode="decimal"
+                      value={form.contentQty}
+                      onChange={(e) => setForm({ ...form, contentQty: e.target.value })}
+                      placeholder={form.contentKind === "weight" ? "לדוגמה: 500" : "לדוגמה: 750"}
+                      autoFocus={!form.contentQty}
+                    />
+                    <div className="iwz-unit-content-units" role="radiogroup" aria-label="יחידת מידה">
+                      {unitOptions.map((u) => (
+                        <button
+                          key={u.value}
+                          type="button"
+                          role="radio"
+                          aria-checked={form.contentUnit === u.value}
+                          data-on={form.contentUnit === u.value}
+                          onClick={() => setForm({ ...form, contentUnit: u.value })}
+                        >
+                          {u.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </label>
+
+                {contentKnown && (
+                  <div className="iwz-unit-ratio" aria-live="polite">
+                    <span className="iwz-unit-ratio-chip">
+                      <b>1</b>
+                      <span>{form.unit}</span>
+                    </span>
+                    <Icon name="sync_alt" size={18} className="iwz-unit-ratio-arrow" />
+                    <span className="iwz-unit-ratio-chip iwz-unit-ratio-chip--accent">
+                      <b>{itemContent.qty.toLocaleString("he-IL")}</b>
+                      <span>{measureLabel}</span>
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {form.contentKind === "count" && (
+              <p className="iwz-unit-content-auto">
+                <Icon name="info" size={16} />
+                <span>
+                  {pieceName} נספר כיחידה — במתכונים המוצר ייכנס לפי יחידות (למשל 2 {pieceName}), בלי משקל או נפח.
+                </span>
+              </p>
+            )}
+          </div>
+        )}
       </div>
     );
   }
@@ -1392,6 +1641,7 @@ export function ItemFormPage() {
                 dual={dualUnit}
                 cheapest={!!cheapest && cheapest.id === s.id && effectivePrices.size > 1}
                 missing={attempted && !!line && !lineHasValidPrice(line, dualUnit)}
+                measureLine={measureLineFor(s.id)}
                 onToggle={() => toggleSupplier(s.id)}
                 onFocusPrice={() => priceRefs.current.get(s.id)?.focus()}
                 onMainPrice={(v) => setSupplierPrice(s.id, "mainPrice", v)}
@@ -1411,9 +1661,28 @@ export function ItemFormPage() {
           {dualUnit
             ? `אפשר להזין מחיר ל${form.unit} וגם ל${pieceLabel} בודד — המחיר משמש בהזמנות מהספק.`
             : `המחיר נשמר לספק הזה בלבד, ל${form.unit || "יחידה"} אחת — ומשמש בהזמנות.`}
+          {contentKnown && itemContent.measure !== "unit" && (
+            <> בתפריט המחיר מתורגם ל{MEASURE_LABELS[itemContent.measure]} לפי התכולה שהגדרתם.</>
+          )}
         </p>
       </>
     );
+  }
+
+  /** The supplier's price as a recipe sees it — null until both price and content are known. */
+  function measureLineFor(supplierId: string): string | null {
+    const price = effectivePrices.get(supplierId);
+    if (!price) return null;
+    return pricePerMeasure(price, itemContent)?.label ?? null;
+  }
+
+  /** Short "בקבוק = 750 מ״ל" chip for the hero and review. */
+  function contentSummary(): string | null {
+    if (!contentKnown) return null;
+    if (itemContent.measure === "unit") return `${dualUnit ? pieceLabel : form.unit} נספר ביחידות`;
+    const piece = dualUnit ? pieceLabel : form.unit;
+    const perPiece = itemContent.pieces ? itemContent.qty / itemContent.pieces : itemContent.qty;
+    return `${piece} = ${perPiece.toLocaleString("he-IL")} ${MEASURE_LABELS[itemContent.measure]}`;
   }
 
   function renderReview() {
@@ -1452,6 +1721,7 @@ export function ItemFormPage() {
           />
           <ReviewFact icon="warehouse" label="מחסנים" value={`${stocked.length} מתוך ${warehouses.length}`} />
           <ReviewFact icon="low_priority" label="סף התראה" value={minQtyValue > 0 ? `${minQtyValue}` : "לא הוגדר"} />
+          <ReviewFact icon="restaurant" label="תכולה למנות" value={contentSummary() ?? "לא הוגדרה"} />
         </div>
 
         <section className="iwz-rev-block">
@@ -1493,6 +1763,7 @@ export function ItemFormPage() {
               <ul className="iwz-rev-list">
                 {linked.map(({ line, supplier }) => {
                   const price = effectivePrices.get(line.supplierId);
+                  const measureLine = measureLineFor(line.supplierId);
                   return (
                     <li key={line.supplierId}>
                       <span>
@@ -1501,7 +1772,10 @@ export function ItemFormPage() {
                           <em className="ipf-sup-best">הזול ביותר</em>
                         )}
                       </span>
-                      <b>{price ? `${formatCurrency(price)} / ${form.unit}` : "—"}</b>
+                      <b>
+                        {price ? `${formatCurrency(price)} / ${form.unit}` : "—"}
+                        {measureLine && <small className="iwz-rev-measure">{measureLine}</small>}
+                      </b>
                     </li>
                   );
                 })}
@@ -1584,6 +1858,12 @@ export function ItemFormPage() {
                   {form.unit}
                   {dualUnit ? ` · ${unitsPerPackage} ${pieceLabel}` : ""}
                 </span>
+                {contentSummary() && (
+                  <span className="spf-hero-fact">
+                    <Icon name="restaurant" size={13} />
+                    {contentSummary()}
+                  </span>
+                )}
                 <span className="spf-hero-fact">
                   <Icon name="inventory" size={13} />
                   {formatQtyWithPieces(totalQty, form.unit, unitsPerPackage, pieceLabel)}

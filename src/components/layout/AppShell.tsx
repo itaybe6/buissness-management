@@ -24,6 +24,7 @@ import { useMaintenanceNewFaultCount } from "@/hooks/useMaintenanceNewFaultCount
 import { useMobileChrome } from "@/hooks/useMobileChrome";
 import { usePartialDeliveryOrderCount } from "@/hooks/usePartialDeliveryOrderCount";
 import { useSalaryIssueBadgeCount } from "@/hooks/useSalaryIssueBadgeCount";
+import { useEventRequestBadgeCount } from "@/hooks/useEventRequestBadgeCount";
 
 import type { NavItem } from "@/lib/constants";
 
@@ -51,6 +52,7 @@ export function AppShell() {
   const { count: newFaultCount } = useMaintenanceNewFaultCount();
   const { count: partialDeliveryOrderCount } = usePartialDeliveryOrderCount();
   const { count: salaryIssueCount } = useSalaryIssueBadgeCount();
+  const { count: eventRequestCount, isHandler: isEventRequestHandler } = useEventRequestBadgeCount();
 
   const role = profile?.role ?? "employee";
 
@@ -291,6 +293,12 @@ export function AppShell() {
                           ariaLabel={`${salaryIssueCount} בעיות שכר חדשות`}
                         />
                       ) : null}
+                      {isEventRequestHandler && item.key === "events" ? (
+                        <NavItemBadge
+                          count={eventRequestCount}
+                          ariaLabel={`${eventRequestCount} בקשות חדשות מאירועים`}
+                        />
+                      ) : null}
 
                     </NavLink>
 
@@ -461,6 +469,7 @@ export function AppShell() {
         newFaultCount={newFaultCount}
         partialDeliveryOrderCount={partialDeliveryOrderCount}
         salaryIssueCount={salaryIssueCount}
+        eventRequestCount={isEventRequestHandler ? eventRequestCount : 0}
 
       />
 

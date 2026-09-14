@@ -1,4 +1,5 @@
-import type { Profile, ShiftReportParticipant } from "@/types/database";
+import { resolvePosition } from "@/lib/employeePositions";
+import type { EmployeePosition, Profile, ShiftReportParticipant } from "@/types/database";
 
 export interface ShiftPayRow {
   employee_id: string;
@@ -35,21 +36,30 @@ export function buildShiftPayRows({
   profileById,
   userName,
   tipsHourly,
+  positionsByEmployee,
 }: {
   team: ShiftReportParticipant[];
   tipByEmployee: Map<string, { amount: number; hourly_from_tips: number }>;
   profileById: Map<string, Profile>;
   userName: (id: string) => string;
   tipsHourly: number;
+  /**
+   * The employee's positions; when given, the participant's `position_id`
+   * (from attendance) picks the wage model and rate instead of the profile.
+   */
+  positionsByEmployee?: (employeeId: string) => EmployeePosition[];
 }): ShiftPayRow[] {
   return team
     .filter((p) => p.employee_id)
     .map((p) => {
       const prof = profileById.get(p.employee_id);
       const tip = tipByEmployee.get(p.employee_id);
-      const onTips = !!tip || (prof?.wage_type ?? "hourly") === "tips";
+      const positions = positionsByEmployee?.(p.employee_id) ?? [];
+      const position = positions.length > 0 ? resolvePosition(p.position_id, positions) : null;
+      const wageType = position?.wage_type ?? prof?.wage_type ?? "hourly";
+      const onTips = !!tip || wageType === "tips";
       const hours = Number(p.hours) || 0;
-      const rate = Number(prof?.hourly_rate ?? 0);
+      const rate = Number(position?.hourly_rate ?? prof?.hourly_rate ?? 0);
       const base = {
         employee_id: p.employee_id,
         name: userName(p.employee_id),

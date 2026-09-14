@@ -43,6 +43,7 @@ const MODULE_ART: Record<FeatureKey, { layout: ModuleLayout; span: string; decor
   inventory: { layout: "cinema", span: "module-capsule--lead", decor: "decor-stripe" },
   faults: { layout: "portrait", span: "module-capsule--tail", decor: "decor-grid" },
   waste: { layout: "orbit", span: "module-capsule--full", decor: "decor-rings" },
+  menu: { layout: "cinema", span: "module-capsule--wide", decor: "decor-dots" },
   // growth
   events: { layout: "cinema", span: "module-capsule--full", decor: "decor-wave" },
 };

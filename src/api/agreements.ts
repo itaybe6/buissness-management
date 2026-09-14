@@ -61,25 +61,33 @@ export async function uploadAgreementBlob(
   return data.publicUrl;
 }
 
+export type CreateAgreementInput = {
+  business_id: string;
+  type: AgreementType;
+  title: string;
+  content: string;
+  file_url?: string | null;
+  signature_fields?: SignatureField[];
+  employee_id?: string | null;
+  created_by?: string | null;
+};
+
+/**
+ * Persist a new agreement template. Always an INSERT — an employee may hold
+ * several agreements at once, so a new one must never replace an existing row.
+ */
+export async function createAgreementTemplate(input: CreateAgreementInput): Promise<void> {
+  if (input.type === "form_101" && input.employee_id) {
+    throw new Error("טופס 101 חייב להיות מסמך גלובלי אחד לכל העסק");
+  }
+  const { error } = await supabase.from("agreement_templates").insert(input);
+  if (error) throw error;
+}
+
 export function useCreateAgreement() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: {
-      business_id: string;
-      type: AgreementType;
-      title: string;
-      content: string;
-      file_url?: string | null;
-      signature_fields?: SignatureField[];
-      employee_id?: string | null;
-      created_by?: string | null;
-    }) => {
-      if (input.type === "form_101" && input.employee_id) {
-        throw new Error("טופס 101 חייב להיות מסמך גלובלי אחד לכל העסק");
-      }
-      const { error } = await supabase.from("agreement_templates").insert(input);
-      if (error) throw error;
-    },
+    mutationFn: createAgreementTemplate,
     onSuccess: (_d, v) => qc.invalidateQueries({ queryKey: ["agreements", v.business_id] }),
   });
 }

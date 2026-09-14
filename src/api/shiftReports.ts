@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { compressImage } from "@/lib/compressImage";
 import { supabase } from "@/lib/supabase";
+import { isLegacyPositionId } from "@/lib/employeePositions";
 import { clockOutOpenShiftsForShiftReport } from "@/lib/shiftReportClockOut";
 import { computeBonusPayouts } from "@/lib/shiftReportBonuses";
 import { computeTipsHourly, distributeTips } from "@/lib/shiftReportTips";
@@ -108,9 +109,10 @@ export function useSaveShiftReport(businessId: string | null) {
       );
       const extra: ShiftReportExtra = {
         ...input.extra,
-        bonus_participants: bonusRows.map(({ employee_id, bonus_pct }) => ({
+        bonus_participants: bonusRows.map(({ employee_id, bonus_pct, position_id }) => ({
           employee_id,
           bonus_pct,
+          ...(position_id ? { position_id } : {}),
         })),
       };
 
@@ -158,6 +160,8 @@ export function useSaveShiftReport(businessId: string | null) {
           amount: t.amount,
           hours: t.hours,
           hourly_from_tips: t.hourly_from_tips,
+          // The position the shift was worked in — so payroll files it on the right line.
+          ...(t.position_id && !isLegacyPositionId(t.position_id) ? { position_id: t.position_id } : {}),
         };
         if (input.shift_template_id) row.shift_template_id = input.shift_template_id;
         return row;
@@ -179,6 +183,7 @@ export function useSaveShiftReport(businessId: string | null) {
           amount: b.amount,
           bonus_pct: b.bonus_pct,
           sales_base: salesBase,
+          ...(b.position_id && !isLegacyPositionId(b.position_id) ? { position_id: b.position_id } : {}),
         }));
         const { error } = await supabase.from("shift_bonuses").insert(insertRows);
         if (error) throw error;

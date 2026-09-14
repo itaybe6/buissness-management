@@ -1,10 +1,11 @@
 import { useMemo, useState, type CSSProperties } from "react";
 import { Badge, Card, EmptyState, Icon } from "@/components/ui";
-import { form101Template, globalForm101Template, isSigned, signatureOf } from "@/api/agreements";
+import { globalForm101Template, signatureOf } from "@/api/agreements";
 import type { AgreementSignature, AgreementTemplate, EmployeeIdCard, Profile } from "@/types/database";
 import { colorFor, initialsOf } from "@/lib/db";
 import { IdCardStatusCell, openIdCard } from "./EmployeeIdCardPanel";
 import { ReadSignModal } from "./AgreementModals";
+import { docKey, employeeDocs } from "./statusDocs";
 import { TAX_YEAR } from "./types";
 
 function StatusIcon({
@@ -38,14 +39,6 @@ function StatusIcon({
   return badge;
 }
 
-type DocStatus = {
-  label: string;
-  done: boolean;
-  optional: boolean;
-  template?: AgreementTemplate;
-  idCard?: EmployeeIdCard;
-};
-
 export function DocumentStatusTable({
   staff,
   signatures,
@@ -66,40 +59,8 @@ export function DocumentStatusTable({
   const [viewing, setViewing] = useState<{ agreement: AgreementTemplate; employeeId: string } | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  function form101Status(empId: string): { done: boolean; optional: boolean } {
-    const template = form101Template(agreements);
-    if (!template) return { done: false, optional: true };
-    return { done: isSigned(signatures, template.id, empId), optional: false };
-  }
-
-  function workStatus(empId: string): boolean {
-    const personal = agreements.find((a) => a.type === "work" && a.employee_id === empId);
-    const template = personal ?? globalWork;
-    if (!template) return false;
-    return isSigned(signatures, template.id, empId);
-  }
-
-  const idCardOf = (empId: string) => idCards.find((c) => c.employee_id === empId);
-
-  function docsOf(empId: string): DocStatus[] {
-    const form101 = form101Status(empId);
-    const form101Tpl = form101Template(agreements);
-    const personalWork = agreements.find((a) => a.type === "work" && a.employee_id === empId);
-    const workTemplate = personalWork ?? globalWork;
-    const workOptional = !globalWork && !personalWork;
-    const idCard = idCardOf(empId);
-    return [
-      { label: "תעודת זהות", done: !!idCard, optional: false, idCard },
-      { label: `טופס 101 (${taxYear})`, done: form101.done, optional: form101.optional, template: form101Tpl },
-      { label: "הסכם עבודה", done: workStatus(empId), optional: workOptional, template: workTemplate },
-      ...globalFixed.map((a) => ({
-        label: a.title,
-        done: isSigned(signatures, a.id, empId),
-        optional: false,
-        template: a,
-      })),
-    ];
-  }
+  const docsOf = (employeeId: string) =>
+    employeeDocs({ agreements, globalFixed, globalWork, signatures, idCards, employeeId, taxYear });
 
   if (staff.length === 0) {
     return <EmptyState icon="group" title="אין עובדים" description="הוסיפו עובדים בעמוד המשתמשים." />;
@@ -110,7 +71,7 @@ export function DocumentStatusTable({
       {/* Mobile — compact expandable roster */}
       <div className="doc-status-roster md:hidden">
         {staff.map((emp, i) => {
-          const docs = docsOf(emp.id);
+          const docs = docsOf(emp.id).all;
           const counted = docs.filter((d) => !(d.optional && !d.done));
           const done = counted.filter((d) => d.done).length;
           const complete = counted.length > 0 && done === counted.length;
@@ -150,13 +111,13 @@ export function DocumentStatusTable({
               <div className="doc-status-cell-details">
                 <div className="doc-status-cell-details-clip">
                   <div className="doc-status-cell-docs">
-                    {docs.map((d) => {
+                    {docs.map((d, di) => {
                       const clickable = !!d.template || !!d.idCard;
                       const state = d.done ? "done" : d.optional ? "optional" : "missing";
                       const icon = d.done ? "check" : d.optional ? "remove" : "close";
                       if (!clickable) {
                         return (
-                          <div key={d.label} className="doc-status-doc-row" data-state={state}>
+                          <div key={docKey(d, di)} className="doc-status-doc-row" data-state={state}>
                             <span className="doc-status-doc-icon">
                               <Icon name={icon} size={14} />
                             </span>
@@ -166,7 +127,7 @@ export function DocumentStatusTable({
                       }
                       return (
                         <button
-                          key={d.label}
+                          key={docKey(d, di)}
                           type="button"
                           className="doc-status-doc-row"
                           data-state={state}
@@ -200,7 +161,7 @@ export function DocumentStatusTable({
                 <th className="px-4 py-3">עובד/ת</th>
                 <th className="px-4 py-3 text-center">תעודת זהות</th>
                 <th className="px-4 py-3 text-center">טופס 101 ({taxYear})</th>
-                <th className="px-4 py-3 text-center">הסכם עבודה</th>
+                <th className="px-4 py-3 text-center">הסכמי עבודה</th>
                 {globalFixed.map((a) => (
                   <th key={a.id} className="px-4 py-3 text-center">{a.title}</th>
                 ))}
@@ -208,11 +169,7 @@ export function DocumentStatusTable({
             </thead>
             <tbody>
               {staff.map((emp) => {
-                const docs = docsOf(emp.id);
-                const idCardDoc = docs[0];
-                const form101Doc = docs[1];
-                const workDoc = docs[2];
-                const fixedDocs = docs.slice(3);
+                const { idCardDoc, form101Doc, workDocs, fixedDocs } = docsOf(emp.id);
                 const idCard = idCardDoc.idCard;
                 const openSigned = (template: AgreementTemplate | undefined) =>
                   template ? () => setViewing({ agreement: template, employeeId: emp.id }) : undefined;
@@ -233,14 +190,28 @@ export function DocumentStatusTable({
                       />
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <StatusIcon
-                        done={workDoc.done}
-                        optional={workDoc.optional}
-                        onViewSigned={workDoc.done ? openSigned(workDoc.template) : undefined}
-                      />
+                      {workDocs.length === 1 ? (
+                        <StatusIcon
+                          done={workDocs[0].done}
+                          optional={workDocs[0].optional}
+                          onViewSigned={workDocs[0].done ? openSigned(workDocs[0].template) : undefined}
+                        />
+                      ) : (
+                        <div className="inline-flex flex-wrap items-center justify-center gap-1.5">
+                          {workDocs.map((d, di) => (
+                            <span key={docKey(d, di)} title={d.label} className="inline-flex">
+                              <StatusIcon
+                                done={d.done}
+                                optional={d.optional}
+                                onViewSigned={d.done ? openSigned(d.template) : undefined}
+                              />
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </td>
-                    {fixedDocs.map((d) => (
-                      <td key={d.label} className="px-4 py-3 text-center">
+                    {fixedDocs.map((d, di) => (
+                      <td key={docKey(d, di)} className="px-4 py-3 text-center">
                         <StatusIcon
                           done={d.done}
                           optional={d.optional}

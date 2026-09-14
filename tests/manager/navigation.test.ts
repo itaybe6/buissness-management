@@ -48,6 +48,7 @@ describe("תפריט המנהל", () => {
         "events",
         "inventory",
         "suppliers",
+        "menu",
         "users",
         "payroll",
         "agreements",
@@ -90,6 +91,11 @@ describe("המנהל לא עוקף את המודולים שהעסק קנה", () 
     expect(keys).not.toContain("suppliers");
   });
 
+  it("תפריט ותמחור מוצג רק כשמודול התפריט דלוק", () => {
+    expect(managerKeys()).toContain("menu");
+    expect(managerKeys(featuresOn(...ALL_FEATURE_KEYS.filter((k) => k !== "menu")))).not.toContain("menu");
+  });
+
   it("כשהכול כבוי נשארים רק המסכים שאינם מותנים במודול", () => {
     expect(managerKeys(() => false).sort()).toEqual(["dashboard", "my-shifts", "settings", "users"].sort());
   });
@@ -107,7 +113,7 @@ describe("המנהל לא עוקף את המודולים שהעסק קנה", () 
   it("בתוכנית «צמיחה» נוספים שכר, מסמכים, סחורות ותקלות", () => {
     const growth = featureStateForPlan("growth");
     const keys = managerKeys((k) => growth[k]);
-    for (const key of ["payroll", "agreements", "inventory", "suppliers", "faults", "shift-reports"]) {
+    for (const key of ["payroll", "agreements", "inventory", "suppliers", "menu", "faults", "shift-reports"]) {
       expect(keys, key).toContain(key);
     }
     expect(keys).not.toContain("events"); // רק בתוכנית «מלא»

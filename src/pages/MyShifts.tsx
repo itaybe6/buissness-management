@@ -8,13 +8,17 @@ import {
   useMonthStepper,
   type ShiftRow,
 } from "@/components/payroll/ShiftBreakdownView";
+import { PositionTabs } from "@/components/payroll/PositionTabs";
 import { useAuth } from "@/lib/auth";
 import { WAGE_TYPE_LABELS } from "@/lib/constants";
 import { useBusinessId } from "@/lib/db";
+import { positionsForEmployee } from "@/lib/employeePositions";
 import { useEmployeeAttendanceMonth } from "@/api/attendance";
+import { useDepartments } from "@/api/departments";
+import { useEmployeePositions } from "@/api/employeePositions";
 import { useEmployeeTips, useEmployeeBonuses, useEmployeeFaultPays } from "@/api/payroll";
 import { useShiftTemplates } from "@/api/shifts";
-import { buildEmployeeShiftRows, monthNow, sumShiftRowTotals } from "@/lib/payrollShiftRows";
+import { buildEmployeeShiftRowsByPosition, monthNow, sumShiftRowTotals } from "@/lib/payrollShiftRows";
 import { buildFaultPayRows } from "@/lib/faultPayrollRows";
 
 export function MyShifts() {
@@ -22,40 +26,62 @@ export function MyShifts() {
   const { profile } = useAuth();
   const [month, setMonth] = useState(monthNow());
   const [selectedRow, setSelectedRow] = useState<ShiftRow | null>(null);
+  const [selectedPositionId, setSelectedPositionId] = useState<string | null>(null);
   const stepper = useMonthStepper(month, setMonth);
 
-  const wageType = profile?.wage_type ?? "hourly";
-  const isTips = wageType === "tips";
-  const rate = Number(profile?.hourly_rate ?? 0);
-  const bonusPct = Number(profile?.bonus_pct ?? 0);
+  const { data: allPositions } = useEmployeePositions(businessId);
+  const { data: departments } = useDepartments(businessId);
+  const deptName = useMemo(
+    () => (id: string) => (departments ?? []).find((d) => d.id === id)?.name ?? null,
+    [departments],
+  );
+  const positions = useMemo(
+    () => (profile ? positionsForEmployee(profile, allPositions) : []),
+    [profile, allPositions],
+  );
+  const activePositionId = positions.some((p) => p.id === selectedPositionId) ? selectedPositionId : null;
+  const activePositions = activePositionId ? positions.filter((p) => p.id === activePositionId) : positions;
+  const single = activePositions.length === 1 ? activePositions[0] : null;
 
-  const attendanceQ = useEmployeeAttendanceMonth(businessId, !isTips ? profile?.id : null, month);
-  const tipsQ = useEmployeeTips(businessId, isTips ? profile?.id : null, month);
+  // One position: its own wage model. Several: a mixed view where every row
+  // keeps its own model and the summary shows the blended hourly average.
+  const wageType = single?.wage_type ?? profile?.wage_type ?? "hourly";
+  const isTips = single ? single.wage_type === "tips" : positions.some((p) => p.wage_type === "tips");
+  const rate = single ? Number(single.hourly_rate ?? 0) : 0;
+  const bonusPct = single ? Number(single.bonus_pct ?? 0) : 0;
+  const wageLabel = single ? WAGE_TYPE_LABELS[wageType] : "לפי תפקיד";
+
+  const attendanceQ = useEmployeeAttendanceMonth(businessId, profile?.id, month);
+  const tipsQ = useEmployeeTips(businessId, profile?.id, month);
   const bonusesQ = useEmployeeBonuses(businessId, profile?.id, month);
   const faultPaysQ = useEmployeeFaultPays(businessId, profile?.id, month);
   const { data: templates } = useShiftTemplates(businessId);
 
-  const activeQ = isTips ? tipsQ : attendanceQ;
-  const isLoading = activeQ.isLoading || bonusesQ.isLoading || faultPaysQ.isLoading;
-  const isError = activeQ.isError || bonusesQ.isError || faultPaysQ.isError;
+  const isLoading = attendanceQ.isLoading || tipsQ.isLoading || bonusesQ.isLoading || faultPaysQ.isLoading;
+  const isError = attendanceQ.isError || tipsQ.isError || bonusesQ.isError || faultPaysQ.isError;
   const refetch = () => {
-    activeQ.refetch();
+    attendanceQ.refetch();
+    tipsQ.refetch();
     bonusesQ.refetch();
     faultPaysQ.refetch();
   };
 
+  // Fault work belongs to the employee, not a position — show it on "all" / the primary position.
+  const showFaultRows = !activePositionId || activePositionId === positions[0]?.id;
+
   const rows = useMemo(() => {
-    const shiftRows = buildEmployeeShiftRows({
-      isTips,
-      rate,
+    const shiftRows = buildEmployeeShiftRowsByPosition({
+      positions,
+      onlyPositionId: activePositionId,
       attendance: attendanceQ.data ?? [],
       tips: tipsQ.data ?? [],
       bonuses: bonusesQ.data ?? [],
       templates: templates ?? [],
+      deptName,
     });
-    const faultRows = buildFaultPayRows(faultPaysQ.data ?? []);
+    const faultRows = showFaultRows ? buildFaultPayRows(faultPaysQ.data ?? []) : [];
     return [...shiftRows, ...faultRows].sort((a, b) => b.date.getTime() - a.date.getTime());
-  }, [isTips, rate, attendanceQ.data, tipsQ.data, bonusesQ.data, faultPaysQ.data, templates]);
+  }, [positions, activePositionId, attendanceQ.data, tipsQ.data, bonusesQ.data, faultPaysQ.data, templates, deptName, showFaultRows]);
 
   const totals = useMemo(() => sumShiftRowTotals(rows), [rows]);
 
@@ -82,9 +108,16 @@ export function MyShifts() {
         <ErrorState onRetry={refetch} />
       ) : (
         <>
+          <PositionTabs
+            positions={positions}
+            value={activePositionId}
+            onChange={setSelectedPositionId}
+            deptName={deptName}
+            className="mb-3"
+          />
           <ShiftBreakdownSummary
-            isTips={isTips}
-            wageLabel={WAGE_TYPE_LABELS[wageType]}
+            isTips={isTips || !single}
+            wageLabel={wageLabel}
             bonusPct={bonusPct}
             totals={totals}
             rate={rate}
@@ -94,8 +127,8 @@ export function MyShifts() {
           <ShiftDetailModal
             row={selectedRow}
             onClose={() => setSelectedRow(null)}
-            isTips={isTips}
-            rate={rate}
+            isTips={selectedRow?.isTips ?? isTips}
+            rate={selectedRow?.hourly ?? rate}
           />
         </>
       )}

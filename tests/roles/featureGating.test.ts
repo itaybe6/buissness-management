@@ -84,12 +84,16 @@ describe("תלויות ידועות", () => {
     expect(MODULE_BY_KEY.get("waste")?.requires).toEqual(["inventory"]);
   });
 
+  it("תפריט ותמחור דורש סחורות (המרכיבים הם מוצרי מלאי)", () => {
+    expect(MODULE_BY_KEY.get("menu")?.requires).toEqual(["inventory"]);
+  });
+
   it("כיבוי שעון נוכחות שובר את השכר", () => {
     expect(dependentsOf("attendance")).toEqual(["payroll"]);
   });
 
-  it("כיבוי סחורות שובר את הבלאי", () => {
-    expect(dependentsOf("inventory")).toEqual(["waste"]);
+  it("כיבוי סחורות שובר את הבלאי ואת התפריט", () => {
+    expect(dependentsOf("inventory")).toEqual(["waste", "menu"]);
   });
 
   it("מודול שאף אחד לא תלוי בו מחזיר רשימה ריקה", () => {
@@ -133,10 +137,17 @@ describe("כיבוי מודול מפיל את מי שתלוי בו", () => {
     expect(result.turnedOff).toEqual(["payroll"]);
   });
 
-  it("כיבוי סחורות מכבה את הבלאי", () => {
+  it("כיבוי סחורות מכבה את הבלאי ואת התפריט", () => {
     const result = applyFeatureToggle(featureStateForPlan("full"), "inventory", false);
     expect(result.state.waste).toBe(false);
-    expect(result.turnedOff).toEqual(["waste"]);
+    expect(result.state.menu).toBe(false);
+    expect(result.turnedOff).toEqual(["waste", "menu"]);
+  });
+
+  it("הדלקת תפריט מדליקה גם סחורות", () => {
+    const result = applyFeatureToggle(emptyFeatureState(), "menu", true);
+    expect(result.state.inventory).toBe(true);
+    expect(result.turnedOn).toEqual(["inventory"]);
   });
 
   it("כיבוי מודול שכבר כבוי לא מדווח על שינוי", () => {

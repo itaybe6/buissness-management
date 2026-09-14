@@ -8,6 +8,7 @@ import {
   ShiftPulse,
   StatusBanner,
 } from "@/components/attendance/attendance-motion";
+import { ShiftPositionPickerModal } from "@/components/attendance/ShiftPositionPickerModal";
 import { useShiftPunch } from "@/hooks/useShiftPunch";
 import type { ShiftTemplate } from "@/types/database";
 
@@ -51,6 +52,8 @@ export function EmployeeShiftPunch() {
     doClockOut,
     clockOutPending,
     now,
+    onShiftPositionLabel,
+    positionPicker,
   } = useShiftPunch();
 
   if (!showAttendance || !biz || !profile) return null;
@@ -74,7 +77,9 @@ export function EmployeeShiftPunch() {
               <LiveClockDigits time={timeStr} compact />
               <p className="mt-1 text-[12.5px] font-medium capitalize text-text-2">{dateStr}</p>
             </div>
-            {onShift && shiftElapsed && <ShiftPulse label={`במשמרת · ${shiftElapsed}`} />}
+            {onShift && shiftElapsed && (
+              <ShiftPulse label={`במשמרת${onShiftPositionLabel ? ` · ${onShiftPositionLabel}` : ""} · ${shiftElapsed}`} />
+            )}
           </div>
 
           <div className="relative mt-4 min-h-[40px]">
@@ -115,6 +120,8 @@ export function EmployeeShiftPunch() {
           )}
         </div>
       </section>
+
+      <ShiftPositionPickerModal {...positionPicker} />
 
       <Modal
         open={exitWarn}

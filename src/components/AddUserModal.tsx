@@ -1,10 +1,19 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
+import { ActionToast } from "@/components/ui/ActionToast";
 import { Button, Field, Icon, Input, Select } from "@/components/ui";
+import { PositionsEditor } from "@/components/users/PositionsEditor";
 import { useCreateUser } from "@/api/users";
 import { useDepartments } from "@/api/departments";
-import { DEFAULT_HOURLY_RATE, ROLE_LABELS, WAGE_TYPE_LABELS } from "@/lib/constants";
-import type { Business, UserRole, WageType } from "@/types/database";
+import { useReplaceEmployeePositions } from "@/api/employeePositions";
+import { DEFAULT_HOURLY_RATE } from "@/lib/constants";
+import {
+  accessRoleForPositions,
+  findDuplicatePositionDraft,
+  newPositionDraft,
+  type PositionDraft,
+} from "@/lib/employeePositions";
+import type { Business, UserRole } from "@/types/database";
 
 interface Props {
   open: boolean;
@@ -17,19 +26,31 @@ interface Props {
   roles: UserRole[];
 }
 
+function initialDrafts(roles: UserRole[]): PositionDraft[] {
+  return [newPositionDraft({ role: roles[0] ?? "employee", hourly_rate: String(DEFAULT_HOURLY_RATE) })];
+}
+
+/** The draft the DB will treat as primary (highest role, then list order) — sent as create-user metadata. */
+function primaryDraft(drafts: PositionDraft[]): PositionDraft {
+  const role = accessRoleForPositions(drafts);
+  return drafts.find((d) => d.role === role) ?? drafts[0];
+}
+
 export function AddUserModal({ open, onClose, businessId, businesses, roles }: Props) {
   const create = useCreateUser();
+  const replacePositions = useReplaceEmployeePositions();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<UserRole>(roles[0] ?? "employee");
   const [bizId, setBizId] = useState<string>(businessId ?? businesses?.[0]?.id ?? "");
-  const [departmentId, setDepartmentId] = useState<string>("");
-  const [wageType, setWageType] = useState<WageType>("hourly");
-  const [hourlyRate, setHourlyRate] = useState(String(DEFAULT_HOURLY_RATE));
+  const [drafts, setDrafts] = useState<PositionDraft[]>(() => initialDrafts(roles));
   const [pensionActive, setPensionActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Success pill shown after the modal closes — lives here so every host page gets it.
+  const [successText, setSuccessText] = useState<string | null>(null);
+  const successTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(successTimer.current), []);
 
   const effectiveBiz = businessId ?? bizId;
   const { data: departments } = useDepartments(effectiveBiz || null);
@@ -37,31 +58,58 @@ export function AddUserModal({ open, onClose, businessId, businesses, roles }: P
   async function submit() {
     setError(null);
     if (!fullName || !email || !password) return setError("נא למלא שם, אימייל וסיסמה");
+    if (drafts.length === 0) return setError("יש להגדיר לפחות תפקיד אחד");
+    const dup = findDuplicatePositionDraft(drafts);
+    if (dup) return setError("יש שני תפקידים זהים (אותה הרשאה ומחלקה) — מחקו אחד מהם");
+
+    const primary = primaryDraft(drafts);
     try {
-      await create.mutateAsync({
+      const created = (await create.mutateAsync({
         email: email.trim(),
         password,
         full_name: fullName.trim(),
-        role,
+        role: accessRoleForPositions(drafts, primary.role),
         business_id: effectiveBiz || null,
-        department_id: role === "employee" ? departmentId || null : null,
+        department_id: primary.role === "employee" ? primary.department_id || null : null,
         phone: phone || undefined,
-        hourly_rate: hourlyRate.trim() ? Number(hourlyRate) : DEFAULT_HOURLY_RATE,
-        wage_type: wageType,
+        hourly_rate: primary.hourly_rate.trim() ? Number(primary.hourly_rate) : DEFAULT_HOURLY_RATE,
+        wage_type: primary.wage_type,
         pension_active: pensionActive,
-      });
+      })) as { user?: { id?: string } } | undefined;
+
+      const newId = created?.user?.id;
+      if (newId && effectiveBiz) {
+        // The DB trigger already created the primary position from the metadata;
+        // replace it with the full list so every extra role is stored too.
+        await replacePositions.mutateAsync({
+          business_id: effectiveBiz,
+          employee_id: newId,
+          positions: drafts,
+        });
+      }
+      const name = fullName.trim();
       onClose();
       reset();
+      setSuccessText(`${name} נוסף/ה בהצלחה`);
+      window.clearTimeout(successTimer.current);
+      successTimer.current = window.setTimeout(() => setSuccessText(null), 3600);
     } catch (e) {
       setError(e instanceof Error ? e.message : "שגיאה ביצירת המשתמש");
     }
   }
 
   function reset() {
-    setFullName(""); setEmail(""); setPhone(""); setPassword(""); setHourlyRate(String(DEFAULT_HOURLY_RATE)); setDepartmentId(""); setWageType("hourly"); setPensionActive(false);
+    setFullName("");
+    setEmail("");
+    setPhone("");
+    setPassword("");
+    setDrafts(initialDrafts(roles));
+    setPensionActive(false);
   }
 
   return (
+    <>
+    <ActionToast text={successText} />
     <Modal
       open={open}
       onClose={onClose}
@@ -71,7 +119,9 @@ export function AddUserModal({ open, onClose, businessId, businesses, roles }: P
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>ביטול</Button>
-          <Button className="flex-1" loading={create.isPending} onClick={submit}>יצירת משתמש</Button>
+          <Button className="flex-1" loading={create.isPending || replacePositions.isPending} onClick={submit}>
+            יצירת משתמש
+          </Button>
         </>
       }
     >
@@ -88,55 +138,20 @@ export function AddUserModal({ open, onClose, businessId, businesses, roles }: P
             </Select>
           </Field>
         )}
-        <div className={role === "employee" ? "grid grid-cols-2 gap-3" : undefined}>
-          <Field label="הרשאה">
-            <Select
-              value={role}
-              onChange={(e) => {
-                const next = e.target.value as UserRole;
-                setRole(next);
-                if (next !== "employee") setDepartmentId("");
-              }}
-            >
-              {roles.map((r) => (
-                <option key={r} value={r}>{ROLE_LABELS[r]}</option>
-              ))}
-            </Select>
-          </Field>
-          {role === "employee" && (
-            <Field label="מחלקה">
-              <Select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
-                <option value="">— ללא —</option>
-                {(departments ?? []).map((d) => (
-                  <option key={d.id} value={d.id}>{d.name}</option>
-                ))}
-              </Select>
-            </Field>
-          )}
-        </div>
         <Field label="אימייל">
           <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} style={{ direction: "ltr", textAlign: "right" }} placeholder="name@business.co.il" />
         </Field>
         <Field label="טלפון">
           <Input value={phone} onChange={(e) => setPhone(e.target.value)} style={{ direction: "ltr", textAlign: "right" }} placeholder="050-0000000" />
         </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="סוג שכר">
-            <Select value={wageType} onChange={(e) => setWageType(e.target.value as WageType)}>
-              {(Object.keys(WAGE_TYPE_LABELS) as WageType[]).map((w) => (
-                <option key={w} value={w}>{WAGE_TYPE_LABELS[w]}</option>
-              ))}
-            </Select>
-          </Field>
-          <Field label={wageType === "tips" ? "מינימום לשעה (₪)" : "שכר שעתי (₪)"}>
-            <Input type="number" value={hourlyRate} onChange={(e) => setHourlyRate(e.target.value)} step={0.1} placeholder={String(DEFAULT_HOURLY_RATE)} />
-          </Field>
-        </div>
-        {wageType === "tips" && (
-          <div className="-mt-1.5 text-[12px] text-text-2">
-            עובד טיפים מקבל את חלקו מקופת הטיפים. אם בחישוב המשמרת התעריף השעתי יוצא נמוך מהמינימום — משלימים לו עד המינימום שהוזן.
+
+        <div>
+          <span className="label-text">תפקידים והרשאות</span>
+          <div className="mt-1.5">
+            <PositionsEditor drafts={drafts} onChange={setDrafts} roles={roles} departments={departments ?? []} />
           </div>
-        )}
+        </div>
+
         <label className="flex cursor-pointer items-center gap-2.5 rounded-[11px] border border-border px-3.5 py-3">
           <input
             type="checkbox"
@@ -157,5 +172,6 @@ export function AddUserModal({ open, onClose, businessId, businesses, roles }: P
         )}
       </div>
     </Modal>
+    </>
   );
 }

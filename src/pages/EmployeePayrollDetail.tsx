@@ -13,7 +13,11 @@ import {
 import { useAuth } from "@/lib/auth";
 import { WAGE_TYPE_LABELS } from "@/lib/constants";
 import { useBusinessId, formatCurrency } from "@/lib/db";
-import { buildEmployeeShiftRows, fmtHours, monthNow, sumShiftRowTotals } from "@/lib/payrollShiftRows";
+import { positionsForEmployee } from "@/lib/employeePositions";
+import { buildEmployeeShiftRowsByPosition, fmtHours, monthNow, sumShiftRowTotals } from "@/lib/payrollShiftRows";
+import { PositionTabs } from "@/components/payroll/PositionTabs";
+import { useDepartments } from "@/api/departments";
+import { useEmployeePositions } from "@/api/employeePositions";
 import { useEmployeeAttendanceMonth } from "@/api/attendance";
 import { useEmployeeTips, useEmployeeBonuses, useEmployeeFaultPays, usePayrollMonthAdjustments, payrollAdjustmentForEmployee } from "@/api/payroll";
 import { buildFaultPayRows } from "@/lib/faultPayrollRows";
@@ -35,63 +39,100 @@ export function EmployeePayrollDetail() {
   const [editingAdjustments, setEditingAdjustments] = useState(false);
 
   const month = searchParams.get("month") ?? monthNow();
-  const setMonth = (m: string) => setSearchParams({ month: m }, { replace: true });
+  const positionParam = searchParams.get("position");
+  const setParams = (patch: { month?: string; position?: string | null }) => {
+    const next = new URLSearchParams(searchParams);
+    if (patch.month !== undefined) next.set("month", patch.month);
+    if (patch.position !== undefined) {
+      if (patch.position) next.set("position", patch.position);
+      else next.delete("position");
+    }
+    setSearchParams(next, { replace: true });
+  };
+  const setMonth = (m: string) => setParams({ month: m });
   const stepper = useMonthStepper(month, setMonth);
 
   const isPayrollManager = profile && ["manager", "office_manager"].includes(profile.role);
   const { data: users, isLoading: usersLoading, isError: usersError, refetch: refetchUsers } = useProfiles(businessId);
+  const { data: allPositions } = useEmployeePositions(businessId);
+  const { data: departments } = useDepartments(businessId);
   const employee = (users ?? []).find((u) => u.id === employeeId);
 
-  const wageType = employee?.wage_type ?? "hourly";
-  const isTips = wageType === "tips";
-  const rate = Number(employee?.hourly_rate ?? 0);
-  const bonusPct = Number(employee?.bonus_pct ?? 0);
+  const deptName = useMemo(
+    () => (id: string) => (departments ?? []).find((d) => d.id === id)?.name ?? null,
+    [departments],
+  );
+  const positions = useMemo(
+    () => (employee ? positionsForEmployee(employee, allPositions) : []),
+    [employee, allPositions],
+  );
+  const multiPosition = positions.length > 1;
+  // Only honour ?position= when it names one of this employee's positions.
+  const selectedPositionId = multiPosition && positions.some((p) => p.id === positionParam) ? positionParam : null;
+  const activePositions = selectedPositionId ? positions.filter((p) => p.id === selectedPositionId) : positions;
+  const singleActive = activePositions.length === 1 ? activePositions[0] : null;
 
-  const attendanceQ = useEmployeeAttendanceMonth(businessId, !isTips ? employeeId : null, month);
-  const tipsQ = useEmployeeTips(businessId, isTips ? employeeId : null, month);
+  // Single (or single selected) position: its own wage model. Several at once:
+  // a mixed view — rows keep their own model, the hero shows the blended average.
+  const wageType = singleActive?.wage_type ?? employee?.wage_type ?? "hourly";
+  const isTips = singleActive ? singleActive.wage_type === "tips" : positions.some((p) => p.wage_type === "tips");
+  const rate = singleActive ? Number(singleActive.hourly_rate ?? 0) : 0;
+  const bonusPct = singleActive ? Number(singleActive.bonus_pct ?? 0) : 0;
+  const wageLabel = singleActive ? WAGE_TYPE_LABELS[wageType] : "לפי תפקיד";
+
+  const attendanceQ = useEmployeeAttendanceMonth(businessId, employeeId, month);
+  const tipsQ = useEmployeeTips(businessId, employeeId, month);
   const bonusesQ = useEmployeeBonuses(businessId, employeeId, month);
   const faultPaysQ = useEmployeeFaultPays(businessId, employeeId, month);
   const adjustmentsQ = usePayrollMonthAdjustments(businessId, month);
   const { data: templates } = useShiftTemplates(businessId);
 
   const monthAdj = payrollAdjustmentForEmployee(adjustmentsQ.data, employeeId ?? "");
-  const adjValues = {
+  const storedAdjValues = {
     monthlyBonus: Number(monthAdj?.monthly_bonus ?? 0),
     advance: Number(monthAdj?.advance ?? 0),
     differences: Number(monthAdj?.differences ?? 0),
   };
-  const hasAdjustments = adjValues.monthlyBonus > 0 || adjValues.advance > 0 || adjValues.differences !== 0;
 
-  const activeQ = isTips ? tipsQ : attendanceQ;
-  const isLoading = usersLoading || activeQ.isLoading || bonusesQ.isLoading || faultPaysQ.isLoading || adjustmentsQ.isLoading;
-  const isError = usersError || activeQ.isError || bonusesQ.isError || faultPaysQ.isError || adjustmentsQ.isError;
+  const isLoading =
+    usersLoading || attendanceQ.isLoading || tipsQ.isLoading || bonusesQ.isLoading || faultPaysQ.isLoading || adjustmentsQ.isLoading;
+  const isError =
+    usersError || attendanceQ.isError || tipsQ.isError || bonusesQ.isError || faultPaysQ.isError || adjustmentsQ.isError;
   const refetch = () => {
     refetchUsers();
-    activeQ.refetch();
+    attendanceQ.refetch();
+    tipsQ.refetch();
     bonusesQ.refetch();
     faultPaysQ.refetch();
     adjustmentsQ.refetch();
   };
 
+  // Fault work and monthly adjustments are employee-level items: shown on the
+  // "all" view or on the primary position, never on a secondary position alone.
+  const showFaultRows = !selectedPositionId || selectedPositionId === positions[0]?.id;
+  const adjValues = showFaultRows ? storedAdjValues : { monthlyBonus: 0, advance: 0, differences: 0 };
+  const hasAdjustments = adjValues.monthlyBonus > 0 || adjValues.advance > 0 || adjValues.differences !== 0;
+
   const rows = useMemo(() => {
     if (!employee) return [];
-    const shiftRows = buildEmployeeShiftRows({
-      isTips,
-      rate,
+    const shiftRows = buildEmployeeShiftRowsByPosition({
+      positions,
+      onlyPositionId: selectedPositionId,
       attendance: attendanceQ.data ?? [],
       tips: tipsQ.data ?? [],
       bonuses: bonusesQ.data ?? [],
       templates: templates ?? [],
+      deptName,
     });
-    const faultRows = buildFaultPayRows(faultPaysQ.data ?? []);
+    const faultRows = showFaultRows ? buildFaultPayRows(faultPaysQ.data ?? []) : [];
     return [...shiftRows, ...faultRows].sort((a, b) => b.date.getTime() - a.date.getTime());
-  }, [employee, isTips, rate, attendanceQ.data, tipsQ.data, bonusesQ.data, faultPaysQ.data, templates]);
+  }, [employee, positions, selectedPositionId, attendanceQ.data, tipsQ.data, bonusesQ.data, faultPaysQ.data, templates, deptName, showFaultRows]);
 
   const totals = useMemo(() => sumShiftRowTotals(rows), [rows]);
 
   const faultPayTotal = useMemo(
-    () => (faultPaysQ.data ?? []).reduce((s, f) => s + (Number(f.work_price) || 0), 0),
-    [faultPaysQ.data],
+    () => (showFaultRows ? (faultPaysQ.data ?? []).reduce((s, f) => s + (Number(f.work_price) || 0), 0) : 0),
+    [faultPaysQ.data, showFaultRows],
   );
 
   const netPay = useMemo(() => {
@@ -130,19 +171,16 @@ export function EmployeePayrollDetail() {
 
   /** Where the money came from — drives the composition bar in the hero. */
   const segments = useMemo(() => {
-    const list = isTips
-      ? [
-          { key: "tips", label: "טיפים", value: totals.tips },
-          { key: "topup", label: "השלמה למינ׳", value: totals.topup },
-          { key: "bonus", label: "תוספת קופה", value: totals.bonus },
-        ]
-      : [
-          { key: "base", label: "שכר שעתי", value: totals.earned - totals.bonus - faultPayTotal },
-          { key: "fault", label: "עבודות תחזוקה", value: faultPayTotal },
-          { key: "bonus", label: "תוספת קופה", value: totals.bonus },
-        ];
+    const hourlyBase = rows.filter((r) => !r.isTips).reduce((s, r) => s + r.earned - (r.bonusAmount ?? 0), 0) - faultPayTotal;
+    const list = [
+      { key: "base", label: "שכר שעתי", value: hourlyBase },
+      { key: "tips", label: "טיפים", value: totals.tips },
+      { key: "topup", label: "השלמה למינ׳", value: totals.topup },
+      { key: "fault", label: "עבודות תחזוקה", value: faultPayTotal },
+      { key: "bonus", label: "תוספת קופה", value: totals.bonus },
+    ];
     return list.filter((s) => s.value > 0.5);
-  }, [isTips, totals, faultPayTotal]);
+  }, [rows, totals, faultPayTotal]);
 
   const segTotal = segments.reduce((s, x) => s + x.value, 0);
 
@@ -160,17 +198,19 @@ export function EmployeePayrollDetail() {
     bonusPct > 0 ? `${bonusPct}% מהקופה` : null,
   ].filter(Boolean) as string[];
 
-  const wageSummary = [WAGE_TYPE_LABELS[wageType], ...wageFacts].join(" · ");
+  const wageSummary = [wageLabel, ...wageFacts].join(" · ");
   const heroSub =
     employee.role === "maintenance" && faultPayTotal > 0
       ? "שכר לפי תקלות מאושרות"
-      : wageFacts.length > 0
-        ? wageFacts.join(" · ")
-        : employee.role === "maintenance"
-          ? "שכר לפי תקלות — לאחר אישור מנהל"
-          : "לא הוגדר תעריף";
+      : !singleActive
+        ? `${positions.length} תפקידים — כל משמרת לפי התפקיד שנבחר בכניסה`
+        : wageFacts.length > 0
+          ? wageFacts.join(" · ")
+          : employee.role === "maintenance"
+            ? "שכר לפי תקלות — לאחר אישור מנהל"
+            : "לא הוגדר תעריף";
   const missingRate =
-    !isTips && rate <= 0 && employee.role !== "maintenance" && !!isPayrollManager;
+    !!singleActive && !isTips && rate <= 0 && employee.role !== "maintenance" && !!isPayrollManager;
 
   return (
     <div className="epd-page page-enter">
@@ -188,7 +228,7 @@ export function EmployeePayrollDetail() {
             </button>
             <span className="epd-wage">
               <Icon name={isTips ? "savings" : "schedule"} size={14} />
-              {WAGE_TYPE_LABELS[wageType]}
+              {wageLabel}
             </span>
           </div>
 
@@ -309,15 +349,23 @@ export function EmployeePayrollDetail() {
             <span className="epd-stat-label">שעות</span>
           </div>
           <div className="epd-stat">
-            <span className="epd-stat-value">{formatCurrency(isTips ? totals.avg : rate)}</span>
-            <span className="epd-stat-label">{isTips ? "ממוצע לשעה" : "תעריף לשעה"}</span>
+            <span className="epd-stat-value">{formatCurrency(isTips || !singleActive ? totals.avg : rate)}</span>
+            <span className="epd-stat-label">{isTips || !singleActive ? "ממוצע לשעה" : "תעריף לשעה"}</span>
           </div>
         </div>
+
+        <PositionTabs
+          positions={positions}
+          value={selectedPositionId}
+          onChange={(id) => setParams({ position: id })}
+          deptName={deptName}
+          className="mb-4"
+        />
 
         <div className="mb-4 hidden flex-wrap gap-2 md:flex">
           <Badge tone={isTips ? "violet" : "neutral"}>
             <Icon name={isTips ? "savings" : "schedule"} size={14} />
-            {WAGE_TYPE_LABELS[wageType]}
+            {wageLabel}
           </Badge>
           {rate > 0 && (
             <Badge tone="neutral">
@@ -335,8 +383,8 @@ export function EmployeePayrollDetail() {
 
         <div className="hidden md:block">
           <ShiftBreakdownSummary
-            isTips={isTips}
-            wageLabel={WAGE_TYPE_LABELS[wageType]}
+            isTips={isTips || !singleActive}
+            wageLabel={wageLabel}
             bonusPct={bonusPct}
             totals={totals}
             rate={rate}
@@ -345,7 +393,7 @@ export function EmployeePayrollDetail() {
           />
         </div>
 
-        {(isPayrollManager || hasAdjustments) && (
+        {showFaultRows && (isPayrollManager || hasAdjustments) && (
           <section className="payroll-adj-panel mb-4 rounded-xl border border-border bg-surface p-4 shadow-card">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-[14px] font-bold text-text">התאמות חודשיות</h2>
@@ -378,7 +426,7 @@ export function EmployeePayrollDetail() {
             employeeName={employee.full_name}
             month={month}
             grossPay={totals.earned}
-            values={adjValues}
+            values={storedAdjValues}
           />
         )}
 
@@ -392,7 +440,12 @@ export function EmployeePayrollDetail() {
         <ShiftBreakdownList rows={rows} isTips={isTips} onRowClick={setSelectedRow} />
       </div>
 
-      <ShiftDetailModal row={selectedRow} onClose={() => setSelectedRow(null)} isTips={isTips} rate={rate} />
+      <ShiftDetailModal
+        row={selectedRow}
+        onClose={() => setSelectedRow(null)}
+        isTips={selectedRow?.isTips ?? isTips}
+        rate={selectedRow?.hourly ?? rate}
+      />
     </div>
   );
 }

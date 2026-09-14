@@ -5,6 +5,7 @@ import { Modal } from "@/components/ui/Modal";
 import { EventCountdown } from "@/components/events/EventCountdown";
 import { EventMediaCarousel } from "@/components/events/EventMediaCarousel";
 import { EventTasksPanel } from "@/components/events/EventTasksPanel";
+import { EventRequestsPanel } from "@/components/events/EventRequestsPanel";
 import { EventMediaPicker, revokeEventMediaEntries, type MediaEntry } from "@/components/events/EventMediaPicker";
 import { daysUntilEvent, daysUntilLabel, parseEventDay } from "@/components/events/eventTime";
 import { useAuth } from "@/lib/auth";
@@ -226,6 +227,15 @@ export function EventDetail() {
 
           {profile?.role && (
             <EventTasksPanel
+              businessId={businessId!}
+              event={event}
+              profileId={profile.id}
+              role={profile.role}
+            />
+          )}
+
+          {profile?.role && (
+            <EventRequestsPanel
               businessId={businessId!}
               event={event}
               profileId={profile.id}

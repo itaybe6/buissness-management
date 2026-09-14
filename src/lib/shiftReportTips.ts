@@ -54,6 +54,48 @@ function punchesStartingOnReportDate(punches: Attendance[], reportDate: string):
 }
 
 /**
+ * The position an employee worked a shift in — taken from the punch that
+ * covers the most hours. null when no punch carries a position (legacy rows,
+ * single-position employees before positions existed).
+ */
+export function dominantPositionId(punches: Pick<Attendance, "clock_in" | "clock_out" | "position_id">[]): string | null {
+  const hoursByPosition = new Map<string, number>();
+  for (const p of punches) {
+    if (!p.position_id || !p.clock_in || !p.clock_out) continue;
+    const hrs = Math.max(0, (new Date(p.clock_out).getTime() - new Date(p.clock_in).getTime()) / 3.6e6);
+    hoursByPosition.set(p.position_id, (hoursByPosition.get(p.position_id) ?? 0) + hrs);
+  }
+  let best: string | null = null;
+  let bestHours = -1;
+  for (const [id, hrs] of hoursByPosition) {
+    if (hrs > bestHours) {
+      best = id;
+      bestHours = hrs;
+    }
+  }
+  return best;
+}
+
+/** Position for one employee's shift on the report date (see `dominantPositionId`). */
+export function getAttendancePositionForShiftReport(input: {
+  attendance: Attendance[];
+  employeeId: string;
+  reportDate: string;
+  shiftTemplateId: string;
+  templates: ShiftTemplate[];
+}): string | null {
+  const { attendance, employeeId, reportDate, shiftTemplateId, templates } = input;
+  const template = shiftTemplateId ? templates.find((t) => t.id === shiftTemplateId) ?? null : null;
+  const punches = employeePunches(attendance, employeeId, reportDate);
+  if (punches.length === 0) return null;
+  if (template) {
+    const window = shiftWindowForDate(reportDate, template);
+    return dominantPositionId(punches.filter((a) => punchOverlapsAbsoluteWindow(a.clock_in!, a.clock_out, window)));
+  }
+  return dominantPositionId(punchesStartingOnReportDate(punches, reportDate));
+}
+
+/**
  * Real hours from clock-in/out — clipped to the shift window when a template is selected,
  * otherwise the sum of completed punches on the report calendar day.
  */
@@ -254,8 +296,16 @@ export function buildTeamMembersFromShift(input: {
     if (attHrs <= 0) return;
 
     seen.add(employeeId);
+    const position_id = getAttendancePositionForShiftReport({
+      attendance,
+      employeeId,
+      reportDate,
+      shiftTemplateId,
+      templates,
+    });
     result.push({
       employee_id: employeeId,
+      ...(position_id ? { position_id } : {}),
       hours: attHrs,
       attendance_hours: attHrs,
       work_start: range?.work_start,
@@ -299,6 +349,8 @@ export function computeTipsHourly(totalTips: number, participants: ShiftReportPa
 /** A single participant's share of a tip pool, as persisted into the `tips` table. */
 export interface DistributedTip {
   employee_id: string;
+  /** Position the shift was worked in (carried from attendance → tips.position_id). */
+  position_id?: string | null;
   hours: number;
   /** Participant's share of the pool = round(tipsHourly × hours), 2 decimals. */
   amount: number;
@@ -323,6 +375,7 @@ export function distributeTips(
       const hours = Number(p.hours) || 0;
       return {
         employee_id: p.employee_id,
+        ...(p.position_id ? { position_id: p.position_id } : {}),
         hours,
         amount: Math.round(tipsHourly * hours * 100) / 100,
         hourly_from_tips: roundedHourly,

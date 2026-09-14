@@ -34,6 +34,7 @@ const CARD_ART: Record<FeatureKey, string> = {
   shift_reports: "fpk-art--wave",
   inventory: "fpk-art--stripe",
   waste: "fpk-art--rings",
+  menu: "fpk-art--dots",
   faults: "fpk-art--grid",
   events: "fpk-art--wave",
 };

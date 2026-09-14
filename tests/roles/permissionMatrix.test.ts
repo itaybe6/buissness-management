@@ -33,6 +33,7 @@ const EXPECTED: Record<UserRole, string[]> = {
     "events",
     "inventory",
     "suppliers",
+    "menu",
     "users",
     "payroll",
     "agreements",
@@ -56,6 +57,7 @@ const EXPECTED: Record<UserRole, string[]> = {
     "events",
     "inventory",
     "suppliers",
+    "menu",
     "users",
     "payroll",
     "agreements",
@@ -92,6 +94,7 @@ describe("מסכים רגישים — מי באמת ניגש", () => {
     ["attendance", ["manager"]],
     ["shift-reports", ["manager", "shift_manager"]],
     ["suppliers", ["manager", "office_manager"]],
+    ["menu", ["manager", "office_manager"]],
     ["platform", ["super_admin"]],
     ["businesses", ["super_admin"]],
     ["platform-users", ["super_admin"]],
@@ -126,7 +129,7 @@ describe("מסך הבית של כל תפקיד", () => {
 
 describe("כיבוי מודולים משפיע על כל התפקידים באותה מידה", () => {
   it("כשכל המודולים כבויים, אף תפקיד בעסק לא רואה מסך מותנה-מודול", () => {
-    const featureGated = ["agreements", "payroll", "shifts", "shift-reports", "attendance", "tasks", "inventory", "suppliers", "faults", "events"];
+    const featureGated = ["agreements", "payroll", "shifts", "shift-reports", "attendance", "tasks", "inventory", "suppliers", "menu", "faults", "events"];
     for (const role of ALL_ROLES) {
       if (role === "super_admin") continue;
       const keys = keysFor(role, []);

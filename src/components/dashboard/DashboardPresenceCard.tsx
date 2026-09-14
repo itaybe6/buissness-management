@@ -7,6 +7,7 @@ import {
   ShiftPulse,
   StatusBanner,
 } from "@/components/attendance/attendance-motion";
+import { ShiftPositionPickerModal } from "@/components/attendance/ShiftPositionPickerModal";
 import { useBusinessId } from "@/lib/db";
 import { useShiftPunch } from "@/hooks/useShiftPunch";
 import { DailyTasksChecklist, useDailyTaskActions } from "@/components/tasks/DailyTasksChecklist";
@@ -57,6 +58,8 @@ export function DashboardPresenceCard() {
     handleClock,
     doClockOut,
     clockOutPending,
+    onShiftPositionLabel,
+    positionPicker,
   } = useShiftPunch();
 
   const { todayTasks, setStatus: setTaskStatus, setMedia: setTaskMedia } = useDailyTaskActions(
@@ -77,12 +80,15 @@ export function DashboardPresenceCard() {
               <h2 className="text-[15px] font-extrabold tracking-tight text-text">סימון נוכחות</h2>
               <p className="mt-0.5 text-[12px] text-text-3">החתמת כניסה ויציאה מהמשמרת</p>
             </div>
-            {onShift && shiftElapsed && <ShiftPulse label={`במשמרת · ${shiftElapsed}`} />}
+            {onShift && shiftElapsed && (
+              <ShiftPulse label={`במשמרת${onShiftPositionLabel ? ` · ${onShiftPositionLabel}` : ""} · ${shiftElapsed}`} />
+            )}
           </div>
         </div>
 
         <div className="space-y-5 p-5 sm:p-6">
           <div className="mx-auto max-w-md space-y-3">
+            <ShiftPositionPickerModal {...positionPicker} />
             <PunchButton onShift={onShift} busy={busy} onClick={handleClock} />
             <div className="text-center text-[11.5px] text-text-3">
               {geofenceExempt

@@ -62,7 +62,8 @@ export function useOfficeReceipts(businessId: string | null, monthISO: string) {
 export async function uploadReceiptFile(businessId: string, file: File): Promise<string> {
   const isImage = file.type.startsWith("image/");
   const payload = isImage ? await compressImage(file) : file;
-  const ext = isImage ? "jpg" : (file.name.split(".").pop() || "bin");
+  const nameExt = /\.([a-z0-9]{2,5})$/i.exec(file.name)?.[1]?.toLowerCase();
+  const ext = isImage ? "jpg" : file.type === "application/pdf" ? "pdf" : nameExt || "pdf";
   const path = `${businessId}/receipts/${crypto.randomUUID()}.${ext}`;
   const { error } = await supabase.storage.from("invoices").upload(path, payload, {
     upsert: false,

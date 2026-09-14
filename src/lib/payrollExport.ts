@@ -4,6 +4,8 @@ import type { PayrollAttendance } from "@/lib/payrollCompute";
 
 export interface PayrollExportRow {
   name: string | null;
+  /** Position this line covers (e.g. "אחראי משמרת", "מלצרות"). One line per position worked. */
+  positionLabel?: string;
   wageType: WageType;
   wageTypeLabel: string;
   hours: number;
@@ -37,6 +39,7 @@ export function countEmployeeShifts(
 export function exportPayrollExcel(rows: PayrollExportRow[], month: string) {
   const sheetRows = rows.map((r) => ({
     שם: r.name ?? "",
+    תפקיד: r.positionLabel ?? "",
     סוג: r.wageTypeLabel,
     "כמות שעות": Math.round(r.hours * 10) / 10,
     "כמות משמרות": r.shifts,
@@ -55,6 +58,7 @@ export function exportPayrollExcel(rows: PayrollExportRow[], month: string) {
   const ws = XLSX.utils.json_to_sheet(sheetRows);
   ws["!cols"] = [
     { wch: 18 },
+    { wch: 16 },
     { wch: 12 },
     { wch: 12 },
     { wch: 12 },

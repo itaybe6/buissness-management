@@ -1,5 +1,6 @@
-import type { Attendance, ShiftAssignment, ShiftTemplate } from "@/types/database";
+import type { Attendance, EmployeePosition, ShiftAssignment, ShiftTemplate } from "@/types/database";
 import { filterAttendanceNearReportDate, punchOverlapsShiftOnDate } from "@/lib/attendanceFeed";
+import { isLegacyPositionId, resolvePosition } from "@/lib/employeePositions";
 
 /** Whether an employee's clock-in/out overlaps the shift template window on report_date. */
 export function employeeWorkedShift(input: {
@@ -46,12 +47,14 @@ export interface BonusPayoutRow {
   employee_id: string;
   bonus_pct: number;
   amount: number;
+  /** Position whose bonus_pct applied (persisted to shift_bonuses.position_id). */
+  position_id?: string | null;
 }
 
 /** Per-employee bonus rows from the report's participant list. */
 export function computeBonusPayouts(
   totalSales: number,
-  participants: { employee_id: string; bonus_pct?: number }[],
+  participants: { employee_id: string; bonus_pct?: number; position_id?: string | null }[],
 ): BonusPayoutRow[] {
   return participants
     .filter((p) => p.employee_id && (Number(p.bonus_pct) || 0) > 0)
@@ -61,8 +64,41 @@ export function computeBonusPayouts(
         employee_id: p.employee_id,
         bonus_pct,
         amount: computeEmployeeBonusAmount(totalSales, bonus_pct),
+        ...(p.position_id ? { position_id: p.position_id } : {}),
       };
     });
+}
+
+/**
+ * Bonus participants from the roster, by position: each team member's bonus
+ * percentage comes from the position they clocked in as. A shift manager who
+ * entered as a waiter (a position with no kupah %) gets no bonus that shift.
+ * Legacy rows without a position fall back to the position that carries a %.
+ */
+export function buildBonusParticipantsFromTeamPositions(
+  team: { employee_id: string; position_id?: string | null }[],
+  positionsByEmployee: (employeeId: string) => EmployeePosition[],
+): { employee_id: string; bonus_pct: number; position_id?: string | null }[] {
+  const seen = new Set<string>();
+  const result: { employee_id: string; bonus_pct: number; position_id?: string | null }[] = [];
+
+  for (const member of team) {
+    const employeeId = member.employee_id;
+    if (!employeeId || seen.has(employeeId)) continue;
+    seen.add(employeeId);
+    const positions = positionsByEmployee(employeeId);
+    if (positions.length === 0) continue;
+    const position = resolvePosition(member.position_id, positions, { preferBonus: true });
+    const bonus_pct = Number(position.bonus_pct) || 0;
+    if (bonus_pct <= 0) continue;
+    result.push({
+      employee_id: employeeId,
+      bonus_pct,
+      ...(isLegacyPositionId(position.id) ? {} : { position_id: position.id }),
+    });
+  }
+
+  return result;
 }
 
 /** Employees on the shift roster who have a profile bonus_pct > 0. */

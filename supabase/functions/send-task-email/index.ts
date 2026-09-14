@@ -18,7 +18,8 @@ const cors = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const MANAGER_ROLES = ["manager", "shift_manager"];
+// Roles that hand out tasks — the event manager assigns event tasks.
+const MANAGER_ROLES = ["manager", "shift_manager", "event_manager"];
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });

@@ -7,19 +7,28 @@ import {
   PageHeader,
   PageLoader,
   ErrorState,
-  Select,
   Input,
   EmptyState,
 } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useProfiles, useUpdateProfile, useDeleteUser } from "@/api/users";
 import { useDepartments } from "@/api/departments";
+import { useEmployeePositions, useReplaceEmployeePositions } from "@/api/employeePositions";
 import { AddUserModal } from "@/components/AddUserModal";
+import { PositionsEditor } from "@/components/users/PositionsEditor";
 import { useBusinessId, formatCurrency } from "@/lib/db";
 import { UserAvatar } from "@/components/ui/UserAvatar";
 import { useAuth } from "@/lib/auth";
-import { ROLE_LABELS, WAGE_TYPE_LABELS, BONUS_ELIGIBLE_ROLES, USER_MANAGE_ROLES } from "@/lib/constants";
-import type { Profile, UserRole, WageType } from "@/types/database";
+import { ROLE_LABELS, USER_MANAGE_ROLES } from "@/lib/constants";
+import {
+  draftFromPosition,
+  findDuplicatePositionDraft,
+  positionLabel,
+  positionWageSummary,
+  positionsForEmployee,
+  type PositionDraft,
+} from "@/lib/employeePositions";
+import type { EmployeePosition, Profile, UserRole } from "@/types/database";
 
 const ASSIGNABLE_ROLES: UserRole[] = [
   "shift_manager",
@@ -34,20 +43,14 @@ const FILTER_ROLES: (UserRole | "all")[] = ["all", "manager", ...ASSIGNABLE_ROLE
 const USER_TABLE_COLS =
   "grid-cols-[2fr_1.1fr_1fr_1.3fr_minmax(200px,2.4fr)_1fr_0.9fr_0.7fr]";
 
-function wageSummary(u: Profile): string {
-  const type = WAGE_TYPE_LABELS[u.wage_type ?? "hourly"];
-  const rate = u.hourly_rate ?? 0;
-  const bonus = Number(u.bonus_pct) > 0 ? ` · ${u.bonus_pct}% קופה` : "";
-  if (u.wage_type === "tips") return `${type} · מינ׳ ${formatCurrency(rate)}${bonus}`;
-  return `${type} · ${formatCurrency(rate)}/שע׳${bonus}`;
-}
-
 export function Users() {
   const { profile: currentUser } = useAuth();
   const businessId = useBusinessId();
   const { data: users, isLoading, isError, refetch } = useProfiles(businessId);
   const { data: departments } = useDepartments(businessId);
+  const { data: allPositions } = useEmployeePositions(businessId);
   const update = useUpdateProfile();
+  const replacePositions = useReplaceEmployeePositions();
   const del = useDeleteUser();
   const [add, setAdd] = useState(false);
   const [edit, setEdit] = useState<Profile | null>(null);
@@ -64,6 +67,11 @@ export function Users() {
     () => (id: string | null) => departments?.find((d) => d.id === id)?.name ?? "—",
     [departments],
   );
+  const deptNameOrNull = useMemo(
+    () => (id: string) => departments?.find((d) => d.id === id)?.name ?? null,
+    [departments],
+  );
+  const positionsOf = (u: Profile): EmployeePosition[] => positionsForEmployee(u, allPositions);
 
   const roleCounts = useMemo(() => {
     const counts = new Map<UserRole | "all", number>();
@@ -81,9 +89,12 @@ export function Users() {
       const email = (u.email ?? "").toLowerCase();
       const phone = (u.phone ?? "").toLowerCase();
       const dept = deptName(u.department_id).toLowerCase();
-      return name.includes(q) || email.includes(q) || phone.includes(q) || dept.includes(q);
+      const positions = positionsForEmployee(u, allPositions)
+        .map((p) => positionLabel(p, deptNameOrNull).toLowerCase())
+        .join(" ");
+      return name.includes(q) || email.includes(q) || phone.includes(q) || dept.includes(q) || positions.includes(q);
     });
-  }, [users, search, roleFilter, deptName]);
+  }, [users, search, roleFilter, deptName, deptNameOrNull, allPositions]);
 
   if (!businessId) {
     return (
@@ -163,6 +174,8 @@ export function Users() {
                 {filtered.map((u, i) => {
                   const open = expanded === u.id;
                   const dept = deptName(u.department_id);
+                  const positions = positionsOf(u);
+                  const multi = positions.length > 1;
                   return (
                     <div
                       key={u.id}
@@ -189,8 +202,16 @@ export function Users() {
                         <span className="user-cell-info">
                           <span className="user-cell-name">{u.full_name}</span>
                           <span className="user-cell-sub">
-                            <span className="user-cell-role">{ROLE_LABELS[u.role]}</span>
-                            {dept !== "—" && <span className="user-cell-dept"> · {dept}</span>}
+                            {multi ? (
+                              <span className="user-cell-role">
+                                {positions.map((p) => positionLabel(p, deptNameOrNull)).join(" · ")}
+                              </span>
+                            ) : (
+                              <>
+                                <span className="user-cell-role">{ROLE_LABELS[u.role]}</span>
+                                {dept !== "—" && <span className="user-cell-dept"> · {dept}</span>}
+                              </>
+                            )}
                             {!u.active && <span className="user-cell-off">מושבת</span>}
                           </span>
                         </span>
@@ -200,10 +221,13 @@ export function Users() {
                         <div className="user-cell-details-clip">
                           <div className="user-cell-details-body">
                             <div className="user-cell-facts">
-                              <span className="user-fact">
-                                <Icon name="payments" size={17} />
-                                {wageSummary(u)}
-                              </span>
+                              {positions.map((p) => (
+                                <span key={p.id} className="user-fact">
+                                  <Icon name={p.wage_type === "tips" ? "savings" : "payments"} size={17} />
+                                  {multi && <b>{positionLabel(p, deptNameOrNull)} · </b>}
+                                  {positionWageSummary(p, formatCurrency)}
+                                </span>
+                              ))}
                               {u.phone && (
                                 <a href={`tel:${u.phone}`} className="user-fact user-fact--link">
                                   <Icon name="call" size={17} />
@@ -255,7 +279,10 @@ export function Users() {
                   <span>סטטוס</span>
                   <span aria-hidden="true" />
                 </div>
-                {filtered.map((u, i) => (
+                {filtered.map((u, i) => {
+                  const positions = positionsOf(u);
+                  const multi = positions.length > 1;
+                  return (
                   <div
                     key={u.id}
                     className="data-row dash-rise col-span-8 grid grid-cols-subgrid items-start gap-x-2 border-b border-border-2 px-5 py-3 text-[13.5px]"
@@ -271,9 +298,26 @@ export function Users() {
                       />
                       <span className="truncate font-bold">{u.full_name}</span>
                     </span>
-                    <span className="self-center"><Badge tone="neutral">{ROLE_LABELS[u.role]}</Badge></span>
-                    <span className="self-center text-text-2">{deptName(u.department_id)}</span>
-                    <span className="self-center text-text-2">{wageSummary(u)}</span>
+                    <span className="flex flex-wrap gap-1 self-center">
+                      {multi ? (
+                        positions.map((p) => (
+                          <Badge key={p.id} tone={p.wage_type === "tips" ? "violet" : "neutral"}>
+                            {positionLabel(p, deptNameOrNull)}
+                          </Badge>
+                        ))
+                      ) : (
+                        <Badge tone="neutral">{ROLE_LABELS[u.role]}</Badge>
+                      )}
+                    </span>
+                    <span className="self-center text-text-2">{multi ? "—" : deptName(u.department_id)}</span>
+                    <span className="flex flex-col gap-0.5 self-center text-[12.5px] text-text-2">
+                      {positions.map((p) => (
+                        <span key={p.id} className="whitespace-nowrap">
+                          {multi && <span className="font-semibold text-text">{positionLabel(p, deptNameOrNull)}: </span>}
+                          {positionWageSummary(p, formatCurrency)}
+                        </span>
+                      ))}
+                    </span>
                     <span
                       className="min-w-0 self-center truncate text-[12.5px] text-text-2"
                       style={{ direction: "ltr", textAlign: "right" }}
@@ -304,7 +348,8 @@ export function Users() {
                       )}
                     </span>
                   </div>
-                ))}
+                  );
+                })}
                 {filtered.length === 0 && (
                   <div className="px-5 py-10 text-center text-text-2">לא נמצאו משתמשים.</div>
                 )}
@@ -350,13 +395,21 @@ export function Users() {
       {edit && (
         <EditUserModal
           user={edit}
+          positions={positionsOf(edit)}
           departments={departments ?? []}
           onClose={() => setEdit(null)}
-          onSave={async (patch) => {
+          onSave={async (patch, drafts) => {
+            // Positions first: the DB trigger mirrors the primary one onto the
+            // profile (role / department / wage), then the plain profile fields.
+            await replacePositions.mutateAsync({
+              business_id: businessId,
+              employee_id: edit.id,
+              positions: drafts,
+            });
             await update.mutateAsync({ id: edit.id, ...patch });
             setEdit(null);
           }}
-          saving={update.isPending}
+          saving={update.isPending || replacePositions.isPending}
         />
       )}
 
@@ -407,34 +460,34 @@ export function Users() {
 
 function EditUserModal({
   user,
+  positions,
   departments,
   onClose,
   onSave,
   saving,
 }: {
   user: Profile;
+  positions: EmployeePosition[];
   departments: { id: string; name: string }[];
   onClose: () => void;
-  onSave: (patch: Partial<Profile>) => Promise<void>;
+  onSave: (patch: Partial<Profile>, positions: PositionDraft[]) => Promise<void>;
   saving: boolean;
 }) {
-  const [role, setRole] = useState<UserRole>(user.role);
-  const [departmentId, setDepartmentId] = useState(user.department_id ?? "");
+  const [drafts, setDrafts] = useState<PositionDraft[]>(() => positions.map(draftFromPosition));
   const [phone, setPhone] = useState(user.phone ?? "");
   const [birthDate, setBirthDate] = useState(user.birth_date ?? "");
-  const [wageType, setWageType] = useState<WageType>(user.wage_type ?? "hourly");
-  const [hourly, setHourly] = useState(String(user.hourly_rate ?? 0));
-  const [bonusPct, setBonusPct] = useState(String(user.bonus_pct ?? 0));
   const [pensionActive, setPensionActive] = useState(user.pension_active ?? false);
   const [active, setActive] = useState(user.active);
   const [error, setError] = useState<string | null>(null);
+
+  const editorRoles: UserRole[] = user.role === "manager" ? ["manager", ...ASSIGNABLE_ROLES] : ASSIGNABLE_ROLES;
 
   return (
     <Modal
       open
       onClose={onClose}
       title={user.full_name ?? "עריכת עובד"}
-      subtitle="עדכון תפקיד, מחלקה, פרטי קשר ושכר"
+      subtitle="עדכון תפקידים, פרטי קשר ושכר"
       icon="manage_accounts"
       footer={
         <>
@@ -444,18 +497,19 @@ function EditUserModal({
             loading={saving}
             onClick={async () => {
               setError(null);
+              if (drafts.length === 0) return setError("יש להגדיר לפחות תפקיד אחד");
+              const dup = findDuplicatePositionDraft(drafts);
+              if (dup) return setError("יש שני תפקידים זהים (אותה הרשאה ומחלקה) — מחקו אחד מהם");
               try {
-                await onSave({
-                  role,
-                  department_id: role === "employee" ? departmentId || null : null,
-                  phone: phone.trim() || null,
-                  birth_date: birthDate || null,
-                  hourly_rate: Number(hourly) || 0,
-                  wage_type: wageType,
-                  bonus_pct: BONUS_ELIGIBLE_ROLES.includes(role) ? Number(bonusPct) || 0 : 0,
-                  pension_active: pensionActive,
-                  active,
-                });
+                await onSave(
+                  {
+                    phone: phone.trim() || null,
+                    birth_date: birthDate || null,
+                    pension_active: pensionActive,
+                    active,
+                  },
+                  drafts,
+                );
               } catch (e) {
                 setError(e instanceof Error ? e.message : "שגיאה בשמירה");
               }
@@ -467,65 +521,18 @@ function EditUserModal({
       }
     >
       <div className="flex flex-col gap-3.5">
-        <label className="block"><span className="label-text">הרשאה</span>
-          <Select
-            className="mt-1.5"
-            value={role}
-            onChange={(e) => {
-              const next = e.target.value as UserRole;
-              setRole(next);
-              if (next !== "employee") setDepartmentId("");
-            }}
-          >
-            {ASSIGNABLE_ROLES.concat(role === "manager" ? ["manager"] : []).map((r) => (
-              <option key={r} value={r}>{ROLE_LABELS[r]}</option>
-            ))}
-          </Select>
-        </label>
-        {role === "employee" && (
-          <label className="block"><span className="label-text">מחלקה</span>
-            <Select className="mt-1.5" value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
-              <option value="">— ללא —</option>
-              {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </Select>
-          </label>
-        )}
+        <div>
+          <span className="label-text">תפקידים והרשאות</span>
+          <div className="mt-1.5">
+            <PositionsEditor drafts={drafts} onChange={setDrafts} roles={editorRoles} departments={departments} />
+          </div>
+        </div>
         <label className="block"><span className="label-text">טלפון</span>
           <Input className="mt-1.5" value={phone} onChange={(e) => setPhone(e.target.value)} style={{ direction: "ltr", textAlign: "right" }} placeholder="050-0000000" />
         </label>
         <label className="block"><span className="label-text">תאריך לידה</span>
           <Input className="mt-1.5" type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} />
         </label>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <label className="block"><span className="label-text">סוג שכר</span>
-            <Select className="mt-1.5" value={wageType} onChange={(e) => setWageType(e.target.value as WageType)}>
-              {(Object.keys(WAGE_TYPE_LABELS) as WageType[]).map((w) => (
-                <option key={w} value={w}>{WAGE_TYPE_LABELS[w]}</option>
-              ))}
-            </Select>
-          </label>
-          <label className="block"><span className="label-text">{wageType === "tips" ? "מינימום לשעה (₪)" : "שכר שעתי (₪)"}</span>
-            <Input className="mt-1.5" type="number" value={hourly} onChange={(e) => setHourly(e.target.value)} />
-          </label>
-        </div>
-        {BONUS_ELIGIBLE_ROLES.includes(role) && (
-          <label className="block">
-            <span className="label-text">אחוז מהקופה (%)</span>
-            <Input
-              className="mt-1.5"
-              type="number"
-              inputMode="decimal"
-              min={0}
-              step={0.1}
-              value={bonusPct}
-              onChange={(e) => setBonusPct(e.target.value)}
-              placeholder="0"
-            />
-            <span className="mt-1 block text-[12px] leading-relaxed text-text-2">
-              תוספת שכר אוטומטית במשמרות שעבד בהן — לפי אחוז מסכום המכירות בדוח.
-            </span>
-          </label>
-        )}
         <label className="flex cursor-pointer items-center gap-2.5 rounded-[11px] border border-border px-3.5 py-3">
           <input
             type="checkbox"

@@ -37,6 +37,7 @@ export type FeatureKey =
   | "attendance"
   | "inventory"
   | "waste"
+  | "menu"
   | "faults"
   | "events"
   | "tasks";
@@ -114,6 +115,28 @@ export interface Profile {
   /** Optional birth date (YYYY-MM-DD). */
   birth_date: string | null;
   active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * One job an employee can clock in as (employee_positions). A worker may hold
+ * several — e.g. shift manager (hourly 45) and waiter (tips, floor 35). The
+ * position chosen at clock-in drives that shift's pay model.
+ */
+export interface EmployeePosition {
+  id: string;
+  business_id: string;
+  employee_id: string;
+  /** Permission level this position grants. The highest across positions becomes profiles.role. */
+  role: UserRole;
+  department_id: string | null;
+  wage_type: WageType;
+  /** Fixed hourly wage, or the per-shift minimum floor for tips positions. */
+  hourly_rate: number;
+  /** Register-percentage bonus for shifts worked in this position (0 = none). */
+  bonus_pct: number;
+  sort_order: number;
   created_at: string;
   updated_at: string;
 }
@@ -296,6 +319,8 @@ export interface Attendance {
   clock_in_lat: number | null;
   clock_in_lng: number | null;
   within_radius: boolean | null;
+  /** Position the employee clocked in as. null on legacy rows → resolve via the primary position. */
+  position_id?: string | null;
   created_at: string;
 }
 
@@ -310,12 +335,16 @@ export interface Tip {
   hourly_from_tips: number | null;
   /** When the tip was generated from a shift report, links back to it. */
   shift_report_id: string | null;
+  /** Position the shift was worked in (copied from attendance). null on legacy rows. */
+  position_id?: string | null;
   created_at: string;
 }
 
 /** A single tip participant inside a shift report (saved into extra.tip_participants and tips). */
 export interface ShiftReportParticipant {
   employee_id: string;
+  /** Position the employee clocked in as for this shift (from attendance). */
+  position_id?: string | null;
   /** Hours used for tip split (manager may correct attendance). */
   hours: number;
   /** Hours recorded from clock-in/out — display only, not saved to tips. */
@@ -330,6 +359,8 @@ export interface ShiftReportBonusParticipant {
   employee_id: string;
   /** Individual share of total_sales (percent). */
   bonus_pct?: number;
+  /** Position whose bonus_pct applied for this shift. */
+  position_id?: string | null;
 }
 
 /** Persisted bonus payout per employee per shift report (shift_bonuses table). */
@@ -343,6 +374,8 @@ export interface ShiftBonus {
   amount: number;
   bonus_pct: number;
   sales_base: number;
+  /** Position the shift was worked in. null on legacy rows. */
+  position_id?: string | null;
   created_at: string;
 }
 
@@ -503,6 +536,14 @@ export interface InventoryItem {
   units_per_package: number | null;
   /** Name of the single piece inside the package (e.g. בקבוק). null when there is no breakdown. */
   piece_unit: string | null;
+  /**
+   * How much is inside ONE single piece (or one main unit when there is no breakdown),
+   * in `content_measure` — e.g. bottle = 750 ml, sack = 25000 g, egg = 1 unit.
+   * Lets the supplier price become a price per gram / ml for dish costing.
+   * null = not declared yet (measure units like ק״ג / ליטר derive it from their name).
+   */
+  content_qty: number | null;
+  content_measure: MenuMeasure | null;
   image_url: string | null;
   min_quantity: number;
   /** FK to inventory_categories; null = uncategorized */
@@ -634,6 +675,50 @@ export interface EventRecord {
   created_at: string;
 }
 
+/** What the event manager is asking the manager for. */
+export type EventRequestKind = "staffing" | "supplies";
+export type EventRequestStatus = "open" | "in_treatment" | "closed";
+
+/** One staffing line: "2 × בר". `department_id` is null for a free-text role. */
+export interface EventStaffingLine {
+  department_id: string | null;
+  label: string;
+  count: number;
+  /** Profile ids the manager placed in this line's slots (≤ count). */
+  assigned?: string[];
+}
+
+/** One supplies line. `item_id` is null for an item typed in by hand. */
+export interface EventSupplyLine {
+  item_id: string | null;
+  name: string;
+  quantity: number;
+  unit: string | null;
+  /** Ticked off by the manager once bought / ordered. */
+  done?: boolean;
+}
+
+export interface EventRequest {
+  id: string;
+  business_id: string;
+  event_id: string;
+  requested_by: string | null;
+  kind: EventRequestKind;
+  status: EventRequestStatus;
+  /** Staffing only — when the people are needed ("ערב, הגעה 18:00"). */
+  shift_label: string | null;
+  note: string | null;
+  lines: EventStaffingLine[] | EventSupplyLine[];
+  status_updated_by: string | null;
+  status_updated_at: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Populated when loaded with joins. */
+  requester?: { full_name: string | null; avatar_url?: string | null } | null;
+  status_updater?: { full_name: string | null } | null;
+  event?: { title: string; event_date: string } | null;
+}
+
 export interface EventIdea {
   id: string;
   business_id: string;
@@ -681,5 +766,91 @@ export interface Task {
   last_documented_by: string | null;
   last_documented_at: string | null;
   created_at: string;
+  updated_at: string;
+}
+
+/* ----------------------------- תפריט ותמחור מנות ----------------------------- */
+
+/** Base measure a quantity is ultimately resolved into. */
+export type MenuMeasure = "g" | "ml" | "unit";
+
+/**
+ * Unit a recipe line is written in.
+ * - g / kg / ml / l / unit — absolute measures, converted via `MenuItemConversion`.
+ * - main  — the item's purchase unit (crate, kg, bottle).
+ * - piece — one single piece inside the item's package (bottle in a crate).
+ */
+export type MenuComponentUnit = "g" | "kg" | "ml" | "l" | "unit" | "main" | "piece";
+
+export type MenuDishKind = "dish" | "prep";
+
+export interface MenuSettings {
+  business_id: string;
+  vat_pct: number;
+  prices_include_vat: boolean;
+  costs_include_vat: boolean;
+  target_food_cost_pct: number;
+  updated_at: string;
+}
+
+export interface MenuCategory {
+  id: string;
+  business_id: string;
+  name: string;
+  color: string | null;
+  sort_order: number;
+  active: boolean;
+  created_at: string;
+}
+
+export interface MenuDish {
+  id: string;
+  business_id: string;
+  category_id: string | null;
+  kind: MenuDishKind;
+  name: string;
+  description: string | null;
+  image_url: string | null;
+  /** Dish only. Gross or net per `MenuSettings.prices_include_vat`. */
+  selling_price: number | null;
+  /** What the recipe produces: 1 unit for a plated dish, e.g. 2000 g for a sauce batch. */
+  yield_qty: number;
+  yield_measure: MenuMeasure;
+  /** Per-dish override of the business target food-cost %. */
+  target_food_cost_pct: number | null;
+  /** Optional sales volume for menu engineering. */
+  monthly_sales: number | null;
+  notes: string | null;
+  sort_order: number;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MenuDishComponent {
+  id: string;
+  business_id: string;
+  dish_id: string;
+  item_id: string | null;
+  sub_dish_id: string | null;
+  quantity: number;
+  unit: MenuComponentUnit;
+  /** Trim / yield loss %. Gross needed = quantity / (1 - waste_pct/100). */
+  waste_pct: number;
+  /** Pin the price to one supplier; null = cheapest available. */
+  supplier_id: string | null;
+  notes: string | null;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface MenuItemConversion {
+  item_id: string;
+  business_id: string;
+  /** Content of one single piece (or one main unit when the item has no package breakdown). */
+  content_qty: number | null;
+  content_measure: MenuMeasure | null;
+  /** Fallback price per main unit when no supplier price list covers the item. */
+  manual_unit_cost: number | null;
   updated_at: string;
 }

@@ -51,9 +51,9 @@ export function useCreateUser() {
     mutationFn: async (input: CreateUserInput) => {
       const { data, error } = await supabase.functions.invoke("create-user", { body: input });
       if (error) {
-        // Surface the function's JSON error message when available
-        const msg = (data as { error?: string })?.error || error.message;
-        throw new Error(translateCreateError(msg));
+        // On a non-2xx response supabase-js leaves `data` empty and keeps the body on
+        // error.context — read it so the user sees the real reason, not the generic line.
+        throw new Error(translateCreateError(await functionErrorMessage(error, data)));
       }
       if ((data as { error?: string })?.error) throw new Error(translateCreateError((data as { error: string }).error));
       return data;
@@ -122,6 +122,10 @@ function translateDeleteError(msg: string): string {
 
 function translateCreateError(msg: string): string {
   const m = (msg || "").toLowerCase();
+  if (m.includes("role_not_in_db") || (m.includes("invalid input value for enum") && m.includes("user_role")))
+    return "התפקיד שנבחר עוד לא קיים במסד הנתונים. יש להריץ את המיגרציה שמוסיפה אותו (למנהלת אירועים: 20260715120000_event_manager_role_enum.sql) ולנסות שוב.";
+  if (m.includes("database error"))
+    return "מסד הנתונים נכשל ביצירת הפרופיל של המשתמש. לרוב זו מיגרציה שלא הורצה (תפקיד חדש או טבלת תפקידים) — בדקו את ה־Auth logs ב-Supabase לפירוט.";
   if (m.includes("not found") || m.includes("failed to send") || m.includes("fetch"))
     return "פונקציית יצירת המשתמש (create-user) לא פרוסה. ראו README. בינתיים אפשר ליצור משתמש דרך לוח Supabase.";
   if (m.includes("seat_limit_reached"))

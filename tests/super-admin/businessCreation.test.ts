@@ -286,7 +286,7 @@ describe("אשף שלם מקצה לקצה", () => {
     });
 
     const featureRows = featureRowsFor("biz-new", modules.state);
-    expect(featureRows.filter((r) => r.enabled)).toHaveLength(8);
+    expect(featureRows.filter((r) => r.enabled)).toHaveLength(9);
 
     expect(managerPayload("biz-new", manager).role).toBe("manager");
   });

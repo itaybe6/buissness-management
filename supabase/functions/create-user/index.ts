@@ -65,6 +65,15 @@ Deno.serve(async (req) => {
       return json({ error: "forbidden" }, 403);
     }
 
+    // Pre-flight: the profile trigger casts `role` to the user_role enum. If the DB is
+    // behind (e.g. 'event_manager' enum migration not applied) GoTrue only reports
+    // "Database error creating new user" — filtering profiles by the role surfaces the
+    // real Postgres error (22P02 invalid enum value) without touching any data.
+    const { error: roleErr } = await admin.from("profiles").select("id").eq("role", role).limit(1);
+    if (roleErr && /invalid input value for enum/i.test(roleErr.message)) {
+      return json({ error: `role_not_in_db: ${roleErr.message}` }, 400);
+    }
+
     const { data: created, error } = await admin.auth.admin.createUser({
       email,
       password,
@@ -72,7 +81,10 @@ Deno.serve(async (req) => {
       user_metadata: { full_name, role, business_id, department_id, phone, hourly_rate, wage_type, pension_active: pension_active ?? false },
     });
 
-    if (error) return json({ error: error.message }, 400);
+    if (error) {
+      console.error("create-user failed", { role, business_id, message: error.message });
+      return json({ error: error.message }, 400);
+    }
     return json({ user: created.user });
   } catch (e) {
     return json({ error: String(e) }, 500);

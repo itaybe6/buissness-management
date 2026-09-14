@@ -23,13 +23,16 @@ import {
   formatTimeLabel,
   formatWorkTimeRange,
   getAttendanceHoursForShiftReport,
+  getAttendancePositionForShiftReport,
   normalizeTimeInputValue,
   getAttendanceTimeRangeForShiftReport,
   hoursBetweenTimes,
 } from "@/lib/shiftReportTips";
 import { useInventory } from "@/api/inventory";
-import { buildBonusParticipantsFromTeam } from "@/lib/shiftReportBonuses";
+import { buildBonusParticipantsFromTeamPositions } from "@/lib/shiftReportBonuses";
 import { buildShiftPayRows, type ShiftPayRow } from "@/lib/shiftReportPay";
+import { useEmployeePositions } from "@/api/employeePositions";
+import { hasTipsPosition, positionsForEmployee, resolvePosition } from "@/lib/employeePositions";
 import { useProfiles } from "@/api/users";
 import { useAttendanceAroundDate } from "@/api/attendance";
 import {
@@ -41,6 +44,7 @@ import {
   type SaveShiftReportInput,
 } from "@/api/shiftReports";
 import type {
+  EmployeePosition,
   Profile,
   ShiftReport,
   ShiftReportOutOfStockItem,
@@ -93,6 +97,14 @@ export function ShiftReports() {
     [users],
   );
   const profileById = useMemo(() => new Map((users ?? []).map((u) => [u.id, u])), [users]);
+  const { data: allPositions } = useEmployeePositions(businessId);
+  const positionsByEmployee = useMemo(
+    () => (employeeId: string) => {
+      const prof = profileById.get(employeeId);
+      return prof ? positionsForEmployee(prof, allPositions) : [];
+    },
+    [profileById, allPositions],
+  );
 
   const list = reports ?? [];
   const stats = useMemo(() => {
@@ -348,6 +360,7 @@ export function ShiftReports() {
           report={viewing}
           userName={userName}
           profileById={profileById}
+          positionsByEmployee={positionsByEmployee}
           canManage={canManage}
           onClose={() => setViewing(null)}
           onEdit={() => {
@@ -375,6 +388,7 @@ export function ShiftReportEditorPage() {
     !isNew && !stateReport ? (reportId ?? null) : null,
   );
   const { data: users } = useProfiles(businessId);
+  const { data: allPositions } = useEmployeePositions(businessId);
 
   const canManage = !!profile && ["manager", "shift_manager"].includes(profile.role);
   const report = isNew ? null : (stateReport ?? fetchedReport ?? null);
@@ -384,8 +398,20 @@ export function ShiftReportEditorPage() {
     [users],
   );
   const shiftManagers = useMemo(
-    () => (users ?? []).filter((u) => u.active && u.role === "shift_manager"),
-    [users],
+    () =>
+      (users ?? []).filter(
+        (u) =>
+          u.active &&
+          positionsForEmployee(u, allPositions).some((p) => p.role === "shift_manager"),
+      ),
+    [users, allPositions],
+  );
+  // Anyone with at least one tips position can be on the tip roster — which
+  // position actually applies on a given shift is resolved from the clock-in.
+  const tipUsers = useMemo(
+    () =>
+      (users ?? []).filter((u) => u.active && hasTipsPosition(positionsForEmployee(u, allPositions))),
+    [users, allPositions],
   );
 
   function goBack() {
@@ -411,8 +437,9 @@ export function ShiftReportEditorPage() {
       report={report}
       businessId={businessId}
       createdBy={profile?.id ?? null}
-      users={(users ?? []).filter((u) => u.active && (u.wage_type ?? "hourly") === "tips")}
+      users={tipUsers}
       allUsers={(users ?? []).filter((u) => u.active)}
+      allPositions={allPositions ?? []}
       shiftManagers={shiftManagers}
       userName={userName}
       onClose={goBack}
@@ -795,6 +822,7 @@ function ReportEditor({
   createdBy,
   users,
   allUsers,
+  allPositions,
   shiftManagers,
   userName,
   onClose,
@@ -804,6 +832,7 @@ function ReportEditor({
   createdBy: string | null;
   users: Profile[];
   allUsers: Profile[];
+  allPositions: EmployeePosition[];
   shiftManagers: Profile[];
   userName: (id: string) => string;
   onClose: () => void;
@@ -824,6 +853,24 @@ function ReportEditor({
   const { data: inventoryItems = [] } = useInventory(businessId);
 
   const tipEmployeeIds = useMemo(() => new Set(users.map((u) => u.id)), [users]);
+  const positionsByEmployee = useMemo(
+    () => (employeeId: string) => {
+      const prof = allUsers.find((u) => u.id === employeeId);
+      return prof ? positionsForEmployee(prof, allPositions) : [];
+    },
+    [allUsers, allPositions],
+  );
+  /**
+   * Is this roster member on tips for this shift? Single-position employees
+   * follow their profile; multi-position employees follow the position they
+   * clocked in as (an hourly shift-manager clock-in keeps them off the tip pool).
+   */
+  const isTipParticipant = (p: { employee_id: string; position_id?: string | null }) => {
+    if (!p.employee_id || !tipEmployeeIds.has(p.employee_id)) return false;
+    const positions = positionsByEmployee(p.employee_id);
+    if (positions.length <= 1) return true;
+    return resolvePosition(p.position_id, positions, { preferWageType: "tips" }).wage_type === "tips";
+  };
   const rosterKeyRef = useRef(
     (report?.extra?.team_members?.length ?? 0) > 0 ? report!.report_date : "",
   );
@@ -861,9 +908,10 @@ function ReportEditor({
       attendance: attendance ?? [],
       templates: [],
     });
-    const tips = team.filter((p) => tipEmployeeIds.has(p.employee_id));
+    const tips = team.filter((p) => isTipParticipant(p));
     setS((prev) => ({ ...prev, team_members: team, participants: tips }));
-  }, [s.report_date, attendance, attendanceLoading, tipEmployeeIds]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- isTipParticipant derives from tipEmployeeIds/positionsByEmployee
+  }, [s.report_date, attendance, attendanceLoading, tipEmployeeIds, positionsByEmployee]);
 
   useEffect(() => {
     if (attendanceLoading || !s.report_date) return;
@@ -874,12 +922,15 @@ function ReportEditor({
           if (!p.employee_id) return p;
           const attHrs = getAttendanceHoursForShiftReport(attendanceReportInput(p.employee_id, prev.report_date));
           const range = getAttendanceTimeRangeForShiftReport(attendanceReportInput(p.employee_id, prev.report_date));
+          const attPos = getAttendancePositionForShiftReport(attendanceReportInput(p.employee_id, prev.report_date));
+          const posChanged = !!attPos && (p.position_id ?? null) !== attPos;
           const synced = Math.abs((Number(p.hours) || 0) - (Number(p.attendance_hours) || 0)) <= 0.01;
-          if (p.attendance_hours === attHrs && (!synced || !range)) return p;
+          if (p.attendance_hours === attHrs && (!synced || !range) && !posChanged) return p;
           changed = true;
           return {
             ...p,
             attendance_hours: attHrs,
+            ...(posChanged ? { position_id: attPos } : {}),
             ...(synced && range
               ? { hours: attHrs, work_start: range.work_start, work_end: range.work_end }
               : {}),
@@ -891,12 +942,15 @@ function ReportEditor({
           if (!p.employee_id) return p;
           const attHrs = getAttendanceHoursForShiftReport(attendanceReportInput(p.employee_id, prev.report_date));
           const range = getAttendanceTimeRangeForShiftReport(attendanceReportInput(p.employee_id, prev.report_date));
+          const attPos = getAttendancePositionForShiftReport(attendanceReportInput(p.employee_id, prev.report_date));
+          const posChanged = !!attPos && (p.position_id ?? null) !== attPos;
           const synced = Math.abs((Number(p.hours) || 0) - (Number(p.attendance_hours) || 0)) <= 0.01;
-          if (p.attendance_hours === attHrs && (!synced || !range)) return p;
+          if (p.attendance_hours === attHrs && (!synced || !range) && !posChanged) return p;
           changed = true;
           return {
             ...p,
             attendance_hours: attHrs,
+            ...(posChanged ? { position_id: attPos } : {}),
             ...(synced && range
               ? { hours: attHrs, work_start: range.work_start, work_end: range.work_end }
               : {}),
@@ -963,6 +1017,9 @@ function ReportEditor({
       nextRow.hours = attHrs;
       nextRow.work_start = range?.work_start ?? "";
       nextRow.work_end = range?.work_end ?? "";
+      nextRow.position_id = getAttendancePositionForShiftReport(
+        attendanceReportInput(patch.employee_id, s.report_date),
+      );
     }
 
     const next = [...s.team_members];
@@ -971,7 +1028,11 @@ function ReportEditor({
     setS((prev) => {
       let participants = prev.participants;
       const employeeId = nextRow.employee_id;
-      if (employeeId && tipEmployeeIds.has(employeeId)) {
+      if (employeeId && !isTipParticipant(nextRow)) {
+        // Re-picked as an hourly position (or swapped to an hourly employee): leave the tip pool.
+        participants = participants.filter((p) => p.employee_id !== employeeId);
+      }
+      if (employeeId && isTipParticipant(nextRow)) {
         const existingIdx = participants.findIndex((p) => p.employee_id === employeeId);
         if (existingIdx >= 0) {
           const synced =
@@ -992,6 +1053,7 @@ function ReportEditor({
                     attendance_hours: nextRow.attendance_hours,
                     work_start: nextRow.work_start,
                     work_end: nextRow.work_end,
+                    position_id: nextRow.position_id ?? p.position_id ?? null,
                   }
                 : p,
             );
@@ -1005,6 +1067,7 @@ function ReportEditor({
               attendance_hours: nextRow.attendance_hours,
               work_start: nextRow.work_start,
               work_end: nextRow.work_end,
+              ...(nextRow.position_id ? { position_id: nextRow.position_id } : {}),
             },
           ];
         }
@@ -1070,8 +1133,10 @@ function ReportEditor({
         : s.urgent_inventory.trim() || null
       : null;
     const faultsText = s.faults_enabled ? s.faults_maintenance.trim() || null : null;
-    const teamIds = s.team_members.filter((p) => p.employee_id).map((p) => p.employee_id);
-    const bonusRows = buildBonusParticipantsFromTeam(teamIds, allUsers);
+    const bonusRows = buildBonusParticipantsFromTeamPositions(
+      s.team_members.filter((p) => p.employee_id),
+      positionsByEmployee,
+    );
     const payload: SaveShiftReportInput = {
       id: report?.id,
       business_id: businessId,
@@ -1174,7 +1239,7 @@ function ReportEditor({
 
           <Section icon="groups" title="פירוט צוות המשמרת">
             <div className="text-[12.5px] text-text-2">
-              כל מי שעבד במשמרת. לעובדי טיפים החלק מהקופה מחושב לפי השעות שלהם, ולשאר לפי השכר השעתי בפרופיל.
+              כל מי שעבד במשמרת. לעובדי טיפים החלק מהקופה מחושב לפי השעות שלהם, ולשאר לפי השכר השעתי של התפקיד שנכנסו בו.
             </div>
             <ShiftTeamPay
               rows={buildShiftPayRows({
@@ -1183,6 +1248,7 @@ function ReportEditor({
                 profileById,
                 userName,
                 tipsHourly,
+                positionsByEmployee,
               })}
             />
             <DetailGrid>
@@ -2009,6 +2075,7 @@ function ReportViewer({
   report,
   userName,
   profileById,
+  positionsByEmployee,
   canManage,
   onClose,
   onEdit,
@@ -2016,6 +2083,7 @@ function ReportViewer({
   report: ShiftReport;
   userName: (id: string) => string;
   profileById: Map<string, Profile>;
+  positionsByEmployee?: (employeeId: string) => EmployeePosition[];
   canManage: boolean;
   onClose: () => void;
   onEdit: () => void;
@@ -2036,6 +2104,7 @@ function ReportViewer({
     profileById,
     userName,
     tipsHourly,
+    positionsByEmployee,
   });
 
   return (

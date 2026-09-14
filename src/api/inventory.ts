@@ -3,7 +3,15 @@ import { compressImage } from "@/lib/compressImage";
 import { supabase } from "@/lib/supabase";
 import { effectiveMainUnitPrice, type SupplierItemPrices } from "@/api/suppliers";
 import { nextWarehouseQty, planOrderReceive, planReceiveCorrection } from "@/lib/inventoryReceive";
-import type { InventoryAction, InventoryItem, InventoryLog, InventoryOrder, OrderStatus, WarehouseStock } from "@/types/database";
+import type {
+  InventoryAction,
+  InventoryItem,
+  InventoryLog,
+  InventoryOrder,
+  MenuMeasure,
+  OrderStatus,
+  WarehouseStock,
+} from "@/types/database";
 
 function throwDbError(error: { message: string } | null): void {
   if (error) throw new Error(error.message);
@@ -519,6 +527,8 @@ export function useCreateItem(businessId: string | null) {
       unit?: string;
       units_per_package?: number | null;
       piece_unit?: string | null;
+      content_qty?: number | null;
+      content_measure?: MenuMeasure | null;
       image_url?: string | null;
       min_quantity?: number;
       category_id?: string | null;
@@ -625,6 +635,28 @@ export function useUpdateItem(businessId: string | null) {
       });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["inventory", businessId] }),
+  });
+}
+
+/**
+ * Declare what one single piece of a product is made of (בקבוק = 750 מ״ל).
+ * Used by the menu module when a product was created before the content became mandatory.
+ */
+export function useSaveItemContent(businessId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { item_id: string; content_qty: number | null; content_measure: MenuMeasure | null }) => {
+      const has = input.content_qty != null && input.content_qty > 0 && !!input.content_measure;
+      const { error } = await supabase
+        .from("inventory_items")
+        .update({ content_qty: has ? input.content_qty : null, content_measure: has ? input.content_measure : null })
+        .eq("id", input.item_id);
+      throwDbError(error);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["inventory", businessId] });
+      qc.invalidateQueries({ queryKey: ["menu"] });
+    },
   });
 }
 

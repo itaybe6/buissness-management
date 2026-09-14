@@ -34,11 +34,14 @@ import { Suppliers } from "@/pages/Suppliers";
 import { SupplierFormPage } from "@/pages/SupplierFormPage";
 import { SupplierDetailPage } from "@/pages/SupplierDetailPage";
 import { Waste } from "@/pages/Waste";
+import { MenuPage } from "@/pages/menu/MenuPage";
+import { DishBuilderPage } from "@/pages/menu/DishBuilderPage";
 // Lazy — pulls in the PDF rendering/stamping libraries only when opened.
 const Agreements = lazy(() => import("@/pages/Agreements").then((m) => ({ default: m.Agreements })));
 import { Events } from "@/pages/Events";
 import { EventIdeas } from "@/pages/EventIdeas";
 import { EventDetail } from "@/pages/EventDetail";
+import { EventRequests } from "@/pages/EventRequests";
 import { Profile } from "@/pages/Profile";
 import { FeatureGate } from "@/components/FeatureGate";
 
@@ -108,10 +111,14 @@ export function App() {
           <Route path="suppliers/:supplierId/edit" element={<FeatureGate feature="inventory"><SupplierFormPage /></FeatureGate>} />
           <Route path="suppliers/:supplierId" element={<FeatureGate feature="inventory"><SupplierDetailPage /></FeatureGate>} />
           <Route path="waste" element={<FeatureGate feature="waste"><Waste /></FeatureGate>} />
+          <Route path="menu" element={<FeatureGate feature="menu"><MenuPage /></FeatureGate>} />
+          <Route path="menu/dishes/new" element={<FeatureGate feature="menu"><DishBuilderPage /></FeatureGate>} />
+          <Route path="menu/dishes/:dishId" element={<FeatureGate feature="menu"><DishBuilderPage /></FeatureGate>} />
           <Route path="faults" element={<FeatureGate feature="faults"><Faults /></FeatureGate>} />
           <Route path="agreements" element={<FeatureGate feature="agreements"><Suspense fallback={<PageLoader />}><Agreements /></Suspense></FeatureGate>} />
           <Route path="events" element={<FeatureGate feature="events"><Events /></FeatureGate>} />
           <Route path="events/ideas" element={<FeatureGate feature="events"><EventIdeas /></FeatureGate>} />
+          <Route path="events/requests" element={<FeatureGate feature="events"><EventRequests /></FeatureGate>} />
           <Route path="events/:eventId" element={<FeatureGate feature="events"><EventDetail /></FeatureGate>} />
           <Route path="settings" element={<Settings />} />
           <Route path="profile" element={<Profile />} />

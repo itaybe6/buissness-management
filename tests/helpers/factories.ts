@@ -11,6 +11,7 @@ import type {
   Attendance,
   Business,
   Department,
+  EmployeePosition,
   Fault,
   InventoryCategory,
   InventoryItem,
@@ -177,6 +178,34 @@ export function hourlyEmployee(id: string, rate = 40, over: Partial<Profile> = {
 /** עובד טיפים — hourly_rate הוא רצפת המינימום למשמרת. */
 export function tipsEmployee(id: string, minimumRate = 35.4, over: Partial<Profile> = {}): Profile {
   return makeProfile({ id, wage_type: "tips", hourly_rate: minimumRate, ...over });
+}
+
+/** תפקיד (position) של עובד — לעובד יכולים להיות כמה, כל אחד עם מודל שכר משלו. */
+export function makePosition(over: Partial<EmployeePosition> = {}): EmployeePosition {
+  return {
+    id: nextId("pos"),
+    business_id: BUSINESS_ID,
+    employee_id: USER.employee,
+    role: "employee",
+    department_id: DEPT.service,
+    wage_type: "hourly",
+    hourly_rate: 40,
+    bonus_pct: 0,
+    sort_order: 0,
+    created_at: T0,
+    updated_at: T0,
+    ...over,
+  };
+}
+
+/** תפקיד טיפים (מלצר/ברמן) — hourly_rate הוא רצפת המינימום. */
+export function tipsPosition(employeeId: string, minimumRate = 35, over: Partial<EmployeePosition> = {}): EmployeePosition {
+  return makePosition({ employee_id: employeeId, wage_type: "tips", hourly_rate: minimumRate, ...over });
+}
+
+/** תפקיד שעתי (טבח / אחראי משמרת). */
+export function hourlyPosition(employeeId: string, rate = 45, over: Partial<EmployeePosition> = {}): EmployeePosition {
+  return makePosition({ employee_id: employeeId, wage_type: "hourly", hourly_rate: rate, ...over });
 }
 
 // ---------------------------------------------------------------------------
@@ -443,6 +472,8 @@ export function makeInventoryItem(over: Partial<InventoryItem> = {}): InventoryI
     unit: "ארגז",
     units_per_package: 24,
     piece_unit: "יחידות",
+    content_qty: null,
+    content_measure: null,
     image_url: null,
     min_quantity: 5,
     category_id: null,

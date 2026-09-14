@@ -3,9 +3,12 @@ import { Icon } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { UserAvatar } from "@/components/ui/UserAvatar";
 import { useForceClockIn } from "@/api/attendance";
+import { useEmployeePositions } from "@/api/employeePositions";
+import { ShiftPositionPickerModal } from "@/components/attendance/ShiftPositionPickerModal";
 import { employeesAvailableToAddToShift, filterEmployeesBySearch } from "@/lib/addEmployeeToShift";
 import { ROLE_LABELS } from "@/lib/constants";
-import type { Department, Profile } from "@/types/database";
+import { positionLabel, sortPositions } from "@/lib/employeePositions";
+import type { Department, EmployeePosition, Profile } from "@/types/database";
 
 type EligibleEmployee = Pick<
   Profile,
@@ -28,10 +31,13 @@ export function AddEmployeeToShiftSheet({
   onShiftEmployeeIds: Iterable<string>;
 }) {
   const forceClockIn = useForceClockIn(businessId);
+  const { data: allPositions } = useEmployeePositions(businessId);
   const [query, setQuery] = useState("");
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [successName, setSuccessName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Employee waiting for a position choice before being punched in. */
+  const [choosingFor, setChoosingFor] = useState<EligibleEmployee | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const successTimer = useRef<number | null>(null);
 
@@ -40,6 +46,10 @@ export function AddEmployeeToShiftSheet({
     departments.forEach((d) => m.set(d.id, d.name));
     return m;
   }, [departments]);
+  const deptNameOrNull = (id: string) => deptNameById.get(id) ?? null;
+
+  const positionsOf = (employeeId: string): EmployeePosition[] =>
+    sortPositions((allPositions ?? []).filter((p) => p.employee_id === employeeId));
 
   const available = useMemo(
     () => employeesAvailableToAddToShift(users, onShiftEmployeeIds),
@@ -58,6 +68,7 @@ export function AddEmployeeToShiftSheet({
       setPendingId(null);
       setSuccessName(null);
       setError(null);
+      setChoosingFor(null);
       return;
     }
     const id = window.setTimeout(() => searchRef.current?.focus(), 280);
@@ -70,17 +81,31 @@ export function AddEmployeeToShiftSheet({
     };
   }, []);
 
-  async function handleAdd(employee: EligibleEmployee) {
+  function handleAdd(employee: EligibleEmployee) {
     if (!businessId || pendingId) return;
+    const positions = positionsOf(employee.id);
+    if (positions.length > 1) {
+      setError(null);
+      setChoosingFor(employee);
+      return;
+    }
+    void addAs(employee, positions[0] ?? null);
+  }
+
+  async function addAs(employee: EligibleEmployee, position: EmployeePosition | null) {
+    if (!businessId || pendingId) return;
+    setChoosingFor(null);
     setError(null);
     setPendingId(employee.id);
     try {
       await forceClockIn.mutateAsync({
         business_id: businessId,
         employee_id: employee.id,
+        position_id: position?.id ?? null,
       });
       const name = employee.full_name?.trim() || "העובד/ת";
-      setSuccessName(name);
+      const asLabel = position && positionsOf(employee.id).length > 1 ? ` (${positionLabel(position, deptNameOrNull)})` : "";
+      setSuccessName(`${name}${asLabel}`);
       if (successTimer.current != null) window.clearTimeout(successTimer.current);
       successTimer.current = window.setTimeout(() => setSuccessName(null), 2200);
     } catch (e) {
@@ -204,6 +229,16 @@ export function AddEmployeeToShiftSheet({
           </ul>
         )}
       </div>
+
+      <ShiftPositionPickerModal
+        open={!!choosingFor}
+        positions={choosingFor ? positionsOf(choosingFor.id) : []}
+        deptName={deptNameOrNull}
+        employeeName={choosingFor?.full_name ?? null}
+        busy={!!pendingId}
+        onPick={(p) => choosingFor && addAs(choosingFor, p)}
+        onClose={() => setChoosingFor(null)}
+      />
     </Modal>
   );
 }

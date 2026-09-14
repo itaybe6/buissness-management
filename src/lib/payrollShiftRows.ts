@@ -1,4 +1,12 @@
-import type { Attendance, ShiftBonus, ShiftTemplate, Tip } from "@/types/database";
+import {
+  attendancePosition,
+  bonusPosition,
+  groupByPosition,
+  positionLabel,
+  sortPositions,
+  tipPosition,
+} from "@/lib/employeePositions";
+import type { Attendance, EmployeePosition, ShiftBonus, ShiftTemplate, Tip } from "@/types/database";
 
 /** One normalized shift row, regardless of wage model. */
 export interface ShiftRow {
@@ -14,6 +22,9 @@ export interface ShiftRow {
   topup?: number;
   belowMin?: boolean;
   bonusAmount?: number;
+  /** Position the shift was worked in — set when the employee holds several. */
+  positionId?: string;
+  positionLabel?: string;
 }
 
 export interface ShiftRowTotals {
@@ -165,6 +176,55 @@ export function buildEmployeeShiftRows(input: {
     });
 
   return [...baseRows, ...bonusOnlyRows].sort((a, b) => b.date.getTime() - a.date.getTime());
+}
+
+/**
+ * Shift rows for an employee with one or more positions. Every punch / tip /
+ * bonus is computed under the wage model of the position it was recorded in,
+ * so a tips shift and an hourly shift of the same person sit side by side.
+ * When the employee holds several positions the row title is prefixed with the
+ * position ("מלצרות · משמרת"). `onlyPositionId` narrows to one position.
+ */
+export function buildEmployeeShiftRowsByPosition(input: {
+  positions: EmployeePosition[];
+  attendance: Attendance[];
+  tips: Tip[];
+  bonuses: ShiftBonus[];
+  templates: ShiftTemplate[];
+  onlyPositionId?: string | null;
+  deptName?: (id: string) => string | null | undefined;
+}): ShiftRow[] {
+  const positions = sortPositions(input.positions);
+  if (positions.length === 0) return [];
+  const multi = positions.length > 1;
+
+  const attendanceByPos = groupByPosition(input.attendance, positions, attendancePosition);
+  const tipsByPos = groupByPosition(input.tips, positions, tipPosition);
+  const bonusesByPos = groupByPosition(input.bonuses, positions, bonusPosition);
+
+  const rows: ShiftRow[] = [];
+  for (const pos of positions) {
+    if (input.onlyPositionId && pos.id !== input.onlyPositionId) continue;
+    const label = positionLabel(pos, input.deptName);
+    const posRows = buildEmployeeShiftRows({
+      isTips: pos.wage_type === "tips",
+      rate: Number(pos.hourly_rate) || 0,
+      attendance: attendanceByPos.get(pos.id) ?? [],
+      tips: tipsByPos.get(pos.id) ?? [],
+      bonuses: bonusesByPos.get(pos.id) ?? [],
+      templates: input.templates,
+    });
+    for (const r of posRows) {
+      rows.push({
+        ...r,
+        id: multi ? `${pos.id}:${r.id}` : r.id,
+        title: multi ? `${label} · ${r.title}` : r.title,
+        positionId: pos.id,
+        positionLabel: label,
+      });
+    }
+  }
+  return rows.sort((a, b) => b.date.getTime() - a.date.getTime());
 }
 
 export function sumShiftRowTotals(rows: ShiftRow[]): ShiftRowTotals {

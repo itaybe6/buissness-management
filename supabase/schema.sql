@@ -17,17 +17,23 @@ drop trigger if exists on_auth_user_created on auth.users;
 -- מחיקת טבלאות (אם קיימות) בסדר תלות
 drop table if exists
   public.tasks, public.task_templates, public.events, public.event_ideas, public.faults, public.inventory_logs,
+  public.menu_dish_components, public.menu_item_conversions, public.menu_dishes, public.menu_categories, public.menu_settings,
   public.inventory_waste, public.recurring_order_items, public.recurring_orders,
   public.inventory_orders, public.inventory_counts, public.inventory_item_departments,
   public.inventory_items, public.inventory_categories, public.inventory_units, public.suppliers, public.supplier_items,
   public.payroll_records, public.payroll_month_adjustments,
   public.tips, public.shift_bonuses, public.shift_reports, public.attendance, public.shift_assignments, public.shift_preferences,
-  public.shift_templates, public.departments,
+  public.shift_templates, public.employee_positions, public.departments,
   public.employee_id_cards, public.form_101, public.agreement_signatures, public.agreement_templates,
   public.business_features, public.profiles, public.businesses cascade;
 
 -- מחיקת פונקציות (אם קיימות)
 drop function if exists public.handle_new_user cascade;
+drop function if exists public.handle_employee_position_change cascade;
+drop function if exists public.sync_profile_from_positions cascade;
+drop function if exists public.position_role_rank cascade;
+drop function if exists public.can_manage_menu cascade;
+drop function if exists public.menu_components_prevent_cycle cascade;
 drop function if exists public.can_access cascade;
 drop function if exists public.is_super_admin cascade;
 drop function if exists public.auth_role cascade;
@@ -172,13 +178,13 @@ create table public.businesses (
 create table public.business_features (
   id          uuid primary key default gen_random_uuid(),
   business_id uuid not null references public.businesses(id) on delete cascade,
-  feature_key text not null,   -- 'agreements','shifts','shift_reports','payroll','attendance','inventory','waste','faults','events','tasks'
+  feature_key text not null,   -- 'agreements','shifts','shift_reports','payroll','attendance','inventory','waste','menu','faults','events','tasks'
   enabled     boolean not null default true,
   unique (business_id, feature_key)
 );
 
--- תלויות בין מודולים: בלאי מפחית מהמלאי, וחישוב שכר שואב שעות מהחתמות נוכחות.
--- כיבוי הורה מכבה את הבן; הדלקת בן מדליקה את ההורה.
+-- תלויות בין מודולים: בלאי מפחית מהמלאי, תפריט מתמחר מוצרי מלאי, וחישוב שכר
+-- שואב שעות מהחתמות נוכחות. כיבוי הורה מכבה את הבן; הדלקת בן מדליקה את ההורה.
 create or replace function public.enforce_feature_dependencies()
 returns trigger
 language plpgsql
@@ -186,7 +192,7 @@ security definer
 set search_path = public
 as $$
 declare
-  parent_of constant jsonb := '{"waste": "inventory", "payroll": "attendance"}'::jsonb;
+  parent_of constant jsonb := '{"waste": "inventory", "menu": "inventory", "payroll": "attendance"}'::jsonb;
   parent_key text;
 begin
   parent_key := parent_of ->> new.feature_key;
@@ -251,22 +257,125 @@ create table public.profiles (
 );
 
 -- יצירת פרופיל אוטומטית כשנרשם משתמש חדש ב-Auth
+-- ----------------------------------------------------------------------------
+-- 4.1 תפקידי עובד (employee_positions) — עובד יכול להחזיק כמה תפקידים
+--     (אחראי משמרת שעתי + מלצר על טיפים). כל תפקיד: הרשאה, מחלקה, סוג שכר,
+--     תעריף ואחוז קופה. בהחתמת כניסה נבחר התפקיד ונשמר על attendance.position_id.
+--     שדות הפרופיל (role/department_id/wage_type/hourly_rate/bonus_pct) מסונכרנים
+--     אוטומטית מהתפקיד הראשי (ההרשאה הגבוהה ביותר) וקובעים את הגישה למערכת.
+-- ----------------------------------------------------------------------------
+create table public.employee_positions (
+  id            uuid primary key default gen_random_uuid(),
+  business_id   uuid not null references public.businesses(id) on delete cascade,
+  employee_id   uuid not null references public.profiles(id) on delete cascade,
+  role          public.user_role not null default 'employee',
+  department_id uuid references public.departments(id) on delete set null,
+  wage_type     text not null default 'hourly' check (wage_type in ('hourly', 'tips')),
+  hourly_rate   numeric(10,2) not null default 35.4,
+  bonus_pct     numeric(5,2) not null default 0,
+  sort_order    integer not null default 0,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
+
+-- דירוג הרשאות: הדירוג הנמוך ביותר = התפקיד הראשי
+create or replace function public.position_role_rank(r public.user_role)
+returns integer language sql immutable as $$
+  select case r
+    when 'super_admin'    then 0
+    when 'manager'        then 1
+    when 'office_manager' then 2
+    when 'shift_manager'  then 3
+    when 'event_manager'  then 4
+    when 'employee'       then 5
+    when 'maintenance'    then 6
+    else 9
+  end
+$$;
+
+create or replace function public.sync_profile_from_positions(p_employee_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  p record;
+begin
+  select * into p
+  from public.employee_positions
+  where employee_id = p_employee_id
+  order by public.position_role_rank(role), sort_order, created_at
+  limit 1;
+
+  if p is null then
+    return;
+  end if;
+
+  update public.profiles
+  set role = p.role,
+      department_id = p.department_id,
+      wage_type = p.wage_type,
+      hourly_rate = p.hourly_rate,
+      bonus_pct = p.bonus_pct
+  where id = p_employee_id
+    and (
+      role is distinct from p.role
+      or department_id is distinct from p.department_id
+      or wage_type is distinct from p.wage_type
+      or hourly_rate is distinct from p.hourly_rate
+      or bonus_pct is distinct from p.bonus_pct
+    );
+end $$;
+
+create or replace function public.handle_employee_position_change()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if tg_op = 'DELETE' then
+    perform public.sync_profile_from_positions(old.employee_id);
+    return old;
+  end if;
+  perform public.sync_profile_from_positions(new.employee_id);
+  return new;
+end $$;
+
+create trigger trg_employee_positions_sync
+  after insert or update or delete on public.employee_positions
+  for each row execute function public.handle_employee_position_change();
+
+-- יצירת פרופיל (ותפקיד ראשי) אוטומטית כשנרשם משתמש חדש ב-Auth
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  v_business_id uuid := (new.raw_user_meta_data->>'business_id')::uuid;
+  v_role public.user_role := coalesce((new.raw_user_meta_data->>'role')::public.user_role, 'employee');
+  v_department_id uuid := (new.raw_user_meta_data->>'department_id')::uuid;
+  v_hourly_rate numeric := coalesce((new.raw_user_meta_data->>'hourly_rate')::numeric, 35.4);
+  v_wage_type text := coalesce(new.raw_user_meta_data->>'wage_type', 'hourly');
 begin
   insert into public.profiles (id, email, full_name, business_id, role, department_id, phone, hourly_rate, wage_type, pension_active)
   values (
     new.id,
     new.email,
     coalesce(new.raw_user_meta_data->>'full_name', new.email),
-    (new.raw_user_meta_data->>'business_id')::uuid,
-    coalesce((new.raw_user_meta_data->>'role')::public.user_role, 'employee'),
-    (new.raw_user_meta_data->>'department_id')::uuid,
+    v_business_id,
+    v_role,
+    v_department_id,
     new.raw_user_meta_data->>'phone',
-    coalesce((new.raw_user_meta_data->>'hourly_rate')::numeric, 35.4),
-    coalesce(new.raw_user_meta_data->>'wage_type', 'hourly'),
+    v_hourly_rate,
+    v_wage_type,
     coalesce((new.raw_user_meta_data->>'pension_active')::boolean, false)
   );
+
+  if v_business_id is not null and v_role <> 'super_admin' then
+    insert into public.employee_positions (business_id, employee_id, role, department_id, wage_type, hourly_rate, bonus_pct, sort_order)
+    values (v_business_id, new.id, v_role, v_department_id, v_wage_type, v_hourly_rate, 0, 0);
+  end if;
+
   return new;
 end; $$;
 
@@ -491,6 +600,7 @@ create table public.attendance (
   clock_in_lat  double precision,
   clock_in_lng  double precision,
   within_radius boolean default false,  -- האם היה ברדיוס המותר
+  position_id   uuid references public.employee_positions(id) on delete set null, -- התפקיד שנבחר בכניסה
   created_at    timestamptz not null default now()
 );
 
@@ -539,6 +649,7 @@ create table public.tips (
   amount      numeric(10,2) not null default 0,
   hours       numeric(6,2),                    -- שעות באותה משמרת
   hourly_from_tips numeric(10,2),              -- ממוצע שעתי מהטיפים
+  position_id uuid references public.employee_positions(id) on delete set null, -- התפקיד שבו נעבדה המשמרת
   created_at  timestamptz not null default now()
 );
 
@@ -553,6 +664,7 @@ create table public.shift_bonuses (
   amount            numeric(10,2) not null default 0,
   bonus_pct         numeric(5,2) not null default 0,
   sales_base        numeric(12,2) not null default 0,
+  position_id       uuid references public.employee_positions(id) on delete set null, -- התפקיד שבו נעבדה המשמרת
   created_at        timestamptz not null default now(),
   unique (shift_report_id, employee_id)
 );
@@ -626,13 +738,17 @@ create table public.inventory_items (
   unit          text,                 -- היחידה שבה סופרים ומזמינים (יחידות, בקבוק, ארגז, ק"ג)
   units_per_package numeric(12,2) check (units_per_package is null or units_per_package > 0),  -- יחידים במארז (למשל 24 בארגז); null = ללא פירוק
   piece_unit    text,                 -- שם היחיד בתוך המארז (בקבוק, שקית)
+  content_qty   numeric(12,3) check (content_qty is null or content_qty > 0),  -- כמה יש בתוך פריט בודד אחד (לתמחור מנות)
+  content_measure text check (content_measure is null or content_measure in ('g', 'ml', 'unit')),  -- g גרם | ml מ״ל | unit נספר
   image_url     text,                 -- תמונת המוצר ב-Storage
   min_quantity  numeric(12,2) not null default 0,  -- סף מלאי נמוך
   category_id   uuid references public.inventory_categories(id) on delete set null,
   active        boolean not null default true,
   created_at    timestamptz not null default now(),
   constraint inventory_items_piece_unit_needs_pack
-    check (piece_unit is null or units_per_package is not null)
+    check (piece_unit is null or units_per_package is not null),
+  constraint inventory_items_content_pair
+    check ((content_qty is null) = (content_measure is null))
 );
 
 create table public.suppliers (
@@ -749,6 +865,153 @@ create table public.inventory_logs (
 
 
 -- ----------------------------------------------------------------------------
+-- 10.5 מודול: תפריט ותמחור מנות (menu) — דורש inventory
+--      עץ מנה: מנה ← מרכיבים (מוצר מלאי / הכנה). המבנה נשמר כאן; החישוב
+--      (המרות, פחת, מע״מ, רווח) חי ב-src/lib/menuCosting.ts ומשתמש במחירוני
+--      הספקים (supplier_items) בזמן אמת.
+--      מיגרציה: supabase/migrations/20260915100000_menu_costing.sql
+-- ----------------------------------------------------------------------------
+
+-- הגדרות תמחור לעסק (שורה אחת)
+create table public.menu_settings (
+  business_id          uuid primary key references public.businesses(id) on delete cascade,
+  vat_pct              numeric(5,2) not null default 18,
+  prices_include_vat   boolean not null default true,    -- מחירי התפריט כוללים מע״מ
+  costs_include_vat    boolean not null default false,   -- מחירי הספקים כוללים מע״מ
+  target_food_cost_pct numeric(5,2) not null default 30,
+  updated_at           timestamptz not null default now(),
+  constraint menu_settings_vat_range check (vat_pct >= 0 and vat_pct <= 50),
+  constraint menu_settings_target_range check (target_food_cost_pct > 0 and target_food_cost_pct < 100)
+);
+
+-- קטגוריות תפריט
+create table public.menu_categories (
+  id          uuid primary key default gen_random_uuid(),
+  business_id uuid not null references public.businesses(id) on delete cascade,
+  name        text not null,
+  color       text,
+  sort_order  integer not null default 0,
+  active      boolean not null default true,
+  created_at  timestamptz not null default now()
+);
+
+-- מנות (dish) והכנות בסיס (prep). yield = מה יוצא מהמתכון (1 מנה / 2000 גרם רוטב)
+create table public.menu_dishes (
+  id                   uuid primary key default gen_random_uuid(),
+  business_id          uuid not null references public.businesses(id) on delete cascade,
+  category_id          uuid references public.menu_categories(id) on delete set null,
+  kind                 text not null default 'dish' check (kind in ('dish', 'prep')),
+  name                 text not null,
+  description          text,
+  image_url            text,
+  selling_price        numeric(10,2),                          -- מנה בלבד
+  yield_qty            numeric(12,3) not null default 1 check (yield_qty > 0),
+  yield_measure        text not null default 'unit' check (yield_measure in ('g', 'ml', 'unit')),
+  target_food_cost_pct numeric(5,2) check (target_food_cost_pct is null or (target_food_cost_pct > 0 and target_food_cost_pct < 100)),
+  monthly_sales        integer check (monthly_sales is null or monthly_sales >= 0),
+  notes                text,
+  sort_order           integer not null default 0,
+  active               boolean not null default true,
+  created_at           timestamptz not null default now(),
+  updated_at           timestamptz not null default now()
+);
+
+-- מרכיבי המנה — בדיוק אחד מ: item_id / sub_dish_id
+create table public.menu_dish_components (
+  id           uuid primary key default gen_random_uuid(),
+  business_id  uuid not null references public.businesses(id) on delete cascade,
+  dish_id      uuid not null references public.menu_dishes(id) on delete cascade,
+  item_id      uuid references public.inventory_items(id) on delete cascade,
+  sub_dish_id  uuid references public.menu_dishes(id) on delete restrict,
+  quantity     numeric(12,3) not null check (quantity > 0),
+  unit         text not null default 'g' check (unit in ('g', 'kg', 'ml', 'l', 'unit', 'main', 'piece')),
+  waste_pct    numeric(5,2) not null default 0 check (waste_pct >= 0 and waste_pct < 100),
+  supplier_id  uuid references public.suppliers(id) on delete set null,   -- ספק נעוץ; null = הזול
+  notes        text,
+  sort_order   integer not null default 0,
+  created_at   timestamptz not null default now(),
+  constraint menu_components_one_source check ((item_id is not null)::int + (sub_dish_id is not null)::int = 1),
+  constraint menu_components_no_self check (sub_dish_id is null or sub_dish_id <> dish_id)
+);
+
+-- המרות למוצר: כמה גרם/מ״ל/יחידות בפריט בודד + מחיר ידני חלופי
+create table public.menu_item_conversions (
+  item_id          uuid primary key references public.inventory_items(id) on delete cascade,
+  business_id      uuid not null references public.businesses(id) on delete cascade,
+  content_qty      numeric(12,3) check (content_qty is null or content_qty > 0),
+  content_measure  text check (content_measure is null or content_measure in ('g', 'ml', 'unit')),
+  manual_unit_cost numeric(10,2) check (manual_unit_cost is null or manual_unit_cost >= 0),
+  updated_at       timestamptz not null default now(),
+  constraint menu_conversions_content_pair check ((content_qty is null) = (content_measure is null))
+);
+
+-- מניעת מעגל בעץ (A מכיל B שמכיל A)
+create or replace function public.menu_components_prevent_cycle()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.sub_dish_id is null then
+    return new;
+  end if;
+  if exists (
+    with recursive tree as (
+      select c.sub_dish_id as dish
+      from public.menu_dish_components c
+      where c.dish_id = new.sub_dish_id and c.sub_dish_id is not null
+      union
+      select c.sub_dish_id
+      from public.menu_dish_components c
+      join tree t on c.dish_id = t.dish
+      where c.sub_dish_id is not null
+    )
+    select 1 from tree where dish = new.dish_id
+  ) then
+    raise exception 'MENU_CYCLE: dish % is already contained in sub-recipe %', new.dish_id, new.sub_dish_id
+      using errcode = 'check_violation';
+  end if;
+  return new;
+end $$;
+
+create trigger trg_menu_components_cycle
+  before insert or update of sub_dish_id, dish_id on public.menu_dish_components
+  for each row execute function public.menu_components_prevent_cycle();
+
+-- עלויות ורווחיות = מידע רגיש: מנהל / מנהלת משרד / סופר-אדמין
+create or replace function public.can_manage_menu(b uuid)
+returns boolean language sql stable as $$
+  select public.can_access(b)
+     and (public.is_super_admin() or public.auth_role() in ('manager', 'office_manager'))
+$$;
+
+create index idx_menu_categories_business on public.menu_categories(business_id, sort_order);
+create index idx_menu_dishes_business     on public.menu_dishes(business_id, kind, sort_order);
+create index idx_menu_dishes_category     on public.menu_dishes(category_id);
+create index idx_menu_components_business on public.menu_dish_components(business_id);
+create index idx_menu_components_dish     on public.menu_dish_components(dish_id, sort_order);
+create index idx_menu_components_item     on public.menu_dish_components(item_id);
+create index idx_menu_components_sub      on public.menu_dish_components(sub_dish_id);
+create index idx_menu_conversions_business on public.menu_item_conversions(business_id);
+
+alter table public.menu_settings         enable row level security;
+alter table public.menu_categories       enable row level security;
+alter table public.menu_dishes           enable row level security;
+alter table public.menu_dish_components  enable row level security;
+alter table public.menu_item_conversions enable row level security;
+
+create policy "menu_settings_manage" on public.menu_settings
+  for all using (public.can_manage_menu(business_id)) with check (public.can_manage_menu(business_id));
+create policy "menu_categories_manage" on public.menu_categories
+  for all using (public.can_manage_menu(business_id)) with check (public.can_manage_menu(business_id));
+create policy "menu_dishes_manage" on public.menu_dishes
+  for all using (public.can_manage_menu(business_id)) with check (public.can_manage_menu(business_id));
+create policy "menu_components_manage" on public.menu_dish_components
+  for all using (public.can_manage_menu(business_id)) with check (public.can_manage_menu(business_id));
+create policy "menu_conversions_manage" on public.menu_item_conversions
+  for all using (public.can_manage_menu(business_id)) with check (public.can_manage_menu(business_id));
+
+
+-- ----------------------------------------------------------------------------
 -- 11. מודול: דיווח תקלות
 -- ----------------------------------------------------------------------------
 
@@ -796,6 +1059,27 @@ create table public.event_ideas (
   body        text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
+);
+
+-- בקשות מנהלת אירועים למנהל: שיבוץ עובדים / רשימת מצרכים לאירוע
+create type public.event_request_kind as enum ('staffing', 'supplies');
+create type public.event_request_status as enum ('open', 'in_treatment', 'closed');
+
+create table public.event_requests (
+  id                uuid primary key default gen_random_uuid(),
+  business_id       uuid not null references public.businesses(id) on delete cascade,
+  event_id          uuid not null references public.events(id) on delete cascade,
+  requested_by      uuid references public.profiles(id) on delete set null,
+  kind              public.event_request_kind not null,
+  status            public.event_request_status not null default 'open',
+  shift_label       text,                                 -- שיבוץ: תיאור המשמרת ("ערב, הגעה 18:00")
+  note              text,
+  lines             jsonb not null default '[]'::jsonb,   -- שיבוץ: [{department_id,label,count}] ; מצרכים: [{item_id,name,quantity,unit}]
+  status_updated_by uuid references public.profiles(id) on delete set null,
+  status_updated_at timestamptz,
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now(),
+  constraint event_requests_lines_is_array check (jsonb_typeof(lines) = 'array')
 );
 
 
@@ -849,6 +1133,7 @@ create table public.tasks (
 -- ----------------------------------------------------------------------------
 create trigger trg_businesses_updated   before update on public.businesses          for each row execute function public.set_updated_at();
 create trigger trg_profiles_updated      before update on public.profiles            for each row execute function public.set_updated_at();
+create trigger trg_employee_positions_updated before update on public.employee_positions for each row execute function public.set_updated_at();
 create trigger trg_agreements_updated    before update on public.agreement_templates for each row execute function public.set_updated_at();
 create trigger trg_employee_id_cards_updated before update on public.employee_id_cards for each row execute function public.set_updated_at();
 create trigger trg_form101_updated       before update on public.form_101            for each row execute function public.set_updated_at();
@@ -903,6 +1188,11 @@ create trigger trg_business_seed_shifts
 -- ----------------------------------------------------------------------------
 create index idx_profiles_business        on public.profiles(business_id);
 create index idx_profiles_department       on public.profiles(department_id);
+create index idx_employee_positions_business on public.employee_positions(business_id);
+create index idx_employee_positions_employee on public.employee_positions(employee_id, sort_order);
+create index idx_attendance_position        on public.attendance(position_id);
+create index idx_tips_position              on public.tips(position_id);
+create index idx_shift_bonuses_position     on public.shift_bonuses(position_id);
 create index idx_departments_business       on public.departments(business_id);
 create index idx_shift_templates_business  on public.shift_templates(business_id);
 create unique index idx_shift_templates_business_key
@@ -948,6 +1238,8 @@ create index idx_inv_logs_item              on public.inventory_logs(item_id, cr
 create index idx_faults_business            on public.faults(business_id);
 create index idx_events_business            on public.events(business_id);
 create index idx_event_ideas_business       on public.event_ideas(business_id, created_at desc);
+create index idx_event_requests_business    on public.event_requests(business_id, status, created_at desc);
+create index idx_event_requests_event       on public.event_requests(business_id, event_id, created_at desc);
 create index idx_task_templates_business    on public.task_templates(business_id);
 create index idx_task_templates_department  on public.task_templates(department_id);
 create index idx_tasks_business             on public.tasks(business_id);
@@ -1121,6 +1413,17 @@ create policy "shift_pref_tenant" on public.shift_preferences
 -- shift_assignments
 create policy "shift_assign_tenant" on public.shift_assignments
   for all using (public.can_access(business_id)) with check (public.can_access(business_id));
+-- employee_positions — כל חברי העסק קוראים; מנהל / מנהלת משרד עורכים
+create policy "employee_positions_read" on public.employee_positions
+  for select using (public.can_access(business_id));
+create policy "employee_positions_manage" on public.employee_positions
+  for all using (
+    public.can_access(business_id)
+    and (public.is_super_admin() or public.auth_role() in ('manager', 'office_manager'))
+  ) with check (
+    public.can_access(business_id)
+    and (public.is_super_admin() or public.auth_role() in ('manager', 'office_manager'))
+  );
 -- attendance
 create policy "attendance_tenant" on public.attendance
   for all using (public.can_access(business_id)) with check (public.can_access(business_id));
@@ -1165,7 +1468,7 @@ create policy "inv_items_read" on public.inventory_items
   for select using (
     public.can_access(business_id)
     and (
-      public.auth_role() in ('manager', 'shift_manager', 'office_manager')
+      public.auth_role() in ('manager', 'shift_manager', 'office_manager', 'event_manager')
       or not exists (
         select 1 from public.inventory_item_departments d
         where d.item_id = inventory_items.id
@@ -1254,6 +1557,31 @@ create policy "events_delete" on public.events
   for delete using (
     public.can_access(business_id)
     and public.auth_role() in ('manager', 'event_manager')
+  );
+-- event_requests — קריאה לצוות הניהול ומנהלת אירועים; פתיחה למנהל/מנהלת אירועים; טיפול לצוות הניהול
+create policy "event_requests_select" on public.event_requests
+  for select using (
+    public.can_access(business_id)
+    and public.auth_role() in ('manager', 'shift_manager', 'office_manager', 'event_manager')
+  );
+create policy "event_requests_insert" on public.event_requests
+  for insert with check (
+    public.can_access(business_id)
+    and public.auth_role() in ('manager', 'event_manager')
+    and requested_by = auth.uid()
+  );
+create policy "event_requests_update" on public.event_requests
+  for update using (
+    public.can_access(business_id)
+    and public.auth_role() in ('manager', 'shift_manager', 'office_manager')
+  ) with check (
+    public.can_access(business_id)
+    and public.auth_role() in ('manager', 'shift_manager', 'office_manager')
+  );
+create policy "event_requests_delete" on public.event_requests
+  for delete using (
+    public.can_access(business_id)
+    and (public.auth_role() = 'manager' or requested_by = auth.uid())
   );
 -- event_ideas — קריאה לכולם; כתיבה לכל עובד; עריכה/מחיקה ליוצר או מנהל/מנהלת אירועים
 create policy "event_ideas_read" on public.event_ideas
@@ -1436,6 +1764,12 @@ as $$
 
       ('waste',         'inventory_waste',              null),
 
+      ('menu',          'menu_dish_components',         null),
+      ('menu',          'menu_item_conversions',        null),
+      ('menu',          'menu_dishes',                  null),
+      ('menu',          'menu_categories',              null),
+      ('menu',          'menu_settings',                null),
+
       ('faults',        'faults',                       null),
 
       ('events',        'tasks',                        'event_id is not null'),
@@ -1459,6 +1793,7 @@ as $$
         'attendance',
         'shift_bonuses', 'tips', 'shift_reports',
         'payroll_month_adjustments', 'payroll_records',
+        'menu_dish_components', 'menu_item_conversions', 'menu_dishes', 'menu_categories', 'menu_settings',
         'inventory_waste', 'inventory_logs', 'inventory_counts', 'inventory_orders',
         'recurring_order_items', 'recurring_orders',
         'supplier_items', 'inventory_item_departments', 'inventory_items',
@@ -1602,7 +1937,7 @@ as $$
 declare
   all_keys constant text[] := array[
     'attendance', 'shifts', 'tasks', 'payroll', 'agreements',
-    'shift_reports', 'inventory', 'waste', 'faults', 'events'
+    'shift_reports', 'inventory', 'waste', 'menu', 'faults', 'events'
   ];
   want      text[] := coalesce(p_enabled, '{}'::text[]);
   kill      text[] := coalesce(p_purge, '{}'::text[]);

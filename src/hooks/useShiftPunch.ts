@@ -3,13 +3,16 @@ import { useAuth } from "@/lib/auth";
 import { resolveGeofenceRules } from "@/lib/attendanceGeofence";
 import { attemptClockIn, clockInSuccessText } from "@/lib/attendancePunch";
 import { useBusinessId, todayISO, weekStart, addDays } from "@/lib/db";
+import { attendancePosition, positionLabel, positionsForEmployee } from "@/lib/employeePositions";
 import { pendingTasksForEmployee } from "@/lib/pendingTasks";
 import { useBusiness } from "@/api/businesses";
+import { useDepartments } from "@/api/departments";
+import { useEmployeePositions } from "@/api/employeePositions";
 import { useTasks } from "@/api/tasks";
 import { useTaskTemplates } from "@/api/taskTemplates";
 import { useAttendanceToday, useClockIn, useClockOut } from "@/api/attendance";
 import { useActiveShiftTemplates, useShiftAssignments } from "@/api/shifts";
-import type { ShiftTemplate } from "@/types/database";
+import type { EmployeePosition, ShiftTemplate } from "@/types/database";
 
 export function formatShiftElapsed(ms: number) {
   const totalSec = Math.max(0, Math.floor(ms / 1000));
@@ -39,12 +42,29 @@ export function useShiftPunch() {
   const today = todayISO();
   const wk = weekStart();
   const { data: assignments } = useShiftAssignments(businessId, wk, addDays(wk, 6), profile?.id);
+  const {
+    data: allPositions,
+    isPending: positionsPending,
+    isError: positionsError,
+  } = useEmployeePositions(businessId);
+  const { data: departments } = useDepartments(businessId);
   const clockIn = useClockIn(businessId);
   const clockOut = useClockOut(businessId);
   const [clockStatus, setClockStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [exitWarn, setExitWarn] = useState(false);
+  const [positionPickerOpen, setPositionPickerOpen] = useState(false);
   const now = useLiveClock();
+
+  /** The positions this employee can enter a shift as (primary first). */
+  const myPositions = useMemo(
+    () => (profile ? positionsForEmployee(profile, allPositions) : []),
+    [profile, allPositions],
+  );
+  const deptName = useMemo(
+    () => (id: string) => (departments ?? []).find((d) => d.id === id)?.name ?? null,
+    [departments],
+  );
 
   const showShifts = hasFeature("shifts");
   // No role bypass: when the super admin disables the attendance module the
@@ -64,6 +84,9 @@ export function useShiftPunch() {
   const myOpen = list.find((r) => r.employee_id === profile?.id && r.clock_in && !r.clock_out);
   const onShift = Boolean(myOpen);
   const shiftElapsed = myOpen?.clock_in ? formatShiftElapsed(now.getTime() - new Date(myOpen.clock_in).getTime()) : null;
+  /** Which position the open shift is being worked in — only meaningful for multi-position employees. */
+  const onShiftPositionLabel =
+    myOpen && myPositions.length > 1 ? positionLabel(attendancePosition(myOpen, myPositions), deptName) : null;
 
   const pending = profile
     ? pendingTasksForEmployee(
@@ -83,13 +106,14 @@ export function useShiftPunch() {
     radiusM,
   } = resolveGeofenceRules(biz, profile?.role);
 
-  async function clockInRecord(lat: number | null, lng: number | null, within: boolean) {
+  async function clockInRecord(lat: number | null, lng: number | null, within: boolean, position: EmployeePosition | null) {
     await clockIn.mutateAsync({
       business_id: businessId!,
       employee_id: profile!.id,
       lat,
       lng,
       within_radius: within,
+      position_id: position?.id ?? null,
     });
   }
 
@@ -124,16 +148,40 @@ export function useShiftPunch() {
 
     if (!biz) return;
 
+    // Never punch in "blind": until the position list is known we can't tell
+    // whether to ask — and a wrong guess files the whole shift on the wrong pay line.
+    if (positionsPending) {
+      setClockStatus({ ok: false, text: "טוען את התפקידים שלך… נסו שוב בעוד רגע" });
+      return;
+    }
+    if (positionsError) {
+      setClockStatus({ ok: false, text: "לא ניתן לטעון את התפקידים — ההחתמה לא בוצעה" });
+      return;
+    }
+
+    // More than one position: ask which one first; the pick continues the punch.
+    if (myPositions.length > 1) {
+      setPositionPickerOpen(true);
+      return;
+    }
+    await clockInAs(myPositions[0] ?? null);
+  }
+
+  /** Run the geofence check and record the punch under the given position. */
+  async function clockInAs(position: EmployeePosition | null) {
+    if (!profile || !biz) return;
+    setPositionPickerOpen(false);
     setBusy(true);
     try {
-      const { decision, position } = await attemptClockIn({ business: biz, role: profile.role });
+      const { decision, position: fix } = await attemptClockIn({ business: biz, role: position?.role ?? profile.role });
       if (!decision.allowed) {
         setClockStatus({ ok: false, text: decision.message });
         return;
       }
       try {
-        await clockInRecord(position?.lat ?? null, position?.lng ?? null, decision.within);
-        setClockStatus({ ok: true, text: clockInSuccessText(decision) });
+        await clockInRecord(fix?.lat ?? null, fix?.lng ?? null, decision.within, position);
+        const label = position && myPositions.length > 1 ? ` · ${positionLabel(position, deptName)}` : "";
+        setClockStatus({ ok: true, text: `${clockInSuccessText(decision)}${label}` });
       } catch {
         setClockStatus({ ok: false, text: "החתמה נכשלה" });
       }
@@ -142,7 +190,20 @@ export function useShiftPunch() {
     }
   }
 
+  /** Props for `<ShiftPositionPickerModal>` — consumers render it next to the punch button. */
+  const positionPicker = {
+    open: positionPickerOpen,
+    positions: myPositions,
+    deptName,
+    busy,
+    onPick: clockInAs,
+    onClose: () => setPositionPickerOpen(false),
+  };
+
   return {
+    myPositions,
+    onShiftPositionLabel,
+    positionPicker,
     biz,
     profile,
     showAttendance,

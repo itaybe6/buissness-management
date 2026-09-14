@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { addDays } from "@/lib/db";
+import { isLegacyPositionId } from "@/lib/employeePositions";
 import { supabase } from "@/lib/supabase";
 import type { Attendance } from "@/types/database";
 
@@ -103,6 +104,8 @@ export function useClockIn(businessId: string | null) {
       lat: number | null;
       lng: number | null;
       within_radius: boolean;
+      /** Position the employee is entering the shift as (null = single/legacy position). */
+      position_id?: string | null;
     }) => {
       const { error } = await supabase.from("attendance").insert({
         business_id: input.business_id,
@@ -111,11 +114,21 @@ export function useClockIn(businessId: string | null) {
         clock_in_lat: input.lat,
         clock_in_lng: input.lng,
         within_radius: input.within_radius,
+        ...positionColumn(input.position_id),
       });
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["attendance", businessId] }),
   });
+}
+
+/**
+ * `position_id` column for an insert. Synthetic `legacy:` ids describe a profile
+ * without stored positions and are never persisted; with no real position the
+ * key is omitted entirely so a single-position clock-in never depends on the column.
+ */
+function positionColumn(id: string | null | undefined): { position_id?: string } {
+  return id && !isLegacyPositionId(id) ? { position_id: id } : {};
 }
 
 /**
@@ -125,7 +138,7 @@ export function useClockIn(businessId: string | null) {
 export function useForceClockIn(businessId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { business_id: string; employee_id: string }) => {
+    mutationFn: async (input: { business_id: string; employee_id: string; position_id?: string | null }) => {
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
         .select("role, active")
@@ -160,6 +173,7 @@ export function useForceClockIn(businessId: string | null) {
         clock_in_lat: null,
         clock_in_lng: null,
         within_radius: false,
+        ...positionColumn(input.position_id),
       });
       if (error) throw error;
     },

@@ -121,6 +121,16 @@ export const FEATURE_MODULES: FeatureModule[] = [
     dependencyNote: "בלאי מפחית כמויות ישירות מהמלאי, ולכן מודול הסחורות חייב להיות פעיל.",
   },
   {
+    key: "menu",
+    label: "תפריט ותמחור מנות",
+    icon: "restaurant_menu",
+    desc: "עץ מנה — מרכיבים מהמלאי, עלות חיה מהספקים, מחיר מכירה ואחוז רווח",
+    domain: "operations",
+    requires: ["inventory"],
+    recommends: [],
+    dependencyNote: "המרכיבים של כל מנה הם מוצרים מהמלאי והעלות מגיעה ממחירוני הספקים, ולכן מודול הסחורות חייב להיות פעיל.",
+  },
+  {
     key: "faults",
     label: "דיווח תקלות",
     icon: "build",
@@ -185,7 +195,7 @@ export const PLANS: PlanDefinition[] = [
     tagline: "הליבה + שכר, מסמכים ומלאי — לעסק שמתרחב",
     icon: "rocket_launch",
     tier: 2,
-    modules: ["attendance", "shifts", "tasks", "payroll", "agreements", "shift_reports", "inventory", "faults"],
+    modules: ["attendance", "shifts", "tasks", "payroll", "agreements", "shift_reports", "inventory", "menu", "faults"],
     suggestedSeats: 50,
   },
   {
@@ -241,7 +251,7 @@ export function normalizeFeatureKey(key: string): FeatureKey | null {
 /**
  * Resolve the modules a business effectively has on: legacy keys are mapped,
  * unknown keys are ignored, and hard dependencies are pulled in when a child
- * module is on (payroll → attendance, waste → inventory).
+ * module is on (payroll → attendance, waste → inventory, menu → inventory).
  */
 export function effectiveFeatureStateFromRows(
   rows: readonly { feature_key: string; enabled: boolean }[],

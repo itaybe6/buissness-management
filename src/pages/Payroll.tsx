@@ -6,17 +6,19 @@ import { useAuth } from "@/lib/auth";
 import { WAGE_TYPE_LABELS } from "@/lib/constants";
 import { useBusinessId, formatCurrency, initialsOf, colorFor } from "@/lib/db";
 import { useProfiles } from "@/api/users";
+import { useDepartments } from "@/api/departments";
+import { useEmployeePositions } from "@/api/employeePositions";
 import { useAttendanceMonth } from "@/api/attendance";
 import { useTips, useShiftBonuses, useApprovedFaultPays, usePayrollMonthAdjustments, payrollAdjustmentForEmployee } from "@/api/payroll";
-import { computeEmployeePayroll, sumAttendanceHours, withPayrollAdjustments } from "@/lib/payrollCompute";
+import { positionsForEmployee } from "@/lib/employeePositions";
+import { buildPayrollPositionRows, type PayrollPositionRow } from "@/lib/payrollPositions";
 import { sumFaultPayAmount } from "@/lib/faultPayrollRows";
-import { countEmployeeShifts, exportPayrollExcel, type PayrollExportRow } from "@/lib/payrollExport";
+import { exportPayrollExcel, type PayrollExportRow } from "@/lib/payrollExport";
 import {
   PayrollAdjustmentsDialog,
   formatAdjustment,
   type PayrollAdjustmentValues,
 } from "@/components/payroll/PayrollAdjustments";
-import type { WageType } from "@/types/database";
 
 function monthNow() {
   return new Date().toISOString().slice(0, 7);
@@ -33,27 +35,10 @@ function monthLabel(m: string): string {
   return new Date(y, mo - 1, 1).toLocaleDateString("he-IL", { month: "long", year: "numeric" });
 }
 
-function toExportRows(
-  rows: {
-    name: string | null;
-    wageType: WageType;
-    hours: number;
-    shifts: number;
-    rate: number;
-    base: number;
-    tips: number;
-    topup: number;
-    bonus: number;
-    grossPay: number;
-    monthlyBonus: number;
-    advance: number;
-    differences: number;
-    total: number;
-    pensionActive: boolean;
-  }[],
-): PayrollExportRow[] {
+function toExportRows(rows: PayrollPositionRow[]): PayrollExportRow[] {
   return rows.map((r) => ({
     name: r.name,
+    positionLabel: r.positionLabel,
     wageType: r.wageType,
     wageTypeLabel: WAGE_TYPE_LABELS[r.wageType],
     hours: r.hours,
@@ -114,6 +99,8 @@ export function Payroll() {
   const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const { data: users, isLoading, isError, refetch } = useProfiles(businessId);
+  const { data: allPositions } = useEmployeePositions(businessId);
+  const { data: departments } = useDepartments(businessId);
   const { data: attendance } = useAttendanceMonth(businessId, month);
   const { data: tips } = useTips(businessId, month);
   const { data: bonuses } = useShiftBonuses(businessId, month);
@@ -123,52 +110,44 @@ export function Payroll() {
   const isPayrollManager = profile && ["manager", "office_manager"].includes(profile.role);
   const { count: salaryIssueCount } = useSalaryIssueBadgeCount();
 
+  const deptName = useMemo(
+    () => (id: string) => (departments ?? []).find((d) => d.id === id)?.name ?? null,
+    [departments],
+  );
+
+  // שורה לכל (עובד, תפקיד): עובד שהוא גם אחראי משמרת (שעתי) וגם מלצר (טיפים)
+  // מקבל שתי שורות — כל אחת מחושבת לפי מודל השכר של התפקיד שבו נכנס למשמרת.
+  // התאמות חודשיות ותשלומי תקלות נצמדים לשורה הראשית בלבד.
   const rows = useMemo(() => {
     const employees = (users ?? []).filter((u) => isPayrollManager || u.id === profile?.id);
-    return employees.map((u) => {
-      const rate = Number(u.hourly_rate ?? 0);
-      const wageType = u.wage_type ?? "hourly";
-      const myTips = (tips ?? []).filter((t) => t.employee_id === u.id);
-      const myBonuses = (bonuses ?? []).filter((b) => b.employee_id === u.id);
-      const bonusSum = myBonuses.reduce((s, b) => s + Number(b.amount), 0);
-      const faultPaySum = sumFaultPayAmount(faultPays ?? [], u.id);
-
-      // עובד טיפים: השכר מקופת הטיפים עם רצפת מינימום לכל משמרת בנפרד.
-      // עובד שעתי: שעות נוכחות × תעריף, ללא טיפים.
-      const pay = withPayrollAdjustments(
-        computeEmployeePayroll({
-          wageType,
-          rate,
-          tips: myTips,
-          bonusSum,
-          faultPaySum,
-          attendanceHours: sumAttendanceHours(attendance ?? [], u.id),
-        }),
-        (() => {
-          const adj = payrollAdjustmentForEmployee(monthAdjustments, u.id);
-          return {
-            monthlyBonus: Number(adj?.monthly_bonus ?? 0),
-            advance: Number(adj?.advance ?? 0),
-            differences: Number(adj?.differences ?? 0),
-          };
-        })(),
-      );
-      const shifts = countEmployeeShifts(wageType, u.id, attendance ?? [], myTips);
-      return {
-        id: u.id,
-        name: u.full_name,
-        pensionActive: u.pension_active ?? false,
-        shifts,
-        ...pay,
-      };
+    return employees.flatMap((u) => {
+      const adj = payrollAdjustmentForEmployee(monthAdjustments, u.id);
+      return buildPayrollPositionRows({
+        employee: u,
+        positions: positionsForEmployee(u, allPositions),
+        attendance: attendance ?? [],
+        tips: tips ?? [],
+        bonuses: bonuses ?? [],
+        faultPaySum: sumFaultPayAmount(faultPays ?? [], u.id),
+        adjustments: {
+          monthlyBonus: Number(adj?.monthly_bonus ?? 0),
+          advance: Number(adj?.advance ?? 0),
+          differences: Number(adj?.differences ?? 0),
+        },
+        deptName,
+      });
     });
-  }, [users, attendance, tips, bonuses, faultPays, monthAdjustments, isPayrollManager, profile?.id]);
+  }, [users, allPositions, attendance, tips, bonuses, faultPays, monthAdjustments, isPayrollManager, profile?.id, deptName]);
 
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return rows;
-    return rows.filter((r) => (r.name ?? "").toLowerCase().includes(q));
+    return rows.filter(
+      (r) => (r.name ?? "").toLowerCase().includes(q) || r.positionLabel.toLowerCase().includes(q),
+    );
   }, [rows, search]);
+
+  const employeeCount = useMemo(() => new Set(filteredRows.map((r) => r.employeeId)).size, [filteredRows]);
 
   if (isLoading) return <PageLoader />;
   if (isError) return <ErrorState onRetry={refetch} />;
@@ -192,8 +171,8 @@ export function Payroll() {
   // Two full literals, not an interpolated one — Tailwind only picks up
   // arbitrary values it can find verbatim in the source.
   const PAYROLL_GRID = isPayrollManager
-    ? "grid grid-cols-[1.45fr_0.62fr_0.52fr_0.62fr_0.78fr_0.58fr_0.68fr_0.72fr_0.62fr_0.62fr_0.82fr_44px] gap-1.5"
-    : "grid grid-cols-[1.45fr_0.62fr_0.52fr_0.62fr_0.78fr_0.58fr_0.68fr_0.72fr_0.62fr_0.62fr_0.82fr] gap-1.5";
+    ? "grid grid-cols-[1.45fr_0.9fr_0.62fr_0.52fr_0.62fr_0.78fr_0.58fr_0.68fr_0.72fr_0.62fr_0.62fr_0.82fr_44px] gap-1.5"
+    : "grid grid-cols-[1.45fr_0.9fr_0.62fr_0.52fr_0.62fr_0.78fr_0.58fr_0.68fr_0.72fr_0.62fr_0.62fr_0.82fr] gap-1.5";
 
   const editingRow = filteredRows.find((r) => r.id === editingId) ?? null;
 
@@ -275,7 +254,7 @@ export function Payroll() {
             </span>
             <span className="payroll-hero-chip">
               <Icon name="group" size={15} />
-              {filteredRows.length} עובדים
+              {employeeCount} עובדים
             </span>
           </div>
 
@@ -331,15 +310,17 @@ export function Payroll() {
                 type="button"
                 className="pay-cell"
                 style={{ animationDelay: `${Math.min(i, 10) * 35}ms` }}
-                onClick={() => navigate(`/payroll/${r.id}?month=${month}`)}
+                onClick={() => navigate(`/payroll/${r.employeeId}?month=${month}&position=${r.positionId}`)}
               >
-                <span className="user-cell-avatar person-chip" style={{ background: colorFor(r.id) }}>
+                <span className="user-cell-avatar person-chip" style={{ background: colorFor(r.employeeId) }}>
                   {initialsOf(r.name)}
                 </span>
                 <span className="user-cell-info">
                   <span className="user-cell-name">{r.name}</span>
                   <span className="user-cell-sub">
-                    <span className="user-cell-role">{WAGE_TYPE_LABELS[r.wageType]}</span>
+                    <span className="user-cell-role">
+                      {r.positionCount > 1 ? `${r.positionLabel} · ${WAGE_TYPE_LABELS[r.wageType]}` : WAGE_TYPE_LABELS[r.wageType]}
+                    </span>
                     <span className="user-cell-dept"> · {r.hours.toFixed(1)} שע׳</span>
                     {r.bonus > 0 && <span className="pay-cell-flag">% קופה</span>}
                     {(r.monthlyBonus > 0 || r.advance > 0 || r.differences !== 0) && (
@@ -393,11 +374,12 @@ export function Payroll() {
           </p>
         )}
         <div className="overflow-auto">
-          {/* Tightest width the 12 columns still read at — keeps the table
+          {/* Tightest width the 13 columns still read at — keeps the table
               inside the card on a 1366px laptop instead of scrolling. */}
-          <div className="min-w-[1040px]">
+          <div className="min-w-[1120px]">
             <div className={`${PAYROLL_GRID} border-b border-border bg-surface-2 px-5 py-3 text-[10.5px] font-bold uppercase tracking-wide text-text-3`}>
               <span>עובד</span>
+              <span>תפקיד</span>
               <span>סוג</span>
               <span>שעות</span>
               <span>תעריף</span>
@@ -411,8 +393,8 @@ export function Payroll() {
               {isPayrollManager && <span className="sr-only">עריכה</span>}
             </div>
             {filteredRows.map((r) => {
-              const adjValues = adjustmentsFor(r.id);
-              const open = () => navigate(`/payroll/${r.id}?month=${month}`);
+              const adjValues = r.isPrimaryRow ? adjustmentsFor(r.employeeId) : null;
+              const open = () => navigate(`/payroll/${r.employeeId}?month=${month}&position=${r.positionId}`);
               return (
               // Not a <button>: managers get an edit button inside the row, and
               // a nested <button> is invalid (and unclickable) inside one.
@@ -430,38 +412,58 @@ export function Payroll() {
                 className={`data-row data-row--clickable ${PAYROLL_GRID} w-full items-center border-b border-border-2 px-5 py-2.5 text-[13px] text-right`}
               >
                 <span className="flex min-w-0 items-center gap-2.5">
-                  <span className="person-chip h-8 w-8 rounded-[9px] text-[12px]" style={{ background: colorFor(r.id) }}>{initialsOf(r.name)}</span>
-                  <span className="truncate font-bold">{r.name}</span>
+                  <span className="person-chip h-8 w-8 rounded-[9px] text-[12px]" style={{ background: colorFor(r.employeeId) }}>{initialsOf(r.name)}</span>
+                  <span className="min-w-0">
+                    <span className="block truncate font-bold">{r.name}</span>
+                    {r.positionCount > 1 && (
+                      <span className="block text-[11px] text-text-3">{r.positionCount} תפקידים</span>
+                    )}
+                  </span>
                 </span>
+                <span className="truncate text-text-2" title={r.positionLabel}>{r.positionLabel}</span>
                 <span><Badge tone={r.wageType === "tips" ? "violet" : "neutral"}>{WAGE_TYPE_LABELS[r.wageType]}</Badge></span>
                 <span className="tabular-nums">{r.hours.toFixed(1)}</span>
                 <span className="tabular-nums">{r.rate ? formatCurrency(r.rate) : "—"}</span>
                 <span className={`tabular-nums ${r.wageType === "tips" ? "font-bold text-accent-2" : ""}`}>{formatCurrency(r.wageType === "tips" ? r.tips : r.base)}</span>
                 <span className="tabular-nums text-text-2">{r.topup > 0 ? formatCurrency(r.topup) : "—"}</span>
                 <span className={`tabular-nums ${r.bonus > 0 ? "font-bold text-accent" : "text-text-2"}`}>{r.bonus > 0 ? formatCurrency(r.bonus) : "—"}</span>
-                <span className={`tabular-nums ${adjValues.monthlyBonus ? "font-bold" : "text-text-2"}`}>
-                  {formatAdjustment("monthlyBonus", adjValues.monthlyBonus)}
-                </span>
-                <span className={`tabular-nums ${adjValues.advance ? "font-bold" : "text-text-2"}`}>
-                  {formatAdjustment("advance", adjValues.advance)}
-                </span>
-                <span className={`tabular-nums ${adjValues.differences ? "font-bold" : "text-text-2"}`}>
-                  {formatAdjustment("differences", adjValues.differences)}
-                </span>
+                {adjValues ? (
+                  <>
+                    <span className={`tabular-nums ${adjValues.monthlyBonus ? "font-bold" : "text-text-2"}`}>
+                      {formatAdjustment("monthlyBonus", adjValues.monthlyBonus)}
+                    </span>
+                    <span className={`tabular-nums ${adjValues.advance ? "font-bold" : "text-text-2"}`}>
+                      {formatAdjustment("advance", adjValues.advance)}
+                    </span>
+                    <span className={`tabular-nums ${adjValues.differences ? "font-bold" : "text-text-2"}`}>
+                      {formatAdjustment("differences", adjValues.differences)}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-text-3">—</span>
+                    <span className="text-text-3">—</span>
+                    <span className="text-text-3">—</span>
+                  </>
+                )}
                 <span className="font-extrabold tabular-nums">{formatCurrency(r.total)}</span>
                 {isPayrollManager && (
-                  <button
-                    type="button"
-                    className="data-row-action pay-adj-edit"
-                    aria-label={`עריכת התאמות שכר — ${r.name ?? ""}`}
-                    title="עריכת התאמות שכר"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setEditingId(r.id);
-                    }}
-                  >
-                    <Icon name="edit" size={18} />
-                  </button>
+                  r.isPrimaryRow ? (
+                    <button
+                      type="button"
+                      className="data-row-action pay-adj-edit"
+                      aria-label={`עריכת התאמות שכר — ${r.name ?? ""}`}
+                      title="עריכת התאמות שכר"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingId(r.id);
+                      }}
+                    >
+                      <Icon name="edit" size={18} />
+                    </button>
+                  ) : (
+                    <span aria-hidden="true" />
+                  )
                 )}
               </div>
             );
@@ -480,11 +482,13 @@ export function Payroll() {
           open
           onClose={() => setEditingId(null)}
           businessId={businessId}
-          employeeId={editingRow.id}
+          employeeId={editingRow.employeeId}
           employeeName={editingRow.name}
           month={month}
-          grossPay={editingRow.grossPay}
-          values={adjustmentsFor(editingRow.id)}
+          grossPay={filteredRows
+            .filter((r) => r.employeeId === editingRow.employeeId)
+            .reduce((s, r) => s + r.grossPay, 0)}
+          values={adjustmentsFor(editingRow.employeeId)}
         />
       )}
     </div>

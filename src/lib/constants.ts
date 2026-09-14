@@ -91,6 +91,13 @@ export function canSeeInventoryPrices(role: UserRole | string | null | undefined
   return !!role && INVENTORY_PRICE_ROLES.includes(role as UserRole);
 }
 
+/** Roles that can open the menu costing module (dish costs and margins are sensitive). */
+export const MENU_ROLES: UserRole[] = ["manager", "office_manager"];
+
+export function canManageMenu(role: UserRole | string | null | undefined): boolean {
+  return !!role && MENU_ROLES.includes(role as UserRole);
+}
+
 /** Roles that can build/edit the work schedule and view all departments' schedules. */
 export const SCHEDULER_ROLES: UserRole[] = ["manager", "shift_manager"];
 
@@ -111,6 +118,12 @@ export const TASK_CREATE_ROLES: UserRole[] = ["manager"];
 
 /** Roles that can create tasks tied to a specific event. */
 export const EVENT_TASK_CREATE_ROLES: UserRole[] = ["manager", "event_manager"];
+
+/** Roles that can ask the manager for staffing / supplies for an event. */
+export const EVENT_REQUEST_CREATE_ROLES: UserRole[] = ["manager", "event_manager"];
+
+/** Roles that receive event requests (badge, inbox) and move them through treatment. */
+export const EVENT_REQUEST_HANDLER_ROLES: UserRole[] = ["manager"];
 
 /** Roles allowed to open the faults module (report, triage, or maintenance work). */
 export const FAULTS_PAGE_ROLES: UserRole[] = ["manager", "shift_manager", "maintenance"];
@@ -236,6 +249,7 @@ export const NAV_ITEMS: NavItem[] = [
 
   { key: "inventory", label: "מוצרים", icon: "inventory_2", group: "inventory", roles: ["manager", "shift_manager", "office_manager", "employee"], feature: "inventory" },
   { key: "suppliers", label: "ספקים", icon: "local_shipping", group: "inventory", roles: ["manager", "office_manager"], feature: "inventory" },
+  { key: "menu", label: "תפריט ותמחור", icon: "restaurant_menu", group: "inventory", roles: ["manager", "office_manager"], feature: "menu" },
 
   { key: "users", label: "משתמשים", icon: "group", group: "team", roles: ["manager", "office_manager"] },
   { key: "payroll", label: "שכר", icon: "payments", group: "team", roles: ["manager", "office_manager"], feature: "payroll" },
