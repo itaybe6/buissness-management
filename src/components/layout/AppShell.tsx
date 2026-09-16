@@ -296,7 +296,7 @@ export function AppShell() {
                       {isEventRequestHandler && item.key === "events" ? (
                         <NavItemBadge
                           count={eventRequestCount}
-                          ariaLabel={`${eventRequestCount} בקשות חדשות מאירועים`}
+                          ariaLabel={`${eventRequestCount} בקשות מאירועים שמחכות לטיפול`}
                         />
                       ) : null}
 

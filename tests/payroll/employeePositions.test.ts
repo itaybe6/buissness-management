@@ -23,6 +23,8 @@ import {
   tipPosition,
 } from "@/lib/employeePositions";
 import { buildPayrollPositionRows } from "@/lib/payrollPositions";
+import { groupAttendanceByDepartment, groupAttendanceByEmployee } from "@/lib/attendanceFeed";
+import { multiPositionLabels, positionSectionInfo } from "@/lib/employeePositions";
 import { buildEmployeeShiftRowsByPosition } from "@/lib/payrollShiftRows";
 import {
   buildBonusParticipantsFromTeamPositions,
@@ -394,6 +396,59 @@ describe("דוח משמרת — התפקיד נגזר מההחתמה", () => {
     ]);
     expect(rows[0]).toMatchObject({ employee_id: E, amount: 100, position_id: "pos-sm" });
     expect(rows[1]).not.toHaveProperty("position_id");
+  });
+});
+
+describe("פיד נוכחות — הכרטיס מתויק לפי התפקיד שנכנסו בו", () => {
+  const departments = [
+    { id: DEPT.kitchen, name: "מטבח", color: "#d97706", sort_order: 0 },
+    { id: DEPT.service, name: "מלצרות", color: "#2563eb", sort_order: 1 },
+  ];
+  const cook = hourlyPosition(E, 45, { id: "pos-cook", role: "employee", department_id: DEPT.kitchen });
+  const sm = hourlyPosition(E, 50, { id: "pos-sm", role: "shift_manager", department_id: null });
+  const positions = [cook, sm];
+  // הפרופיל משקף את התפקיד הראשי (אחראי משמרת)
+  const employeeInfo = new Map([[E, { departmentId: null, role: "shift_manager" }]]);
+
+  it("אחראי משמרת שנכנס כטבח מופיע תחת «מטבח» ולא תחת «אחמ״ש»", () => {
+    const groups = groupAttendanceByEmployee([
+      { ...makeAttendance({ employeeId: E, date: DATE, from: 18, to: null }), position_id: "pos-cook" },
+    ]);
+    const sections = groupAttendanceByDepartment(groups, departments, employeeInfo, positionSectionInfo(positions));
+    expect(sections.map((s) => s.key)).toEqual([`dept:${DEPT.kitchen}`]);
+  });
+
+  it("כניסה כאחראי משמרת מתויקת תחת «אחמ״ש»", () => {
+    const groups = groupAttendanceByEmployee([
+      { ...makeAttendance({ employeeId: E, date: DATE, from: 18, to: null }), position_id: "pos-sm" },
+    ]);
+    const sections = groupAttendanceByDepartment(groups, departments, employeeInfo, positionSectionInfo(positions));
+    expect(sections.map((s) => s.key)).toEqual(["role:shift_manager"]);
+  });
+
+  it("ההחתמה הפתוחה קובעת, לא החתמה קודמת שנסגרה", () => {
+    const groups = groupAttendanceByEmployee([
+      { ...makeAttendance({ employeeId: E, date: DATE, from: 8, to: 12 }), position_id: "pos-sm" },
+      { ...makeAttendance({ employeeId: E, date: DATE, from: 18, to: null }), position_id: "pos-cook" },
+    ]);
+    const sections = groupAttendanceByDepartment(groups, departments, employeeInfo, positionSectionInfo(positions));
+    expect(sections.map((s) => s.key)).toEqual([`dept:${DEPT.kitchen}`]);
+  });
+
+  it("החתמה ישנה בלי תפקיד, או בלי מפת תפקידים — נופלת לפרופיל כמו קודם", () => {
+    const groups = groupAttendanceByEmployee([makeAttendance({ employeeId: E, date: DATE, from: 18, to: null })]);
+    expect(groupAttendanceByDepartment(groups, departments, employeeInfo, positionSectionInfo(positions)).map((s) => s.key)).toEqual([
+      "role:shift_manager",
+    ]);
+    expect(groupAttendanceByDepartment(groups, departments, employeeInfo).map((s) => s.key)).toEqual(["role:shift_manager"]);
+  });
+
+  it("תוויות תפקיד רק לעובדים עם יותר מתפקיד אחד", () => {
+    const solo = hourlyPosition(USER.employee2, 40, { id: "pos-solo", department_id: DEPT.service });
+    const labels = multiPositionLabels([...positions, solo], (id) => departments.find((d) => d.id === id)?.name);
+    expect(labels.get("pos-cook")).toBe("מטבח");
+    expect(labels.get("pos-sm")).toBe("אחראי משמרת");
+    expect(labels.has("pos-solo")).toBe(false);
   });
 });
 

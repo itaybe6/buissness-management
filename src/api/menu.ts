@@ -8,6 +8,7 @@ import type {
   MenuDish,
   MenuDishComponent,
   MenuDishKind,
+  MenuDishSale,
   MenuItemConversion,
   MenuMeasure,
   MenuSettings,
@@ -19,8 +20,9 @@ function throwDbError(error: { message: string } | null): void {
 
 const MENU_KEY = "menu";
 
+/** Returned (not just fired) so `mutateAsync` resolves only after the tree is fresh. */
 function invalidateMenu(qc: ReturnType<typeof useQueryClient>, businessId: string | null) {
-  qc.invalidateQueries({ queryKey: [MENU_KEY, businessId] });
+  return qc.invalidateQueries({ queryKey: [MENU_KEY, businessId] });
 }
 
 /* ------------------------------------------------------------------ */
@@ -403,6 +405,60 @@ export function useSaveItemConversion(businessId: string | null) {
       throwDbError(error);
     },
     onSuccess: () => invalidateMenu(qc, businessId),
+  });
+}
+
+function invalidateSales(qc: ReturnType<typeof useQueryClient>, businessId: string | null) {
+  return qc.invalidateQueries({ queryKey: [MENU_KEY, businessId, "sales"] });
+}
+
+export function useMenuSales(businessId: string | null, from: string, to: string) {
+  return useQuery({
+    queryKey: [MENU_KEY, businessId, "sales", from, to],
+    enabled: !!businessId && !!from && !!to,
+    queryFn: async (): Promise<MenuDishSale[]> => {
+      const { data, error } = await supabase
+        .from("menu_dish_sales")
+        .select("*")
+        .eq("business_id", businessId!)
+        .gte("sold_on", from)
+        .lte("sold_on", to);
+      throwDbError(error);
+      return (data ?? []).map((r) => ({
+        ...(r as MenuDishSale),
+        quantity: Number(r.quantity),
+        sold_on: String(r.sold_on),
+      }));
+    },
+  });
+}
+
+/** Write one day's sold count for a dish. quantity ≤ 0 deletes the row. */
+export function useSaveDishSale(businessId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { business_id: string; dish_id: string; sold_on: string; quantity: number }) => {
+      if (input.quantity <= 0) {
+        const { error } = await supabase
+          .from("menu_dish_sales")
+          .delete()
+          .eq("dish_id", input.dish_id)
+          .eq("sold_on", input.sold_on);
+        throwDbError(error);
+        return;
+      }
+      const { error } = await supabase.from("menu_dish_sales").upsert(
+        {
+          business_id: input.business_id,
+          dish_id: input.dish_id,
+          sold_on: input.sold_on,
+          quantity: input.quantity,
+        },
+        { onConflict: "dish_id,sold_on" },
+      );
+      throwDbError(error);
+    },
+    onSuccess: () => invalidateSales(qc, businessId),
   });
 }
 

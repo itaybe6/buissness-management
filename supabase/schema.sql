@@ -17,7 +17,7 @@ drop trigger if exists on_auth_user_created on auth.users;
 -- מחיקת טבלאות (אם קיימות) בסדר תלות
 drop table if exists
   public.tasks, public.task_templates, public.events, public.event_ideas, public.faults, public.inventory_logs,
-  public.menu_dish_components, public.menu_item_conversions, public.menu_dishes, public.menu_categories, public.menu_settings,
+  public.menu_dish_sales, public.menu_dish_components, public.menu_item_conversions, public.menu_dishes, public.menu_categories, public.menu_settings,
   public.inventory_waste, public.recurring_order_items, public.recurring_orders,
   public.inventory_orders, public.inventory_counts, public.inventory_item_departments,
   public.inventory_items, public.inventory_categories, public.inventory_units, public.suppliers, public.supplier_items,
@@ -993,11 +993,27 @@ create index idx_menu_components_item     on public.menu_dish_components(item_id
 create index idx_menu_components_sub      on public.menu_dish_components(sub_dish_id);
 create index idx_menu_conversions_business on public.menu_item_conversions(business_id);
 
+-- מכירות מנות לפי יום (שבוע / חודש = סיכום)
+create table public.menu_dish_sales (
+  id          uuid primary key default gen_random_uuid(),
+  business_id uuid not null references public.businesses(id) on delete cascade,
+  dish_id     uuid not null references public.menu_dishes(id) on delete cascade,
+  sold_on     date not null,
+  quantity    numeric(12,2) not null check (quantity > 0),
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  constraint menu_dish_sales_unique unique (dish_id, sold_on)
+);
+
+create index idx_menu_dish_sales_business_date on public.menu_dish_sales (business_id, sold_on);
+create index idx_menu_dish_sales_dish on public.menu_dish_sales (dish_id, sold_on);
+
 alter table public.menu_settings         enable row level security;
 alter table public.menu_categories       enable row level security;
 alter table public.menu_dishes           enable row level security;
 alter table public.menu_dish_components  enable row level security;
 alter table public.menu_item_conversions enable row level security;
+alter table public.menu_dish_sales       enable row level security;
 
 create policy "menu_settings_manage" on public.menu_settings
   for all using (public.can_manage_menu(business_id)) with check (public.can_manage_menu(business_id));
@@ -1008,6 +1024,8 @@ create policy "menu_dishes_manage" on public.menu_dishes
 create policy "menu_components_manage" on public.menu_dish_components
   for all using (public.can_manage_menu(business_id)) with check (public.can_manage_menu(business_id));
 create policy "menu_conversions_manage" on public.menu_item_conversions
+  for all using (public.can_manage_menu(business_id)) with check (public.can_manage_menu(business_id));
+create policy "menu_sales_manage" on public.menu_dish_sales
   for all using (public.can_manage_menu(business_id)) with check (public.can_manage_menu(business_id));
 
 
@@ -1764,6 +1782,7 @@ as $$
 
       ('waste',         'inventory_waste',              null),
 
+      ('menu',          'menu_dish_sales',              null),
       ('menu',          'menu_dish_components',         null),
       ('menu',          'menu_item_conversions',        null),
       ('menu',          'menu_dishes',                  null),
@@ -1793,7 +1812,7 @@ as $$
         'attendance',
         'shift_bonuses', 'tips', 'shift_reports',
         'payroll_month_adjustments', 'payroll_records',
-        'menu_dish_components', 'menu_item_conversions', 'menu_dishes', 'menu_categories', 'menu_settings',
+        'menu_dish_sales', 'menu_dish_components', 'menu_item_conversions', 'menu_dishes', 'menu_categories', 'menu_settings',
         'inventory_waste', 'inventory_logs', 'inventory_counts', 'inventory_orders',
         'recurring_order_items', 'recurring_orders',
         'supplier_items', 'inventory_item_departments', 'inventory_items',

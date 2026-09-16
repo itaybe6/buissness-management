@@ -739,9 +739,9 @@ export function summarizeMenu(rows: { economics: DishEconomics; cost: DishCost; 
     else if (e.status === "warn") near += 1;
     else if (e.status === "good") on += 1;
 
-    if (e.monthlyContribution != null) {
+    if (sales != null && sales > 0 && e.profit != null) {
       hasContribution = true;
-      contribution += e.monthlyContribution;
+      contribution += e.profit * sales;
     }
     if (sales != null && sales > 0 && e.sellingNet != null) {
       hasSales = true;
@@ -844,7 +844,7 @@ export function menuSaveError(e: unknown): string {
   if (/menu_dish_components_sub_dish_id_fkey|violates foreign key constraint/.test(msg) && /sub_dish/.test(msg)) {
     return "ההכנה בשימוש במנות אחרות — הסירו אותה מהן לפני המחיקה.";
   }
-  if (/menu_settings|menu_dishes|menu_categories|menu_dish_components|menu_item_conversions/.test(msg) && /does not exist|42P01|Could not find/i.test(msg)) {
+  if (/menu_settings|menu_dishes|menu_categories|menu_dish_components|menu_item_conversions|menu_dish_sales/.test(msg) && /does not exist|42P01|Could not find/i.test(msg)) {
     return "טבלאות מודול התפריט חסרות במסד הנתונים. ב-Supabase: SQL Editor → הריצו את supabase/migrations/20260915100000_menu_costing.sql";
   }
   if (/bucket|storage/i.test(msg)) return "שגיאה בהעלאת תמונה. ודאו שקיים Bucket בשם menu ב-Storage.";

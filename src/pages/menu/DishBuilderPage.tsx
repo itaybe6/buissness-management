@@ -43,12 +43,9 @@ interface DraftLine {
 
 interface Draft {
   name: string;
-  category_id: string | null;
   description: string;
   image_url: string | null;
   selling_price: string;
-  target_food_cost_pct: string;
-  monthly_sales: string;
   notes: string;
   lines: DraftLine[];
 }
@@ -62,12 +59,9 @@ function newKey() {
 function emptyDraft(): Draft {
   return {
     name: "",
-    category_id: null,
     description: "",
     image_url: null,
     selling_price: "",
-    target_food_cost_pct: "",
-    monthly_sales: "",
     notes: "",
     lines: [],
   };
@@ -76,12 +70,9 @@ function emptyDraft(): Draft {
 function draftFromDish(dish: MenuDish, components: MenuDishComponent[]): Draft {
   return {
     name: dish.name,
-    category_id: dish.category_id,
     description: dish.description ?? "",
     image_url: dish.image_url,
     selling_price: dish.selling_price != null ? String(dish.selling_price) : "",
-    target_food_cost_pct: dish.target_food_cost_pct != null ? String(dish.target_food_cost_pct) : "",
-    monthly_sales: dish.monthly_sales != null ? String(dish.monthly_sales) : "",
     notes: dish.notes ?? "",
     lines: [...components]
       .filter((c) => c.item_id)
@@ -123,7 +114,7 @@ function draftToDish(draft: Draft, businessId: string, dishId: string): MenuDish
   return {
     id: dishId,
     business_id: businessId,
-    category_id: draft.category_id,
+    category_id: null,
     kind: "dish",
     name: draft.name,
     description: draft.description || null,
@@ -131,8 +122,8 @@ function draftToDish(draft: Draft, businessId: string, dishId: string): MenuDish
     selling_price: num(draft.selling_price) > 0 ? num(draft.selling_price) : null,
     yield_qty: 1,
     yield_measure: "unit",
-    target_food_cost_pct: num(draft.target_food_cost_pct) > 0 ? num(draft.target_food_cost_pct) : null,
-    monthly_sales: num(draft.monthly_sales) > 0 ? Math.round(num(draft.monthly_sales)) : null,
+    target_food_cost_pct: null,
+    monthly_sales: null,
     notes: draft.notes || null,
     sort_order: 0,
     active: true,
@@ -152,7 +143,7 @@ export function DishBuilderPage() {
   const navigate = useNavigate();
   const isNew = !dishId;
 
-  const { data, isLoading, error, refetch } = useMenuCosting(businessId);
+  const { data, isLoading, isRefreshing, error, refetch } = useMenuCosting(businessId);
   const create = useCreateDish(businessId);
   const update = useUpdateDish(businessId);
 
@@ -173,11 +164,14 @@ export function DishBuilderPage() {
       setDraft(emptyDraft());
     } else {
       const dish = data.ctx.dishes.get(dishId!);
+      // Right after "create" the cached tree may predate the new row — wait for the refresh
+      // before concluding the dish does not exist.
+      if (!dish && isRefreshing) return;
       setDraft(dish ? draftFromDish(dish, data.componentsByDish.get(dish.id) ?? []) : null);
     }
     setLoadedFor(target);
     setDirty(false);
-  }, [data, dishId, isNew, loadedFor]);
+  }, [data, dishId, isNew, loadedFor, isRefreshing]);
 
   useEffect(() => {
     if (!savedFlash) return;
@@ -297,7 +291,7 @@ export function DishBuilderPage() {
     const v = validate();
     if (v) return setSaveError(v);
     const dishInput: DishInput = {
-      category_id: draft!.category_id,
+      category_id: null,
       kind: "dish",
       name: draft!.name.trim(),
       description: draft!.description || null,
@@ -305,8 +299,8 @@ export function DishBuilderPage() {
       selling_price: num(draft!.selling_price) > 0 ? num(draft!.selling_price) : null,
       yield_qty: 1,
       yield_measure: "unit",
-      target_food_cost_pct: num(draft!.target_food_cost_pct) > 0 ? num(draft!.target_food_cost_pct) : null,
-      monthly_sales: num(draft!.monthly_sales) > 0 ? Math.round(num(draft!.monthly_sales)) : null,
+      target_food_cost_pct: null,
+      monthly_sales: null,
       notes: draft!.notes || null,
     };
     const components: ComponentInput[] = draft!.lines.map((l) => ({
@@ -322,6 +316,7 @@ export function DishBuilderPage() {
       if (isNew) {
         const id = await create.mutateAsync({ business_id: businessId!, dish: dishInput, components });
         setDirty(false);
+        setSavedFlash(true);
         navigate(`/menu/dishes/${id}`, { replace: true });
       } else {
         await update.mutateAsync({ business_id: businessId!, id: dishId!, dish: dishInput, components });
@@ -335,7 +330,6 @@ export function DishBuilderPage() {
 
   const saving = create.isPending || update.isPending;
   const { cost, economics: e } = live;
-  const category = draft.category_id ? data.categories.find((c) => c.id === draft.category_id) : null;
 
   return (
     <div className="mnu-page mnu-builder page-enter">
@@ -388,7 +382,7 @@ export function DishBuilderPage() {
               <div className="flex min-w-0 flex-1 flex-col gap-3">
                 <div className="mnu-identity-eyebrow">
                   <Icon name="restaurant_menu" size={14} fill />
-                  {category ? category.name : "מנה בתפריט"}
+                  מנה בתפריט
                   {!isNew && (
                     <>
                       <span className="mnu-identity-dot" />
@@ -406,18 +400,6 @@ export function DishBuilderPage() {
                   aria-label="שם המנה"
                   autoFocus={isNew}
                 />
-                <div className="mnu-identity-row">
-                  <Field label="קטגוריה" className="min-w-0 flex-1">
-                    <Select value={draft.category_id ?? ""} onChange={(ev) => patch({ category_id: ev.target.value || null })}>
-                      <option value="">כללי</option>
-                      {data.categories.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                </div>
               </div>
             </div>
             <Textarea
@@ -957,34 +939,6 @@ function DishPanel({
           )}
         </section>
       )}
-
-      <section className="mnu-panel">
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="יעד Food Cost למנה (%)">
-            <Input
-              type="number"
-              inputMode="decimal"
-              min={1}
-              max={99}
-              value={draft.target_food_cost_pct}
-              onChange={(ev) => onPatch({ target_food_cost_pct: ev.target.value })}
-              placeholder={`${s.target_food_cost_pct} (ברירת מחדל)`}
-            />
-          </Field>
-          <Field label="מכירות בחודש (אופציונלי)">
-            <Input type="number" inputMode="numeric" min={0} value={draft.monthly_sales} onChange={(ev) => onPatch({ monthly_sales: ev.target.value })} placeholder="0" />
-          </Field>
-        </div>
-        {e.monthlyContribution != null && (
-          <div className="mnu-contrib">
-            <Icon name="trending_up" size={18} />
-            <span>
-              תרומה חודשית לרווח: <b>{formatMoney(e.monthlyContribution)}</b>
-              {e.profit != null && dish.monthly_sales ? ` (${formatMoney(e.profit, { decimals: 2 })} × ${dish.monthly_sales.toLocaleString("he-IL")})` : ""}
-            </span>
-          </div>
-        )}
-      </section>
 
       {cost.issues.length > 0 && (
         <section className="mnu-panel" data-tone="warning">

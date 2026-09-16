@@ -16,6 +16,10 @@ interface AttendanceTodayFeedSectionProps {
   todayFeed: EmployeeAttendanceGroup[];
   feedByDepartment: AttendanceDepartmentSection[];
   userById: Map<string, { name: string | null; role: string; departmentId?: string | null }>;
+  /** position id → label, for employees holding several positions. */
+  positionLabelById?: Map<string, string>;
+  /** Live clock for elapsed time on open punches. */
+  nowMs?: number;
   variant: "mobile" | "desktop";
   filter: AttendanceShiftFilter;
   showFilterBar?: boolean;
@@ -41,6 +45,8 @@ export function AttendanceTodayFeedSection({
   todayFeed,
   feedByDepartment,
   userById,
+  positionLabelById,
+  nowMs,
   variant,
   filter,
   showFilterBar = false,
@@ -141,6 +147,8 @@ export function AttendanceTodayFeedSection({
             <AttendanceDeptSections
               sections={filteredSections}
               userById={userById}
+              positionLabelById={positionLabelById}
+              nowMs={nowMs}
               variant={variant}
               canForceClockOut={canForceClockOut}
               onRequestClockOut={onRequestClockOut}

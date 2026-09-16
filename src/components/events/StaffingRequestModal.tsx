@@ -11,13 +11,6 @@ const MAX_PER_LINE = 50;
 /** Seats drawn in the preview before collapsing into "+N". */
 const PREVIEW_SEATS = 14;
 
-const SHIFT_PRESETS = [
-  { key: "morning", label: "בוקר", icon: "wb_twilight" },
-  { key: "noon", label: "צהריים", icon: "light_mode" },
-  { key: "evening", label: "ערב", icon: "wb_twilight" },
-  { key: "night", label: "לילה", icon: "bedtime" },
-] as const;
-
 function Stepper({
   value,
   onChange,
@@ -75,7 +68,6 @@ export function StaffingRequestModal({
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [freeLabel, setFreeLabel] = useState("");
   const [freeCount, setFreeCount] = useState(0);
-  const [shiftLabel, setShiftLabel] = useState("");
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -109,19 +101,10 @@ export function StaffingRequestModal({
     return out;
   }, [lines, departments]);
 
-  function applyPreset(label: string) {
-    setShiftLabel((prev) => {
-      const base = `${weekday} ${label}`;
-      return prev.trim() === base ? "" : base;
-    });
-  }
-  const activePreset = SHIFT_PRESETS.find((p) => shiftLabel.trim() === `${weekday} ${p.label}`)?.key ?? null;
-
   function reset() {
     setCounts({});
     setFreeLabel("");
     setFreeCount(0);
-    setShiftLabel("");
     setNote("");
     setError(null);
   }
@@ -146,7 +129,7 @@ export function StaffingRequestModal({
       const created = await create.mutateAsync({
         kind: "staffing",
         event_id: event.id,
-        shift_label: shiftLabel,
+        shift_label: null,
         note,
         lines,
       });
@@ -183,8 +166,10 @@ export function StaffingRequestModal({
         {/* ---- Who ---- */}
         <section className="evrq-block" aria-labelledby="stf-who">
           <header className="evrq-block-head">
-            <span className="evrq-block-step">1</span>
-            <h3 id="stf-who" className="evrq-block-title">כמה עובדים צריך?</h3>
+            <h3 id="stf-who" className="evrq-block-title">
+              <Icon name="groups" size={16} />
+              כמה עובדים צריך?
+            </h3>
             {total > 0 && (
               <span className="evrq-block-badge">
                 {total} {total === 1 ? "עובד" : "עובדים"}
@@ -250,37 +235,11 @@ export function StaffingRequestModal({
                 </span>
               ))}
               {seats.length > PREVIEW_SEATS && <span className="evrq-seat evrq-seat--more">+{seats.length - PREVIEW_SEATS}</span>}
-              <span className="evrq-seats-hint">המנהל ימלא כל מקום בשם של עובד</span>
+              <span className="evrq-seats-hint">
+                לאירוע ב{weekday}, {dateShort} · המנהל ימלא כל מקום בשם של עובד
+              </span>
             </div>
           )}
-        </section>
-
-        {/* ---- When ---- */}
-        <section className="evrq-block" aria-labelledby="stf-when">
-          <header className="evrq-block-head">
-            <span className="evrq-block-step">2</span>
-            <h3 id="stf-when" className="evrq-block-title">לאיזו משמרת?</h3>
-          </header>
-          <div className="evrq-presets" role="group" aria-label="משמרת">
-            {SHIFT_PRESETS.map((p) => (
-              <button
-                key={p.key}
-                type="button"
-                className="evrq-preset"
-                data-active={activePreset === p.key || undefined}
-                onClick={() => applyPreset(p.label)}
-              >
-                <Icon name={p.icon} size={15} />
-                {weekday} {p.label}
-              </button>
-            ))}
-          </div>
-          <Input
-            value={shiftLabel}
-            onChange={(e) => setShiftLabel(e.target.value)}
-            placeholder={`או בחופשי: ${weekday} בערב, הגעה 18:00`}
-            aria-label="פירוט המשמרת"
-          />
         </section>
 
         {/* ---- Note ---- */}
@@ -288,7 +247,7 @@ export function StaffingRequestModal({
           <Textarea
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            placeholder="דגשים, ניסיון נדרש, מי כבר אישר הגעה…"
+            placeholder="שעת הגעה, דגשים, ניסיון נדרש, מי כבר אישר הגעה…"
             rows={2}
             className="max-h-[200px] min-h-[64px] resize-y overflow-y-auto leading-relaxed"
           />

@@ -29,87 +29,87 @@ import type {
 type LinesHandler = (id: string, lines: EventRequest["lines"], status: EventRequestStatus) => void;
 
 /* ------------------------------------------------------------------ *
- * Staffing: one line = one role with N slots
+ * Staffing: one row per role — name, who's in, the seats, one action
  * ------------------------------------------------------------------ */
-function StaffingSlots({
+const MAX_SEATS_SHOWN = 3;
+
+function StaffingRoles({
   request,
   usersById,
   deptColor,
   canHandle,
   onPick,
-  onRemove,
 }: {
   request: EventRequest;
   usersById: Map<string, Profile>;
   deptColor: (id: string | null) => string;
   canHandle: boolean;
   onPick: (lineIndex: number) => void;
-  onRemove: (lineIndex: number, employeeId: string) => void;
 }) {
   const lines = staffingLines(request);
   return (
-    <div className="evrq-slotlines">
+    <ul className="evrq-roles">
       {lines.map((line, i) => {
         const assigned = (line.assigned ?? []).slice(0, line.count);
         const empty = Math.max(0, line.count - assigned.length);
+        const full = empty === 0;
+        const names = assigned.map((id) => usersById.get(id)?.full_name?.split(" ")[0] ?? "עובד");
+        const sub = full
+          ? names.join(", ")
+          : assigned.length === 0
+            ? canHandle
+              ? `${line.count === 1 ? "מקום אחד" : `${line.count} מקומות`} · לחצו לשיבוץ`
+              : "טרם שובץ"
+            : `${names.join(", ")} · עוד ${empty} לשבץ`;
+
+        const seatsShown = Math.min(line.count, MAX_SEATS_SHOWN);
+        const overflow = line.count - seatsShown;
+        const Row = canHandle ? "button" : "div";
+
         return (
-          <div key={`${line.department_id ?? "free"}:${line.label}:${i}`} className="evrq-slotline">
-            <div className="evrq-slotline-head">
-              <span className="evrq-slotline-dot" style={{ background: deptColor(line.department_id) }} aria-hidden />
-              <span className="evrq-slotline-name">{line.label}</span>
-              <span className="evrq-slotline-count" data-full={empty === 0 || undefined}>
-                {assigned.length}/{line.count}
+          <li key={`${line.department_id ?? "free"}:${line.label}:${i}`} className="evrq-role" data-full={full || undefined}>
+            <Row
+              {...(canHandle
+                ? { type: "button" as const, onClick: () => onPick(i), "aria-label": `שיבוץ ${line.label}` }
+                : {})}
+              className="evrq-role-main"
+            >
+              <span className="evrq-role-dot" style={{ background: deptColor(line.department_id) }} aria-hidden />
+              <span className="evrq-role-copy">
+                <span className="evrq-role-title">
+                  {line.label}
+                  <span className="evrq-role-count" data-full={full || undefined}>
+                    {assigned.length}/{line.count}
+                  </span>
+                </span>
+                <span className="evrq-role-sub">{sub}</span>
               </span>
-            </div>
-            <div className="evrq-slots">
-              {assigned.map((id) => {
-                const u = usersById.get(id);
-                return (
-                  <span key={id} className="evrq-slot evrq-slot--filled">
-                    <UserAvatar
-                      userId={id}
-                      name={u?.full_name}
-                      avatarUrl={u?.avatar_url}
-                      size={22}
-                      rounded="circle"
-                    />
-                    <span className="evrq-slot-name">{u?.full_name ?? "עובד"}</span>
-                    {canHandle && (
-                      <button
-                        type="button"
-                        className="evrq-slot-x"
-                        onClick={() => onRemove(i, id)}
-                        aria-label={`הסרת ${u?.full_name ?? "העובד"} מהשיבוץ`}
-                      >
-                        <Icon name="close" size={13} />
-                      </button>
-                    )}
-                  </span>
-                );
-              })}
-              {Array.from({ length: empty }, (_, k) =>
-                canHandle ? (
-                  <button
-                    key={`empty-${k}`}
-                    type="button"
-                    className="evrq-slot evrq-slot--empty"
-                    onClick={() => onPick(i)}
-                  >
-                    <Icon name="person_add" size={15} />
-                    שיבוץ
-                  </button>
-                ) : (
-                  <span key={`empty-${k}`} className="evrq-slot evrq-slot--empty" data-readonly>
-                    <Icon name="person" size={15} />
-                    טרם שובץ
-                  </span>
-                ),
+              <span className="evrq-role-seats" aria-hidden>
+                {Array.from({ length: seatsShown }, (_, k) => {
+                  const id = assigned[k];
+                  const u = id ? usersById.get(id) : null;
+                  return id ? (
+                    <span key={id} className="evrq-role-seat" data-filled>
+                      <UserAvatar userId={id} name={u?.full_name} avatarUrl={u?.avatar_url} size={24} rounded="circle" />
+                    </span>
+                  ) : (
+                    <span key={`e${k}`} className="evrq-role-seat">
+                      <Icon name="person" size={13} />
+                    </span>
+                  );
+                })}
+                {overflow > 0 && <span className="evrq-role-seat evrq-role-seat--more">+{overflow}</span>}
+              </span>
+              {canHandle && (
+                <span className="evrq-role-go" aria-hidden>
+                  <Icon name={full ? "edit" : "person_add"} size={17} />
+                </span>
               )}
-            </div>
-          </div>
+            </Row>
+          </li>
         );
       })}
-    </div>
+    </ul>
   );
 }
 
@@ -225,13 +225,6 @@ export function EventRequestCard({
     setPickLine(null);
   }
 
-  function removeAssignee(lineIndex: number, employeeId: string) {
-    const lines = staffingLines(request).map((l, i): EventStaffingLine =>
-      i === lineIndex ? { ...l, assigned: (l.assigned ?? []).filter((id) => id !== employeeId) } : l,
-    );
-    commitLines(lines);
-  }
-
   function toggleSupply(lineIndex: number) {
     const lines = supplyLines(request).map((l, i): EventSupplyLine =>
       i === lineIndex ? { ...l, done: !l.done } : l,
@@ -304,13 +297,12 @@ export function EventRequestCard({
       )}
 
       {request.kind === "staffing" ? (
-        <StaffingSlots
+        <StaffingRoles
           request={request}
           usersById={usersById}
           deptColor={deptColor}
           canHandle={canHandle && !!onLines}
           onPick={openPicker}
-          onRemove={removeAssignee}
         />
       ) : (
         <SupplyChecklist request={request} canHandle={canHandle && !!onLines} onToggle={toggleSupply} />

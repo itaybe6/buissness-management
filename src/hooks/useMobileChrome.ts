@@ -8,7 +8,7 @@ const CHROME_THEME_COLOR: Record<MobileChrome, { light: string; dark: string }> 
   worker: { light: "#191e25", dark: "#191e25" },
   sidebar: { light: "#151c28", dark: "#1c2432" },
   /* Auth screens have no header — the chrome matches --bg, the page itself. */
-  auth: { light: "#f0f2f5", dark: "#0b0e16" },
+  auth: { light: "#f4f2ee", dark: "#0b0e16" },
 };
 
 /** Chromes light enough to keep the OS status bar in its dark-on-light style. */

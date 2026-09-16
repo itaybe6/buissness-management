@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { resolveGeofenceRules } from "@/lib/attendanceGeofence";
 import { attemptClockIn, clockInSuccessText } from "@/lib/attendancePunch";
@@ -54,6 +54,8 @@ export function useShiftPunch() {
   const [busy, setBusy] = useState(false);
   const [exitWarn, setExitWarn] = useState(false);
   const [positionPickerOpen, setPositionPickerOpen] = useState(false);
+  /** Synchronous re-entry guard — React state is too slow for a double tap on the picker. */
+  const punchingRef = useRef(false);
   const now = useLiveClock();
 
   /** The positions this employee can enter a shift as (primary first). */
@@ -170,6 +172,8 @@ export function useShiftPunch() {
   /** Run the geofence check and record the punch under the given position. */
   async function clockInAs(position: EmployeePosition | null) {
     if (!profile || !biz) return;
+    if (punchingRef.current) return;
+    punchingRef.current = true;
     setPositionPickerOpen(false);
     setBusy(true);
     try {
@@ -182,10 +186,11 @@ export function useShiftPunch() {
         await clockInRecord(fix?.lat ?? null, fix?.lng ?? null, decision.within, position);
         const label = position && myPositions.length > 1 ? ` · ${positionLabel(position, deptName)}` : "";
         setClockStatus({ ok: true, text: `${clockInSuccessText(decision)}${label}` });
-      } catch {
-        setClockStatus({ ok: false, text: "החתמה נכשלה" });
+      } catch (e) {
+        setClockStatus({ ok: false, text: e instanceof Error && e.message === "כבר במשמרת" ? "כבר במשמרת" : "החתמה נכשלה" });
       }
     } finally {
+      punchingRef.current = false;
       setBusy(false);
     }
   }

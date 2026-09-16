@@ -169,7 +169,7 @@ export function ManagerDashboard() {
   const { data: inventory = [], isLoading: inventoryLoading } = useInventory(businessId);
   const { data: waste = [], isLoading: wasteLoading } = useWaste(businessId);
   const { data: attendance = [], isLoading: attendanceLoading } = useAttendanceToday(businessId);
-  const { openRequestCount: openEventRequests } = useEventRequestBadgeCount();
+  const { activeRequestCount: openEventRequests } = useEventRequestBadgeCount();
 
   const pageLoading =
     businessLoading ||

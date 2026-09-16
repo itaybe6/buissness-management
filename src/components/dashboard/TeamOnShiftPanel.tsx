@@ -2,10 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@/components/ui";
 import { useAttendanceToday } from "@/api/attendance";
 import { useDepartments } from "@/api/departments";
+import { useEmployeePositions } from "@/api/employeePositions";
 import { useProfiles } from "@/api/users";
 import { ForceClockOutModal, type ForceClockOutTarget } from "@/components/attendance/ForceClockOutModal";
-import { groupAttendanceByDepartment, groupAttendanceByEmployee } from "@/lib/attendanceFeed";
+import { currentSession, groupAttendanceByDepartment, groupAttendanceByEmployee } from "@/lib/attendanceFeed";
 import { useBusinessId, colorForDepartment, initialsOf } from "@/lib/db";
+import { multiPositionLabels, positionSectionInfo } from "@/lib/employeePositions";
 import { formatShiftElapsed } from "@/hooks/useShiftPunch";
 
 function useLiveClock() {
@@ -24,6 +26,7 @@ export function TeamOnShiftPanel() {
   const { data: records } = useAttendanceToday(businessId);
   const { data: profiles } = useProfiles(businessId);
   const { data: departments } = useDepartments(businessId);
+  const { data: positions } = useEmployeePositions(businessId);
   const now = useLiveClock();
   const [view, setView] = useState<TeamView>("on_shift");
   const [clockOutTarget, setClockOutTarget] = useState<ForceClockOutTarget | null>(null);
@@ -62,14 +65,21 @@ export function TeamOnShiftPanel() {
 
   const displayRecords = view === "all" ? (records ?? []).filter((a) => a.clock_in) : onShift;
 
+  /** File each card under the position actually clocked in as, not the profile's primary role. */
+  const positionInfo = useMemo(() => positionSectionInfo(positions), [positions]);
+  const positionLabelById = useMemo(
+    () => multiPositionLabels(positions, (id) => (departments ?? []).find((d) => d.id === id)?.name),
+    [positions, departments],
+  );
+
   const sections = useMemo(() => {
     const groups = groupAttendanceByEmployee(displayRecords);
     const employeeInfo = new Map<string, { departmentId: string | null | undefined; role: string }>();
     for (const p of profiles ?? []) {
       employeeInfo.set(p.id, { departmentId: p.department_id, role: p.role });
     }
-    return groupAttendanceByDepartment(groups, departments ?? [], employeeInfo);
-  }, [displayRecords, profiles, departments]);
+    return groupAttendanceByDepartment(groups, departments ?? [], employeeInfo, positionInfo);
+  }, [displayRecords, profiles, departments, positionInfo]);
 
   return (
     <section className="team-on-shift">
@@ -123,8 +133,9 @@ export function TeamOnShiftPanel() {
                 <div className="team-on-shift__list">
                   {section.groups.map((group) => {
                     const person = profilesById.get(group.employeeId);
-                    const activeSession =
-                      group.sessions.find((s) => !s.clockOut) ?? group.sessions[group.sessions.length - 1];
+                    const activeSession = currentSession(group.sessions);
+                    const positionLabel =
+                      (activeSession?.positionId && positionLabelById.get(activeSession.positionId)) || null;
                     const isActive = Boolean(activeSession && !activeSession.clockOut);
                     const since = activeSession
                       ? new Date(activeSession.clockIn).toLocaleTimeString("he-IL", {
@@ -158,6 +169,12 @@ export function TeamOnShiftPanel() {
                         <div className="team-on-shift__copy">
                           <div className="team-on-shift__name">{person?.full_name ?? "—"}</div>
                           <div className="team-on-shift__meta">
+                            {positionLabel && (
+                              <>
+                                <span className="team-on-shift__position">{positionLabel}</span>
+                                <span className="team-on-shift__dot" aria-hidden />
+                              </>
+                            )}
                             {since && <span>מאז {since}</span>}
                             {elapsed && (
                               <>

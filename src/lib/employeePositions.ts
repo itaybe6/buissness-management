@@ -175,6 +175,32 @@ export function bonusPosition(row: { position_id?: string | null }, positions: E
   return resolvePosition(row.position_id, positions, { preferBonus: true });
 }
 
+/** position id → role/department — lets a punch's chosen position decide where it is filed. */
+export function positionSectionInfo(
+  positions: EmployeePosition[] | null | undefined,
+): Map<string, { departmentId: string | null; role: UserRole }> {
+  const out = new Map<string, { departmentId: string | null; role: UserRole }>();
+  for (const p of positions ?? []) out.set(p.id, { departmentId: p.department_id ?? null, role: p.role });
+  return out;
+}
+
+/**
+ * position id → label, only for employees who hold more than one position —
+ * a single-position employee's role is already implied by their section.
+ */
+export function multiPositionLabels(
+  positions: EmployeePosition[] | null | undefined,
+  deptName?: (id: string) => string | null | undefined,
+): Map<string, string> {
+  const countByEmployee = new Map<string, number>();
+  for (const p of positions ?? []) countByEmployee.set(p.employee_id, (countByEmployee.get(p.employee_id) ?? 0) + 1);
+  const out = new Map<string, string>();
+  for (const p of positions ?? []) {
+    if ((countByEmployee.get(p.employee_id) ?? 0) > 1) out.set(p.id, positionLabel(p, deptName));
+  }
+  return out;
+}
+
 /** Group rows by the position they resolve to (id → rows). */
 export function groupByPosition<T>(
   rows: T[],

@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useInventory, type ItemWithQty } from "@/api/inventory";
-import { useMenuCategories, useMenuSettings, useMenuTree } from "@/api/menu";
+import { useMenuSettings, useMenuTree } from "@/api/menu";
 import { useSupplierItemPriceIndex, useSuppliers } from "@/api/suppliers";
 import {
   costAllDishes,
@@ -10,7 +10,7 @@ import {
   type DishCost,
   type DishEconomics,
 } from "@/lib/menuCosting";
-import type { InventoryItem, MenuCategory, MenuDish, MenuDishComponent, MenuItemConversion, MenuSettings } from "@/types/database";
+import type { InventoryItem, MenuDish, MenuDishComponent, MenuItemConversion, MenuSettings } from "@/types/database";
 
 export interface CostedDish {
   dish: MenuDish;
@@ -21,7 +21,6 @@ export interface CostedDish {
 export interface MenuCostingData {
   ctx: CostingContext;
   settings: MenuSettings;
-  categories: MenuCategory[];
   items: ItemWithQty[];
   itemsById: Map<string, InventoryItem>;
   suppliersById: Map<string, string>;
@@ -40,14 +39,13 @@ export interface MenuCostingData {
 export function useMenuCosting(businessId: string | null) {
   const tree = useMenuTree(businessId);
   const settings = useMenuSettings(businessId);
-  const categories = useMenuCategories(businessId);
   const inventory = useInventory(businessId);
   const priceIndex = useSupplierItemPriceIndex(businessId);
   const suppliers = useSuppliers(businessId);
 
   const isLoading =
-    tree.isLoading || settings.isLoading || categories.isLoading || inventory.isLoading || priceIndex.isLoading;
-  const error = tree.error ?? settings.error ?? categories.error ?? inventory.error ?? priceIndex.error ?? null;
+    tree.isLoading || settings.isLoading || inventory.isLoading || priceIndex.isLoading;
+  const error = tree.error ?? settings.error ?? inventory.error ?? priceIndex.error ?? null;
 
   const data = useMemo<MenuCostingData | null>(() => {
     if (!tree.data || !settings.data || !inventory.data) return null;
@@ -79,7 +77,6 @@ export function useMenuCosting(businessId: string | null) {
     return {
       ctx,
       settings: settings.data,
-      categories: categories.data ?? [],
       items: inventory.data,
       itemsById,
       suppliersById: new Map((suppliers.data ?? []).map((s) => [s.id, s.name])),
@@ -89,16 +86,17 @@ export function useMenuCosting(businessId: string | null) {
       conversions,
       itemUsage: itemUsageIndex(costs, dishesById),
     };
-  }, [tree.data, settings.data, categories.data, inventory.data, priceIndex.data, suppliers.data]);
+  }, [tree.data, settings.data, inventory.data, priceIndex.data, suppliers.data]);
 
   return {
     data,
     isLoading,
+    /** A background refresh is in flight — `data` may not include a just-saved row yet. */
+    isRefreshing: tree.isFetching,
     error,
     refetch: () => {
       tree.refetch();
       settings.refetch();
-      categories.refetch();
       inventory.refetch();
       priceIndex.refetch();
     },

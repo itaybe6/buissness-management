@@ -12,8 +12,9 @@ import {
 } from "@/lib/eventRequests";
 
 /**
- * Manager-side badge: open event requests + event tasks the event manager
- * added, both counted since the manager last opened the requests inbox.
+ * Manager-side badge: event requests that are still waiting to be handled
+ * (slots not yet filled, items not yet bought). "Seen" tracking is kept only
+ * for the "new" markers inside the inbox.
  */
 export function useEventRequestBadgeCount() {
   const { profile, hasFeature } = useAuth();
@@ -57,6 +58,12 @@ export function useEventRequestBadgeCount() {
     [isHandler, requests],
   );
 
+  /** Requests still waiting for the manager to act — the badge does not clear on view. */
+  const activeRequestCount = useMemo(
+    () => (isHandler && requests ? requests.filter((r) => r.status !== "closed").length : 0),
+    [isHandler, requests],
+  );
+
   const markSeen = useCallback(() => {
     if (!userId || !businessId) return;
     markEventRequestsSeen(userId, businessId);
@@ -64,8 +71,14 @@ export function useEventRequestBadgeCount() {
   }, [userId, businessId]);
 
   return {
-    /** Unseen requests + unseen event-manager tasks — the nav badge. */
-    count: requestCount + taskCount,
+    /**
+     * The nav badge: requests that still need the manager's hand — every
+     * slot filled / every item ticked / marked handled makes one go away.
+     * Opening the inbox does not clear it.
+     */
+    count: activeRequestCount,
+    activeRequestCount,
+    /** Requests created since the inbox was last opened (drives "new" markers). */
     requestCount,
     taskCount,
     /** All open requests regardless of "seen" — the dashboard chip. */

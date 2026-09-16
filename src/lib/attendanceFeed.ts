@@ -15,6 +15,13 @@ export interface AttendanceSession {
   id: string;
   clockIn: string;
   clockOut: string | null;
+  /** Position the punch was recorded under (multi-position employees). */
+  positionId?: string | null;
+}
+
+/** The session that describes the employee "now": the open one, else the latest. */
+export function currentSession(sessions: AttendanceSession[]): AttendanceSession | undefined {
+  return sessions.find((s) => !s.clockOut) ?? sessions[sessions.length - 1];
 }
 
 export interface EmployeeAttendanceGroup {
@@ -221,7 +228,12 @@ export function groupAttendanceByEmployee(records: Attendance[]): EmployeeAttend
   for (const r of records) {
     if (!r.clock_in) continue;
     const sessions = map.get(r.employee_id) ?? [];
-    sessions.push({ id: r.id, clockIn: r.clock_in, clockOut: r.clock_out });
+    sessions.push({
+      id: r.id,
+      clockIn: r.clock_in,
+      clockOut: r.clock_out,
+      ...(r.position_id ? { positionId: r.position_id } : {}),
+    });
     map.set(r.employee_id, sessions);
   }
 
@@ -341,11 +353,36 @@ const SHIFT_MANAGER_SECTION = {
   sortOrder: 900,
 } as const;
 
-/** Group employee attendance rows under department; shift managers get their own section. */
+export interface AttendanceSectionInfo {
+  departmentId: string | null | undefined;
+  role: string;
+}
+
+/**
+ * Where an employee's card belongs right now. An employee who holds several
+ * positions is filed under the position they clocked in as (a shift manager
+ * who entered as a cook sits with the kitchen); otherwise their profile decides.
+ */
+export function sectionInfoForGroup(
+  group: EmployeeAttendanceGroup,
+  employeeInfo: Map<string, AttendanceSectionInfo>,
+  positionInfo?: Map<string, AttendanceSectionInfo>,
+): AttendanceSectionInfo | undefined {
+  const positionId = currentSession(group.sessions)?.positionId;
+  const byPosition = positionId && positionInfo ? positionInfo.get(positionId) : undefined;
+  return byPosition ?? employeeInfo.get(group.employeeId);
+}
+
+/**
+ * Group employee attendance rows under department; shift managers get their own section.
+ * `positionInfo` (position id → role/department) lets a punch's chosen position
+ * override the profile so multi-position employees land in the right section.
+ */
 export function groupAttendanceByDepartment(
   groups: EmployeeAttendanceGroup[],
   departments: { id: string; name: string; color: string | null; sort_order: number }[],
-  employeeInfo: Map<string, { departmentId: string | null | undefined; role: string }>,
+  employeeInfo: Map<string, AttendanceSectionInfo>,
+  positionInfo?: Map<string, AttendanceSectionInfo>,
 ): AttendanceDepartmentSection[] {
   const deptById = new Map(departments.map((d) => [d.id, d]));
   const deptBuckets = new Map<string, EmployeeAttendanceGroup[]>();
@@ -353,7 +390,7 @@ export function groupAttendanceByDepartment(
   const unassigned: EmployeeAttendanceGroup[] = [];
 
   for (const group of groups) {
-    const info = employeeInfo.get(group.employeeId);
+    const info = sectionInfoForGroup(group, employeeInfo, positionInfo);
     const role = info?.role ?? "employee";
 
     if (role === "shift_manager") {

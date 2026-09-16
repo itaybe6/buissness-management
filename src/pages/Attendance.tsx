@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { Badge, Button, Icon, PageLoader, ErrorState } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
@@ -28,7 +28,7 @@ import { useBusiness } from "@/api/businesses";
 import { useProfiles } from "@/api/users";
 import { useDepartments } from "@/api/departments";
 import { useEmployeePositions } from "@/api/employeePositions";
-import { positionsForEmployee } from "@/lib/employeePositions";
+import { multiPositionLabels, positionSectionInfo, positionsForEmployee } from "@/lib/employeePositions";
 import { ShiftPositionPickerModal } from "@/components/attendance/ShiftPositionPickerModal";
 import type { EmployeePosition } from "@/types/database";
 import { useTasks } from "@/api/tasks";
@@ -82,6 +82,7 @@ export function Attendance() {
   const [busy, setBusy] = useState(false);
   const [exitWarn, setExitWarn] = useState(false);
   const [positionPickerOpen, setPositionPickerOpen] = useState(false);
+  const punchingRef = useRef(false);
   const myPositions = useMemo(
     () => (profile ? positionsForEmployee(profile, allPositions) : []),
     [profile, allPositions],
@@ -136,11 +137,18 @@ export function Attendance() {
     });
   }, [list, today, assignments, shiftTemplates, shiftsEnabled, now]);
 
+  /** File each card under the position actually clocked in as, not the profile's primary role. */
+  const positionInfo = useMemo(() => positionSectionInfo(allPositions), [allPositions]);
+  const positionLabelById = useMemo(
+    () => multiPositionLabels(allPositions, deptNameOrNull),
+    [allPositions, deptNameOrNull],
+  );
+
   const feedByDepartment = useMemo(() => {
     const employeeInfo = new Map<string, { departmentId: string | null | undefined; role: string }>();
     for (const [id, u] of userById) employeeInfo.set(id, { departmentId: u.departmentId, role: u.role });
-    return groupAttendanceByDepartment(todayFeed, departments ?? [], employeeInfo);
-  }, [todayFeed, departments, userById]);
+    return groupAttendanceByDepartment(todayFeed, departments ?? [], employeeInfo, positionInfo);
+  }, [todayFeed, departments, userById, positionInfo]);
 
   const onShiftCount = todayFeed.filter((g) => g.onShift).length;
   const completedCount = todayFeed.filter((g) => !g.onShift).length;
@@ -246,6 +254,8 @@ export function Attendance() {
 
   async function clockInAs(position: EmployeePosition | null) {
     if (!biz || !profile) return;
+    if (punchingRef.current) return;
+    punchingRef.current = true;
     setPositionPickerOpen(false);
     setBusy(true);
     try {
@@ -257,10 +267,11 @@ export function Attendance() {
       try {
         await clockInRecord(fix?.lat ?? null, fix?.lng ?? null, decision.within, position);
         setStatus({ ok: true, text: clockInSuccessText(decision) });
-      } catch {
-        setStatus({ ok: false, text: "החתמה נכשלה" });
+      } catch (e) {
+        setStatus({ ok: false, text: e instanceof Error && e.message === "כבר במשמרת" ? "כבר במשמרת" : "החתמה נכשלה" });
       }
     } finally {
+      punchingRef.current = false;
       setBusy(false);
     }
   }
@@ -282,6 +293,8 @@ export function Attendance() {
           todayFeed={todayFeed}
           feedByDepartment={feedByDepartment}
           userById={userById}
+          positionLabelById={positionLabelById}
+          nowMs={now.getTime()}
           onPunch={handleClock}
           canForceClockOut={canForceClockOut}
           onRequestClockOut={handleRequestClockOut}
@@ -368,6 +381,8 @@ export function Attendance() {
               todayFeed={todayFeed}
               feedByDepartment={feedByDepartment}
               userById={userById}
+              positionLabelById={positionLabelById}
+              nowMs={now.getTime()}
               variant="desktop"
               filter={feedFilter}
               showFilterBar

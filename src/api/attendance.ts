@@ -107,6 +107,17 @@ export function useClockIn(businessId: string | null) {
       /** Position the employee is entering the shift as (null = single/legacy position). */
       position_id?: string | null;
     }) => {
+      // A double tap (e.g. on the position picker) must not open two punches.
+      const { data: openRows, error: openError } = await supabase
+        .from("attendance")
+        .select("id")
+        .eq("business_id", input.business_id)
+        .eq("employee_id", input.employee_id)
+        .is("clock_out", null)
+        .limit(1);
+      if (openError) throw openError;
+      if (openRows && openRows.length > 0) throw new Error("כבר במשמרת");
+
       const { error } = await supabase.from("attendance").insert({
         business_id: input.business_id,
         employee_id: input.employee_id,

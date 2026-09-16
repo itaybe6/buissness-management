@@ -5,6 +5,7 @@ import { AttendanceTodayFeedSection } from "@/components/attendance/AttendanceTo
 import { ForceClockOutModal, type ForceClockOutTarget, type OpenForceClockOutOptions } from "@/components/attendance/ForceClockOutModal";
 import { useAttendanceToday } from "@/api/attendance";
 import { useDepartments } from "@/api/departments";
+import { useEmployeePositions } from "@/api/employeePositions";
 import { useActiveShiftTemplates, useShiftAssignments } from "@/api/shifts";
 import { useProfiles } from "@/api/users";
 import { useIsMdUp } from "@/hooks/useMediaQuery";
@@ -19,6 +20,7 @@ import {
   type AttendanceShiftFilter,
 } from "@/lib/attendanceFeed";
 import { addDays, useBusinessId, todayISO, weekStart } from "@/lib/db";
+import { multiPositionLabels, positionSectionInfo } from "@/lib/employeePositions";
 
 const STAT_FILTERS: { filter: AttendanceShiftFilter; label: string; countKey: "onShift" | "completed" | "total" }[] = [
   { filter: "on_shift", label: "במשמרת", countKey: "onShift" },
@@ -55,6 +57,7 @@ export function ManagerAttendanceFeed({
   const { data: records = [] } = useAttendanceToday(businessId);
   const { data: users = [] } = useProfiles(businessId);
   const { data: departments = [] } = useDepartments(businessId);
+  const { data: positions = [] } = useEmployeePositions(businessId);
   const today = todayISO();
   const wk = weekStart();
   const { data: templates = [] } = useActiveShiftTemplates(businessId);
@@ -90,11 +93,18 @@ export function ManagerAttendanceFeed({
     });
   }, [records, today, shiftsEnabled, assignments, templates, nowMs]);
 
+  /** File each card under the position actually clocked in as, not the profile's primary role. */
+  const positionInfo = useMemo(() => positionSectionInfo(positions), [positions]);
+  const positionLabelById = useMemo(
+    () => multiPositionLabels(positions, (id) => departments.find((d) => d.id === id)?.name),
+    [positions, departments],
+  );
+
   const feedByDepartment = useMemo(() => {
     const employeeInfo = new Map<string, { departmentId: string | null | undefined; role: string }>();
     for (const [id, u] of userById) employeeInfo.set(id, { departmentId: u.departmentId, role: u.role });
-    return groupAttendanceByDepartment(todayFeed, departments, employeeInfo);
-  }, [todayFeed, departments, userById]);
+    return groupAttendanceByDepartment(todayFeed, departments, employeeInfo, positionInfo);
+  }, [todayFeed, departments, userById, positionInfo]);
 
   const onShiftCount = todayFeed.filter((g) => g.onShift).length;
   const completedCount = todayFeed.filter((g) => !g.onShift).length;
@@ -162,6 +172,8 @@ export function ManagerAttendanceFeed({
           todayFeed={todayFeed}
           feedByDepartment={feedByDepartment}
           userById={userById}
+          positionLabelById={positionLabelById}
+          nowMs={nowMs}
           variant={isMdUp && !compact ? "desktop" : "mobile"}
           filter={filter}
           showFilterBar={isMdUp && !compact}

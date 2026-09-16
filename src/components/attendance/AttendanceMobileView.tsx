@@ -23,6 +23,8 @@ interface AttendanceMobileViewProps {
   todayFeed: EmployeeAttendanceGroup[];
   feedByDepartment: AttendanceDepartmentSection[];
   userById: Map<string, { name: string | null; role: string; departmentId?: string | null }>;
+  positionLabelById?: Map<string, string>;
+  nowMs?: number;
   onPunch: () => void;
   canForceClockOut?: boolean;
   onRequestClockOut?: (target: ForceClockOutTarget, options?: OpenForceClockOutOptions) => void;
@@ -41,6 +43,8 @@ export function AttendanceMobileView({
   todayFeed,
   feedByDepartment,
   userById,
+  positionLabelById,
+  nowMs,
   onPunch,
   canForceClockOut = false,
   onRequestClockOut,
@@ -90,6 +94,8 @@ export function AttendanceMobileView({
         todayFeed={todayFeed}
         feedByDepartment={feedByDepartment}
         userById={userById}
+        positionLabelById={positionLabelById}
+        nowMs={nowMs}
         variant="mobile"
         filter={filter}
         canForceClockOut={canForceClockOut}

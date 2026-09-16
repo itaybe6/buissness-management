@@ -340,7 +340,7 @@ export function MobileSideDrawer({
                           <NavItemBadge
                             count={eventRequestCount}
                             className="mobile-drawer-badge"
-                            ariaLabel={`${eventRequestCount} בקשות חדשות מאירועים`}
+                            ariaLabel={`${eventRequestCount} בקשות מאירועים שמחכות לטיפול`}
                           />
                         ) : null}
 

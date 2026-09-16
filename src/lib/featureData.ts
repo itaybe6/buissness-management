@@ -72,6 +72,7 @@ export const PURGE_ORDER: string[] = [
   "payroll_month_adjustments",
   "payroll_records",
   // menu (components reference dishes + inventory items → must go before both)
+  "menu_dish_sales",
   "menu_dish_components",
   "menu_item_conversions",
   "menu_dishes",
@@ -188,9 +189,10 @@ export const FEATURE_DATA: Record<FeatureKey, FeatureDataScope> = {
   menu: {
     key: "menu",
     tables: [
+      { table: "menu_dish_sales", label: "מכירות מנות לפי יום" },
       { table: "menu_dish_components", label: "מרכיבי המנות (עץ המנה)" },
       { table: "menu_item_conversions", label: "המרות יחידות ומחירים ידניים למוצרים" },
-        { table: "menu_dishes", label: "המנות בתפריט" },
+      { table: "menu_dishes", label: "המנות בתפריט" },
       { table: "menu_categories", label: "קטגוריות התפריט" },
       { table: "menu_settings", label: "הגדרות תמחור (מע״מ, יעד Food Cost)" },
     ],

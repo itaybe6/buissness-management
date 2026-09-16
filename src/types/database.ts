@@ -844,6 +844,17 @@ export interface MenuDishComponent {
   created_at: string;
 }
 
+export interface MenuDishSale {
+  id: string;
+  business_id: string;
+  dish_id: string;
+  /** Civil date the portions were sold, YYYY-MM-DD. */
+  sold_on: string;
+  quantity: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface MenuItemConversion {
   item_id: string;
   business_id: string;

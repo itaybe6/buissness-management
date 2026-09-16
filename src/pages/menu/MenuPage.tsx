@@ -5,7 +5,7 @@ import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId } from "@/lib/db";
 import { canManageMenu } from "@/lib/constants";
-import { useDeleteDish, useDuplicateDish } from "@/api/menu";
+import { useDeleteDish, useDuplicateDish, useMenuSales } from "@/api/menu";
 import {
   economicsAtPrice,
   formatMoney,
@@ -15,9 +15,10 @@ import {
   summarizeMenu,
   type MarginStatus,
 } from "@/lib/menuCosting";
-import type { MenuCategory } from "@/types/database";
+import { datesInRange, formatMonthLabel, indexSales, monthEnd, monthStart, platesProfit, todayIso } from "@/lib/menuDates";
 import { EngineeringTab } from "./EngineeringTab";
 import { IngredientsTab } from "./IngredientsTab";
+import { MenuSalesSheet } from "./MenuSalesSheet";
 import { MenuSettingsModal } from "./MenuSettingsModal";
 import { FoodCostRing, Monogram, SplitBar, StatusPill, statusTone } from "./menuShared";
 import { useMenuCosting, type CostedDish, type MenuCostingData } from "./useMenuCosting";
@@ -39,7 +40,7 @@ const SORT_LABELS: Record<Sort, string> = {
   profit_desc: "רווח למנה — מהגבוה",
   price_desc: "מחיר — מהגבוה",
   cost_desc: "עלות — מהגבוה",
-  contribution_desc: "תרומה חודשית — מהגבוה",
+  contribution_desc: "רווח החודש — מהגבוה",
 };
 
 const SORTERS: Record<Sort, (a: CostedDish, b: CostedDish) => number> = {
@@ -52,7 +53,6 @@ const SORTERS: Record<Sort, (a: CostedDish, b: CostedDish) => number> = {
 };
 
 const VIEW_KEY = "menu:view";
-const NONE = "__none__";
 
 export function MenuPage() {
   const businessId = useBusinessId();
@@ -66,66 +66,49 @@ export function MenuPage() {
   const duplicate = useDuplicateDish(businessId);
 
   const [search, setSearch] = useState("");
-  const [category, setCategory] = useState<string>("all");
   const [filter, setFilter] = useState<Filter>("all");
   const [sort, setSort] = useState<Sort>("name");
   const [view, setView] = useState<View>(() => (typeof localStorage !== "undefined" && localStorage.getItem(VIEW_KEY) === "list" ? "list" : "grid"));
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [salesOpen, setSalesOpen] = useState(false);
   const [toDelete, setToDelete] = useState<CostedDish | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  const monthIso = todayIso();
+  const monthFrom = monthStart(monthIso);
+  const monthTo = monthEnd(monthIso);
+  const monthDays = useMemo(() => datesInRange(monthFrom, monthTo), [monthFrom, monthTo]);
+  const monthSales = useMenuSales(businessId, monthFrom, monthTo);
+  const salesIdx = useMemo(() => indexSales(monthSales.data ?? []), [monthSales.data]);
+  const monthQty = useMemo(() => (dishId: string) => salesIdx.sum(dishId, monthDays), [salesIdx, monthDays]);
+
   const summary = useMemo(
-    () => (data ? summarizeMenu(data.dishes.map((d) => ({ economics: d.economics, cost: d.cost, sales: d.dish.monthly_sales }))) : null),
-    [data],
+    () =>
+      data
+        ? summarizeMenu(data.dishes.map((d) => ({ economics: d.economics, cost: d.cost, sales: monthQty(d.dish.id) || null })))
+        : null,
+    [data, monthQty],
   );
 
-  const insights = useMemo(() => (data ? buildInsights(data) : null), [data]);
-
-  const dishCountByCategory = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const d of data?.dishes ?? []) {
-      const key = d.dish.category_id ?? NONE;
-      m.set(key, (m.get(key) ?? 0) + 1);
-    }
-    return m;
-  }, [data]);
+  const insights = useMemo(() => (data ? buildInsights(data, monthQty) : null), [data, monthQty]);
 
   const visibleDishes = useMemo(() => {
     if (!data) return [];
     const q = search.trim().toLowerCase();
     const rows = data.dishes.filter((d) => {
       if (q && !d.dish.name.toLowerCase().includes(q) && !(d.dish.description ?? "").toLowerCase().includes(q)) return false;
-      if (category !== "all" && (d.dish.category_id ?? NONE) !== category) return false;
       if (filter === "incomplete") return !d.cost.complete;
       if (filter !== "all" && d.economics.status !== filter) return false;
       return true;
     });
-    return [...rows].sort(SORTERS[sort]);
-  }, [data, search, category, filter, sort]);
-
-  /** Grouped like a printed menu — only when nothing narrows the list to one category. */
-  const groups = useMemo(() => {
-    if (!data) return [];
-    const byCat = new Map<string, CostedDish[]>();
-    for (const d of visibleDishes) {
-      const key = d.dish.category_id ?? NONE;
-      const list = byCat.get(key);
-      if (list) list.push(d);
-      else byCat.set(key, [d]);
+    const sorted = [...rows];
+    if (sort === "contribution_desc") {
+      sorted.sort((a, b) => (platesProfit(monthQty(b.dish.id), b.economics.profit) ?? -Infinity) - (platesProfit(monthQty(a.dish.id), a.economics.profit) ?? -Infinity));
+    } else {
+      sorted.sort(SORTERS[sort]);
     }
-    const ordered: { key: string; category: MenuCategory | null; rows: CostedDish[] }[] = [];
-    for (const c of data.categories) {
-      const rows = byCat.get(c.id);
-      if (rows?.length) ordered.push({ key: c.id, category: c, rows });
-    }
-    const none = byCat.get(NONE);
-    if (none?.length) ordered.push({ key: NONE, category: null, rows: none });
-    // Dishes whose category was deleted/inactive still show up.
-    for (const [key, rows] of byCat) {
-      if (key !== NONE && !data.categories.some((c) => c.id === key)) ordered.push({ key, category: null, rows });
-    }
-    return ordered;
-  }, [data, visibleDishes]);
+    return sorted;
+  }, [data, search, filter, sort, monthQty]);
 
   if (!canManageMenu(profile?.role)) return <Navigate to="/inventory" replace />;
   if (!businessId) return <EmptyState icon="store" title="לא משויך לעסק" description="פנו למנהל המערכת לשיוך לעסק." />;
@@ -184,7 +167,6 @@ export function MenuPage() {
   const headlineStatus = marginStatus(headlinePct, s.target_food_cost_pct);
   const attention = summary.unpriced + summary.incomplete;
   const hasDishes = data.dishes.length > 0;
-  const grouped = category === "all" && sort === "name" && groups.length > 1;
 
   return (
     <div className="mnu-page page-enter">
@@ -193,6 +175,9 @@ export function MenuPage() {
         subtitle="כל מנה — המרכיבים, העלות החיה מהספקים, מחיר המכירה ואחוז הרווח"
         actions={
           <>
+            <Button variant="ghost" icon="point_of_sale" onClick={() => setSalesOpen(true)}>
+              מכירות
+            </Button>
             <Button variant="ghost" icon="tune" onClick={() => setSettingsOpen(true)}>
               הגדרות
             </Button>
@@ -234,7 +219,11 @@ export function MenuPage() {
               <HeroStat
                 label="רווח גולמי ממוצע"
                 value={formatPct(summary.avgMarginPct, 1)}
-                hint={summary.totalMonthlyContribution != null ? `תרומה חודשית ${formatMoney(summary.totalMonthlyContribution)}` : "אחרי מע״מ וחומרים"}
+                hint={
+                  summary.totalMonthlyContribution != null
+                    ? `רווח ${formatMonthLabel(monthIso)} ${formatMoney(summary.totalMonthlyContribution)}`
+                    : "אחרי מע״מ וחומרים"
+                }
               />
               <HeroStat
                 label="ביעד"
@@ -292,7 +281,9 @@ export function MenuPage() {
                   onClick={() => navigate(`/menu/dishes/${insights.topProfit!.dish.id}`)}
                 >
                   <b>{formatMoney(insights.topProfit.economics.profit, { decimals: 2 })}</b> רווח גולמי למנה · מרווח {formatPct(insights.topProfit.economics.marginPct, 0)}
-                  {insights.topProfit.economics.monthlyContribution != null && <> · {formatMoney(insights.topProfit.economics.monthlyContribution)} בחודש</>}
+                  {platesProfit(monthQty(insights.topProfit.dish.id), insights.topProfit.economics.profit) ? (
+                    <> · {formatMoney(platesProfit(monthQty(insights.topProfit.dish.id), insights.topProfit.economics.profit))} החודש</>
+                  ) : null}
                 </InsightCard>
               )}
               {insights.heaviestItem && (
@@ -328,7 +319,9 @@ export function MenuPage() {
           )}
 
           {tab === "ingredients" && <IngredientsTab businessId={businessId} data={data} />}
-          {tab === "engineering" && <EngineeringTab data={data} />}
+          {tab === "engineering" && (
+            <EngineeringTab data={data} monthQty={monthQty} monthLabel={formatMonthLabel(monthIso)} onOpenSales={() => setSalesOpen(true)} />
+          )}
 
           {tab === "dishes" && (
             <>
@@ -360,43 +353,14 @@ export function MenuPage() {
                 )}
               </div>
 
-              {data.categories.length > 0 && (
-                <div className="mnu-chips" role="tablist" aria-label="קטגוריות">
-                  <button type="button" role="tab" className="mnu-chip" data-active={category === "all"} onClick={() => setCategory("all")}>
-                    הכל <span>{data.dishes.length}</span>
-                  </button>
-                  {data.categories.map((c) => (
-                    <button key={c.id} type="button" role="tab" className="mnu-chip" data-active={category === c.id} onClick={() => setCategory(c.id)}>
-                      {c.name} <span>{dishCountByCategory.get(c.id) ?? 0}</span>
-                    </button>
-                  ))}
-                  {dishCountByCategory.has(NONE) && (
-                    <button type="button" role="tab" className="mnu-chip" data-active={category === NONE} onClick={() => setCategory(NONE)}>
-                      כללי <span>{dishCountByCategory.get(NONE)}</span>
-                    </button>
-                  )}
-                </div>
-              )}
-
               {visibleDishes.length === 0 ? (
-                <EmptyState icon="search_off" title="לא נמצאו מנות" description="נסו חיפוש, קטגוריה או סינון אחר." embedded />
+                <EmptyState icon="search_off" title="לא נמצאו מנות" description="נסו חיפוש או סינון אחר." embedded />
               ) : view === "list" ? (
-                <DishTable rows={visibleDishes} data={data} sort={sort} onSort={setSort} onOpen={(d) => navigate(`/menu/dishes/${d.dish.id}`)} onDuplicate={onDuplicate} onDelete={setToDelete} />
-              ) : grouped ? (
-                groups.map((g) => (
-                  <section key={g.key} className="mnu-group">
-                    <GroupHeader name={g.category?.name ?? "כללי"} rows={g.rows} target={s.target_food_cost_pct} />
-                    <div className="mnu-grid">
-                      {g.rows.map((d, i) => (
-                        <DishCard key={d.dish.id} row={d} index={i} data={data} onOpen={() => navigate(`/menu/dishes/${d.dish.id}`)} onDuplicate={() => onDuplicate(d)} onDelete={() => setToDelete(d)} />
-                      ))}
-                    </div>
-                  </section>
-                ))
+                <DishTable rows={visibleDishes} sort={sort} onSort={setSort} monthQty={monthQty} onOpen={(d) => navigate(`/menu/dishes/${d.dish.id}`)} onDuplicate={onDuplicate} onDelete={setToDelete} />
               ) : (
                 <div className="mnu-grid">
                   {visibleDishes.map((d, i) => (
-                    <DishCard key={d.dish.id} row={d} index={i} data={data} onOpen={() => navigate(`/menu/dishes/${d.dish.id}`)} onDuplicate={() => onDuplicate(d)} onDelete={() => setToDelete(d)} />
+                    <DishCard key={d.dish.id} row={d} index={i} onOpen={() => navigate(`/menu/dishes/${d.dish.id}`)} onDuplicate={() => onDuplicate(d)} onDelete={() => setToDelete(d)} />
                   ))}
                 </div>
               )}
@@ -405,7 +369,8 @@ export function MenuPage() {
         </>
       )}
 
-      <MenuSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} businessId={businessId} settings={data.settings} categories={data.categories} dishCountByCategory={dishCountByCategory} />
+      <MenuSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} businessId={businessId} settings={data.settings} />
+      <MenuSalesSheet open={salesOpen} onClose={() => setSalesOpen(false)} businessId={businessId} dishes={data.dishes} />
 
       <Modal open={!!toDelete} onClose={() => setToDelete(null)} title="מחיקת מנה" icon="delete" maxWidth={420}>
         <p className="text-[14px] leading-relaxed text-text-2">למחוק את «{toDelete?.dish.name}»? עץ המרכיבים שלה יימחק. המוצרים במלאי לא מושפעים.</p>
@@ -433,7 +398,7 @@ interface Insights {
   heaviestItem: { name: string; share: number; dishCount: number; supplier: string | null } | null;
 }
 
-function buildInsights(data: MenuCostingData): Insights {
+function buildInsights(data: MenuCostingData, monthQty: (dishId: string) => number): Insights {
   let opportunity: Insights["opportunity"] = null;
   let oppScore = -Infinity;
   let topProfit: CostedDish | null = null;
@@ -445,7 +410,8 @@ function buildInsights(data: MenuCostingData): Insights {
     if (e.status === "over" && e.suggestedPrice != null && e.sellingPrice != null && e.profit != null) {
       const at = economicsAtPrice(row.dish, row.cost, data.settings, e.suggestedPrice);
       const gainPerPlate = (at.profit ?? 0) - e.profit;
-      const monthlyGain = row.dish.monthly_sales ? Math.round(gainPerPlate * row.dish.monthly_sales) : null;
+      const sold = monthQty(row.dish.id);
+      const monthlyGain = sold > 0 ? Math.round(gainPerPlate * sold) : null;
       // Sales-backed opportunities outrank pure percentage gaps.
       const score = monthlyGain != null ? 1_000_000 + monthlyGain : e.deltaToTargetPct ?? 0;
       if (score > oppScore) {
@@ -561,34 +527,13 @@ function InsightCard({
   );
 }
 
-function GroupHeader({ name, rows, target }: { name: string; rows: CostedDish[]; target: number }) {
-  const priced = rows.filter((r) => r.economics.foodCostPct != null);
-  const avg = priced.length ? priced.reduce((s, r) => s + (r.economics.foodCostPct ?? 0), 0) / priced.length : null;
-  const status = marginStatus(avg, target);
-  return (
-    <header className="mnu-group-head">
-      <h2>{name}</h2>
-      <span className="mnu-group-rule" />
-      <span className="mnu-group-meta">
-        {rows.length} מנות
-        {avg != null && (
-          <>
-            {" "}
-            · <b data-tone={statusTone(status)}>Food Cost {formatPct(avg, 0)}</b>
-          </>
-        )}
-      </span>
-    </header>
-  );
-}
-
 /* ------------------------------------------------------------------ */
 /* Onboarding (empty menu)                                             */
 /* ------------------------------------------------------------------ */
 
 function Onboarding() {
   const steps = [
-    { icon: "restaurant", title: "בוחרים מנה", body: "שם, קטגוריה, תמונה — כמו שהיא מופיעה בתפריט." },
+    { icon: "restaurant", title: "בוחרים מנה", body: "שם ותמונה — כמו שהיא מופיעה בתפריט." },
     { icon: "account_tree", title: "בונים את עץ המנה", body: "מוסיפים מרכיבים מהמלאי עם כמות ויחידה. המחיר מגיע חי ממחירוני הספקים." },
     { icon: "insights", title: "מקבלים את המספרים", body: "עלות מנה, מחיר מכירה, רווח גולמי, Food Cost ומחיר מוצע — בזמן אמת." },
   ];
@@ -625,20 +570,17 @@ function Onboarding() {
 function DishCard({
   row,
   index,
-  data,
   onOpen,
   onDuplicate,
   onDelete,
 }: {
   row: CostedDish;
   index: number;
-  data: MenuCostingData;
   onOpen: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
 }) {
   const { dish, cost, economics: e } = row;
-  const category = dish.category_id ? data.categories.find((c) => c.id === dish.category_id) : null;
   const topLine = [...cost.lines].sort((a, b) => b.share - a.share)[0];
 
   return (
@@ -705,8 +647,6 @@ function DishCard({
           <StatusPill status={e.status} compact />
         </div>
         <div className="mnu-dish-meta">
-          <span>{category ? category.name : "כללי"}</span>
-          <span className="mnu-dish-sep" />
           <span>{cost.lines.length} מרכיבים</span>
           {!cost.complete && (
             <>
@@ -770,17 +710,17 @@ function DishCard({
 
 function DishTable({
   rows,
-  data,
   sort,
   onSort,
+  monthQty,
   onOpen,
   onDuplicate,
   onDelete,
 }: {
   rows: CostedDish[];
-  data: MenuCostingData;
   sort: Sort;
   onSort: (s: Sort) => void;
+  monthQty: (dishId: string) => number;
   onOpen: (d: CostedDish) => void;
   onDuplicate: (d: CostedDish) => void;
   onDelete: (d: CostedDish) => void;
@@ -808,14 +748,13 @@ function DishTable({
             {th("עלות", "cost_desc", "end")}
             {th("רווח", "profit_desc", "end")}
             {th("Food Cost", "food_cost_desc", "end")}
-            {th("תרומה חודשית", "contribution_desc", "end")}
+            {th("רווח החודש", "contribution_desc", "end")}
             <th />
           </tr>
         </thead>
         <tbody>
           {rows.map((r) => {
             const { dish, cost, economics: e } = r;
-            const category = dish.category_id ? data.categories.find((c) => c.id === dish.category_id) : null;
             return (
               <tr key={dish.id} className="mnu-tr" data-problem={!cost.complete} onClick={() => onOpen(r)}>
                 <td>
@@ -824,7 +763,7 @@ function DishTable({
                     <div className="min-w-0">
                       <div className="truncate font-extrabold">{dish.name}</div>
                       <div className="text-[11.5px] text-text-3">
-                        {category?.name ?? "כללי"} · {cost.lines.length} מרכיבים
+                        {cost.lines.length} מרכיבים
                         {!cost.complete && <span className="text-warning"> · {cost.uncostedLines} ללא מחיר</span>}
                       </div>
                     </div>
@@ -842,7 +781,7 @@ function DishTable({
                     <StatusPill status={e.status} compact />
                   </span>
                 </td>
-                <td className="text-end tabular-nums text-text-2">{e.monthlyContribution == null ? "—" : formatMoney(e.monthlyContribution)}</td>
+                <td className="text-end tabular-nums text-text-2">{formatMoney(platesProfit(monthQty(dish.id), e.profit))}</td>
                 <td className="text-end">
                   <span className="mnu-card-actions">
                     <button
