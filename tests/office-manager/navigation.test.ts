@@ -86,6 +86,7 @@ describe("הרשאות פעולה של מנהלת המשרד", () => {
     expect(canSeeInventoryPrices("office_manager")).toBe(true);
     expect(canSeeInventoryPrices("employee")).toBe(false);
     expect(canSeeInventoryPrices("shift_manager")).toBe(false);
+    expect(canSeeInventoryPrices("department_manager")).toBe(false);
   });
 
   it("ערך לא מוכר / ריק לא מקבל גישה למחירים", () => {
@@ -113,14 +114,16 @@ describe("הרשאות פעולה של מנהלת המשרד", () => {
   it("אינה יכולה להחתים יציאה כפויה לעובד", () => {
     expect(canForceEmployeeClockOut("office_manager")).toBe(false);
     expect(canForceEmployeeClockOut("manager")).toBe(true);
-    expect(canForceEmployeeClockOut("shift_manager")).toBe(true);
+    expect(canForceEmployeeClockOut("department_manager")).toBe(true);
+    expect(canForceEmployeeClockOut("shift_manager")).toBe(false);
     expect(canForceEmployeeClockOut(null)).toBe(false);
   });
 
   it("אינה יכולה להוסיף עובד למשמרת חיה", () => {
     expect(canForceEmployeeClockIn("office_manager")).toBe(false);
     expect(canForceEmployeeClockIn("manager")).toBe(true);
-    expect(canForceEmployeeClockIn("shift_manager")).toBe(true);
+    expect(canForceEmployeeClockIn("department_manager")).toBe(true);
+    expect(canForceEmployeeClockIn("shift_manager")).toBe(false);
   });
 
   it("יצירת תבניות משימה קבועות שמורה למנהל בלבד", () => {
@@ -130,7 +133,7 @@ describe("הרשאות פעולה של מנהלת המשרד", () => {
 
 describe("הפרדה בין תפקידים — אף אחד לא רואה את הכול", () => {
   it("רק מנהל רואה את הגדרות העסק", () => {
-    for (const role of ["office_manager", "shift_manager", "employee", "maintenance", "event_manager"] as const) {
+    for (const role of ["office_manager", "department_manager", "shift_manager", "employee", "maintenance", "event_manager"] as const) {
       expect(visibleNavItems(role, ALL_ON).map((i) => i.key)).not.toContain("settings");
     }
     expect(visibleNavItems("manager", ALL_ON).map((i) => i.key)).toContain("settings");
@@ -138,7 +141,7 @@ describe("הפרדה בין תפקידים — אף אחד לא רואה את ה
 
   it("מסכי הפלטפורמה שמורים לסופר אדמין", () => {
     const platformKeys = ["platform", "businesses", "platform-users"];
-    for (const role of ["manager", "office_manager", "shift_manager", "employee", "maintenance"] as const) {
+    for (const role of ["manager", "office_manager", "department_manager", "shift_manager", "employee", "maintenance"] as const) {
       const keys = visibleNavItems(role, ALL_ON).map((i) => i.key);
       for (const pk of platformKeys) expect(keys).not.toContain(pk);
     }
@@ -148,7 +151,7 @@ describe("הפרדה בין תפקידים — אף אחד לא רואה את ה
   });
 
   it("מסך השכר פתוח רק למנהל ולמנהלת המשרד", () => {
-    for (const role of ["shift_manager", "employee", "maintenance", "event_manager"] as const) {
+    for (const role of ["department_manager", "shift_manager", "employee", "maintenance", "event_manager"] as const) {
       expect(visibleNavItems(role, ALL_ON).map((i) => i.key)).not.toContain("payroll");
     }
     expect(visibleNavItems("manager", ALL_ON).map((i) => i.key)).toContain("payroll");

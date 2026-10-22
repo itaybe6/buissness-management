@@ -37,6 +37,7 @@ import type { FeatureKey, UserRole } from "@/types/database";
 const ALL_ROLES: UserRole[] = [
   "super_admin",
   "manager",
+  "department_manager",
   "shift_manager",
   "office_manager",
   "employee",
@@ -67,22 +68,24 @@ describe("קטלוג התפקידים", () => {
 
   it("רק מנהל ומנהלת משרד מוסיפים ועורכים משתמשים", () => {
     expect(USER_MANAGE_ROLES).toEqual(["manager", "office_manager"]);
-    for (const role of ["shift_manager", "employee", "maintenance", "event_manager"] as const) {
+    for (const role of ["department_manager", "shift_manager", "employee", "maintenance", "event_manager"] as const) {
       expect(USER_MANAGE_ROLES).not.toContain(role);
     }
   });
 });
 
 describe("שינוי תפקיד משנה מיד את מה שהעובד רואה", () => {
-  it("עובד → אחראי משמרת מוסיף מסכים", () => {
+  it("עובד → מנהל מחלקה מוסיף מסכים, ואחמ״ש נשאר כמו עובד", () => {
     const before = visibleNavItems("employee", ALL_ON).map((i) => i.key);
-    const after = visibleNavItems("shift_manager", ALL_ON).map((i) => i.key);
+    const shiftManager = visibleNavItems("shift_manager", ALL_ON).map((i) => i.key);
+    const after = visibleNavItems("department_manager", ALL_ON).map((i) => i.key);
+    expect(shiftManager).toEqual(before);
     expect(after.length).toBeGreaterThan(before.length);
     expect(after).toContain("shift-reports");
   });
 
   it("עובד → איש אחזקה מוריד כמעט הכול", () => {
-    expect(visibleNavItems("maintenance", ALL_ON).map((i) => i.key)).toEqual(["faults", "my-shifts"]);
+    expect(visibleNavItems("maintenance", ALL_ON).map((i) => i.key)).toEqual(["faults", "my-shifts", "salary-issues"]);
   });
 
   it("שינוי תפקיד משנה גם את מסך הנחיתה", () => {
@@ -141,16 +144,16 @@ describe("שיוך העובד למחלקה", () => {
     expect(personal).toEqual(["נעילה"]);
   });
 
-  it("מעקב אחמ״ש רואה את כל המחלקות מחולקות (allDepartments)", () => {
+  it("מעקב מנהל מחלקה רואה את כל המחלקות מחולקות (allDepartments)", () => {
     const tracking = buildTodayTasks(
       BUSINESS_ID,
       [],
       templates,
-      USER.shiftManager,
+      USER.departmentManager,
       DEPT.bar,
       TODAY,
       WEDNESDAY,
-      "shift_manager",
+      "department_manager",
       { allDepartments: true },
     ).map((t) => t.title);
     expect(tracking.sort()).toEqual(["ניקוי מטבח", "נעילה", "סגירת בר"].sort());
@@ -214,8 +217,8 @@ describe("תנאי השכר בכרטיס העובד", () => {
 });
 
 describe("אחוז קופה — מי זכאי", () => {
-  it("רק מנהל ואחראי משמרת", () => {
-    expect(BONUS_ELIGIBLE_ROLES).toEqual(["manager", "shift_manager"]);
+  it("רק מנהל ומנהל מחלקה", () => {
+    expect(BONUS_ELIGIBLE_ROLES).toEqual(["manager", "department_manager"]);
   });
 
   it("עובד עם אחוז שהוגדר בטעות עדיין נכנס לחישוב — הסינון הוא בבחירת המשתתפים", () => {

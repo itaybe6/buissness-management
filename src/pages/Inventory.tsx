@@ -2272,9 +2272,9 @@ export function Inventory() {
     (batch: OrderBatch) => getPartialBatchUiState(batch.id, batch.lines),
     [getPartialBatchUiState],
   );
-  /** Managers / office / shift managers may mark orders as arrived / not arrived from the product card. */
+  /** Managers / office / department managers may mark orders as arrived / not arrived from the product card. */
   const canUpdateOrderArrival = !!(
-    profile && ["manager", "office_manager", "shift_manager"].includes(profile.role)
+    profile && ["manager", "office_manager", "department_manager"].includes(profile.role)
   );
   const { data: orders } = useOrders(businessId, canManageOrders || canUpdateOrderArrival);
   const { data: supplierList } = useSuppliers(businessId, { activeOnly: false });
@@ -2326,9 +2326,9 @@ export function Inventory() {
   const [wasteSearchQuery, setWasteSearchQuery] = useState("");
   const [wasteFilter, setWasteFilter] = useState<WasteFilter>("all");
 
-  const isManager = !!(profile && ["manager", "shift_manager", "office_manager"].includes(profile.role));
+  const isManager = !!(profile && ["manager", "department_manager", "office_manager"].includes(profile.role));
   const canSeePrices = canSeeInventoryPrices(profile?.role);
-  const canUpdateCount = !!(profile && ["manager", "shift_manager", "office_manager", "employee"].includes(profile.role));
+  const canUpdateCount = !!(profile && ["manager", "department_manager", "shift_manager", "office_manager", "employee"].includes(profile.role));
 
   function changeTab(next: InventoryTab) {
     setTab(next);

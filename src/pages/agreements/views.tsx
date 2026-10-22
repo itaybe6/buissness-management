@@ -9,6 +9,7 @@ import {
   useDeleteAgreement,
   useSignatures,
   useUpdateAgreement,
+  usesSignedFileUpload,
 } from "@/api/agreements";
 import { useProfiles } from "@/api/users";
 import { idCardByEmployee, useEmployeeIdCards } from "@/api/employeeIdCards";
@@ -76,8 +77,14 @@ export function TemplatesPanel({
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<DocsMgmtCategory>("all");
 
-  const variantOf = (t: AgreementTemplate["type"]): EditorVariant =>
-    t === "sexual_harassment" ? "harassment" : t === "form_101" ? "form101" : "personal";
+  const variantOf = (a: AgreementTemplate): EditorVariant =>
+    a.type === "sexual_harassment"
+      ? "harassment"
+      : a.type === "form_101"
+        ? "form101"
+        : usesSignedFileUpload(a)
+          ? "workFile"
+          : "personal";
 
   function signedCount(a: AgreementTemplate) {
     const targets = a.employee_id ? 1 : employees.length;
@@ -177,7 +184,7 @@ export function TemplatesPanel({
                 canEdit={canEdit}
                 index={i}
                 deleting={del.isPending}
-                onView={() => setModal({ template: a, variant: variantOf(a.type) })}
+                onView={() => setModal({ template: a, variant: variantOf(a) })}
                 onSigners={() => setSignersFor(a)}
                 onDelete={() => confirm("למחוק את המסמך?") && del.mutate(a.id)}
               />
@@ -283,7 +290,7 @@ export function ManagerDocumentsView({
   const { data: idCards } = useEmployeeIdCards(businessId);
 
   const staff = useMemo(
-    () => (employees ?? []).filter((e) => e.active && ["employee", "shift_manager", "office_manager"].includes(e.role)),
+    () => (employees ?? []).filter((e) => e.active && ["employee", "shift_manager", "department_manager", "office_manager"].includes(e.role)),
     [employees]
   );
   const visibleStaff = useMemo(() => {
@@ -421,7 +428,7 @@ export function EmployeeDocumentsView({
 }) {
   const { data: employees } = useProfiles(businessId);
   const staff = useMemo(
-    () => (employees ?? []).filter((e) => e.active && ["employee", "shift_manager", "office_manager"].includes(e.role)),
+    () => (employees ?? []).filter((e) => e.active && ["employee", "shift_manager", "department_manager", "office_manager"].includes(e.role)),
     [employees]
   );
   const { data: signatures } = useSignatures(businessId, employeeId);
@@ -469,6 +476,7 @@ export function EmployeeDocumentsView({
                   title={a.title}
                   type={a.type}
                   signed={false}
+                  upload={usesSignedFileUpload(a)}
                   index={idCardDone ? i : i + 1}
                   onOpen={() => setReading(a)}
                 />
@@ -492,6 +500,7 @@ export function EmployeeDocumentsView({
                   title={a.title}
                   type={a.type}
                   signed
+                  upload={usesSignedFileUpload(a)}
                   index={idCardDone ? i + 1 : i}
                   onOpen={() => setReading(a)}
                 />

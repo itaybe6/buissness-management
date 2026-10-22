@@ -191,8 +191,8 @@ describe("המנהל קובע אחוז קופה (bonus_pct)", () => {
     expect(row.total).toBe(2200);
   });
 
-  it("התפקידים שזכאים לאחוז קופה הם מנהל ואחראי משמרת", () => {
-    expect(BONUS_ELIGIBLE_ROLES).toEqual(["manager", "shift_manager"]);
+  it("התפקידים שזכאים לאחוז קופה הם מנהל ומנהל מחלקה", () => {
+    expect(BONUS_ELIGIBLE_ROLES).toEqual(["manager", "department_manager"]);
     expect(BONUS_ELIGIBLE_ROLES).not.toContain("employee");
   });
 });

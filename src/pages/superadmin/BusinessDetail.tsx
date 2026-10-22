@@ -41,6 +41,7 @@ interface PendingPurge {
 
 const ASSIGNABLE_ROLES: UserRole[] = [
   "manager",
+  "department_manager",
   "shift_manager",
   "office_manager",
   "event_manager",

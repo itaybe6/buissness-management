@@ -87,6 +87,7 @@ describe("גיאופנס — הגדרות ההחתמה", () => {
     const valid: UserRole[] = [
       "super_admin",
       "manager",
+      "department_manager",
       "shift_manager",
       "office_manager",
       "employee",

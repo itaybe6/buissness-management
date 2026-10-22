@@ -178,7 +178,7 @@ export function Attendance() {
   }
 
   // Workers / shift managers punch from the home dashboard, not this page.
-  if (profile && (profile.role === "employee" || profile.role === "shift_manager")) {
+  if (profile && (profile.role === "employee" || profile.role === "shift_manager" || profile.role === "department_manager")) {
     return <Navigate to="/dashboard" replace />;
   }
 

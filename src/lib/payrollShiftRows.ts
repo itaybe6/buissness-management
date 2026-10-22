@@ -6,7 +6,13 @@ import {
   sortPositions,
   tipPosition,
 } from "@/lib/employeePositions";
+import { dayIndexFromISO, formatHours, hoursOnDay } from "@/lib/shiftTemplateHours";
 import type { Attendance, EmployeePosition, ShiftBonus, ShiftTemplate, Tip } from "@/types/database";
+
+function templateTimeLabel(tpl: ShiftTemplate | undefined, dateISO: string): string | null {
+  if (!tpl) return null;
+  return formatHours(hoursOnDay(tpl, dayIndexFromISO(dateISO)));
+}
 
 /** One normalized shift row, regardless of wage model. */
 export interface ShiftRow {
@@ -124,7 +130,7 @@ export function buildEmployeeShiftRows(input: {
             id: t.id,
             date: new Date(t.shift_date + "T00:00:00"),
             title: tpl?.name ?? "משמרת",
-            timeLabel: tpl ? `${tpl.start_time?.slice(0, 5)}–${tpl.end_time?.slice(0, 5)}` : null,
+            timeLabel: templateTimeLabel(tpl, t.shift_date),
             hours,
             hourly,
             earned,
@@ -166,7 +172,7 @@ export function buildEmployeeShiftRows(input: {
         id: `bonus-${b.id}`,
         date: new Date(b.shift_date + "T00:00:00"),
         title: tpl?.name ?? "תוספת שכר",
-        timeLabel: tpl ? `${tpl.start_time?.slice(0, 5)}–${tpl.end_time?.slice(0, 5)}` : null,
+        timeLabel: templateTimeLabel(tpl, b.shift_date),
         hours: 0,
         hourly: 0,
         earned: bonusAmount,

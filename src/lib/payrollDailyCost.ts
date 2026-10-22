@@ -64,7 +64,7 @@ export function aggregateDailyLaborCosts(input: {
   const byDate = new Map<string, DayLaborCost>();
 
   const employees = profiles.filter(
-    (p) => p.active && p.role !== "super_admin" && p.role !== "shift_manager",
+    (p) => p.active && p.role !== "super_admin" && p.role !== "department_manager",
   );
 
   for (const emp of employees) {

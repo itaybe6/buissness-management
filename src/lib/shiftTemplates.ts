@@ -1,4 +1,3 @@
-import { supabase } from "@/lib/supabase";
 import type { ShiftKey } from "@/types/database";
 
 export const DEFAULT_SHIFT_DEFINITIONS: {
@@ -36,35 +35,67 @@ export function sortShiftTemplates<T extends { shift_key: ShiftKey | null; sort_
   });
 }
 
+/** Map key used for the "general" (no department) bucket. */
+export const GENERAL_SHIFT_SECTION_KEY = "general";
+
+export function shiftSectionKey(departmentId: string | null | undefined): string {
+  return departmentId ?? GENERAL_SHIFT_SECTION_KEY;
+}
+
 /**
- * Bootstrap the built-in templates for a business that doesn't have them yet,
- * based on rows the caller already fetched (no extra read). Returns true when
- * rows were inserted. Never throws — RLS may deny the insert for employees,
- * and the page must still render with whatever templates exist.
+ * Templates that belong to one department. `null` returns the general shifts
+ * (templates with no department).
+ */
+export function templatesForDepartment<T extends { department_id: string | null; sort_order?: number }>(
+  templates: T[],
+  departmentId: string | null
+): T[] {
+  return templates
+    .filter((t) => (t.department_id ?? null) === departmentId)
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+}
+
+/**
+ * Group templates by department id. The general bucket is keyed by
+ * GENERAL_SHIFT_SECTION_KEY. Keeps the input order inside each bucket.
+ */
+export function groupTemplatesByDepartment<T extends { department_id: string | null; sort_order?: number }>(
+  templates: T[]
+): Map<string, T[]> {
+  const m = new Map<string, T[]>();
+  for (const t of templates) {
+    const key = shiftSectionKey(t.department_id);
+    const bucket = m.get(key);
+    if (bucket) bucket.push(t);
+    else m.set(key, [t]);
+  }
+  for (const bucket of m.values()) {
+    bucket.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+  }
+  return m;
+}
+
+/**
+ * Shifts an employee submits availability for: only their department's shifts.
+ * An employee without a department has none until they are assigned one.
+ */
+export function templatesForEmployee<T extends { department_id: string | null; sort_order?: number }>(
+  templates: T[],
+  employeeDepartmentId: string | null | undefined
+): T[] {
+  if (!employeeDepartmentId) return [];
+  return templatesForDepartment(templates, employeeDepartmentId);
+}
+
+/**
+ * Kept so existing callers still compile. Shifts are defined per department in
+ * settings, so nothing is inserted automatically.
  */
 export async function ensureDefaultShiftTemplates(
   businessId: string,
   existing: { shift_key: ShiftKey | null }[]
 ): Promise<boolean> {
-  const keys = new Set(existing.map((r) => r.shift_key).filter(Boolean));
-  const missing = DEFAULT_SHIFT_DEFINITIONS.filter((d) => !keys.has(d.key));
-  if (missing.length === 0) return false;
-
-  const { error: insErr } = await supabase.from("shift_templates").insert(
-    missing.map((d) => ({
-      business_id: businessId,
-      shift_key: d.key,
-      name: d.name,
-      start_time: d.startTime,
-      end_time: d.endTime,
-      color: d.color,
-      active: d.activeDefault,
-      sort_order: d.sortOrder,
-    }))
-  );
-  if (insErr) {
-    console.warn("ensureDefaultShiftTemplates: insert failed", insErr.message);
-    return false;
-  }
-  return true;
+  void businessId;
+  void existing;
+  return false;
 }

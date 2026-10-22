@@ -497,7 +497,7 @@ export function ItemFormPage() {
   const location = useLocation();
   const businessId = useBusinessId();
   const { profile } = useAuth();
-  const canManage = !!(profile && ["manager", "shift_manager", "office_manager"].includes(profile.role));
+  const canManage = !!(profile && ["manager", "department_manager", "office_manager"].includes(profile.role));
   const canEditSuppliers = canSeeInventoryPrices(profile?.role);
 
   const { data: items, isLoading: itemsLoading } = useInventory(businessId);

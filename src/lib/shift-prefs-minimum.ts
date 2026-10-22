@@ -29,15 +29,22 @@ export function isShiftPrefsDayComplete(
 export function countCompleteShiftPrefsDays(
   weekStart: string,
   dayIndices: readonly number[],
-  templateIds: string[],
+  templateIds: string[] | ((dayIndex: number) => string[]),
   prefMap: Map<string, "available" | "cannot">,
 ): number {
-  return dayIndices.filter((i) => isShiftPrefsDayComplete(weekStart, i, templateIds, prefMap)).length;
+  const idsFor = typeof templateIds === "function" ? templateIds : () => templateIds;
+  const perDay = typeof templateIds === "function";
+  return dayIndices.filter((i) => {
+    const ids = idsFor(i);
+    // A day with no running shifts has nothing to submit.
+    if (perDay && ids.length === 0) return true;
+    return isShiftPrefsDayComplete(weekStart, i, ids, prefMap);
+  }).length;
 }
 
 export function getShiftPrefsMinimumStatus(
   weekStart: string,
-  templateIds: string[],
+  templateIds: string[] | ((dayIndex: number) => string[]),
   prefMap: Map<string, "available" | "cannot">,
   rules: ShiftPrefsMinimumRules,
 ) {

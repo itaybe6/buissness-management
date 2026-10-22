@@ -54,6 +54,7 @@ import {
   useCreateShiftTemplate,
   useUpdateShiftTemplate,
   useDeleteShiftTemplate,
+  useReplaceShiftTemplateDays,
 } from "@/api/shifts";
 import { useBusinessId, HE_DAYS } from "@/lib/db";
 import { HE_DAYS_SHORT } from "@/lib/payrollShiftRows";
@@ -67,7 +68,9 @@ import {
   hasShiftPrefsMinimumRules,
 } from "@/lib/shift-prefs-minimum";
 import { EASE_OUT } from "@/components/motion/shared-motion";
-import type { ShiftTemplate, UserRole } from "@/types/database";
+import { groupTemplatesByDepartment } from "@/lib/shiftTemplates";
+import { hhmm } from "@/lib/shiftTemplateHours";
+import type { ShiftTemplate, ShiftTemplateDay, UserRole } from "@/types/database";
 
 const SHIFT_COLORS = ["#eab308", "#fdab3d", "#ef4444", "#7c3aed", "#0d9488", "#2563eb"];
 
@@ -343,9 +346,9 @@ export function Settings() {
         key: "shifts",
         group: "structure",
         icon: "schedule",
-        label: "שעות משמרת",
+        label: "משמרות לפי מחלקה",
         value: `${activeShifts.length} ${activeShifts.length === 1 ? "משמרת פעילה" : "משמרות פעילות"}`,
-        sub: `${templates?.length ?? 0} משמרות מוגדרות בעסק`,
+        sub: "לכל מחלקה המשמרות והשעות שלה",
         ready: activeShifts.length > 0,
         wide: true,
         preview: <ShiftTimelinePreview templates={activeShifts} />,
@@ -2174,6 +2177,185 @@ function WarehousesModal({
   );
 }
 
+/* ------------------------------------------------------------------ *
+ * Shift templates — one list per department (+ a general list)
+ * ------------------------------------------------------------------ */
+
+type ShiftGroup = { id: string; name: string; color: string; templates: ShiftTemplate[] };
+
+const SHIFT_DAY_LETTERS = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
+
+/** Days the shift runs. No day rows yet means it still runs all week. */
+function activeShiftDays(template: ShiftTemplate): ShiftTemplateDay[] {
+  if (template.days && template.days.length > 0) return template.days;
+  return SHIFT_DAY_LETTERS.map((_, day_of_week) => ({
+    day_of_week,
+    start_time: template.start_time,
+    end_time: template.end_time,
+  }));
+}
+
+function ShiftTemplateRow({
+  template: t,
+  onUpdate,
+  onDelete,
+  onReplaceDays,
+}: {
+  template: ShiftTemplate;
+  onUpdate: (patch: Partial<ShiftTemplate>) => void;
+  onDelete: () => void;
+  onReplaceDays: (days: ShiftTemplateDay[]) => void;
+}) {
+  const days = activeShiftDays(t);
+
+  function toggleDay(day: number) {
+    const on = days.some((d) => d.day_of_week === day);
+    if (on) onReplaceDays(days.filter((d) => d.day_of_week !== day));
+    else {
+      onReplaceDays([
+        ...days,
+        { day_of_week: day, start_time: t.start_time, end_time: t.end_time },
+      ]);
+    }
+  }
+
+  function changeTime(day: number, start: string, end: string) {
+    if (!start || !end) return;
+    onReplaceDays(days.map((d) => (d.day_of_week === day ? { ...d, start_time: start, end_time: end } : d)));
+  }
+
+  return (
+    <div className="shift-hours-item" data-active={t.active}>
+      <Switch checked={t.active} onChange={(v) => onUpdate({ active: v })} />
+      <span className="shift-hours-icon" aria-hidden="true">
+        <Icon name="schedule" size={18} />
+      </span>
+      <Input
+        className="shift-hours-name !bg-surface"
+        defaultValue={t.name}
+        onBlur={(e) => {
+          const n = e.target.value.trim();
+          if (n && n !== t.name) onUpdate({ name: n });
+        }}
+        disabled={!t.active}
+      />
+      {!t.active && <span className="shift-hours-off">כבויה</span>}
+      <button type="button" onClick={onDelete} className="shift-hours-delete" aria-label="מחק משמרת">
+        <Icon name="delete" size={19} />
+      </button>
+      <div className="shift-hours-days">
+        {SHIFT_DAY_LETTERS.map((label, day) => {
+          const row = days.find((d) => d.day_of_week === day);
+          const start = hhmm(row?.start_time ?? t.start_time);
+          const end = hhmm(row?.end_time ?? t.end_time);
+          return (
+            <div key={day} className="shift-day-cell" data-on={!!row}>
+              <button
+                type="button"
+                className="shift-day-toggle"
+                data-on={!!row}
+                disabled={!t.active}
+                onClick={() => toggleDay(day)}
+                aria-pressed={!!row}
+              >
+                {label}
+              </button>
+              {row ? (
+                <div className="shift-day-times">
+                  <input
+                    type="time"
+                    key={`${t.id}-${day}-s-${start}`}
+                    defaultValue={start}
+                    onBlur={(e) => {
+                      const v = e.target.value;
+                      if (v && v !== start) changeTime(day, v, end);
+                    }}
+                    className="field shift-hours-time-field"
+                    style={{ direction: "ltr" }}
+                    disabled={!t.active}
+                  />
+                  <input
+                    type="time"
+                    key={`${t.id}-${day}-e-${end}`}
+                    defaultValue={end}
+                    onBlur={(e) => {
+                      const v = e.target.value;
+                      if (v && v !== end) changeTime(day, start, v);
+                    }}
+                    className="field shift-hours-time-field"
+                    style={{ direction: "ltr" }}
+                    disabled={!t.active}
+                  />
+                </div>
+              ) : (
+                <span className="shift-day-off">כבוי</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ShiftAddRow({
+  placeholder,
+  loading,
+  onAdd,
+}: {
+  placeholder: string;
+  loading: boolean;
+  onAdd: (input: { name: string; start: string; end: string }) => void;
+}) {
+  const [name, setName] = useState("");
+  const [start, setStart] = useState("17:00");
+  const [end, setEnd] = useState("23:00");
+
+  function submit() {
+    const n = name.trim();
+    if (!n || !start || !end) return;
+    onAdd({ name: n, start, end });
+    setName("");
+  }
+
+  return (
+    <div className="shift-hours-add">
+      <span className="shift-hours-add-icon" aria-hidden="true">
+        <Icon name="add" size={20} />
+      </span>
+      <div className="shift-hours-add-fields">
+        <Input
+          className="shift-hours-add-name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          placeholder={placeholder}
+        />
+        <div className="shift-hours-times">
+          <input
+            type="time"
+            value={start}
+            onChange={(e) => setStart(e.target.value)}
+            className="field shift-hours-time-field"
+            style={{ direction: "ltr" }}
+          />
+          <span className="shift-hours-dash">–</span>
+          <input
+            type="time"
+            value={end}
+            onChange={(e) => setEnd(e.target.value)}
+            className="field shift-hours-time-field"
+            style={{ direction: "ltr" }}
+          />
+        </div>
+      </div>
+      <Button icon="add" loading={loading} onClick={submit} className="!px-4">
+        הוספה
+      </Button>
+    </div>
+  );
+}
+
 function ShiftTemplatesModal({
   businessId,
   open,
@@ -2184,43 +2366,47 @@ function ShiftTemplatesModal({
   onClose: () => void;
 }) {
   const { data: templates } = useShiftTemplates(businessId);
+  const { data: departments } = useDepartments(businessId);
   const create = useCreateShiftTemplate(businessId);
   const update = useUpdateShiftTemplate(businessId);
+  const replaceDays = useReplaceShiftTemplateDays(businessId);
   const del = useDeleteShiftTemplate(businessId);
-  const activeTemplates = (templates ?? []).filter((t) => t.active);
-  const [newName, setNewName] = useState("");
-  const [newStart, setNewStart] = useState("09:00");
-  const [newEnd, setNewEnd] = useState("17:00");
+  const activeTemplates = useMemo(() => (templates ?? []).filter((t) => t.active), [templates]);
 
-  function handleAddShift() {
-    if (!newName.trim() || !newStart || !newEnd) return;
-    create.mutate(
-      {
-        business_id: businessId,
-        name: newName.trim(),
-        start_time: newStart,
-        end_time: newEnd,
-        color: "#7c3aed",
-        sort_order: templates?.length ?? 0,
-      },
-      {
-        onSuccess: () => {
-          setNewName("");
-          setNewStart("09:00");
-          setNewEnd("17:00");
-        },
-      }
-    );
+  const groups = useMemo<ShiftGroup[]>(() => {
+    const byDept = groupTemplatesByDepartment(templates ?? []);
+    return (departments ?? [])
+      .filter((d) => d.active)
+      .map((d) => ({
+        id: d.id,
+        name: d.name,
+        color: d.color ?? "#7c3aed",
+        templates: byDept.get(d.id) ?? [],
+      }));
+  }, [templates, departments]);
+
+  const hasDepartments = (departments ?? []).some((d) => d.active);
+
+  function addShift(group: ShiftGroup, input: { name: string; start: string; end: string }) {
+    create.mutate({
+      business_id: businessId,
+      department_id: group.id,
+      name: input.name,
+      start_time: input.start,
+      end_time: input.end,
+      color: group.color,
+      sort_order: group.templates.length,
+    });
   }
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title="שעות משמרת"
-      subtitle="כבו משמרות שלא רלוונטיות, ערכו שעות או הוסיפו משמרות מותאמות"
+      title="משמרות לפי מחלקה"
+      subtitle="לכל מחלקה המשמרות שלה. לחצו על יום כדי לכבות אותו, ושנו שעות כשהן שונות באמצע השבוע."
       icon="schedule"
-      maxWidth={640}
+      maxWidth={860}
       footer={
         <div className="flex w-full flex-wrap items-center justify-between gap-2">
           <div className="settings-active-count !mt-0">
@@ -2236,101 +2422,63 @@ function ShiftTemplatesModal({
           <ShiftTimelinePreview templates={activeTemplates} />
         </div>
 
-        <div className="shift-hours-panel">
-          {(templates ?? []).map((t) => {
-            const isCustom = t.shift_key == null;
+        {!hasDepartments && (
+          <div className="shift-hours-hint-box">
+            <Icon name="info" size={16} />
+            <span>
+              עדיין אין מחלקות בעסק. הוסיפו מחלקות בהגדרת ״מחלקות״ ואז הגדירו לכל אחת את המשמרות שלה.
+            </span>
+          </div>
+        )}
+
+        <div className="shift-hours-groups">
+          {groups.map((group) => {
+            const activeCount = group.templates.filter((t) => t.active).length;
             return (
-              <div key={t.id} className="shift-hours-item" data-active={t.active}>
-                <Switch checked={t.active} onChange={(v) => update.mutate({ id: t.id, active: v })} />
-                <span className="shift-hours-icon" aria-hidden="true">
-                  <Icon name="schedule" size={18} />
-                </span>
-                <Input
-                  className="shift-hours-name !bg-surface"
-                  defaultValue={t.name}
-                  onBlur={(e) => {
-                    const n = e.target.value.trim();
-                    if (n && n !== t.name) update.mutate({ id: t.id, name: n });
-                  }}
-                  disabled={!t.active}
-                />
-                <div className="shift-hours-times">
-                  <input
-                    type="time"
-                    defaultValue={t.start_time?.slice(0, 5)}
-                    onBlur={(e) => {
-                      const v = e.target.value;
-                      if (v && v !== t.start_time?.slice(0, 5)) update.mutate({ id: t.id, start_time: v });
-                    }}
-                    className="field shift-hours-time-field"
-                    style={{ direction: "ltr" }}
-                    disabled={!t.active}
-                  />
-                  <span className="shift-hours-dash">–</span>
-                  <input
-                    type="time"
-                    defaultValue={t.end_time?.slice(0, 5)}
-                    onBlur={(e) => {
-                      const v = e.target.value;
-                      if (v && v !== t.end_time?.slice(0, 5)) update.mutate({ id: t.id, end_time: v });
-                    }}
-                    className="field shift-hours-time-field"
-                    style={{ direction: "ltr" }}
-                    disabled={!t.active}
-                  />
-                </div>
-                {!t.active && <span className="shift-hours-off">כבויה</span>}
-                {isCustom ? (
-                  <button
-                    type="button"
-                    onClick={() => del.mutate(t.id)}
-                    className="shift-hours-delete"
-                    aria-label="מחק משמרת"
-                  >
-                    <Icon name="delete" size={19} />
-                  </button>
+              <section
+                key={group.id}
+                className="shift-hours-group"
+                style={{ "--dept-color": group.color } as CSSProperties}
+              >
+                <header className="shift-hours-group-head">
+                  <span className="shift-hours-group-dot" aria-hidden />
+                  <span className="shift-hours-group-name">{group.name}</span>
+                  <span className="shift-hours-group-count">
+                    {group.templates.length === 0
+                      ? "אין משמרות"
+                      : `${activeCount}/${group.templates.length} פעילות`}
+                  </span>
+                </header>
+
+                {group.templates.length > 0 ? (
+                  <div className="shift-hours-panel">
+                    {group.templates.map((t) => (
+                      <ShiftTemplateRow
+                        key={t.id}
+                        template={t}
+                        onUpdate={(patch) => update.mutate({ id: t.id, ...patch })}
+                        onDelete={() => del.mutate(t.id)}
+                        onReplaceDays={(days) => replaceDays.mutate({ id: t.id, days })}
+                      />
+                    ))}
+                  </div>
                 ) : (
-                  <span className="w-9 flex-none" />
+                  <div className="shift-hours-group-empty">
+                    {`עדיין אין משמרות למחלקת ${group.name}. הוסיפו את הראשונה למטה.`}
+                  </div>
                 )}
-              </div>
+
+                <ShiftAddRow
+                  placeholder={`משמרת חדשה ב${group.name}`}
+                  loading={create.isPending && create.variables?.department_id === group.id}
+                  onAdd={(input) => addShift(group, input)}
+                />
+              </section>
             );
           })}
-        </div>
-
-        <div className="shift-hours-add">
-          <span className="shift-hours-add-icon" aria-hidden="true">
-            <Icon name="add" size={20} />
-          </span>
-          <div className="shift-hours-add-fields">
-            <Input
-              className="shift-hours-add-name"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="שם משמרת חדשה"
-            />
-            <div className="shift-hours-times">
-              <input
-                type="time"
-                value={newStart}
-                onChange={(e) => setNewStart(e.target.value)}
-                className="field shift-hours-time-field"
-                style={{ direction: "ltr" }}
-              />
-              <span className="shift-hours-dash">–</span>
-              <input
-                type="time"
-                value={newEnd}
-                onChange={(e) => setNewEnd(e.target.value)}
-                className="field shift-hours-time-field"
-                style={{ direction: "ltr" }}
-              />
-            </div>
-          </div>
-          <Button icon="add" loading={create.isPending} onClick={handleAddShift} className="!px-4">
-            הוספה
-          </Button>
         </div>
       </ModalBody>
     </Modal>
   );
 }
+

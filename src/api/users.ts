@@ -123,7 +123,7 @@ function translateDeleteError(msg: string): string {
 function translateCreateError(msg: string): string {
   const m = (msg || "").toLowerCase();
   if (m.includes("role_not_in_db") || (m.includes("invalid input value for enum") && m.includes("user_role")))
-    return "התפקיד שנבחר עוד לא קיים במסד הנתונים. יש להריץ את המיגרציה שמוסיפה אותו (למנהלת אירועים: 20260715120000_event_manager_role_enum.sql) ולנסות שוב.";
+    return "התפקיד שנבחר עוד לא קיים במסד הנתונים. יש להריץ את המיגרציה שמוסיפה אותו (מנהל מחלקה: 20261022120000_department_manager_role_enum.sql) ולנסות שוב.";
   if (m.includes("database error"))
     return "מסד הנתונים נכשל ביצירת הפרופיל של המשתמש. לרוב זו מיגרציה שלא הורצה (תפקיד חדש או טבלת תפקידים) — בדקו את ה־Auth logs ב-Supabase לפירוט.";
   if (m.includes("not found") || m.includes("failed to send") || m.includes("fetch"))

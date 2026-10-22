@@ -13,6 +13,8 @@ import {
   isSigned,
   personalAgreements,
   signatureOf,
+  usesSignedFileUpload,
+  agreementStoragePath,
 } from "@/api/agreements";
 import { idCardByEmployee, idCardsMap, isImageUrl } from "@/api/employeeIdCards";
 import { BUSINESS_ID, USER, makeAgreement, makeSignature } from "../helpers/factories";
@@ -120,6 +122,47 @@ describe("סטטוס חתימה", () => {
   it("שליפת רשומת החתימה מחזירה את הרשומה של אותו עובד בלבד", () => {
     expect(signatureOf(signatures, "agr-work", USER.employee2)?.employee_id).toBe(USER.employee2);
     expect(signatureOf(signatures, "agr-harassment", USER.employee)).toBeUndefined();
+  });
+});
+
+describe("חוזה עבודה להורדה והעלאה", () => {
+  it("חוזה גלובלי עם קובץ ובלי תיבות חתימה מועלה כעותק חתום", () => {
+    const contract = makeAgreement({
+      type: "work",
+      employee_id: null,
+      file_url: "/work-contract.doc",
+      signature_fields: [],
+    });
+    expect(usesSignedFileUpload(contract)).toBe(true);
+  });
+
+  it("טופס 101 תמיד בהורדה והעלאה", () => {
+    expect(usesSignedFileUpload(globalForm101)).toBe(true);
+  });
+
+  it("הסכם אישי, או חוזה עם תיבות חתימה, נשארים לחתימה על המסך", () => {
+    expect(usesSignedFileUpload(personalForMe)).toBe(false);
+    expect(
+      usesSignedFileUpload(
+        makeAgreement({
+          type: "work",
+          employee_id: null,
+          file_url: "/work-contract.doc",
+          signature_fields: [{ id: "f1", page: 0, x: 0, y: 0, w: 0.2, h: 0.05, kind: "signature" }],
+        }),
+      ),
+    ).toBe(false);
+    expect(usesSignedFileUpload(makeAgreement({ type: "work", employee_id: null, file_url: null }))).toBe(false);
+  });
+
+  it("מוחק רק קובץ שנשמר בתיקיית ההסכמים", () => {
+    expect(
+      agreementStoragePath(
+        "https://example.supabase.co/storage/v1/object/public/agreements/biz/file.pdf",
+      ),
+    ).toBe("biz/file.pdf");
+    expect(agreementStoragePath("/work-contract.doc")).toBeNull();
+    expect(agreementStoragePath(null)).toBeNull();
   });
 });
 

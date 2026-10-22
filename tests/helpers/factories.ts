@@ -47,6 +47,7 @@ export const DEPT = {
 /** משתמשים לדוגמה — אחד לכל תפקיד + עובדים נוספים */
 export const USER = {
   manager: "usr-manager",
+  departmentManager: "usr-department-manager",
   shiftManager: "usr-shift-manager",
   officeManager: "usr-office-manager",
   employee: "usr-employee",
@@ -155,6 +156,7 @@ export function makeProfileForRole(role: UserRole, over: Partial<Profile> = {}):
   const idByRole: Record<UserRole, string> = {
     super_admin: USER.superAdmin,
     manager: USER.manager,
+    department_manager: USER.departmentManager,
     shift_manager: USER.shiftManager,
     office_manager: USER.officeManager,
     employee: USER.employee,
@@ -216,6 +218,7 @@ export function makeShiftTemplate(over: Partial<ShiftTemplate> = {}): ShiftTempl
   return {
     id: TPL.morning,
     business_id: BUSINESS_ID,
+    department_id: null,
     shift_key: "morning",
     name: "בוקר",
     start_time: "08:00",

@@ -62,7 +62,7 @@ export function AppShell() {
 
 
 
-  const flatNav = role === "employee";
+  const flatNav = role === "employee" || role === "shift_manager";
   const navGroups = useMemo(() => groupNavItems(navItems, { flat: flatNav }), [navItems, flatNav]);
 
 
@@ -78,7 +78,7 @@ export function AppShell() {
   /** Pages with the dark ink hero — mobile top bar should match that shell. */
   const workerShellPage =
     (location.pathname === "/dashboard" &&
-      (role === "employee" || role === "shift_manager")) ||
+      (role === "employee" || role === "shift_manager" || role === "department_manager")) ||
     location.pathname === "/salary-issues";
 
   const inkHeroHeader =

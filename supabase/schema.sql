@@ -61,7 +61,8 @@ create extension if not exists "pgcrypto";
 create type public.user_role as enum (
   'super_admin',       -- שולט על כל הפלטפורמה, מוסיף עסקים
   'manager',           -- מנהל - רואה הכל בעסק שלו
-  'shift_manager',     -- אחראי משמרת - סידור עבודה, אילוצים, חשבוניות ודוח סגירת קופה
+  'shift_manager',     -- אחראי משמרת - כמו עובד: משמרות ונוכחות, בלי ניהול סידור
+  'department_manager', -- מנהל מחלקה - סידור עבודה, אילוצים, חשבוניות ודוח סגירת קופה
   'office_manager',    -- מנהלת משרד / מזכירה - שכר ומלאי
   'employee',          -- עובד
   'maintenance',       -- איש אחזקה - רואה רק תקלות
@@ -282,13 +283,14 @@ create table public.employee_positions (
 create or replace function public.position_role_rank(r public.user_role)
 returns integer language sql immutable as $$
   select case r
-    when 'super_admin'    then 0
-    when 'manager'        then 1
-    when 'office_manager' then 2
-    when 'shift_manager'  then 3
-    when 'event_manager'  then 4
-    when 'employee'       then 5
-    when 'maintenance'    then 6
+    when 'super_admin'         then 0
+    when 'manager'             then 1
+    when 'office_manager'      then 2
+    when 'department_manager'  then 3
+    when 'event_manager'       then 4
+    when 'shift_manager'       then 5
+    when 'employee'            then 6
+    when 'maintenance'         then 7
     else 9
   end
 $$;
@@ -506,9 +508,11 @@ create table public.form_101 (
 
 -- שעות משמרת דינמיות לכל עסק. המנהל מגדיר/עורך/מוחק משמרות, וכל מקום
 -- שמתייחס למשמרת שולף מכאן במקום מערכים קבועים.
+-- כל משמרת שייכת למחלקה אחת (department_id); null = משמרת כללית.
 create table public.shift_templates (
-  id          uuid primary key default gen_random_uuid(),
-  business_id uuid not null references public.businesses(id) on delete cascade,
+  id            uuid primary key default gen_random_uuid(),
+  business_id   uuid not null references public.businesses(id) on delete cascade,
+  department_id uuid references public.departments(id) on delete cascade,
   shift_key   text,                          -- morning / afternoon / evening / night
   name        text not null,                 -- לדוגמה: בוקר / ערב
   start_time  time not null,
@@ -517,6 +521,15 @@ create table public.shift_templates (
   active      boolean not null default true,
   sort_order  integer not null default 0,
   created_at  timestamptz not null default now()
+);
+
+-- שעות לפי יום בשבוע (0 = ראשון … 6 = שבת). יום בלי שורה = המשמרת לא רצה.
+create table public.shift_template_days (
+  shift_template_id uuid not null references public.shift_templates(id) on delete cascade,
+  day_of_week smallint not null check (day_of_week between 0 and 6),
+  start_time time not null,
+  end_time time not null,
+  primary key (shift_template_id, day_of_week)
 );
 
 -- אילוצים שהעובד מגיש
@@ -1161,7 +1174,7 @@ create trigger trg_tasks_updated         before update on public.tasks          
 create trigger trg_event_ideas_updated     before update on public.event_ideas          for each row execute function public.set_updated_at();
 create trigger trg_recurring_orders_updated before update on public.recurring_orders    for each row execute function public.set_updated_at();
 
--- משמרות ברירת מחדל לכל עסק חדש (בוקר / צהריים / ערב / לילה)
+-- משמרות מוגדרות ידנית לכל מחלקה. הפונקציה נשארת כי הטריגר על עסק חדש קורא לה.
 create or replace function public.seed_default_shift_templates(p_business_id uuid)
 returns void
 language plpgsql
@@ -1169,18 +1182,7 @@ security definer
 set search_path = public
 as $$
 begin
-  insert into public.shift_templates (business_id, shift_key, name, start_time, end_time, color, active, sort_order)
-  select p_business_id, v.shift_key, v.name, v.start_time::time, v.end_time::time, v.color, v.active, v.sort_order
-  from (values
-    ('morning',   'בוקר',   '06:00', '14:00', '#eab308', true,  0),
-    ('afternoon', 'צהריים', '11:00', '19:00', '#fdab3d', true,  1),
-    ('evening',   'ערב',    '16:00', '23:30', '#7c3aed', true,  2),
-    ('night',     'לילה',   '22:00', '06:00', '#2563eb', false, 3)
-  ) as v(shift_key, name, start_time, end_time, color, active, sort_order)
-  where not exists (
-    select 1 from public.shift_templates st
-    where st.business_id = p_business_id and st.shift_key = v.shift_key
-  );
+  return;
 end;
 $$;
 
@@ -1213,6 +1215,7 @@ create index idx_tips_position              on public.tips(position_id);
 create index idx_shift_bonuses_position     on public.shift_bonuses(position_id);
 create index idx_departments_business       on public.departments(business_id);
 create index idx_shift_templates_business  on public.shift_templates(business_id);
+create index idx_shift_templates_department on public.shift_templates(department_id);
 create unique index idx_shift_templates_business_key
   on public.shift_templates (business_id, shift_key)
   where shift_key is not null;
@@ -1276,6 +1279,7 @@ alter table public.business_features    enable row level security;
 alter table public.profiles             enable row level security;
 alter table public.departments          enable row level security;
 alter table public.shift_templates      enable row level security;
+alter table public.shift_template_days  enable row level security;
 alter table public.agreement_templates  enable row level security;
 alter table public.agreement_signatures enable row level security;
 alter table public.employee_id_cards    enable row level security;
@@ -1360,27 +1364,41 @@ create policy "departments_tenant" on public.departments
 -- shift_templates
 create policy "shift_templates_tenant" on public.shift_templates
   for all using (public.can_access(business_id)) with check (public.can_access(business_id));
+create policy "shift_template_days_tenant" on public.shift_template_days
+  for all
+  using (
+    exists (
+      select 1 from public.shift_templates st
+      where st.id = shift_template_id and public.can_access(st.business_id)
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.shift_templates st
+      where st.id = shift_template_id and public.can_access(st.business_id)
+    )
+  );
 -- agreement_templates — הסכם אישי חשוף רק לעובד המשויך (ולמנהלים)
 create policy "agr_templates_read" on public.agreement_templates
   for select using (
     public.can_access(business_id)
     and (
-      public.auth_role() in ('manager', 'office_manager', 'shift_manager')
+      public.auth_role() in ('manager', 'office_manager', 'department_manager')
       or employee_id is null
       or employee_id = auth.uid()
     )
   );
 create policy "agr_templates_write" on public.agreement_templates
   for all using (
-    public.can_access(business_id) and public.auth_role() in ('manager', 'shift_manager')
+    public.can_access(business_id) and public.auth_role() in ('manager', 'department_manager')
   ) with check (
-    public.can_access(business_id) and public.auth_role() in ('manager', 'shift_manager')
+    public.can_access(business_id) and public.auth_role() in ('manager', 'department_manager')
   );
 -- agreement_signatures — עובד רואה/חותם רק על שלו, מנהלים רואים הכל
 create policy "agr_signatures_select" on public.agreement_signatures
   for select using (
     public.can_access(business_id)
-    and (public.auth_role() in ('manager', 'office_manager', 'shift_manager') or employee_id = auth.uid())
+    and (public.auth_role() in ('manager', 'office_manager', 'department_manager') or employee_id = auth.uid())
   );
 create policy "agr_signatures_insert" on public.agreement_signatures
   for insert with check (
@@ -1392,12 +1410,16 @@ create policy "agr_signatures_update" on public.agreement_signatures
   ) with check (
     public.can_access(business_id) and employee_id = auth.uid()
   );
+create policy "agr_signatures_delete" on public.agreement_signatures
+  for delete using (
+    public.can_access(business_id) and employee_id = auth.uid()
+  );
 -- employee_id_cards — עובד מעלה/מעדכן את שלו; מנהלים רואים הכל
 create policy "employee_id_cards_select" on public.employee_id_cards
   for select using (
     public.can_access(business_id)
     and (
-      public.auth_role() in ('manager', 'office_manager', 'shift_manager')
+      public.auth_role() in ('manager', 'office_manager', 'department_manager')
       or employee_id = auth.uid()
     )
   );
@@ -1418,7 +1440,7 @@ create policy "employee_id_cards_delete" on public.employee_id_cards
   for delete using (
     public.can_access(business_id)
     and (
-      public.auth_role() in ('manager', 'shift_manager')
+      public.auth_role() in ('manager', 'department_manager')
       or employee_id = auth.uid()
     )
   );
@@ -1465,10 +1487,10 @@ create policy "inv_categories_read" on public.inventory_categories
 create policy "inv_categories_manager_write" on public.inventory_categories
   for all using (
     public.can_access(business_id)
-    and public.auth_role() in ('manager', 'shift_manager', 'office_manager')
+    and public.auth_role() in ('manager', 'department_manager', 'office_manager')
   ) with check (
     public.can_access(business_id)
-    and public.auth_role() in ('manager', 'shift_manager', 'office_manager')
+    and public.auth_role() in ('manager', 'department_manager', 'office_manager')
   );
 -- inventory_units — קריאה לכל העסק; עריכה למנהלים
 create policy "inv_units_read" on public.inventory_units
@@ -1476,17 +1498,17 @@ create policy "inv_units_read" on public.inventory_units
 create policy "inv_units_manager_write" on public.inventory_units
   for all using (
     public.can_access(business_id)
-    and public.auth_role() in ('manager', 'shift_manager', 'office_manager')
+    and public.auth_role() in ('manager', 'department_manager', 'office_manager')
   ) with check (
     public.can_access(business_id)
-    and public.auth_role() in ('manager', 'shift_manager', 'office_manager')
+    and public.auth_role() in ('manager', 'department_manager', 'office_manager')
   );
 -- inventory_items — קריאה לפי מחלקה; עריכת קטלוג למנהלים בלבד
 create policy "inv_items_read" on public.inventory_items
   for select using (
     public.can_access(business_id)
     and (
-      public.auth_role() in ('manager', 'shift_manager', 'office_manager', 'event_manager')
+      public.auth_role() in ('manager', 'department_manager', 'office_manager', 'event_manager')
       or not exists (
         select 1 from public.inventory_item_departments d
         where d.item_id = inventory_items.id
@@ -1503,28 +1525,28 @@ create policy "inv_item_depts_read" on public.inventory_item_departments
 create policy "inv_item_depts_manager_write" on public.inventory_item_departments
   for all using (
     public.can_access(business_id)
-    and public.auth_role() in ('manager', 'shift_manager', 'office_manager')
+    and public.auth_role() in ('manager', 'department_manager', 'office_manager')
   ) with check (
     public.can_access(business_id)
-    and public.auth_role() in ('manager', 'shift_manager', 'office_manager')
+    and public.auth_role() in ('manager', 'department_manager', 'office_manager')
   );
 create policy "inv_items_manager_insert" on public.inventory_items
   for insert with check (
     public.can_access(business_id)
-    and public.auth_role() in ('manager', 'shift_manager', 'office_manager')
+    and public.auth_role() in ('manager', 'department_manager', 'office_manager')
   );
 create policy "inv_items_manager_update" on public.inventory_items
   for update using (
     public.can_access(business_id)
-    and public.auth_role() in ('manager', 'shift_manager', 'office_manager')
+    and public.auth_role() in ('manager', 'department_manager', 'office_manager')
   ) with check (
     public.can_access(business_id)
-    and public.auth_role() in ('manager', 'shift_manager', 'office_manager')
+    and public.auth_role() in ('manager', 'department_manager', 'office_manager')
   );
 create policy "inv_items_manager_delete" on public.inventory_items
   for delete using (
     public.can_access(business_id)
-    and public.auth_role() in ('manager', 'shift_manager', 'office_manager')
+    and public.auth_role() in ('manager', 'department_manager', 'office_manager')
   );
 -- suppliers
 create policy "suppliers_tenant" on public.suppliers
@@ -1580,7 +1602,7 @@ create policy "events_delete" on public.events
 create policy "event_requests_select" on public.event_requests
   for select using (
     public.can_access(business_id)
-    and public.auth_role() in ('manager', 'shift_manager', 'office_manager', 'event_manager')
+    and public.auth_role() in ('manager', 'department_manager', 'office_manager', 'event_manager')
   );
 create policy "event_requests_insert" on public.event_requests
   for insert with check (
@@ -1591,10 +1613,10 @@ create policy "event_requests_insert" on public.event_requests
 create policy "event_requests_update" on public.event_requests
   for update using (
     public.can_access(business_id)
-    and public.auth_role() in ('manager', 'shift_manager', 'office_manager')
+    and public.auth_role() in ('manager', 'department_manager', 'office_manager')
   ) with check (
     public.can_access(business_id)
-    and public.auth_role() in ('manager', 'shift_manager', 'office_manager')
+    and public.auth_role() in ('manager', 'department_manager', 'office_manager')
   );
 create policy "event_requests_delete" on public.event_requests
   for delete using (
@@ -1634,7 +1656,7 @@ create policy "task_templates_manager_write" on public.task_templates
   ) with check (
     public.can_access(business_id) and public.auth_role() = 'manager'
   );
--- tasks — קריאה לכולם; יצירה למנהל (או materialize ע"י העובד); עדכון למנהל/אחמ״ש/משויך/מחלקה משויכת; מחיקה למנהל
+-- tasks — קריאה לכולם; יצירה למנהל (או materialize ע"י העובד); עדכון למנהל/מנהל מחלקה/משויך/מחלקה משויכת; מחיקה למנהל
 create policy "tasks_read" on public.tasks
   for select using (public.can_access(business_id));
 create policy "tasks_insert" on public.tasks
@@ -1653,7 +1675,7 @@ create policy "tasks_update" on public.tasks
   for update using (
     public.can_access(business_id)
     and (
-      public.auth_role() in ('manager', 'shift_manager')
+      public.auth_role() in ('manager', 'department_manager')
       or assigned_to = auth.uid()
       or (
         assigned_to is null

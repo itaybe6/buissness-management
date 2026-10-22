@@ -28,6 +28,7 @@ export function clampAttendanceRadius(value: number): number {
 /** Roles a manager can mark as exempt from attendance geofence checks. */
 export const ATTENDANCE_GEOFENCE_EXEMPT_ROLE_OPTIONS: UserRole[] = [
   "manager",
+  "department_manager",
   "shift_manager",
   "office_manager",
   "employee",
@@ -38,6 +39,7 @@ export const ATTENDANCE_GEOFENCE_EXEMPT_ROLE_OPTIONS: UserRole[] = [
 export const ROLE_LABELS: Record<UserRole, string> = {
   super_admin: "סופר אדמין",
   manager: "מנהל",
+  department_manager: "מנהל מחלקה",
   shift_manager: "אחראי משמרת",
   office_manager: "מנהלת משרד",
   employee: "עובד",
@@ -60,12 +62,13 @@ export const DEFAULT_WAREHOUSE_NAME = "מלאי העסק";
 export const USER_MANAGE_ROLES: UserRole[] = ["manager", "office_manager"];
 
 /** Roles that may receive a register-percentage bonus (profiles.bonus_pct). */
-export const BONUS_ELIGIBLE_ROLES: UserRole[] = ["manager", "shift_manager"];
+export const BONUS_ELIGIBLE_ROLES: UserRole[] = ["manager", "department_manager"];
 
 export const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
   super_admin: "ניהול כל הפלטפורמה",
   manager: "סקירה מלאה של העסק",
-  shift_manager: "סידור עבודה, אילוצים, חשבוניות ודוח סגירת קופה",
+  department_manager: "סידור עבודה, אילוצים, חשבוניות ודוח סגירת קופה",
+  shift_manager: "משמרות, נוכחות",
   office_manager: "שכר, מלאי וחשבוניות",
   employee: "משמרות, נוכחות",
   maintenance: "תקלות בלבד",
@@ -79,7 +82,7 @@ export const EVENT_MANAGE_ROLES: UserRole[] = ["manager", "event_manager"];
 export const DOCUMENTS_OVERVIEW_ROLES: UserRole[] = ["manager", "office_manager"];
 
 /** Roles that can create/edit agreement templates. */
-export const DOCUMENTS_EDIT_ROLES: UserRole[] = ["manager", "shift_manager"];
+export const DOCUMENTS_EDIT_ROLES: UserRole[] = ["manager", "department_manager"];
 
 /** Roles that can upload and manage office receipts/invoices. */
 export const OFFICE_RECEIPTS_ROLES: UserRole[] = ["manager", "office_manager"];
@@ -99,16 +102,16 @@ export function canManageMenu(role: UserRole | string | null | undefined): boole
 }
 
 /** Roles that can build/edit the work schedule and view all departments' schedules. */
-export const SCHEDULER_ROLES: UserRole[] = ["manager", "shift_manager"];
+export const SCHEDULER_ROLES: UserRole[] = ["manager", "department_manager"];
 
 /** Roles that see the manager tasks UI (fixed templates + assignment). */
-export const MANAGER_ROLES: UserRole[] = ["manager", "shift_manager"];
+export const MANAGER_ROLES: UserRole[] = ["manager", "department_manager"];
 
 export function canForceEmployeeClockOut(role: UserRole | string | null | undefined): boolean {
   return !!role && MANAGER_ROLES.includes(role as UserRole);
 }
 
-/** Same roles as force clock-out: manager / אחמ״ש may punch another employee into the live shift. */
+/** Same roles as force clock-out: manager / מנהל מחלקה may punch another employee into the live shift. */
 export function canForceEmployeeClockIn(role: UserRole | string | null | undefined): boolean {
   return canForceEmployeeClockOut(role);
 }
@@ -126,14 +129,14 @@ export const EVENT_REQUEST_CREATE_ROLES: UserRole[] = ["manager", "event_manager
 export const EVENT_REQUEST_HANDLER_ROLES: UserRole[] = ["manager"];
 
 /** Roles allowed to open the faults module (report, triage, or maintenance work). */
-export const FAULTS_PAGE_ROLES: UserRole[] = ["manager", "shift_manager", "maintenance"];
+export const FAULTS_PAGE_ROLES: UserRole[] = ["manager", "department_manager", "maintenance"];
 
 /**
  * Without a department assignment, these roles still see all daily checklist templates
  * on management boards. Personal worker dashboards always stay department-scoped
  * (`scope.personal` in `templateVisibleForDailyChecklist`).
  */
-export const DAILY_CHECKLIST_ALL_DEPT_ROLES: UserRole[] = ["manager", "shift_manager", "office_manager"];
+export const DAILY_CHECKLIST_ALL_DEPT_ROLES: UserRole[] = ["manager", "department_manager", "office_manager"];
 
 /**
  * Flat module list for legacy call sites. The catalog itself — domains,
@@ -230,30 +233,30 @@ export function groupNavItems(items: NavItem[], options?: { flat?: boolean }): N
  * business's enabled features (business_features).
  */
 export const NAV_ITEMS: NavItem[] = [
-  { key: "dashboard", label: "דשבורד", icon: "space_dashboard", group: "overview", roles: ["manager", "shift_manager", "office_manager"] },
-  { key: "dashboard", label: "בית", icon: "home", group: "overview", roles: ["employee"] },
+  { key: "dashboard", label: "דשבורד", icon: "space_dashboard", group: "overview", roles: ["manager", "department_manager", "office_manager"] },
+  { key: "dashboard", label: "בית", icon: "home", group: "overview", roles: ["employee", "shift_manager"] },
   { key: "faults", label: "תקלות", icon: "build", group: "overview", roles: ["maintenance"], feature: "faults" },
   { key: "platform", label: "סקירת פלטפורמה", icon: "space_dashboard", group: "platform", roles: ["super_admin"] },
   { key: "businesses", label: "עסקים", icon: "store", group: "platform", roles: ["super_admin"] },
   { key: "platform-users", label: "משתמשים", icon: "group", group: "platform", roles: ["super_admin"] },
 
-  { key: "shifts", label: "משמרות", icon: "calendar_month", group: "shifts", roles: ["manager", "shift_manager", "employee"], feature: "shifts" },
-  { key: "shift-reports", label: "דוח משמרת", icon: "receipt_long", group: "shifts", roles: ["manager", "shift_manager"], feature: "shift_reports" },
+  { key: "shifts", label: "משמרות", icon: "calendar_month", group: "shifts", roles: ["manager", "department_manager", "shift_manager", "employee"], feature: "shifts" },
+  { key: "shift-reports", label: "דוח משמרת", icon: "receipt_long", group: "shifts", roles: ["manager", "department_manager"], feature: "shift_reports" },
   { key: "attendance", label: "שעון נוכחות", icon: "schedule", group: "shifts", roles: ["manager"], feature: "attendance" },
-  { key: "my-shifts", label: "מעקב שכר", icon: "event_available", group: "shifts", roles: ["manager", "shift_manager", "office_manager", "employee", "maintenance"] },
-  { key: "salary-issues", label: "בעיות שכר", icon: "report_problem", group: "shifts", roles: ["employee", "shift_manager", "maintenance"], feature: "payroll" },
+  { key: "my-shifts", label: "מעקב שכר", icon: "event_available", group: "shifts", roles: ["manager", "department_manager", "shift_manager", "office_manager", "employee", "maintenance"] },
+  { key: "salary-issues", label: "בעיות שכר", icon: "report_problem", group: "shifts", roles: ["employee", "shift_manager", "department_manager", "maintenance"], feature: "payroll" },
 
-  { key: "tasks", label: "משימות", icon: "checklist", group: "ops", roles: ["manager", "shift_manager", "office_manager"], feature: "tasks" },
-  { key: "faults", label: "תקלות", icon: "build", group: "ops", roles: ["manager", "shift_manager"], feature: "faults" },
-  { key: "events", label: "אירועים", icon: "celebration", group: "ops", roles: ["manager", "event_manager", "shift_manager", "office_manager", "employee"], feature: "events" },
+  { key: "tasks", label: "משימות", icon: "checklist", group: "ops", roles: ["manager", "department_manager", "office_manager"], feature: "tasks" },
+  { key: "faults", label: "תקלות", icon: "build", group: "ops", roles: ["manager", "department_manager"], feature: "faults" },
+  { key: "events", label: "אירועים", icon: "celebration", group: "ops", roles: ["manager", "event_manager", "department_manager", "shift_manager", "office_manager", "employee"], feature: "events" },
 
-  { key: "inventory", label: "מוצרים", icon: "inventory_2", group: "inventory", roles: ["manager", "shift_manager", "office_manager", "employee"], feature: "inventory" },
+  { key: "inventory", label: "מוצרים", icon: "inventory_2", group: "inventory", roles: ["manager", "department_manager", "shift_manager", "office_manager", "employee"], feature: "inventory" },
   { key: "suppliers", label: "ספקים", icon: "local_shipping", group: "inventory", roles: ["manager", "office_manager"], feature: "inventory" },
   { key: "menu", label: "תפריט ותמחור", icon: "restaurant_menu", group: "inventory", roles: ["manager", "office_manager"], feature: "menu" },
 
   { key: "users", label: "משתמשים", icon: "group", group: "team", roles: ["manager", "office_manager"] },
   { key: "payroll", label: "שכר", icon: "payments", group: "team", roles: ["manager", "office_manager"], feature: "payroll" },
-  { key: "agreements", label: "מסמכים", icon: "draw", group: "team", roles: ["manager", "shift_manager", "office_manager", "employee"], feature: "agreements" },
+  { key: "agreements", label: "מסמכים", icon: "draw", group: "team", roles: ["manager", "department_manager", "shift_manager", "office_manager", "employee"], feature: "agreements" },
 
   { key: "settings", label: "הגדרות עסק", icon: "settings", group: "settings", roles: ["manager"] },
 ];

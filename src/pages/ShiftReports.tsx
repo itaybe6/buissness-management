@@ -90,7 +90,7 @@ export function ShiftReports() {
 
   const [viewing, setViewing] = useState<ShiftReport | null>(null);
 
-  const canManage = !!profile && ["manager", "shift_manager"].includes(profile.role);
+  const canManage = !!profile && ["manager", "department_manager"].includes(profile.role);
 
   const userName = useMemo(
     () => (id: string) => users?.find((u) => u.id === id)?.full_name ?? "—",
@@ -390,7 +390,7 @@ export function ShiftReportEditorPage() {
   const { data: users } = useProfiles(businessId);
   const { data: allPositions } = useEmployeePositions(businessId);
 
-  const canManage = !!profile && ["manager", "shift_manager"].includes(profile.role);
+  const canManage = !!profile && ["manager", "department_manager"].includes(profile.role);
   const report = isNew ? null : (stateReport ?? fetchedReport ?? null);
 
   const userName = useMemo(

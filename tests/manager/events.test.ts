@@ -107,8 +107,8 @@ describe("מי מנהל אירועים", () => {
     expect(EVENT_MANAGE_ROLES).toEqual(["manager", "event_manager"]);
   });
 
-  it("אחראי משמרת, מנהלת משרד ועובד רואים אירועים אבל לא עורכים", () => {
-    for (const role of ["shift_manager", "office_manager", "employee"] as const) {
+  it("מנהל מחלקה, אחמ״ש, מנהלת משרד ועובד רואים אירועים אבל לא עורכים", () => {
+    for (const role of ["department_manager", "shift_manager", "office_manager", "employee"] as const) {
       expect(visibleNavItems(role, ALL_ON).map((i) => i.key)).toContain("events");
       expect(EVENT_MANAGE_ROLES).not.toContain(role);
     }
@@ -124,7 +124,7 @@ describe("מי מנהל אירועים", () => {
 
   it("כיבוי מודול האירועים מעלים אותו מכל התפקידים", () => {
     const off = (k: FeatureKey) => k !== "events";
-    const roles: UserRole[] = ["manager", "shift_manager", "office_manager", "employee", "event_manager"];
+    const roles: UserRole[] = ["manager", "department_manager", "shift_manager", "office_manager", "employee", "event_manager"];
     for (const role of roles) {
       expect(visibleNavItems(role, off).map((i) => i.key), role).not.toContain("events");
     }

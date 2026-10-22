@@ -282,8 +282,8 @@ describe("חשבוניות וקבלות של המשרד", () => {
 });
 
 describe("מי עושה מה במסמכים", () => {
-  it("מנהל ואחראי משמרת עורכים תבניות", () => {
-    expect(DOCUMENTS_EDIT_ROLES).toEqual(["manager", "shift_manager"]);
+  it("מנהל ומנהל מחלקה עורכים תבניות", () => {
+    expect(DOCUMENTS_EDIT_ROLES).toEqual(["manager", "department_manager"]);
   });
 
   it("מנהל ומנהלת משרד רואים את סקירת החתימות", () => {

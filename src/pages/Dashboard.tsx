@@ -448,8 +448,8 @@ function BusinessDashboard() {
   );
 }
 
-function ShiftManagerDashboard() {
-  return <WorkerHome variant="shift_manager" />;
+function DepartmentManagerDashboard() {
+  return <WorkerHome variant="department_manager" />;
 }
 
 export function Dashboard() {
@@ -461,7 +461,7 @@ export function Dashboard() {
     return <ManagerDashboard />;
   }
   if (role === "super_admin") return <SuperAdminDashboard />;
-  if (role === "shift_manager") return <ShiftManagerDashboard />;
-  if (role === "employee") return <WorkerHome variant="employee" />;
+  if (role === "department_manager") return <DepartmentManagerDashboard />;
+  if (role === "shift_manager" || role === "employee") return <WorkerHome variant="employee" />;
   return <BusinessDashboard />;
 }

@@ -26,12 +26,12 @@ afterEach(() => {
 });
 
 describe("מי נכנס למודול התקלות", () => {
-  it("מנהל, אחראי משמרת ואיש אחזקה", () => {
-    expect(FAULTS_PAGE_ROLES.sort()).toEqual(["maintenance", "manager", "shift_manager"].sort());
+  it("מנהל, מנהל מחלקה ואיש אחזקה", () => {
+    expect(FAULTS_PAGE_ROLES.sort()).toEqual(["maintenance", "manager", "department_manager"].sort());
   });
 
-  it("עובד, מנהלת משרד ומנהלת אירועים חסומים", () => {
-    for (const role of ["employee", "office_manager", "event_manager"] as UserRole[]) {
+  it("עובד, אחמ״ש, מנהלת משרד ומנהלת אירועים חסומים", () => {
+    for (const role of ["employee", "shift_manager", "office_manager", "event_manager"] as UserRole[]) {
       expect(FAULTS_PAGE_ROLES, role).not.toContain(role);
       expect(visibleNavItems(role, ALL_ON).map((i) => i.key), role).not.toContain("faults");
     }
@@ -40,7 +40,7 @@ describe("מי נכנס למודול התקלות", () => {
   it("כיבוי מודול התקלות מסיר אותו גם מהמנהל וגם מאיש האחזקה", () => {
     const off = (k: FeatureKey) => k !== "faults";
     expect(visibleNavItems("manager", off).map((i) => i.key)).not.toContain("faults");
-    expect(visibleNavItems("maintenance", off).map((i) => i.key)).toEqual(["my-shifts"]);
+    expect(visibleNavItems("maintenance", off).map((i) => i.key)).toEqual(["my-shifts", "salary-issues"]);
   });
 });
 

@@ -26,11 +26,12 @@ function keysFor(role: UserRole, state: Record<FeatureKey, boolean>): string[] {
 const FULL = featureStateForPlan("full");
 
 describe("המנהל משנה לעובד תפקיד", () => {
-  it("עובד → אחראי משמרת: נפתחים לו סידור עבודה, דוח משמרת ומשימות", () => {
+  it("עובד → מנהל מחלקה: נפתחים לו סידור עבודה, דוח משמרת ומשימות", () => {
     const before = keysFor("employee", FULL);
-    const after = keysFor("shift_manager", FULL);
+    const after = keysFor("department_manager", FULL);
 
     expect(before).not.toContain("shift-reports");
+    expect(keysFor("shift_manager", FULL)).toEqual(before);
     expect(after).toEqual(expect.arrayContaining(["shift-reports", "tasks", "faults"]));
   });
 
@@ -42,7 +43,7 @@ describe("המנהל משנה לעובד תפקיד", () => {
   });
 
   it("עובד → איש אחזקה: מאבד הכול חוץ מתקלות ומעקב שכר", () => {
-    expect(keysFor("maintenance", FULL)).toEqual(["faults", "my-shifts"]);
+    expect(keysFor("maintenance", FULL)).toEqual(["faults", "my-shifts", "salary-issues"]);
   });
 
   it("שינוי התפקיד משנה גם את מסך הבית שאליו הוא נוחת", () => {
@@ -54,6 +55,7 @@ describe("המנהל משנה לעובד תפקיד", () => {
   it("אף שינוי תפקיד בתוך העסק לא פותח מסכי פלטפורמה", () => {
     const businessRoles: UserRole[] = [
       "manager",
+      "department_manager",
       "shift_manager",
       "office_manager",
       "employee",
@@ -70,7 +72,7 @@ describe("המנהל משנה לעובד תפקיד", () => {
 
   it("רק מנהל מקבל את הגדרות העסק — שם נמצאים הגיאופנס וחלון האילוצים", () => {
     expect(keysFor("manager", FULL)).toContain("settings");
-    for (const role of ["shift_manager", "office_manager", "employee", "maintenance"] as const) {
+    for (const role of ["department_manager", "shift_manager", "office_manager", "employee", "maintenance"] as const) {
       expect(keysFor(role, FULL)).not.toContain("settings");
     }
   });

@@ -7,21 +7,22 @@ import {
   weekStartFromDateISO,
 } from "@/lib/shift-assignment-limits";
 import { ensureDefaultShiftTemplates, sortShiftTemplates } from "@/lib/shiftTemplates";
-import type { Availability, ShiftAssignment, ShiftPreference, ShiftTemplate } from "@/types/database";
+import type { Availability, ShiftAssignment, ShiftPreference, ShiftTemplate, ShiftTemplateDay } from "@/types/database";
 
 async function fetchShiftTemplates(businessId: string, activeOnly: boolean): Promise<ShiftTemplate[]> {
   const load = async (): Promise<ShiftTemplate[]> => {
     const { data, error } = await supabase
       .from("shift_templates")
-      .select("*")
+      .select("*, days:shift_template_days(day_of_week, start_time, end_time)")
       .eq("business_id", businessId)
       .order("sort_order", { ascending: true });
     if (error) throw error;
-    return (data ?? []) as ShiftTemplate[];
+    return ((data ?? []) as ShiftTemplate[]).map((row) => ({
+      ...row,
+      days: [...(row.days ?? [])].sort((a, b) => a.day_of_week - b.day_of_week),
+    }));
   };
 
-  // Single round trip on the hot path; the defaults bootstrap only runs for a
-  // brand-new business with missing templates.
   let rows = await load();
   if (await ensureDefaultShiftTemplates(businessId, rows)) rows = await load();
   return sortShiftTemplates(activeOnly ? rows.filter((t) => t.active) : rows);
@@ -48,7 +49,8 @@ export function useUpdateShiftTemplate(businessId: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: Partial<ShiftTemplate> & { id: string }) => {
-      const { id, ...rest } = input;
+      const { id, days, ...rest } = input;
+      void days;
       const { error } = await supabase.from("shift_templates").update(rest).eq("id", id);
       if (error) throw error;
     },
@@ -63,18 +65,72 @@ export function useCreateShiftTemplate(businessId: string | null) {
   return useMutation({
     mutationFn: async (input: {
       business_id: string;
+      /** null = general shift (not tied to a department). */
+      department_id: string | null;
       name: string;
       start_time: string;
       end_time: string;
       color?: string;
       sort_order?: number;
     }) => {
-      const { error } = await supabase.from("shift_templates").insert({
-        ...input,
-        shift_key: null,
-        active: true,
-      });
+      const { data, error } = await supabase
+        .from("shift_templates")
+        .insert({
+          ...input,
+          shift_key: null,
+          active: true,
+        })
+        .select("id")
+        .single();
       if (error) throw error;
+      // A new shift runs all week at these hours; days are turned off afterwards.
+      const { error: dayErr } = await supabase.from("shift_template_days").insert(
+        [0, 1, 2, 3, 4, 5, 6].map((day_of_week) => ({
+          shift_template_id: data.id,
+          day_of_week,
+          start_time: input.start_time,
+          end_time: input.end_time,
+        })),
+      );
+      if (dayErr) throw dayErr;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["shift_templates", businessId] }),
+  });
+}
+
+/** Replace the weekdays a shift runs (and keep the headline hours in sync). */
+export function useReplaceShiftTemplateDays(businessId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { id: string; days: ShiftTemplateDay[] }) => {
+      const days = [...input.days].sort((a, b) => a.day_of_week - b.day_of_week);
+      if (days.length === 0) {
+        const { error } = await supabase.from("shift_template_days").delete().eq("shift_template_id", input.id);
+        if (error) throw error;
+        return;
+      }
+      const keep = `(${days.map((d) => d.day_of_week).join(",")})`;
+      const { error: delErr } = await supabase
+        .from("shift_template_days")
+        .delete()
+        .eq("shift_template_id", input.id)
+        .not("day_of_week", "in", keep);
+      if (delErr) throw delErr;
+      const { error: upErr } = await supabase.from("shift_template_days").upsert(
+        days.map((d) => ({
+          shift_template_id: input.id,
+          day_of_week: d.day_of_week,
+          start_time: d.start_time,
+          end_time: d.end_time,
+        })),
+        { onConflict: "shift_template_id,day_of_week" },
+      );
+      if (upErr) throw upErr;
+      const { error: headErr } = await supabase
+        .from("shift_templates")
+        .update({ start_time: days[0].start_time, end_time: days[0].end_time })
+        .eq("id", input.id);
+      if (headErr) throw headErr;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["shift_templates", businessId] }),
   });

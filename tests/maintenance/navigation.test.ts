@@ -28,7 +28,7 @@ const maintenanceKeys = (hasFeature = ALL_ON) => visibleNavItems("maintenance", 
 
 describe("תפריט איש האחזקה", () => {
   it("רואה בדיוק שני פריטים: תקלות ומעקב שכר", () => {
-    expect(maintenanceKeys()).toEqual(["faults", "my-shifts"]);
+    expect(maintenanceKeys()).toEqual(["faults", "my-shifts", "salary-issues"]);
   });
 
   it("פריט התקלות שלו יושב במקטע הראשי (זה מסך הבית שלו)", () => {
@@ -42,11 +42,11 @@ describe("תפריט איש האחזקה", () => {
   });
 
   it("כשמודול התקלות כבוי נשאר רק מעקב השכר", () => {
-    expect(maintenanceKeys(featuresOn("payroll", "inventory", "shifts", "tasks"))).toEqual(["my-shifts"]);
+    expect(maintenanceKeys(featuresOn("payroll", "inventory", "shifts", "tasks"))).toEqual(["my-shifts", "salary-issues"]);
   });
 
   it("הפעלת כל שאר המודולים לא מוסיפה לו כלום", () => {
-    expect(maintenanceKeys(ALL_ON)).toEqual(maintenanceKeys(featuresOn("faults")));
+    expect(maintenanceKeys(ALL_ON)).toEqual(maintenanceKeys(featuresOn("faults", "payroll")));
   });
 
   it.each([
@@ -89,15 +89,15 @@ describe("הרשאות פעולה של איש האחזקה", () => {
 });
 
 describe("מודול התקלות — מי עוד ניגש אליו", () => {
-  it("מנהל ואחמ״ש רואים תקלות תחת «תפעול», איש אחזקה תחת מסך הבית", () => {
-    for (const role of ["manager", "shift_manager"] as const) {
+  it("מנהל ומנהל מחלקה רואים תקלות תחת «תפעול», איש אחזקה תחת מסך הבית", () => {
+    for (const role of ["manager", "department_manager"] as const) {
       const faults = visibleNavItems(role, ALL_ON).find((i) => i.key === "faults");
       expect(faults?.group).toBe("ops");
     }
   });
 
   it("עובד, מנהלת משרד ומנהלת אירועים לא ניגשים לתקלות", () => {
-    const blocked: UserRole[] = ["employee", "office_manager", "event_manager"];
+    const blocked: UserRole[] = ["employee", "shift_manager", "office_manager", "event_manager"];
     for (const role of blocked) {
       expect(FAULTS_PAGE_ROLES).not.toContain(role);
       expect(visibleNavItems(role, ALL_ON).map((i) => i.key)).not.toContain("faults");

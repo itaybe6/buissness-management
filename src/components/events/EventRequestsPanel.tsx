@@ -32,7 +32,7 @@ export function EventRequestsPanel({
 }) {
   const canCreate = EVENT_REQUEST_CREATE_ROLES.includes(role);
   const canHandle = EVENT_REQUEST_HANDLER_ROLES.includes(role);
-  const canView = canCreate || canHandle || role === "shift_manager" || role === "office_manager";
+  const canView = canCreate || canHandle || role === "department_manager" || role === "office_manager";
 
   const { data: requests = [], isLoading } = useEventRequests(canView ? businessId : null, {
     eventId: event.id,

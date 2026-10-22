@@ -206,10 +206,10 @@ describe("עלות מעסיק — צבירה יומית", () => {
     expect(days[0].total).toBe(520);
   });
 
-  it("אחמ״ש לא נספר בעלות היומית (השכר שלו מנוהל בנפרד)", () => {
+  it("מנהל מחלקה לא נספר בעלות היומית (השכר שלו מנוהל בנפרד)", () => {
     const days = aggregateDailyLaborCosts({
-      profiles: [hourlyEmployee(USER.shiftManager, 60, { role: "shift_manager" })],
-      attendance: [makeAttendance({ employeeId: USER.shiftManager, date: "2026-07-08", from: 8, to: 16 })],
+      profiles: [hourlyEmployee(USER.departmentManager, 60, { role: "department_manager" })],
+      attendance: [makeAttendance({ employeeId: USER.departmentManager, date: "2026-07-08", from: 8, to: 16 })],
       tips: [],
       bonuses: [],
       templates,

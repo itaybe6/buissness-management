@@ -3,6 +3,7 @@
 export type UserRole =
   | "super_admin"
   | "manager"
+  | "department_manager"
   | "shift_manager"
   | "office_manager"
   | "employee"
@@ -144,17 +145,32 @@ export interface EmployeePosition {
 /** Dynamic shift definitions per business (added in the updated schema). */
 export type ShiftKey = "morning" | "afternoon" | "evening" | "night";
 
+/** Hours of one weekday. day_of_week: 0 = Sunday (א׳) … 6 = Saturday (ש׳). */
+export interface ShiftTemplateDay {
+  day_of_week: number;
+  start_time: string;
+  end_time: string;
+}
+
 export interface ShiftTemplate {
   id: string;
   business_id: string;
+  /** Department this shift belongs to. */
+  department_id: string | null;
   shift_key: ShiftKey | null;
   name: string;
+  /** Headline hours — the first active day's range. Per-day hours live in `days`. */
   start_time: string; // "HH:MM"
   end_time: string; // "HH:MM"
   color: string | null;
   active: boolean;
   sort_order: number;
   created_at: string;
+  /**
+   * Weekdays the shift runs. Empty/missing means every day at start_time–end_time.
+   * Loaded with the template (`days:shift_template_days`).
+   */
+  days?: ShiftTemplateDay[];
 }
 
 /** "signature" = draw pad; "text" = typed straight onto the document; "checkbox" = tap to tick. */

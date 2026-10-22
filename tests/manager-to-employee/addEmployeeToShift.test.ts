@@ -23,14 +23,14 @@ function stubProfile(
   };
 }
 
-describe("הרשאת אחמ״ש להוספת עובד למשמרת חיה", () => {
-  it("מנהל ואחמ״ש יכולים להחתים כניסה לעובד אחר", () => {
+describe("הרשאת מנהל מחלקה להוספת עובד למשמרת חיה", () => {
+  it("מנהל ומנהל מחלקה יכולים להחתים כניסה לעובד אחר", () => {
     expect(canForceEmployeeClockIn("manager")).toBe(true);
-    expect(canForceEmployeeClockIn("shift_manager")).toBe(true);
+    expect(canForceEmployeeClockIn("department_manager")).toBe(true);
   });
 
-  it("עובד / מנהלת משרד / אחזקה לא יכולים", () => {
-    for (const role of ["employee", "office_manager", "maintenance", "event_manager"] as UserRole[]) {
+  it("עובד / אחמ״ש / מנהלת משרד / אחזקה לא יכולים", () => {
+    for (const role of ["employee", "shift_manager", "office_manager", "maintenance", "event_manager"] as UserRole[]) {
       expect(canForceEmployeeClockIn(role)).toBe(false);
     }
     expect(canForceEmployeeClockIn(null)).toBe(false);
@@ -39,6 +39,7 @@ describe("הרשאת אחמ״ש להוספת עובד למשמרת חיה", () =
   it("זהה להרשאת הוצאה כפויה ממשמרת", () => {
     for (const role of [
       "manager",
+      "department_manager",
       "shift_manager",
       "employee",
       "office_manager",

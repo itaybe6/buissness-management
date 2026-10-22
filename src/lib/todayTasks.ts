@@ -204,8 +204,8 @@ export type ChecklistDeptScope = {
  * Which fixed templates belong on an employee's daily checklist.
  * - `department_id = null` → כלל המסעדה (everyone)
  * - matching `department_id` → only that department
- * - `scope.allDepartments` → every department (אחמ״ש dashboard)
- * - managers/shift managers without a department may see all departments,
+ * - `scope.allDepartments` → every department (מנהל מחלקה dashboard)
+ * - managers / department managers without a department may see all departments,
  *   unless `scope.personal` (worker home / punch) is set
  */
 export function templateVisibleForDailyChecklist(

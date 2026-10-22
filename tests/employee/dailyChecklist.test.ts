@@ -43,11 +43,12 @@ describe("שיוך תבנית קבועה למחלקה", () => {
     expect(templateVisibleForDailyChecklist(tpl, null, "employee")).toBe(false);
   });
 
-  it("מנהל / אחמ״ש / מנהלת משרד בלי מחלקה רואים את כל התבניות", () => {
+  it("מנהל / מנהל מחלקה / מנהלת משרד בלי מחלקה רואים את כל התבניות", () => {
     const tpl = makeTaskTemplate({ department_id: DEPT.bar });
     expect(templateVisibleForDailyChecklist(tpl, null, "manager")).toBe(true);
-    expect(templateVisibleForDailyChecklist(tpl, null, "shift_manager")).toBe(true);
+    expect(templateVisibleForDailyChecklist(tpl, null, "department_manager")).toBe(true);
     expect(templateVisibleForDailyChecklist(tpl, null, "office_manager")).toBe(true);
+    expect(templateVisibleForDailyChecklist(tpl, null, "shift_manager")).toBe(false);
   });
 
   it("בדשבורד אישי — גם אחמ״ש בלי מחלקה לא רואה תבניות של מחלקות אחרות", () => {
@@ -56,12 +57,12 @@ describe("שיוך תבנית קבועה למחלקה", () => {
     expect(templateVisibleForDailyChecklist(tpl, null, "manager", { personal: true })).toBe(false);
   });
 
-  it("מעקב אחמ״ש — רואה את כל המחלקות גם אם משובץ למחלקה", () => {
+  it("מעקב מנהל מחלקה — רואה את כל המחלקות גם אם משובץ למחלקה", () => {
     const kitchen = makeTaskTemplate({ department_id: DEPT.kitchen });
-    expect(templateVisibleForDailyChecklist(kitchen, DEPT.bar, "shift_manager", { allDepartments: true })).toBe(
+    expect(templateVisibleForDailyChecklist(kitchen, DEPT.bar, "department_manager", { allDepartments: true })).toBe(
       true,
     );
-    expect(templateVisibleForDailyChecklist(kitchen, null, "shift_manager", { allDepartments: true })).toBe(true);
+    expect(templateVisibleForDailyChecklist(kitchen, null, "department_manager", { allDepartments: true })).toBe(true);
   });
 
   it("בדשבורד אישי — עובד בר רואה רק בר + כללי", () => {

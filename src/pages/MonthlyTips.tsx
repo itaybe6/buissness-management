@@ -787,7 +787,7 @@ export function MonthlyTips() {
   const { data: templates = [] } = useShiftTemplates(businessId);
   const { data: profiles = [] } = useProfiles(businessId);
 
-  const canManage = !!profile && ["manager", "shift_manager", "office_manager"].includes(profile.role);
+  const canManage = !!profile && ["manager", "department_manager", "office_manager"].includes(profile.role);
 
   const templateById = useMemo(() => new Map(templates.map((t) => [t.id, t])), [templates]);
   const profileById = useMemo(

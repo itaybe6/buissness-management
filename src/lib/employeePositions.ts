@@ -11,10 +11,11 @@ export const POSITION_ROLE_RANK: Record<UserRole, number> = {
   super_admin: 0,
   manager: 1,
   office_manager: 2,
-  shift_manager: 3,
+  department_manager: 3,
   event_manager: 4,
-  employee: 5,
-  maintenance: 6,
+  shift_manager: 5,
+  employee: 6,
+  maintenance: 7,
 };
 
 const LEGACY_PREFIX = "legacy:";

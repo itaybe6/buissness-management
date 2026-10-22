@@ -1,4 +1,5 @@
 import { addDays, toISODate } from "@/lib/db";
+import { dayIndexFromISO, hoursOnDay } from "@/lib/shiftTemplateHours";
 import type { Attendance, ShiftAssignment, ShiftTemplate } from "@/types/database";
 
 function startTimeMinutes(time: string): number {
@@ -59,8 +60,15 @@ export interface ShiftAbsoluteWindow {
 }
 
 export function shiftWindowForDate(reportDate: string, template: ShiftTemplate): ShiftAbsoluteWindow {
-  const [startH, startM] = template.start_time.slice(0, 5).split(":").map(Number);
-  const [endH, endM] = template.end_time.slice(0, 5).split(":").map(Number);
+  const hours = hoursOnDay(template, dayIndexFromISO(reportDate));
+  // The shift does not run this weekday — an empty window matches no punches.
+  if (!hours) {
+    const [y, mo, d] = reportDate.split("-").map(Number);
+    const at = new Date(y, mo - 1, d, 0, 0, 0, 0).getTime();
+    return { startMs: at, endMs: at };
+  }
+  const [startH, startM] = hours.start.split(":").map(Number);
+  const [endH, endM] = hours.end.split(":").map(Number);
   const [y, mo, d] = reportDate.split("-").map(Number);
   const start = new Date(y, mo - 1, d, startH, startM, 0, 0);
   const end = new Date(y, mo - 1, d, endH, endM, 0, 0);

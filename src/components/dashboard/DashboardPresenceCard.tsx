@@ -12,6 +12,7 @@ import { useBusinessId } from "@/lib/db";
 import { useShiftPunch } from "@/hooks/useShiftPunch";
 import { DailyTasksChecklist, useDailyTaskActions } from "@/components/tasks/DailyTasksChecklist";
 import { useAuth } from "@/lib/auth";
+import { formatHours, hoursOnDay } from "@/lib/shiftTemplateHours";
 import type { ShiftTemplate } from "@/types/database";
 
 function shiftDotStyle(color: string | null | undefined) {
@@ -31,7 +32,8 @@ function TodayShiftBadge({ template }: { template: ShiftTemplate }) {
       <div className="min-w-0">
         <div className="text-[15px] font-extrabold tracking-tight text-text">{template.name}</div>
         <div className="mt-0.5 font-mono text-[13px] tabular-nums text-text-2">
-          {template.start_time?.slice(0, 5)}–{template.end_time?.slice(0, 5)}
+          {formatHours(hoursOnDay(template, new Date().getDay())) ??
+            `${template.start_time?.slice(0, 5)}–${template.end_time?.slice(0, 5)}`}
         </div>
       </div>
     </div>

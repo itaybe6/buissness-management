@@ -147,7 +147,7 @@ export function WorkerHome({
   variant = "employee",
   children,
 }: {
-  variant?: "employee" | "shift_manager";
+  variant?: "employee" | "department_manager";
   children?: ReactNode;
 }) {
   const businessId = useBusinessId();
@@ -156,7 +156,7 @@ export function WorkerHome({
   const today = todayISO();
   const [selectedDate, setSelectedDate] = useState(today);
   const [weekAnchor, setWeekAnchor] = useState(() => weekStart());
-  const isShiftManager = variant === "shift_manager";
+  const isDepartmentManager = variant === "department_manager";
 
   const {
     todayTasks,
@@ -173,21 +173,21 @@ export function WorkerHome({
     profile?.role,
     selectedDate,
     {
-      // Daily recurring tracking for אחמ״ש uses RecurringTasksBoard (all depts).
+      // Daily recurring tracking for מנהל מחלקה uses RecurringTasksBoard (all depts).
       // Keep personal scope here so unused dateTasks stay light; events use manageAll.
       personal: true,
-      manageAllEventTasks: isShiftManager,
+      manageAllEventTasks: isDepartmentManager,
     },
   );
 
-  const { data: smTasks = [], isLoading: smTasksLoading } = useTasks(isShiftManager ? businessId : null);
+  const { data: smTasks = [], isLoading: smTasksLoading } = useTasks(isDepartmentManager ? businessId : null);
   const { data: smTemplates = [], isLoading: smTplLoading } = useTaskTemplates(
-    isShiftManager ? businessId : null,
+    isDepartmentManager ? businessId : null,
   );
   const { data: smDepartments = [], isLoading: smDeptLoading } = useDepartments(
-    isShiftManager ? businessId : null,
+    isDepartmentManager ? businessId : null,
   );
-  const { data: smUsers = [], isLoading: smUsersLoading } = useProfiles(isShiftManager ? businessId : null);
+  const { data: smUsers = [], isLoading: smUsersLoading } = useProfiles(isDepartmentManager ? businessId : null);
 
   const timeStr = now.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const clockStr = now.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
@@ -204,7 +204,7 @@ export function WorkerHome({
 
   const showEventTaskFilter = showTasks && showEvents && hasEventTasks;
   const visibleTasks = taskScope === "events" ? employeeEventTasks : dateTasks;
-  const tasksReadOnly = !isShiftManager && taskScope === "all" && selectedDate !== today;
+  const tasksReadOnly = !isDepartmentManager && taskScope === "all" && selectedDate !== today;
 
   const selectedDateLabel = useMemo(
     () =>
@@ -245,7 +245,7 @@ export function WorkerHome({
   const tabLayout = showBothPanels && !isMdUp;
 
   const pendingTasks = useMemo(() => {
-    if (!isShiftManager) {
+    if (!isDepartmentManager) {
       return todayTasks.filter((t) => t.status !== "done").length;
     }
     const weekday = new Date(`${today}T12:00:00`).getDay();
@@ -258,7 +258,7 @@ export function WorkerHome({
       if (!rows.some((r) => r.status === "done")) open += 1;
     }
     return open + employeeEventTasks.length;
-  }, [isShiftManager, todayTasks, smTemplates, smTasks, today, employeeEventTasks.length]);
+  }, [isDepartmentManager, todayTasks, smTemplates, smTasks, today, employeeEventTasks.length]);
 
   const { data: attendanceRecords = [], isLoading: attendanceLoading } = useAttendanceToday(
     showBothPanels ? businessId : null,
@@ -271,7 +271,7 @@ export function WorkerHome({
 
   const pageLoading =
     (showTasks && tasksLoading) ||
-    (isShiftManager && showTasks && (smTasksLoading || smTplLoading || smDeptLoading || smUsersLoading)) ||
+    (isDepartmentManager && showTasks && (smTasksLoading || smTplLoading || smDeptLoading || smUsersLoading)) ||
     (showBothPanels && attendanceLoading) ||
     (showAttendance && bizLoading);
 
@@ -306,7 +306,7 @@ export function WorkerHome({
           </span>
           <span className="worker-hero-role">
             <Icon
-              name={variant === "shift_manager" ? "shield_person" : "badge"}
+              name={variant === "department_manager" ? "shield_person" : "badge"}
               size={14}
             />
             {ROLE_LABELS[role]}
@@ -413,15 +413,15 @@ export function WorkerHome({
                       businessId={businessId}
                       onStatus={setStatus}
                       onMedia={setMedia}
-                      variant={isShiftManager ? "dashboard" : "employee"}
+                      variant={isDepartmentManager ? "dashboard" : "employee"}
                       emptyTitle="אין משימות אירוע פתוחות"
                       emptyDescription={
-                        isShiftManager
+                        isDepartmentManager
                           ? "כשיוקצו משימות לאירוע — הן יופיעו כאן לפי אירוע."
                           : "כשישייכו אליך או למחלקה שלך משימות לאירוע — הן יופיעו כאן."
                       }
                     />
-                  ) : isShiftManager && profile ? (
+                  ) : isDepartmentManager && profile ? (
                     <div className="worker-home__sm-board">
                       <RecurringTasksBoard
                         businessId={businessId}

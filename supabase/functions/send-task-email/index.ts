@@ -19,7 +19,7 @@ const cors = {
 };
 
 // Roles that hand out tasks — the event manager assigns event tasks.
-const MANAGER_ROLES = ["manager", "shift_manager", "event_manager"];
+const MANAGER_ROLES = ["manager", "department_manager", "event_manager"];
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });

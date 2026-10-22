@@ -23,6 +23,7 @@ import type { UserRole } from "@/types/database";
 /** Roles a super admin may create inside a business. */
 const BUSINESS_ROLES: UserRole[] = [
   "manager",
+  "department_manager",
   "shift_manager",
   "office_manager",
   "event_manager",

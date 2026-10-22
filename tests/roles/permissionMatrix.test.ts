@@ -39,17 +39,19 @@ const EXPECTED: Record<UserRole, string[]> = {
     "agreements",
     "settings",
   ],
-  shift_manager: [
+  department_manager: [
     "dashboard",
     "shifts",
     "shift-reports",
     "my-shifts",
+    "salary-issues",
     "tasks",
     "faults",
     "events",
     "inventory",
     "agreements",
   ],
+  shift_manager: ["dashboard", "shifts", "my-shifts", "salary-issues", "events", "inventory", "agreements"],
   office_manager: [
     "dashboard",
     "my-shifts",
@@ -62,8 +64,8 @@ const EXPECTED: Record<UserRole, string[]> = {
     "payroll",
     "agreements",
   ],
-  employee: ["dashboard", "shifts", "my-shifts", "events", "inventory", "agreements"],
-  maintenance: ["faults", "my-shifts"],
+  employee: ["dashboard", "shifts", "my-shifts", "salary-issues", "events", "inventory", "agreements"],
+  maintenance: ["faults", "my-shifts", "salary-issues"],
   event_manager: ["events"],
 };
 
@@ -92,7 +94,7 @@ describe("מסכים רגישים — מי באמת ניגש", () => {
     ["users", ["manager", "office_manager"]],
     ["settings", ["manager"]],
     ["attendance", ["manager"]],
-    ["shift-reports", ["manager", "shift_manager"]],
+    ["shift-reports", ["manager", "department_manager"]],
     ["suppliers", ["manager", "office_manager"]],
     ["menu", ["manager", "office_manager"]],
     ["platform", ["super_admin"]],
@@ -110,6 +112,7 @@ describe("מסך הבית של כל תפקיד", () => {
   it.each<[UserRole, string]>([
     ["super_admin", "/platform"],
     ["manager", "/dashboard"],
+    ["department_manager", "/dashboard"],
     ["shift_manager", "/dashboard"],
     ["office_manager", "/dashboard"],
     ["employee", "/dashboard"],

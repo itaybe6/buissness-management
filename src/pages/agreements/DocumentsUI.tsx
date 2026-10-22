@@ -360,19 +360,24 @@ export function EmployeeDocRow({
   signed,
   onOpen,
   index = 0,
+  upload = false,
 }: {
   title: string;
   type: AgreementTemplate["type"];
   signed: boolean;
   onOpen: () => void;
   index?: number;
+  /** Download the blank file and upload a signed copy, instead of signing on screen. */
+  upload?: boolean;
 }) {
   const desc = signed
-    ? type === "form_101"
+    ? upload
       ? "הועלה — אפשר לצפות בעותק"
       : "נחתם — אפשר לצפות במסמך"
-    : type === "form_101"
-      ? "הורידו את הטופס, מלאו והעלו סריקה"
+    : upload
+      ? type === "form_101"
+        ? "הורידו את הטופס, מלאו והעלו סריקה"
+        : "הורידו את החוזה, חתמו והעלו עותק חתום"
       : "ממתין לחתימה דיגיטלית";
 
   return (

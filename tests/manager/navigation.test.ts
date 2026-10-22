@@ -155,28 +155,31 @@ describe("הרשאות הפעולה של המנהל", () => {
   });
 });
 
-describe("מה המנהל מקבל שאחראי המשמרת לא", () => {
-  const shiftManagerKeys = visibleNavItems("shift_manager", ALL_ON).map((i) => i.key);
+describe("מה המנהל מקבל שמנהל המחלקה לא", () => {
+  const departmentManagerKeys = visibleNavItems("department_manager", ALL_ON).map((i) => i.key);
 
   it("שכר, משתמשים, ספקים, שעון נוכחות והגדרות — רק למנהל", () => {
     for (const key of ["payroll", "users", "suppliers", "attendance", "settings"]) {
       expect(managerKeys(), key).toContain(key);
-      expect(shiftManagerKeys, key).not.toContain(key);
+      expect(departmentManagerKeys, key).not.toContain(key);
     }
   });
 
-  it("אחראי משמרת כן מקבל סידור, דוח משמרת, משימות ותקלות", () => {
+  it("מנהל מחלקה כן מקבל סידור, דוח משמרת, משימות ותקלות", () => {
     for (const key of ["shifts", "shift-reports", "tasks", "faults"]) {
-      expect(shiftManagerKeys, key).toContain(key);
+      expect(departmentManagerKeys, key).toContain(key);
     }
   });
 
   it("שניהם נחשבים «מנהלים» לצורך הוצאה ממשמרת ובניית סידור", () => {
-    expect(canForceEmployeeClockOut("shift_manager")).toBe(true);
-    expect(SCHEDULER_ROLES).toContain("shift_manager");
+    expect(canForceEmployeeClockOut("department_manager")).toBe(true);
+    expect(SCHEDULER_ROLES).toContain("department_manager");
+    expect(canForceEmployeeClockOut("shift_manager")).toBe(false);
+    expect(SCHEDULER_ROLES).not.toContain("shift_manager");
   });
 
-  it("אבל אחראי משמרת לא רואה מחירי ספקים", () => {
+  it("מנהל מחלקה ואחמ״ש לא רואים מחירי ספקים", () => {
+    expect(canSeeInventoryPrices("department_manager")).toBe(false);
     expect(canSeeInventoryPrices("shift_manager")).toBe(false);
   });
 });

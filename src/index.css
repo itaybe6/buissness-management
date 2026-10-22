@@ -7366,6 +7366,47 @@ select {
   color: var(--text);
 }
 
+/* Department block with no shifts defined yet */
+.shift-dept-empty {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem 1.25rem;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-3);
+  background: var(--surface);
+}
+
+.shift-dept-empty-link {
+  font-weight: 800;
+  color: var(--accent-2);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.shift-dept-empty-link:hover {
+  color: var(--accent);
+}
+
+.shift-cell-time {
+  font-size: 10.5px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  color: var(--text-2);
+}
+
+.shift-cell-off {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-3);
+}
+
+.shift-grid-cell[data-off="true"] {
+  background: var(--surface-2);
+}
+
 .shift-grid-wrap {
   overflow: auto;
   -webkit-overflow-scrolling: touch;
@@ -9578,8 +9619,156 @@ select {
   gap: 0.5rem;
 }
 
+/* One group per department (+ general) */
+.shift-hours-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.shift-hours-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.85rem;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.shift-hours-group-head {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding-inline: 0.15rem;
+}
+
+.shift-hours-group-dot {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 999px;
+  flex: none;
+  background: var(--dept-color, var(--accent));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dept-color, var(--accent)) 26%, transparent);
+}
+
+.shift-hours-group-name {
+  font-size: 14.5px;
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  color: var(--text);
+}
+
+.shift-hours-group-count {
+  margin-inline-start: auto;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.shift-hours-group-empty {
+  padding: 0.75rem 0.85rem;
+  border-radius: 12px;
+  border: 1px dashed var(--border);
+  background: var(--surface);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+
+.shift-hours-hint-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.shift-hours-hint-box .material-symbols-rounded {
+  flex: none;
+  margin-top: 0.1rem;
+  color: var(--accent-2);
+}
+
+.shift-hours-days {
+  flex: 1 1 100%;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+
+.shift-day-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.35rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.shift-day-cell[data-on="false"] {
+  background: var(--surface-2);
+}
+
+.shift-day-toggle {
+  border: none;
+  border-radius: 7px;
+  padding: 0.2rem 0.3rem;
+  background: var(--surface-2);
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.shift-day-toggle[data-on="true"] {
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  color: var(--text);
+}
+
+.shift-day-toggle:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.shift-day-times {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.shift-day-cell .shift-hours-time-field {
+  width: 100%;
+  padding: 0.3rem 0.15rem !important;
+  font-size: 12px !important;
+}
+
+.shift-day-off {
+  padding: 0.45rem 0.1rem;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-3);
+  text-align: center;
+}
+
+@media (max-width: 720px) {
+  .shift-hours-days {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
 .shift-hours-item {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.7rem;
   padding: 0.7rem 0.85rem;
