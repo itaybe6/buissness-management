@@ -67,6 +67,17 @@ import { useWaste } from "@/api/waste";
 import type { Department, InventoryAction, InventoryCategory, InventoryWaste, Supplier, Warehouse } from "@/types/database";
 
 type InventoryTab = "items" | "orders" | "waste";
+type CatalogView = "cards" | "rows";
+
+const CATALOG_VIEW_KEY = "inventory:catalog-view";
+
+function readCatalogView(): CatalogView {
+  try {
+    return localStorage.getItem(CATALOG_VIEW_KEY) === "rows" ? "rows" : "cards";
+  } catch {
+    return "cards";
+  }
+}
 
 function ItemBarcodeLabel({
   barcode,
@@ -1391,6 +1402,22 @@ function ItemDetailModal({
   );
 }
 
+type CatalogItemProps = {
+  item: ItemWithQty;
+  index: number;
+  isManager: boolean;
+  canUpdateCount: boolean;
+  canManageOrders: boolean;
+  onOpen: () => void;
+  onEdit: () => void;
+  onHistory: () => void;
+  onOrder: () => void;
+  onSetQty: (warehouseId: string, qty: number) => void;
+  multiWarehouse: boolean;
+  primaryWarehouseId: string | null;
+  categoryNames: Record<string, string>;
+};
+
 function ItemCard({
   item,
   index,
@@ -1405,21 +1432,7 @@ function ItemCard({
   multiWarehouse,
   primaryWarehouseId,
   categoryNames,
-}: {
-  item: ItemWithQty;
-  index: number;
-  isManager: boolean;
-  canUpdateCount: boolean;
-  canManageOrders: boolean;
-  onOpen: () => void;
-  onEdit: () => void;
-  onHistory: () => void;
-  onOrder: () => void;
-  onSetQty: (warehouseId: string, qty: number) => void;
-  multiWarehouse: boolean;
-  primaryWarehouseId: string | null;
-  categoryNames: Record<string, string>;
-}) {
+}: CatalogItemProps) {
   const status = stockStatus(item);
   const meta = STOCK_META[status];
   const categoryLabel = item.category_id ? categoryNames[item.category_id] ?? null : null;
@@ -1657,6 +1670,157 @@ function ItemCard({
         </div>
       </div>
     </article>
+  );
+}
+
+function ItemQtyReadout({ item }: { item: ItemWithQty }) {
+  const qtySplit = hasPieceBreakdown(item.units_per_package)
+    ? splitPackageQty(item.current_qty, item.units_per_package!)
+    : null;
+  return (
+    <div className="inv-row-qty">
+      {qtySplit ? (
+        <>
+          <b>{qtySplit.packages}</b>
+          <em>
+            {item.unit ?? "ארגז"}
+            {qtySplit.pieces > 0 ? ` + ${qtySplit.pieces} ${pieceUnitLabel(item.piece_unit)}` : ""}
+          </em>
+        </>
+      ) : (
+        <>
+          <b>{Math.round(item.current_qty)}</b>
+          {item.unit ? <em>{item.unit}</em> : null}
+        </>
+      )}
+      {item.ordered_qty > 0 ? (
+        <span className="inv-row-ordered">+{formatItemQty(item, item.ordered_qty)} בהזמנה</span>
+      ) : null}
+    </div>
+  );
+}
+
+/** One product per line — name, stock, minimum and the quantity stepper. */
+function ItemRow({
+  item,
+  index,
+  isManager,
+  canUpdateCount,
+  canManageOrders,
+  onOpen,
+  onEdit,
+  onHistory,
+  onOrder,
+  onSetQty,
+  multiWarehouse,
+  primaryWarehouseId,
+  categoryNames,
+}: CatalogItemProps) {
+  const status = stockStatus(item);
+  const meta = STOCK_META[status];
+  const categoryLabel = item.category_id ? categoryNames[item.category_id] ?? null : null;
+  const canStep = canUpdateCount && !multiWarehouse && !!primaryWarehouseId;
+
+  return (
+    <article
+      className="inv-row inventory-item-enter"
+      style={{ animationDelay: `${Math.min(index, 10) * 28}ms` }}
+    >
+      <button type="button" className="inv-row-open" onClick={onOpen}>
+        <span className="inv-row-name">{item.name}</span>
+        <span className="inv-row-meta">
+          <i aria-hidden style={{ background: meta.dot }} />
+          <span>
+            {meta.label}
+            {categoryLabel ? ` · ${categoryLabel}` : ""}
+          </span>
+        </span>
+      </button>
+
+      <ItemQtyReadout item={item} />
+
+      <div className="inv-row-min">
+        <b className={item.min_quantity > 0 ? "" : "text-text-3"}>{item.min_quantity}</b>
+        <em>{item.unit ? `מינ׳ ${item.unit}` : "מינימום"}</em>
+      </div>
+
+      <div className="inv-row-foot">
+        <div className="inv-row-step">
+          {multiWarehouse ? (
+            <button type="button" className="inv-row-wh" onClick={onOpen}>
+              לפי מחסן
+            </button>
+          ) : (
+            <QtyStepper
+              value={item.current_qty}
+              unit={item.unit}
+              unitsPerPackage={item.units_per_package}
+              pieceUnit={item.piece_unit}
+              disabled={!canStep}
+              onCommit={(q) => primaryWarehouseId && onSetQty(primaryWarehouseId, q)}
+            />
+          )}
+        </div>
+        {isManager ? (
+          <div className="inv-row-actions">
+            <button type="button" onClick={onEdit} className="inventory-product-action" aria-label="עריכה" title="עריכה">
+              <Icon name="edit" size={15} />
+            </button>
+            <button type="button" onClick={onHistory} className="inventory-product-action" aria-label="היסטוריה" title="היסטוריה">
+              <Icon name="history" size={15} />
+            </button>
+            {canManageOrders ? (
+              <button
+                type="button"
+                onClick={onOrder}
+                className="inventory-product-action inventory-product-action--primary"
+                aria-label="הזמנה"
+                title="הזמנה"
+              >
+                <Icon name="add_shopping_cart" size={15} />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
+function CatalogViewToggle({
+  view,
+  onChange,
+}: {
+  view: CatalogView;
+  onChange: (view: CatalogView) => void;
+}) {
+  return (
+    <div className="inv-views" role="radiogroup" aria-label="תצוגת מוצרים">
+      <button
+        type="button"
+        role="radio"
+        aria-checked={view === "cards"}
+        data-active={view === "cards"}
+        title="תצוגת כרטיסים"
+        aria-label="תצוגת כרטיסים"
+        className="inv-view"
+        onClick={() => onChange("cards")}
+      >
+        <Icon name="grid_view" size={18} fill={view === "cards"} />
+      </button>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={view === "rows"}
+        data-active={view === "rows"}
+        title="תצוגת שורות"
+        aria-label="תצוגת שורות"
+        className="inv-view"
+        onClick={() => onChange("rows")}
+      >
+        <Icon name="view_list" size={18} fill={view === "rows"} />
+      </button>
+    </div>
   );
 }
 
@@ -2314,6 +2478,16 @@ export function Inventory() {
   const [historyItem, setHistoryItem] = useState<ItemWithQty | null>(null);
   const [detailItem, setDetailItem] = useState<ItemWithQty | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [catalogView, setCatalogView] = useState<CatalogView>(readCatalogView);
+
+  function changeCatalogView(next: CatalogView) {
+    setCatalogView(next);
+    try {
+      localStorage.setItem(CATALOG_VIEW_KEY, next);
+    } catch {
+      /* private mode */
+    }
+  }
   const [stockFilter, setStockFilter] = useState<StockFilter>(() => resolveStockFilter(searchParams.get("stock")));
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilterValue>(null);
   const [departmentFilter, setDepartmentFilter] = useState<DepartmentFilterValue>(null);
@@ -2907,6 +3081,7 @@ export function Inventory() {
               addAriaLabel="פריט חדש"
               addIconOnly
               extraFilterActive={listFiltersActive}
+              trailingActions={<CatalogViewToggle view={catalogView} onChange={changeCatalogView} />}
               topContent={
                 showWarehouseFilter ? (
                   <WarehouseFilterBar
@@ -2989,34 +3164,51 @@ export function Inventory() {
                 }
               />
             ) : (
-              <div className="inventory-product-grid grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3 lg:gap-4">
-                {filteredList.map((it, idx) => (
-                  <ItemCard
-                    key={it.id}
-                    item={it}
-                    index={idx}
-                    isManager={isManager}
-                    canUpdateCount={canUpdateCount}
-                    canManageOrders={canManageOrders}
-                    onOpen={() => openItemDetail(it)}
-                    onEdit={() => {
-                      closeItemDetail();
-                      openEdit(it);
-                    }}
-                    onHistory={() => {
-                      closeItemDetail();
-                      setHistoryItem(it);
-                    }}
-                    onOrder={() => {
-                      closeItemDetail();
-                      openNewOrder(it.id);
-                    }}
-                    onSetQty={(warehouseId, quantity) => handleSetQty(it, warehouseId, quantity)}
-                    multiWarehouse={multiWarehouse}
-                    primaryWarehouseId={primaryWarehouseId}
-                    categoryNames={categoryNameMap}
-                  />
-                ))}
+              <div
+                className={
+                  catalogView === "rows"
+                    ? "inv-rows"
+                    : "inventory-product-grid grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3 lg:gap-4"
+                }
+                data-manage={catalogView === "rows" && isManager ? "true" : undefined}
+              >
+                {catalogView === "rows" ? (
+                  <div className="inv-rows-head" aria-hidden="true">
+                    <span>מוצר</span>
+                    <span>כמות</span>
+                    <span>מינימום</span>
+                  </div>
+                ) : null}
+                {filteredList.map((it, idx) => {
+                  const View = catalogView === "rows" ? ItemRow : ItemCard;
+                  return (
+                    <View
+                      key={it.id}
+                      item={it}
+                      index={idx}
+                      isManager={isManager}
+                      canUpdateCount={canUpdateCount}
+                      canManageOrders={canManageOrders}
+                      onOpen={() => openItemDetail(it)}
+                      onEdit={() => {
+                        closeItemDetail();
+                        openEdit(it);
+                      }}
+                      onHistory={() => {
+                        closeItemDetail();
+                        setHistoryItem(it);
+                      }}
+                      onOrder={() => {
+                        closeItemDetail();
+                        openNewOrder(it.id);
+                      }}
+                      onSetQty={(warehouseId, quantity) => handleSetQty(it, warehouseId, quantity)}
+                      multiWarehouse={multiWarehouse}
+                      primaryWarehouseId={primaryWarehouseId}
+                      categoryNames={categoryNameMap}
+                    />
+                  );
+                })}
               </div>
             )}
           </>

@@ -3061,6 +3061,276 @@ select {
   color: #fff;
 }
 
+/* Catalog view switch — cards (default) or one product per row. */
+.inv-views {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 2.75rem;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.inv-view {
+  display: grid;
+  place-items: center;
+  width: 2.15rem;
+  height: 100%;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background-color 160ms var(--ease-out),
+    color 160ms var(--ease-out);
+}
+
+.inv-view[data-active="true"] {
+  background: var(--ink);
+  color: #fff;
+}
+
+.inv-view:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.inv-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.inv-rows-head {
+  display: none;
+}
+
+.inv-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "main qty"
+    "foot foot";
+  align-items: center;
+  gap: 0.4rem 0.75rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.inv-row-open {
+  grid-area: main;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.12rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: right;
+  cursor: pointer;
+}
+
+.inv-row-open:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+.inv-row-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+.inv-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 100%;
+  min-width: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.inv-row-meta i {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 99px;
+}
+
+.inv-row-meta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inv-row-qty {
+  grid-area: qty;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  line-height: 1.1;
+}
+
+.inv-row-qty b {
+  font-size: 16px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.inv-row-qty em {
+  margin-top: 0.12rem;
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.inv-row-ordered {
+  margin-top: 0.18rem;
+  font-size: 11px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--info);
+}
+
+.inv-row-min {
+  display: none;
+  flex-direction: column;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.inv-row-min b {
+  font-size: 15px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.inv-row-min em {
+  font-style: normal;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.inv-row-foot {
+  grid-area: foot;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.inv-row-step {
+  flex: none;
+}
+
+.inv-row-actions {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.inv-row-actions .inventory-product-action {
+  width: 1.9rem;
+  flex: none;
+}
+
+.inv-row-wh {
+  height: 2rem;
+  padding: 0 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.inv-row-wh:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .inv-view:hover:not([data-active="true"]) {
+    background: var(--surface-2);
+    color: var(--text);
+  }
+
+  .inv-row:hover {
+    border-color: color-mix(in srgb, var(--text) 16%, var(--border));
+  }
+
+  .inv-row-wh:hover {
+    color: var(--text);
+  }
+}
+
+@media (min-width: 900px) {
+  .inv-rows-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 8.5rem 6.25rem;
+    gap: 1rem;
+    padding: 0 0.75rem 0.1rem;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-3);
+  }
+
+  .inv-row {
+    grid-template-columns: minmax(0, 1fr) 8.5rem 6.25rem auto;
+    grid-template-areas: "main qty min step";
+    gap: 0.3rem 1rem;
+    min-height: 3.25rem;
+    padding: 0.4rem 0.75rem;
+  }
+
+  .inv-rows[data-manage="true"] .inv-row {
+    grid-template-columns: minmax(0, 1fr) 8.5rem 6.25rem auto auto;
+    grid-template-areas: "main qty min step actions";
+  }
+
+  .inv-row-min {
+    display: flex;
+    grid-area: min;
+  }
+
+  .inv-row-foot {
+    display: contents;
+  }
+
+  .inv-row-step {
+    grid-area: step;
+    justify-self: end;
+  }
+
+  .inv-row-actions {
+    grid-area: actions;
+    justify-self: end;
+  }
+}
+
 /* ============================================================
    Inventory filter popover (.inv-filters-* / .inv-chip)
    The trigger lives in the search row; the panel drops out of it
