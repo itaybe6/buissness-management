@@ -836,28 +836,6 @@ function filterOrderBatches(
   });
 }
 
-function StockBar({ item }: { item: ItemWithQty }) {
-  const status = stockStatus(item);
-  const meta = STOCK_META[status];
-  const cap = Math.max(item.current_qty, 10);
-  const pct = Math.min(100, (item.current_qty / cap) * 100);
-
-  return (
-    <div className="mt-2">
-      <div className="flex items-center gap-1.5">
-        <span className="h-1.5 w-1.5 rounded-full" style={{ background: meta.dot }} />
-        <span className="text-[11.5px] font-semibold text-text-3">{meta.label}</span>
-      </div>
-      <div className="mt-2 h-1 overflow-hidden rounded-full bg-surface-2">
-        <div
-          className="h-full rounded-full transition-[width] duration-[220ms] [transition-timing-function:var(--ease-out)]"
-          style={{ width: `${pct}%`, background: meta.bar }}
-        />
-      </div>
-    </div>
-  );
-}
-
 function formatLastUpdate(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const d = new Date(iso);
@@ -868,31 +846,6 @@ function formatLastUpdate(iso: string | null | undefined): string | null {
     return d.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
   }
   return d.toLocaleDateString("he-IL", { day: "numeric", month: "short" });
-}
-
-function LastUpdatedLine({ item, compact }: { item: ItemWithQty; compact?: boolean }) {
-  if (!item.last_updated_at && !item.last_updated_by_name) return null;
-  return (
-    <p
-      className={`flex items-center gap-1 truncate font-medium text-text-3 ${compact ? "text-[9px]" : "text-[11px]"}`}
-      title={
-        item.last_updated_at
-          ? new Date(item.last_updated_at).toLocaleString("he-IL", {
-              day: "numeric",
-              month: "short",
-              hour: "2-digit",
-              minute: "2-digit",
-            })
-          : undefined
-      }
-    >
-      <Icon name="person" size={compact ? 11 : 13} className="shrink-0 opacity-70" />
-      <span className="truncate">
-        {item.last_updated_by_name ?? "לא ידוע"}
-        {item.last_updated_at ? ` · ${formatLastUpdate(item.last_updated_at)}` : ""}
-      </span>
-    </p>
-  );
 }
 
 function ItemDetailModal({
@@ -1418,6 +1371,87 @@ type CatalogItemProps = {
   categoryNames: Record<string, string>;
 };
 
+const STOCK_TONE: Record<StockStatus, { bg: string; fg: string }> = {
+  empty: { bg: "var(--danger-bg)", fg: "var(--danger)" },
+  low: { bg: "var(--warning-bg)", fg: "var(--warning)" },
+  ok: { bg: "var(--success-bg)", fg: "var(--success)" },
+};
+
+/** Product photo, or a large monogram so a catalog without photos still reads as a shelf. */
+function ProductThumb({ item, size }: { item: ItemWithQty; size: "tile" | "thumb" }) {
+  const letter = item.name.trim().charAt(0) || "·";
+  return (
+    <span className="invs-thumb" data-size={size}>
+      {item.image_url ? (
+        <img src={item.image_url} alt="" loading="lazy" decoding="async" />
+      ) : (
+        <span className="invs-thumb-mono" aria-hidden>
+          {letter}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function StockPill({ status, compact }: { status: StockStatus; compact?: boolean }) {
+  if (status === "ok") return null;
+  const tone = STOCK_TONE[status];
+  return (
+    <span className="invs-pill" data-compact={compact} style={{ background: tone.bg, color: tone.fg }}>
+      <i aria-hidden style={{ background: tone.fg }} />
+      {STOCK_META[status].label}
+    </span>
+  );
+}
+
+function ItemQtyReadout({ item, size }: { item: ItemWithQty; size: "lg" | "md" }) {
+  const qtySplit = hasPieceBreakdown(item.units_per_package)
+    ? splitPackageQty(item.current_qty, item.units_per_package!)
+    : null;
+  const number = qtySplit ? qtySplit.packages : Math.round(item.current_qty);
+  const unit = qtySplit
+    ? `${item.unit ?? "ארגז"}${qtySplit.pieces > 0 ? ` + ${qtySplit.pieces} ${pieceUnitLabel(item.piece_unit)}` : ""}`
+    : item.unit ?? "";
+  return (
+    <div className="invs-qty" data-size={size}>
+      <b>{number}</b>
+      {unit ? <em>{unit}</em> : null}
+    </div>
+  );
+}
+
+function ItemActions({
+  isManager,
+  canManageOrders,
+  onEdit,
+  onHistory,
+  onOrder,
+}: Pick<CatalogItemProps, "isManager" | "canManageOrders" | "onEdit" | "onHistory" | "onOrder">) {
+  if (!isManager) return null;
+  return (
+    <div className="invs-actions">
+      <button type="button" className="invs-action" onClick={onEdit} aria-label="עריכה" title="עריכה">
+        <Icon name="edit" size={16} />
+      </button>
+      <button type="button" className="invs-action" onClick={onHistory} aria-label="היסטוריה" title="היסטוריה">
+        <Icon name="history" size={16} />
+      </button>
+      {canManageOrders ? (
+        <button
+          type="button"
+          className="invs-action invs-action--primary"
+          onClick={onOrder}
+          aria-label="הזמנה"
+          title="הזמנה"
+        >
+          <Icon name="add_shopping_cart" size={16} />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/** Storefront tile — photo on top, name and category, stock and stepper at the foot. */
 function ItemCard({
   item,
   index,
@@ -1434,273 +1468,60 @@ function ItemCard({
   categoryNames,
 }: CatalogItemProps) {
   const status = stockStatus(item);
-  const meta = STOCK_META[status];
   const categoryLabel = item.category_id ? categoryNames[item.category_id] ?? null : null;
-  const pieceLabel = pieceUnitLabel(item.piece_unit);
-  const qtySplit = hasPieceBreakdown(item.units_per_package)
-    ? splitPackageQty(item.current_qty, item.units_per_package!)
-    : null;
-  const orderedSplit =
-    qtySplit && item.ordered_qty > 0
-      ? splitPackageQty(item.ordered_qty, item.units_per_package!)
-      : null;
+  const canStep = canUpdateCount && !multiWarehouse && !!primaryWarehouseId;
 
   return (
-    <article
-      className="inventory-card inventory-product-card inventory-item-enter flex flex-col overflow-hidden rounded-[14px] border border-border/60 bg-surface md:rounded-card md:border-0"
-      style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }}
-    >
-      {/* Mobile — compact product tile */}
-      <div className="flex flex-col md:hidden">
-        <button
-          type="button"
-          onClick={onOpen}
-          className="flex flex-col items-stretch text-right transition-opacity active:opacity-80"
-        >
-          <div className="inventory-product-image relative aspect-[4/3] w-full shrink-0 overflow-hidden bg-surface-2">
-            {item.image_url ? (
-              <img src={item.image_url} alt={item.name} loading="lazy" decoding="async" />
-            ) : (
-              <div className="absolute inset-0 grid place-items-center text-text-3/60">
-                <Icon name="inventory_2" size={26} />
-              </div>
-            )}
-            <span
-              className="inventory-product-badge absolute top-1.5 right-1.5 inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold backdrop-blur-sm"
-              style={{ background: `color-mix(in srgb, ${meta.dot} 18%, var(--surface))`, color: meta.dot }}
-            >
-              <span className="h-1.5 w-1.5 rounded-full" style={{ background: meta.dot }} />
-              {meta.label}
+    <article className="invs-card inventory-item-enter" style={{ animationDelay: `${Math.min(index, 11) * 30}ms` }}>
+      <div className="invs-card-media">
+        <ProductThumb item={item} size="tile" />
+        <button type="button" className="invs-card-hit" onClick={onOpen} aria-label={item.name} />
+        <div className="invs-card-badges">
+          <StockPill status={status} compact />
+          {item.ordered_qty > 0 ? (
+            <span className="invs-pill invs-pill--info" data-compact>
+              <Icon name="local_shipping" size={12} />
+              {formatItemQty(item, item.ordered_qty)}
             </span>
-            {item.ordered_qty > 0 && (
-              <span className="absolute top-1.5 left-1.5 rounded-full bg-[var(--info)] px-1.5 py-0.5 text-[9px] font-extrabold text-white">
-                {orderedSplit
-                  ? `+${orderedSplit.packages}${orderedSplit.pieces > 0 ? `+${orderedSplit.pieces}` : ""}`
-                  : `+${item.ordered_qty}`}
-              </span>
-            )}
-          </div>
-
-          <div className="flex flex-1 flex-col gap-1 p-2">
-            <div className="flex items-start justify-between gap-1.5">
-              <div className="min-w-0 flex-1">
-                <h3 className="line-clamp-2 text-[12px] font-bold leading-snug tracking-tight">{item.name}</h3>
-                {item.barcode && (
-                  <ItemBarcodeLabel barcode={item.barcode} className="mt-0.5 block text-[9px]" />
-                )}
-                {categoryLabel && (
-                  <span className="text-[10px] font-semibold text-text-3">{categoryLabel}</span>
-                )}
-              </div>
-              <div className="shrink-0 text-left leading-none">
-                {qtySplit ? (
-                  <>
-                    <span className="text-[17px] font-extrabold tabular-nums">{qtySplit.packages}</span>
-                    <span className="block text-[9px] font-semibold text-text-3">
-                      {item.unit}
-                      {qtySplit.pieces > 0 ? ` + ${qtySplit.pieces}` : ""}
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <span className="text-[17px] font-extrabold tabular-nums">{Math.round(item.current_qty)}</span>
-                    {item.unit && <span className="block text-[9px] font-semibold text-text-3">{item.unit}</span>}
-                  </>
-                )}
-              </div>
-            </div>
-            <LastUpdatedLine item={item} compact />
-          </div>
-        </button>
-
-        <div className="px-2 pb-2" onClick={(e) => e.stopPropagation()}>
-          {multiWarehouse ? (
-            <p className="py-1 text-center text-[11px] font-medium text-text-3">כמה מחסנים — לחצו לעדכון לפי מחסן</p>
-          ) : (
-            <QtyStepper
-              value={item.current_qty}
-              unit={item.unit}
-              unitsPerPackage={item.units_per_package}
-              disabled={!canUpdateCount || !primaryWarehouseId}
-              onCommit={(q) => primaryWarehouseId && onSetQty(primaryWarehouseId, q)}
-              compact
-            />
-          )}
-
-          {isManager && (
-            <div className="mt-1.5 flex gap-1 border-t border-border-2 pt-1.5">
-              <button
-                type="button"
-                onClick={onEdit}
-                className="inventory-product-action flex-1"
-                aria-label="עריכה"
-              >
-                <Icon name="edit" size={15} />
-              </button>
-              <button
-                type="button"
-                onClick={onHistory}
-                className="inventory-product-action flex-1"
-                aria-label="היסטוריה"
-              >
-                <Icon name="history" size={15} />
-              </button>
-              {canManageOrders && (
-                <button
-                  type="button"
-                  onClick={onOrder}
-                  className="inventory-product-action inventory-product-action--primary flex-1"
-                  aria-label="הזמנה"
-                >
-                  <Icon name="add_shopping_cart" size={15} />
-                </button>
-              )}
-            </div>
-          )}
+          ) : null}
         </div>
+        <ItemActions
+          isManager={isManager}
+          canManageOrders={canManageOrders}
+          onEdit={onEdit}
+          onHistory={onHistory}
+          onOrder={onOrder}
+        />
       </div>
 
-      {/* Desktop — detailed card */}
-      <div className="hidden flex-col md:flex">
-        <button
-          type="button"
-          onClick={onOpen}
-          className="text-right transition-opacity hover:opacity-90 active:opacity-80"
-        >
-          <div className="inventory-card-image relative aspect-[5/4] overflow-hidden bg-surface-2">
-            {item.image_url ? (
-              <img
-                src={item.image_url}
-                alt={item.name}
-                className="h-full w-full object-cover transition-transform duration-[400ms] [transition-timing-function:var(--ease-out)]"
-              />
-            ) : (
-              <div className="grid h-full place-items-center text-text-3/70">
-                <Icon name="inventory_2" size={36} />
-              </div>
-            )}
-          </div>
-        </button>
+      <button type="button" className="invs-card-body" onClick={onOpen}>
+        {categoryLabel ? <span className="invs-card-cat">{categoryLabel}</span> : null}
+        <span className="invs-card-name">{item.name}</span>
+      </button>
 
-        <div className="flex flex-1 flex-col p-4">
-          <div className="flex items-start justify-between gap-2">
-            <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-right active:opacity-80">
-              <h3 className="text-[15px] font-bold leading-snug tracking-tight">{item.name}</h3>
-              {item.barcode && (
-                <ItemBarcodeLabel barcode={item.barcode} className="mt-0.5 block text-[10px]" />
-              )}
-              {categoryLabel && (
-                <span className="mt-0.5 block text-[11px] font-semibold text-text-3">{categoryLabel}</span>
-              )}
-              <div className="mt-1.5">
-                <LastUpdatedLine item={item} />
-              </div>
-            </button>
-            {isManager && (
-              <button
-                type="button"
-                onClick={onHistory}
-                aria-label="היסטוריית עדכונים"
-                title="היסטוריית עדכונים"
-                className="-mt-0.5 -ml-1 grid h-7 w-7 flex-none place-items-center rounded-md text-text-3 transition-[background-color,color] duration-[160ms] [transition-timing-function:var(--ease-out)] hover:bg-surface-2 hover:text-text active:scale-[0.97]"
-              >
-                <Icon name="history" size={17} />
-              </button>
-            )}
-          </div>
-          <StockBar item={item} />
-
-          <div className="mt-4 flex items-end justify-between gap-3">
-            <div className="flex items-end gap-5">
-              <div>
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-text-3">כמות</div>
-                {qtySplit ? (
-                  <>
-                    <div className="mt-1 text-[22px] font-extrabold tabular-nums leading-none">{qtySplit.packages}</div>
-                    <div className="mt-0.5 text-[11px] font-medium text-text-3">
-                      {item.unit ?? "ארגז"}
-                      {qtySplit.pieces > 0 ? ` + ${qtySplit.pieces} ${pieceLabel}` : ""}
-                    </div>
-                  </>
-                ) : (
-                  <div className="mt-1 text-[22px] font-extrabold tabular-nums leading-none">{Math.round(item.current_qty)}</div>
-                )}
-                {item.ordered_qty > 0 && (
-                  <div className="mt-1 text-[12px] font-bold tabular-nums text-[var(--info)]">
-                    +{formatItemQty(item, item.ordered_qty)} בהזמנה
-                  </div>
-                )}
-              </div>
-              <div>
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-text-3">מינימום</div>
-                <div
-                  className={`mt-1 text-[22px] font-extrabold tabular-nums leading-none ${item.min_quantity > 0 ? "text-text" : "text-text-3"}`}
-                >
-                  {item.min_quantity}
-                  {item.unit ? <span className="mr-0.5 text-[12px] font-semibold text-text-3">{item.unit}</span> : null}
-                </div>
-              </div>
-            </div>
-            <QtyStepper
-              value={item.current_qty}
-              unit={item.unit}
-              unitsPerPackage={item.units_per_package}
-              disabled={!canUpdateCount || multiWarehouse || !primaryWarehouseId}
-              onCommit={(q) => primaryWarehouseId && onSetQty(primaryWarehouseId, q)}
-            />
-          </div>
-
-          {isManager && (
-            <div className="inventory-card-actions mt-4 flex gap-2 border-t border-border-2 pt-3">
-              <Button variant="secondary" icon="edit" className="flex-1 !py-2.5 active:scale-[0.97]" onClick={onEdit}>
-                עריכה
-              </Button>
-              {canManageOrders && (
-                <Button
-                  variant="ghost"
-                  icon="add_shopping_cart"
-                  onClick={onOrder}
-                  className="!bg-ink !py-2.5 !text-white hover:brightness-110 active:scale-[0.97]"
-                >
-                  הזמנה
-                </Button>
-              )}
-            </div>
-          )}
-        </div>
+      <div className="invs-card-foot">
+        <ItemQtyReadout item={item} size="lg" />
+        {multiWarehouse ? (
+          <button type="button" className="invs-wh" onClick={onOpen}>
+            לפי מחסן
+          </button>
+        ) : (
+          <QtyStepper
+            value={item.current_qty}
+            unit={item.unit}
+            unitsPerPackage={item.units_per_package}
+            pieceUnit={item.piece_unit}
+            disabled={!canStep}
+            onCommit={(q) => primaryWarehouseId && onSetQty(primaryWarehouseId, q)}
+            compact
+          />
+        )}
       </div>
     </article>
   );
 }
 
-function ItemQtyReadout({ item }: { item: ItemWithQty }) {
-  const qtySplit = hasPieceBreakdown(item.units_per_package)
-    ? splitPackageQty(item.current_qty, item.units_per_package!)
-    : null;
-  return (
-    <div className="inv-row-qty">
-      {qtySplit ? (
-        <>
-          <b>{qtySplit.packages}</b>
-          <em>
-            {item.unit ?? "ארגז"}
-            {qtySplit.pieces > 0 ? ` + ${qtySplit.pieces} ${pieceUnitLabel(item.piece_unit)}` : ""}
-          </em>
-        </>
-      ) : (
-        <>
-          <b>{Math.round(item.current_qty)}</b>
-          {item.unit ? <em>{item.unit}</em> : null}
-        </>
-      )}
-      {item.ordered_qty > 0 ? (
-        <span className="inv-row-ordered">+{formatItemQty(item, item.ordered_qty)} בהזמנה</span>
-      ) : null}
-    </div>
-  );
-}
-
-/** One product per line — name, stock, minimum and the quantity stepper. */
+/** One product per line — thumbnail, name, stock, minimum and the quantity stepper. */
 function ItemRow({
   item,
   index,
@@ -1717,72 +1538,57 @@ function ItemRow({
   categoryNames,
 }: CatalogItemProps) {
   const status = stockStatus(item);
-  const meta = STOCK_META[status];
   const categoryLabel = item.category_id ? categoryNames[item.category_id] ?? null : null;
   const canStep = canUpdateCount && !multiWarehouse && !!primaryWarehouseId;
 
   return (
-    <article
-      className="inv-row inventory-item-enter"
-      style={{ animationDelay: `${Math.min(index, 10) * 28}ms` }}
-    >
-      <button type="button" className="inv-row-open" onClick={onOpen}>
-        <span className="inv-row-name">{item.name}</span>
-        <span className="inv-row-meta">
-          <i aria-hidden style={{ background: meta.dot }} />
-          <span>
-            {meta.label}
-            {categoryLabel ? ` · ${categoryLabel}` : ""}
+    <article className="invs-row inventory-item-enter" style={{ animationDelay: `${Math.min(index, 14) * 18}ms` }}>
+      <button type="button" className="invs-row-open" onClick={onOpen}>
+        <ProductThumb item={item} size="thumb" />
+        <span className="invs-row-text">
+          <span className="invs-row-name">{item.name}</span>
+          <span className="invs-row-meta">
+            {categoryLabel ? <span>{categoryLabel}</span> : null}
+            <StockPill status={status} compact />
+            {item.ordered_qty > 0 ? (
+              <span className="invs-row-ordered">+{formatItemQty(item, item.ordered_qty)} בהזמנה</span>
+            ) : null}
           </span>
         </span>
       </button>
 
-      <ItemQtyReadout item={item} />
+      <ItemQtyReadout item={item} size="md" />
 
-      <div className="inv-row-min">
+      <div className="invs-row-min">
         <b className={item.min_quantity > 0 ? "" : "text-text-3"}>{item.min_quantity}</b>
-        <em>{item.unit ? `מינ׳ ${item.unit}` : "מינימום"}</em>
+        <em>{item.unit ?? "מינימום"}</em>
       </div>
 
-      <div className="inv-row-foot">
-        <div className="inv-row-step">
-          {multiWarehouse ? (
-            <button type="button" className="inv-row-wh" onClick={onOpen}>
-              לפי מחסן
-            </button>
-          ) : (
-            <QtyStepper
-              value={item.current_qty}
-              unit={item.unit}
-              unitsPerPackage={item.units_per_package}
-              pieceUnit={item.piece_unit}
-              disabled={!canStep}
-              onCommit={(q) => primaryWarehouseId && onSetQty(primaryWarehouseId, q)}
-            />
-          )}
-        </div>
-        {isManager ? (
-          <div className="inv-row-actions">
-            <button type="button" onClick={onEdit} className="inventory-product-action" aria-label="עריכה" title="עריכה">
-              <Icon name="edit" size={15} />
-            </button>
-            <button type="button" onClick={onHistory} className="inventory-product-action" aria-label="היסטוריה" title="היסטוריה">
-              <Icon name="history" size={15} />
-            </button>
-            {canManageOrders ? (
-              <button
-                type="button"
-                onClick={onOrder}
-                className="inventory-product-action inventory-product-action--primary"
-                aria-label="הזמנה"
-                title="הזמנה"
-              >
-                <Icon name="add_shopping_cart" size={15} />
-              </button>
-            ) : null}
-          </div>
-        ) : null}
+      <div className="invs-row-step">
+        {multiWarehouse ? (
+          <button type="button" className="invs-wh" onClick={onOpen}>
+            לפי מחסן
+          </button>
+        ) : (
+          <QtyStepper
+            value={item.current_qty}
+            unit={item.unit}
+            unitsPerPackage={item.units_per_package}
+            pieceUnit={item.piece_unit}
+            disabled={!canStep}
+            onCommit={(q) => primaryWarehouseId && onSetQty(primaryWarehouseId, q)}
+            compact
+          />
+        )}
       </div>
+
+      <ItemActions
+        isManager={isManager}
+        canManageOrders={canManageOrders}
+        onEdit={onEdit}
+        onHistory={onHistory}
+        onOrder={onOrder}
+      />
     </article>
   );
 }
@@ -3165,18 +2971,16 @@ export function Inventory() {
               />
             ) : (
               <div
-                className={
-                  catalogView === "rows"
-                    ? "inv-rows"
-                    : "inventory-product-grid grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3 lg:gap-4"
-                }
-                data-manage={catalogView === "rows" && isManager ? "true" : undefined}
+                className={catalogView === "rows" ? "invs-list" : "invs-grid"}
+                data-manage={isManager ? "true" : undefined}
               >
                 {catalogView === "rows" ? (
-                  <div className="inv-rows-head" aria-hidden="true">
+                  <div className="invs-list-head" aria-hidden="true">
                     <span>מוצר</span>
-                    <span>כמות</span>
+                    <span>במלאי</span>
                     <span>מינימום</span>
+                    <span />
+                    {isManager ? <span /> : null}
                   </div>
                 ) : null}
                 {filteredList.map((it, idx) => {
