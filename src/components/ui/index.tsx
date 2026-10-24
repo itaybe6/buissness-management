@@ -9,6 +9,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "./Icon";
+import { BlurText } from "@/components/bits/text";
 
 export { Icon };
 export { Select } from "./Select";
@@ -108,7 +109,7 @@ export function Card({
 }: { children: ReactNode; className?: string } & React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={`rounded-card border border-border/80 bg-surface shadow-sm transition-[box-shadow,border-color] duration-[200ms] [transition-timing-function:var(--ease-out)] ${className}`}
+      className={`rb-glow rounded-card border border-border/80 bg-surface shadow-sm transition-[box-shadow,border-color] duration-[200ms] [transition-timing-function:var(--ease-out)] ${className}`}
       {...rest}
     >
       {children}
@@ -137,7 +138,7 @@ export function Badge({
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11.5px] font-bold ${badgeTones[tone]} ${className}`}
+      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12.5px] font-bold ${badgeTones[tone]} ${className}`}
     >
       {children}
     </span>
@@ -163,7 +164,14 @@ export function PageHeader({
     >
       {title && (
         <div className="hidden min-w-0 md:block">
-          <div className="text-[clamp(1.25rem,4vw,1.5rem)] font-extrabold tracking-tight">{title}</div>
+          <BlurText
+            key={title}
+            as="div"
+            text={title}
+            stagger={0.05}
+            duration={0.5}
+            className="text-[clamp(1.25rem,4vw,1.5rem)] font-extrabold tracking-tight"
+          />
           {subtitle && <div className="mt-1 text-[13.5px] text-text-2 sm:text-[14.5px]">{subtitle}</div>}
         </div>
       )}
@@ -209,14 +217,16 @@ export function EmptyState({
 }) {
   return (
     <div
-      className={`flex flex-col items-center justify-center gap-3 rounded-card px-6 py-16 text-center ${
+      className={`rb-empty relative isolate flex flex-col items-center justify-center gap-3 overflow-hidden rounded-card px-6 py-16 text-center ${
         embedded ? "bg-surface-2 py-12" : "border-0 bg-surface shadow-card"
       }`}
     >
-      <span className="grid h-16 w-16 place-items-center rounded-2xl bg-surface-2 text-text-3">
+      <span className="rb-empty-grid" aria-hidden />
+      <span className="rb-empty-icon grid h-16 w-16 place-items-center rounded-2xl text-text-3">
+        <span className="rb-empty-orbit" aria-hidden />
         <Icon name={icon} size={32} />
       </span>
-      <div className="text-[16px] font-bold">{title}</div>
+      <BlurText key={title} as="div" text={title} stagger={0.05} duration={0.5} className="text-[16px] font-bold" />
       {description && <div className="max-w-sm text-[13.5px] text-text-2">{description}</div>}
       {action && <div className="mt-2">{action}</div>}
     </div>

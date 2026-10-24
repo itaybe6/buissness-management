@@ -194,7 +194,7 @@ function TabBar({
             </span>
           ) : null}
           <div className="text-[18px] font-extrabold leading-none tabular-nums tracking-tight md:text-[26px]">{count}</div>
-          <div className="inventory-tab-cell-label mt-1 text-[10px] font-medium text-text-3 md:mt-1.5 md:text-[12px]">{label}</div>
+          <div className="inventory-tab-cell-label mt-1 text-[11.5px] font-medium text-text-3 md:mt-1.5 md:text-[12px]">{label}</div>
           {key === "orders" && partialAlertCount > 0 ? (
             <div className="inventory-tab-partial-hint">לא במלואה</div>
           ) : null}
@@ -319,7 +319,7 @@ function TabSearchBar<T extends string>({
       )}
 
       {hasFilter && (
-        <p className="text-[11px] font-medium text-text-3">
+        <p className="text-[12px] font-medium text-text-3">
           {resultCount} מתוך {totalCount} {resultUnit}
         </p>
       )}
@@ -1119,7 +1119,7 @@ function ItemDetailModal({
                       <div className="text-[15px] font-extrabold tabular-nums text-[var(--info)]">
                         {formatItemQty(item, Number(order.quantity))}
                       </div>
-                      <div className="mt-0.5 text-[11px] text-text-3">
+                      <div className="mt-0.5 text-[12px] text-text-3">
                         {new Date(order.created_at).toLocaleDateString("he-IL", {
                           day: "numeric",
                           month: "short",
@@ -1330,7 +1330,7 @@ function ItemDetailModal({
                         unit={item.unit}
                         unitsPerPackage={item.units_per_package}
                         numClassName="text-[13.5px] font-extrabold tabular-nums text-text-2"
-                        unitClassName="text-[10px] font-semibold text-text-3"
+                        unitClassName="text-[11.5px] font-semibold text-text-3"
                       />
                     )}
                   </div>
@@ -1999,7 +1999,7 @@ function OrderDetailsModal({
           <Button icon="done_all" disabled={receiveBusy} onClick={onAcknowledgePartial} className="w-full !bg-ink">
             סמן כטופל — הסר מהתראות
           </Button>
-          <p className="mt-2 text-center text-[11px] text-text-3">
+          <p className="mt-2 text-center text-[12px] text-text-3">
             היתרה תישאר פתוחה במלאי עד קבלה מלאה
           </p>
         </div>
@@ -2032,7 +2032,7 @@ function SplitQtyValue({
   unitsPerPackage,
   pieceUnit,
   numClassName = "font-extrabold tabular-nums",
-  unitClassName = "text-[10px] font-semibold text-text-3",
+  unitClassName = "text-[11.5px] font-semibold text-text-3",
 }: {
   qty: number;
   unit: string | null;
@@ -2057,11 +2057,11 @@ function SplitQtyValue({
 }
 
 const LOG_META: Record<InventoryAction, { label: string; icon: string; color: string }> = {
-  created: { label: "נוצר פריט", icon: "add_circle", color: "var(--success)" },
-  count: { label: "עדכון כמות", icon: "inventory_2", color: "var(--info)" },
-  edited: { label: "עריכת פרטים", icon: "edit", color: "var(--accent-2)" },
-  waste: { label: "דיווח בלאי", icon: "delete", color: "var(--danger)" },
-  order: { label: "הזמנה", icon: "local_shipping", color: "var(--warning)" },
+  created: { label: "נוצר פריט", icon: "add_circle", color: "var(--text-2)" },
+  count: { label: "עדכון כמות", icon: "inventory_2", color: "var(--text-2)" },
+  edited: { label: "עריכת פרטים", icon: "edit", color: "var(--text-2)" },
+  waste: { label: "דיווח בלאי", icon: "delete", color: "var(--text-2)" },
+  order: { label: "הזמנה", icon: "local_shipping", color: "var(--text-2)" },
 };
 
 function formatLogTime(iso: string) {
@@ -2236,7 +2236,7 @@ export function Inventory() {
     for (const c of inventoryCategories ?? []) m[c.id] = c.name;
     return m;
   }, [inventoryCategories]);
-  const canManageOrders = !!(profile && ["manager", "office_manager"].includes(profile.role));
+  const canManageOrders = !!(profile && ["manager", "department_manager", "office_manager"].includes(profile.role));
   const { getPartialBatchUiState, acknowledgeBatch } = usePartialDeliveryOrderCount();
   const resolveBatchPartialUiState = useCallback(
     (batch: OrderBatch) => getPartialBatchUiState(batch.id, batch.lines),

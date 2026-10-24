@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { motion, useReducedMotion } from "motion/react";
+import { HeroSilk } from "@/components/bits";
 import { Badge, Button, EmptyState, Icon, Input, PageLoader, ErrorState, Switch } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
@@ -475,6 +476,7 @@ function SettingsHero({
 
   return (
     <header className="stx-hero" aria-label="הגדרות עסק">
+      <HeroSilk />
       <span className="stx-glow stx-glow--1" data-complete={complete || undefined} aria-hidden />
       <span className="stx-glow stx-glow--2" aria-hidden />
       <span className="stx-grid-lines" aria-hidden />
@@ -482,10 +484,6 @@ function SettingsHero({
 
       <div className="stx-hero-inner">
         <motion.div className="stx-hero-bar" {...rise(0)}>
-          <span className="stx-kicker" data-complete={complete || undefined}>
-            <span className="stx-kicker-dot" aria-hidden />
-            מרכז הבקרה
-          </span>
           <span className="stx-id">
             <span className="stx-id-mono" aria-hidden>
               {businessName.trim().charAt(0) || "•"}
@@ -2143,7 +2141,7 @@ function WarehousesModal({
                 onDelete={w.is_default ? undefined : () => del.mutate(w.id)}
                 badge={
                   w.is_default ? (
-                    <Badge tone="neutral" className="shrink-0 text-[11px]">
+                    <Badge tone="neutral" className="shrink-0 text-[12px]">
                       ברירת מחדל
                     </Badge>
                   ) : undefined

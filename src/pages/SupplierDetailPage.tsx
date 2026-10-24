@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { HeroSilk } from "@/components/bits";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import { Button, EmptyState, ErrorState, Icon, Input, LoadingOverlay, MultiSelect, PageLoader, Textarea } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
@@ -711,7 +712,7 @@ export function SupplierDetailPage() {
   const businessId = useBusinessId();
   const navigate = useNavigate();
   const { profile } = useAuth();
-  const canManage = !!(profile && ["manager", "office_manager"].includes(profile.role));
+  const canManage = !!(profile && ["manager", "department_manager", "office_manager"].includes(profile.role));
 
   const { data: suppliers, isLoading, isError, error, refetch } = useSuppliers(businessId, { activeOnly: false });
   const supplier = useMemo(
@@ -1072,6 +1073,7 @@ export function SupplierDetailPage() {
   return (
     <div className={`spf-page spd-page page-enter${cartLines.length ? " spd-page--cart" : ""}`}>
       <header className="spf-hero spd-hero">
+        <HeroSilk />
         <span className="spf-glow spf-glow--1" aria-hidden />
         <span className="spf-glow spf-glow--2" aria-hidden />
         <span className="spf-grid-lines" aria-hidden />

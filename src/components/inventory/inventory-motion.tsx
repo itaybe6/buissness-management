@@ -32,7 +32,7 @@ export function InventoryTabBar({
             {label}
             {count != null && count > 0 && (
               <span
-                className={`grid h-[18px] min-w-[18px] place-items-center rounded-full px-1 font-mono text-[10px] font-bold tabular-nums ${
+                className={`grid h-[18px] min-w-[18px] place-items-center rounded-full px-1 font-mono text-[11.5px] font-bold tabular-nums ${
                   active ? "bg-ink text-white" : "bg-surface-2 text-text-2"
                 }`}
               >

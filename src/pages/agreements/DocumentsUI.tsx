@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import { Badge, Icon } from "@/components/ui";
 import type { AgreementTemplate } from "@/types/database";
 import type { DocsMgmtCategory } from "./types";
@@ -188,7 +189,7 @@ export function TemplateDocRow({
 
   return (
     <article
-      className="doc-row doc-card--enter"
+      className="doc-row doc-card--enter rb-glow"
       data-accent={accent}
       data-complete={complete}
       style={{ "--doc-delay": `${index * 40}ms` } as CSSProperties}
@@ -383,7 +384,7 @@ export function EmployeeDocRow({
   return (
     <button
       type="button"
-      className="docs-item doc-card--enter"
+      className="docs-item doc-card--enter rb-glow"
       data-signed={signed || undefined}
       style={{ "--doc-delay": `${Math.min(index, 8) * 45}ms` } as CSSProperties}
       onClick={onOpen}
@@ -433,14 +434,18 @@ export function DocsTabs<T extends string>({
   tabs,
   active,
   onChange,
+  variant,
 }: {
-  tabs: { key: T; label: string; icon?: string }[];
+  tabs: { key: T; label: string; icon?: string; badge?: number }[];
   active: T;
   onChange: (key: T) => void;
+  /** "ink" = glass segmented control docked inside an ink hero. */
+  variant?: "ink";
 }) {
+  const reduce = useReducedMotion();
   return (
-    <div className="docs-tabs" role="tablist">
-      {tabs.map(({ key, label, icon }) => (
+    <div className={`docs-tabs${variant === "ink" ? " docs-tabs--ink" : ""}`} role="tablist">
+      {tabs.map(({ key, label, icon, badge }) => (
         <button
           key={key}
           type="button"
@@ -450,8 +455,16 @@ export function DocsTabs<T extends string>({
           data-active={active === key}
           onClick={() => onChange(key)}
         >
+          {variant === "ink" && active === key && (
+            <motion.span
+              layoutId="docs-tab-pill"
+              className="docs-tab__pill"
+              transition={reduce ? { duration: 0 } : { type: "spring", stiffness: 420, damping: 34 }}
+            />
+          )}
           {icon && <Icon name={icon} size={17} className="docs-tab__icon" />}
-          {label}
+          <span className="docs-tab__label">{label}</span>
+          {badge != null && badge > 0 && <span className="docs-tab__badge">{badge}</span>}
         </button>
       ))}
     </div>

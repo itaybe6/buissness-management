@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { HeroSilk } from "@/components/bits";
 import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Button, EmptyState, ErrorState, Icon, Input, PageLoader, MultiSelect, Textarea } from "@/components/ui";
 import { useBusinessId, formatCurrency, HE_DAYS } from "@/lib/db";
@@ -252,7 +253,7 @@ export function SupplierFormPage() {
   const location = useLocation();
   const businessId = useBusinessId();
   const { profile } = useAuth();
-  const canManage = !!(profile && ["manager", "office_manager"].includes(profile.role));
+  const canManage = !!(profile && ["manager", "department_manager", "office_manager"].includes(profile.role));
 
   const { data: suppliers, isLoading: suppliersLoading } = useSuppliers(businessId, { activeOnly: false });
   const { data: inventory, isLoading: inventoryLoading } = useInventory(businessId);
@@ -485,6 +486,7 @@ export function SupplierFormPage() {
     <div className="spf-page spf-page--split page-enter">
       {/* ── Ink hero — live identity card ── */}
       <header className="spf-hero">
+        <HeroSilk />
         <span className="spf-glow spf-glow--1" aria-hidden />
         <span className="spf-glow spf-glow--2" aria-hidden />
         <span className="spf-grid-lines" aria-hidden />

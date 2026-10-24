@@ -3,6 +3,7 @@ import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import { getHomePath } from "@/lib/constants";
 import { GlobalLoadingBar, PageLoader } from "@/components/ui";
+import { ClickSparks, PointerGlow } from "@/components/bits";
 import { Login } from "@/pages/Login";
 import { ResetPassword } from "@/pages/ResetPassword";
 import { AppShell } from "@/components/layout/AppShell";
@@ -62,6 +63,8 @@ export function App() {
   return (
     <>
       <GlobalLoadingBar />
+      <ClickSparks />
+      <PointerGlow />
       <Routes>
         <Route path="/login" element={session ? <Navigate to="/" replace /> : <Login />} />
         <Route path="/reset-password" element={<ResetPassword />} />

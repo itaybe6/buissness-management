@@ -249,7 +249,7 @@ function BreakdownPill({
         <Icon name={icon} size={15} />
       </span>
       <div className="min-w-0 flex-1">
-        <div className="text-[11px] font-bold text-text-3">{label}</div>
+        <div className="text-[12px] font-bold text-text-3">{label}</div>
         <div className="text-[15px] font-extrabold tabular-nums text-text">{formatCurrency(value)}</div>
       </div>
       {pct > 0 && <span className="labor-breakdown-pct">{Math.round(pct)}%</span>}
@@ -540,14 +540,14 @@ export function EmployeeCostPanel({
         <div className="labor-cost-footer-stat">
           <Icon name="calendar_month" size={18} />
           <div>
-            <div className="text-[10.5px] font-bold text-text-3">סה״כ החודש</div>
+            <div className="text-[12px] font-bold text-text-3">סה״כ החודש</div>
             <div className="text-[16px] font-extrabold tabular-nums text-text">{formatCurrency(monthTotal.total)}</div>
           </div>
         </div>
         <div className="labor-cost-footer-stat">
           <Icon name="avg_pace" size={18} />
           <div>
-            <div className="text-[10.5px] font-bold text-text-3">ממוצע יומי</div>
+            <div className="text-[12px] font-bold text-text-3">ממוצע יומי</div>
             <div className="text-[16px] font-extrabold tabular-nums text-text">
               {formatCurrency(upToDay > 0 ? monthTotal.total / upToDay : 0)}
             </div>
@@ -556,7 +556,7 @@ export function EmployeeCostPanel({
         <div className="labor-cost-footer-stat">
           <Icon name="group" size={18} />
           <div>
-            <div className="text-[10.5px] font-bold text-text-3">השלמות החודש</div>
+            <div className="text-[12px] font-bold text-text-3">השלמות החודש</div>
             <div className="text-[16px] font-extrabold tabular-nums text-text">{formatCurrency(monthTotal.topup)}</div>
           </div>
         </div>

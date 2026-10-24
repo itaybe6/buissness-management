@@ -94,7 +94,7 @@ export function EventMediaPicker({
               className="flex aspect-square flex-col items-center justify-center gap-1 rounded-[11px] border border-dashed border-border bg-surface-2 text-text-3 hover:border-accent-2 hover:text-ink"
             >
               <Icon name="add" size={24} />
-              <span className="text-[11px] font-semibold">הוספה</span>
+              <span className="text-[12px] font-semibold">הוספה</span>
             </button>
           </div>
           <div className="text-[12px] text-text-3">

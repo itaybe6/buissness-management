@@ -49,7 +49,7 @@ function DeltaBadge({ current, previous, suffix = "" }: { current: number; previ
 
   return (
     <span
-      className={`inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 font-mono text-[10px] font-bold tabular-nums ${
+      className={`inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 font-mono text-[11.5px] font-bold tabular-nums ${
         up ? "bg-success-bg text-success" : "bg-danger-bg text-danger"
       }`}
     >
@@ -175,9 +175,9 @@ function ActivityFeed({ items }: { items: ActivityItem[] }) {
           </span>
           <div className="min-w-0 flex-1">
             <div className="truncate text-[13px] font-bold text-text">{item.title}</div>
-            <div className="text-[11.5px] text-text-3">{item.subtitle}</div>
+            <div className="text-[12.5px] text-text-3">{item.subtitle}</div>
           </div>
-          <time className="shrink-0 font-mono text-[10.5px] tabular-nums text-text-3">
+          <time className="shrink-0 font-mono text-[12px] tabular-nums text-text-3">
             {new Date(item.at).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}
           </time>
         </motion.div>
@@ -233,7 +233,7 @@ function SuperAdminDashboard() {
       <header className="dashboard-hero mb-6 overflow-hidden rounded-[28px] border border-border/60 p-5 sm:p-8 md:mb-8">
         <div className="relative flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div className="hidden md:block">
-            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-accent-2">סקירת פלטפורמה</p>
+            <p className="text-[12px] font-bold uppercase tracking-[0.16em] text-accent-2">סקירת פלטפורמה</p>
             <h1 className="mt-1 text-[clamp(1.5rem,5vw,2.1rem)] font-extrabold tracking-tight">מרכז הבקרה</h1>
             <p className="mt-2 max-w-md text-[14px] text-text-2">כל העסקים, המשתמשים והצמיחה — בזמן אמת</p>
           </div>
@@ -317,7 +317,7 @@ function BusinessDashboard() {
         </div>
         <div className="relative grid grid-cols-1 gap-4 md:grid-cols-[1fr_auto] md:items-end">
           <div className="hidden md:block">
-            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-text-3">{business?.name ?? "העסק שלך"}</p>
+            <p className="text-[12px] font-bold uppercase tracking-[0.14em] text-text-3">{business?.name ?? "העסק שלך"}</p>
             <h1 className="mt-1 text-[clamp(1.45rem,4.5vw,2rem)] font-extrabold tracking-tight">
               {greeting()}
               {firstName ? `, ${firstName}` : ""}
@@ -336,7 +336,7 @@ function BusinessDashboard() {
               <div className="font-mono text-[clamp(1.75rem,5vw,2.25rem)] font-extrabold tabular-nums leading-none tracking-tighter">
                 {timeStr}
               </div>
-              <div className="mt-1 text-[11px] font-semibold text-text-3">שעון חי</div>
+              <div className="mt-1 text-[12px] font-semibold text-text-3">שעון חי</div>
             </div>
             {showAttendance && (
               <RadialGauge value={stats.onShiftNow} max={Math.max(stats.employees, 1)} label="במשמרת" />

@@ -23,7 +23,7 @@ function ShiftChip({ template }: { template: ShiftTemplate }) {
       </span>
       <div className="min-w-0">
         <div className="truncate text-[13.5px] font-bold text-text">{template.name}</div>
-        <div className="font-mono text-[11.5px] tabular-nums text-text-3">
+        <div className="font-mono text-[12.5px] tabular-nums text-text-3">
           {template.start_time?.slice(0, 5)}–{template.end_time?.slice(0, 5)}
         </div>
       </div>
@@ -73,7 +73,7 @@ export function EmployeeShiftPunch() {
 
           <div className="relative flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-text-3">נוכחות</p>
+              <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-text-3">נוכחות</p>
               <LiveClockDigits time={timeStr} compact />
               <p className="mt-1 text-[12.5px] font-medium capitalize text-text-2">{dateStr}</p>
             </div>
@@ -90,7 +90,7 @@ export function EmployeeShiftPunch() {
 
           <div className="relative mt-4">
             <PunchButton onShift={onShift} busy={busy} onClick={handleClock} />
-            <p className="mt-2.5 text-center text-[11px] text-text-3">
+            <p className="mt-2.5 text-center text-[12px] text-text-3">
               {geofenceExempt
                 ? "פטור/ה מבדיקת מיקום — ניתן להחתים מכל מקום"
                 : geofenceEnabled
@@ -101,7 +101,7 @@ export function EmployeeShiftPunch() {
 
           {showShifts && (
             <div className="relative mt-4 border-t border-border-2 pt-4">
-              <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-text-3">משמרת היום</div>
+              <div className="mb-2 text-[12px] font-bold uppercase tracking-wide text-text-3">משמרת היום</div>
               {todayShifts.length > 0 ? (
                 <div className="flex flex-col gap-2">
                   {todayShifts.map((t) => (

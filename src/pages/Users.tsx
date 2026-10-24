@@ -4,13 +4,14 @@ import {
   Button,
   Card,
   Icon,
-  PageHeader,
   PageLoader,
   ErrorState,
   Input,
   EmptyState,
 } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
+import { motion } from "motion/react";
+import { InkStage, RollingNumber } from "@/components/bits";
 import { useProfiles, useUpdateProfile, useDeleteUser } from "@/api/users";
 import { useDepartments } from "@/api/departments";
 import { useEmployeePositions, useReplaceEmployeePositions } from "@/api/employeePositions";
@@ -19,7 +20,7 @@ import { PositionsEditor } from "@/components/users/PositionsEditor";
 import { useBusinessId, formatCurrency } from "@/lib/db";
 import { UserAvatar } from "@/components/ui/UserAvatar";
 import { useAuth } from "@/lib/auth";
-import { ROLE_LABELS, USER_MANAGE_ROLES } from "@/lib/constants";
+import { canAccessPayroll, ROLE_LABELS, USER_MANAGE_ROLES } from "@/lib/constants";
 import {
   draftFromPosition,
   findDuplicatePositionDraft,
@@ -41,9 +42,6 @@ const ASSIGNABLE_ROLES: UserRole[] = [
 
 const FILTER_ROLES: (UserRole | "all")[] = ["all", "manager", ...ASSIGNABLE_ROLES];
 
-const USER_TABLE_COLS =
-  "grid-cols-[2fr_1.1fr_1fr_1.3fr_minmax(200px,2.4fr)_1fr_0.9fr_0.7fr]";
-
 export function Users() {
   const { profile: currentUser } = useAuth();
   const businessId = useBusinessId();
@@ -59,10 +57,20 @@ export function Users() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<UserRole | "all">("all");
-  const [roleFilterOpen, setRoleFilterOpen] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const canManageUsers = !!(currentUser && USER_MANAGE_ROLES.includes(currentUser.role));
+  const showPay = canAccessPayroll(currentUser?.role);
+  const tableTracks = [
+    "2fr",
+    "1.1fr",
+    "1fr",
+    ...(showPay ? ["1.3fr"] : []),
+    "minmax(200px,2.4fr)",
+    "1fr",
+    "0.9fr",
+    ...(canManageUsers ? ["0.7fr"] : []),
+  ];
 
   const deptName = useMemo(
     () => (id: string | null) => departments?.find((d) => d.id === id)?.name ?? "—",
@@ -110,56 +118,95 @@ export function Users() {
   if (isLoading) return <PageLoader />;
   if (isError) return <ErrorState onRetry={refetch} />;
 
-  return (
-    <div className="w-full animate-fadeUp">
-      <PageHeader
-        title="משתמשים וצוות"
-        subtitle="ניהול עובדי העסק והרשאות גישה"
-        actions={
-          canManageUsers ? (
-            <Button icon="person_add" onClick={() => setAdd(true)} className="hidden md:inline-flex">
-              הוספת משתמש
-            </Button>
-          ) : undefined
-        }
-      />
+  const activeCount = (users ?? []).filter((u) => u.active).length;
+  const roleChips = FILTER_ROLES.filter((r) => r === "all" || (roleCounts.get(r) ?? 0) > 0);
+  const faces = (users ?? []).filter((u) => u.active).slice(0, 4);
 
+  return (
+    <div className="pyx-page">
+      <InkStage className="usx-hero">
+        <div className="srx-bar">
+          <h1 className="srx-page-title">צוות</h1>
+          {canManageUsers && (
+            <button type="button" className="srx-cta" data-spark onClick={() => setAdd(true)}>
+              <Icon name="person_add" size={19} />
+              <span>עובד חדש</span>
+            </button>
+          )}
+        </div>
+
+        <div className="usx-head">
+          <div className="srx-head-copy">
+            <div className="srx-total-label">אנשים בעסק</div>
+            <div className="srx-total">
+              <RollingNumber value={(users ?? []).length} />
+            </div>
+            <div className="usx-active">
+              <span className="usx-active-dot" />
+              {activeCount} פעילים
+            </div>
+          </div>
+          {faces.length > 0 && (
+            <div className="usx-faces" aria-hidden>
+              {faces.map((u, i) => (
+                <span key={u.id} className="usx-face" style={{ "--i": i } as React.CSSProperties}>
+                  <UserAvatar userId={u.id} name={u.full_name} avatarUrl={u.avatar_url} size={44} rounded="circle" />
+                </span>
+              ))}
+              {(users ?? []).length > faces.length && (
+                <span className="usx-face usx-face--more" style={{ "--i": faces.length } as React.CSSProperties}>
+                  +{(users ?? []).length - faces.length}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {roleChips.length > 2 && (
+          <div className="usx-roles" role="group" aria-label="סינון לפי תפקיד">
+            {roleChips.map((r) => {
+              const active = roleFilter === r;
+              return (
+                <button
+                  key={r}
+                  type="button"
+                  className="usx-role"
+                  data-active={active}
+                  aria-pressed={active}
+                  onClick={() => setRoleFilter(r)}
+                >
+                  {active && (
+                    <motion.span
+                      layoutId="usx-role-pill"
+                      className="usx-role-pill"
+                      transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                    />
+                  )}
+                  <span>{r === "all" ? "כולם" : ROLE_LABELS[r]}</span>
+                  <b>{roleCounts.get(r) ?? 0}</b>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </InkStage>
+
+      <div className="srx-body">
       {users && users.length === 0 ? (
-        <EmptyState icon="group" title="אין עדיין עובדים" description="הוסיפו את חברי הצוות של העסק." action={canManageUsers ? <Button icon="person_add" onClick={() => setAdd(true)}>הוספת משתמש</Button> : undefined} />
+        <EmptyState icon="group" title="אין עדיין עובדים" action={canManageUsers ? <Button icon="person_add" onClick={() => setAdd(true)}>הוספת משתמש</Button> : undefined} />
       ) : (
         <>
-          <div className="mb-4 flex flex-col gap-3">
-            <div className="flex items-center gap-2">
-              <div className="relative min-w-0 flex-1 md:max-w-[360px]">
-                <Icon name="search" size={19} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-3" />
-                <Input
-                  className="pr-10"
-                  placeholder="חיפוש משתמש..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setRoleFilterOpen(true)}
-                  aria-label="סינון לפי תפקיד"
-                  className="users-filter-btn btn-press"
-                  data-active={roleFilter !== "all"}
-                >
-                  <Icon name="filter_list" size={21} />
-                </button>
-                {canManageUsers && (
-                  <button
-                    type="button"
-                    onClick={() => setAdd(true)}
-                    aria-label="הוספת משתמש"
-                    className="users-add-btn btn-press md:hidden"
-                  >
-                    <Icon name="person_add" size={21} />
-                  </button>
-                )}
-              </div>
+          <div className="srx-toolbar">
+            <div className="srx-toolbar-title">{filtered.length} אנשים</div>
+            <div className="pyx-search">
+              <Icon name="search" size={19} className="pyx-search-icon" />
+              <Input
+                className="pr-10"
+                placeholder="חיפוש לפי שם, טלפון או מחלקה"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                aria-label="חיפוש משתמש"
+              />
             </div>
           </div>
 
@@ -222,7 +269,7 @@ export function Users() {
                         <div className="user-cell-details-clip">
                           <div className="user-cell-details-body">
                             <div className="user-cell-facts">
-                              {positions.map((p) => (
+                              {showPay && positions.map((p) => (
                                 <span key={p.id} className="user-fact">
                                   <Icon name={p.wage_type === "tips" ? "savings" : "payments"} size={17} />
                                   {multi && <b>{positionLabel(p, deptNameOrNull)} · </b>}
@@ -242,6 +289,7 @@ export function Users() {
                                 </a>
                               )}
                             </div>
+                            {canManageUsers && (
                             <div className="user-cell-actions">
                               <button type="button" className="user-cell-btn user-cell-btn--edit" onClick={() => setEdit(u)}>
                                 <Icon name="edit" size={17} /> עריכה
@@ -256,6 +304,7 @@ export function Users() {
                                 </button>
                               )}
                             </div>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -267,18 +316,18 @@ export function Users() {
           </div>
 
           {/* ── Desktop — full table ── */}
-          <Card className="hidden overflow-hidden !p-0 shadow-card md:block">
+          <Card className="pyx-table hidden overflow-hidden !p-0 shadow-card md:block">
             <div className="overflow-auto">
-              <div className={`min-w-[980px] grid ${USER_TABLE_COLS} gap-x-2`}>
-                <div className={`col-span-8 grid grid-cols-subgrid gap-x-2 border-b border-border bg-surface-2 px-5 py-3 text-[11.5px] font-bold uppercase tracking-wide text-text-3`}>
+              <div className="min-w-[980px] grid gap-x-2" style={{ gridTemplateColumns: tableTracks.join(" ") }}>
+                <div className="grid grid-cols-subgrid gap-x-2 border-b border-border bg-surface-2 px-5 py-3 text-[12.5px] font-bold text-text-3" style={{ gridColumn: "1 / -1" }}>
                   <span>עובד</span>
                   <span>תפקיד</span>
                   <span>מחלקה</span>
-                  <span>שכר</span>
+                  {showPay && <span>שכר</span>}
                   <span>אימייל</span>
                   <span>טלפון</span>
                   <span>סטטוס</span>
-                  <span aria-hidden="true" />
+                  {canManageUsers && <span aria-hidden="true" />}
                 </div>
                 {filtered.map((u, i) => {
                   const positions = positionsOf(u);
@@ -286,8 +335,8 @@ export function Users() {
                   return (
                   <div
                     key={u.id}
-                    className="data-row dash-rise col-span-8 grid grid-cols-subgrid items-start gap-x-2 border-b border-border-2 px-5 py-3 text-[13.5px]"
-                    style={{ "--rise-delay": `${Math.min(i, 10) * 25}ms` } as React.CSSProperties}
+                    className="data-row dash-rise grid grid-cols-subgrid items-start gap-x-2 border-b border-border-2 px-5 py-3 text-[13.5px]"
+                    style={{ "--rise-delay": `${Math.min(i, 10) * 25}ms`, gridColumn: "1 / -1" } as React.CSSProperties}
                   >
                     <span className="flex min-w-0 items-center gap-3 self-center">
                       <UserAvatar
@@ -302,7 +351,7 @@ export function Users() {
                     <span className="flex flex-wrap gap-1 self-center">
                       {multi ? (
                         positions.map((p) => (
-                          <Badge key={p.id} tone={p.wage_type === "tips" ? "violet" : "neutral"}>
+                          <Badge key={p.id} tone="neutral">
                             {positionLabel(p, deptNameOrNull)}
                           </Badge>
                         ))
@@ -311,6 +360,7 @@ export function Users() {
                       )}
                     </span>
                     <span className="self-center text-text-2">{multi ? "—" : deptName(u.department_id)}</span>
+                    {showPay && (
                     <span className="flex flex-col gap-0.5 self-center text-[12.5px] text-text-2">
                       {positions.map((p) => (
                         <span key={p.id} className="whitespace-nowrap">
@@ -319,6 +369,7 @@ export function Users() {
                         </span>
                       ))}
                     </span>
+                    )}
                     <span
                       className="min-w-0 self-center truncate text-[12.5px] text-text-2"
                       style={{ direction: "ltr", textAlign: "right" }}
@@ -327,7 +378,8 @@ export function Users() {
                       {u.email ?? "—"}
                     </span>
                     <span className="self-center whitespace-nowrap text-text-2" style={{ direction: "ltr", textAlign: "right" }}>{u.phone ?? "—"}</span>
-                    <span className="self-center">{u.active ? <Badge tone="success">פעיל</Badge> : <Badge tone="neutral">מושבת</Badge>}</span>
+                    <span className="usx-status self-center" data-on={u.active || undefined}>{u.active ? "פעיל" : "מושבת"}</span>
+                    {canManageUsers && (
                     <span className="flex items-center justify-end gap-0.5 self-center">
                       <button
                         type="button"
@@ -348,6 +400,7 @@ export function Users() {
                         </button>
                       )}
                     </span>
+                    )}
                   </div>
                   );
                 })}
@@ -359,35 +412,7 @@ export function Users() {
           </Card>
         </>
       )}
-
-      <Modal
-        open={roleFilterOpen}
-        onClose={() => setRoleFilterOpen(false)}
-        title="סינון לפי תפקיד"
-        icon="filter_list"
-      >
-        <div className="flex flex-col gap-1">
-          {FILTER_ROLES.map((r) => {
-            const active = roleFilter === r;
-            const count = roleCounts.get(r) ?? 0;
-            return (
-              <button
-                key={r}
-                type="button"
-                onClick={() => {
-                  setRoleFilter(r);
-                  setRoleFilterOpen(false);
-                }}
-                data-active={active}
-                className="users-role-filter-option"
-              >
-                <span>{r === "all" ? "הכל" : ROLE_LABELS[r]}</span>
-                {count > 0 && <span className="users-role-filter-count">{count}</span>}
-              </button>
-            );
-          })}
-        </div>
-      </Modal>
+      </div>
 
       {canManageUsers && (
         <AddUserModal open={add} onClose={() => setAdd(false)} businessId={businessId} roles={ASSIGNABLE_ROLES} />

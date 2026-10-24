@@ -1,0 +1,345 @@
+/* ============================================================
+   POLISH — app-wide clean-up rules, loaded last.
+
+   House rules (from the product owner):
+     1. No "AI-looking" tag pills — no dot + label chips, no
+        uppercase eyebrows above titles.
+     2. Icons share one treatment and one colour. Colour is kept
+        only where it *means* something (a status mark, a user-
+        picked department / shift colour, a destructive action).
+     3. No tiny text. Secondary lines either earn their place at a
+        readable size or go away.
+
+   Kept out of index.css because another process edits that file
+   concurrently; equal-specificity rules here win by order.
+   ============================================================ */
+
+/* ── 1. Icon chip recipe ──────────────────────────────────────
+   One soft chip for every decorative icon on a light surface:
+   surface-2 plate, hairline ring, glyph in --text. Ink chips
+   (.avatar-chip, .dash-kpi-icon) stay as the "primary" variant. */
+:root {
+  --icon-chip-bg: var(--surface-2);
+  --icon-chip-fg: var(--text);
+  --icon-chip-ring: inset 0 0 0 1px color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.stat-tile-icon,
+.task-tile__icon,
+.faults-tile__icon,
+.fault-row__thumb--icon,
+.receipt-upload-source__icon,
+.receipt-upload-source[data-kind] .receipt-upload-source__icon,
+.spend-doc__icon,
+.spend-doc[data-type] .spend-doc__icon,
+.profile-action-card-icon[data-tone],
+.profile-card-section-icon[data-tone],
+.profile-card-row-icon[data-tone],
+.profile-action-row-icon[data-tone],
+.payroll-stat[data-tone] .payroll-stat-icon,
+.ordc-reco-icon,
+.id-card-panel__icon[data-tone],
+.docs-item[data-signed] .docs-item__icon,
+.iwz-unit-threshold-icon,
+.iwz-unit-content[data-auto="true"] .iwz-unit-content-icon {
+  color: var(--icon-chip-fg);
+  background: var(--icon-chip-bg);
+  box-shadow: var(--icon-chip-ring);
+}
+
+/* Dark theme: the supplies kind got amber plates — back to the shared ink. */
+[data-theme="dark"] .evrq-launch-btn[data-kind="supplies"] .evrq-launch-icon,
+[data-theme="dark"] .evrq-card[data-kind="supplies"] .evrq-kind-icon,
+[data-theme="dark"] .evrq-basket-icon {
+  color: var(--icon-chip-fg);
+  background: var(--icon-chip-bg);
+}
+
+/* Stat tiles: no per-tile coloured top rule either. */
+.stat-tile::after {
+  background: linear-gradient(90deg, transparent 5%, color-mix(in srgb, var(--text) 18%, transparent) 50%, transparent 95%);
+}
+
+/* ── 2. Eyebrows / kickers → plain text, or gone ─────────────
+   Step counters duplicate the wizards' own progress tracks. */
+.srw-hero-kicker,
+.iwz-head-eyebrow,
+.mnu-onboard-kicker {
+  display: none;
+}
+
+.tbday-card__eyebrow,
+.mnu-identity-eyebrow,
+.mnu-hero-eyebrow,
+.evtd-countdown-kicker,
+.fpk-card-eyebrow {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.tbday-card__eyebrow,
+.mnu-identity-eyebrow,
+.evtd-countdown-kicker,
+.fpk-card-eyebrow {
+  color: var(--text-2);
+}
+
+/* ── 3. Readable secondary text on the redesigned pages ───── */
+.srx-stat-lbl,
+.agx-stat-lbl,
+.srx-chip,
+.srx-money-hint,
+.srx-card-sub,
+.agx-person-meter b,
+.agx-dial-lbl {
+  font-size: 12.5px;
+}
+
+.srx-col-day {
+  font-size: 11px;
+}
+
+/* Page titles that replaced the kicker pills on ink heroes. */
+.srx-page-title {
+  margin: 0;
+  font-size: clamp(1.15rem, 4.5vw, 1.35rem);
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  color: #fff;
+}
+
+.srx-bar--end {
+  justify-content: flex-end;
+}
+
+/* Hero stat icons on ink: one glass recipe, never a hue. */
+.srx-stat-icon,
+.agx-stat-icon,
+.agx-stat[data-tone] .agx-stat-icon {
+  color: #fff;
+  background: linear-gradient(150deg, rgb(255 255 255 / 0.18), rgb(255 255 255 / 0.05));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.25),
+    inset 0 0 0 1px rgb(255 255 255 / 0.08);
+}
+
+/* The "best day" badge and the record line: ink, not amber. */
+.srx-best,
+[data-theme="dark"] .srx-best {
+  color: var(--primary-fg);
+  background: var(--primary-bg);
+}
+
+.srx-total-sub > :first-child:not(.rb-shiny) {
+  color: rgb(255 255 255 / 0.85);
+}
+
+/* The odometer total: solid white + glow (a gradient text-clip doesn't
+   reach the rolling digit layers). */
+.srx-total {
+  background: none;
+  -webkit-text-fill-color: currentColor;
+  color: #fff;
+  filter: none;
+  text-shadow: 0 6px 30px rgb(var(--glow-rgb) / 0.55);
+}
+
+/* Payroll roster: the dead --mobile-nav-h clearance (no bottom nav exists). */
+.pyx-page .payroll-mobile {
+  padding-bottom: 0;
+}
+
+/* Dashboard hero: the coloured pill chips became a plain stat strip —
+   number over label, hairline dividers, no pill, no tone. */
+.dash-hero-stats {
+  display: flex;
+  flex-wrap: wrap;
+  row-gap: 0.75rem;
+}
+
+.dash-hero-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding-inline-end: 1.15rem;
+  margin-inline-end: 1.15rem;
+  border-inline-end: 1px solid rgb(255 255 255 / 0.14);
+  color: #fff;
+  text-decoration: none;
+  transition: opacity 0.2s var(--ease-out);
+}
+
+.dash-hero-stat:last-child {
+  padding-inline-end: 0;
+  margin-inline-end: 0;
+  border-inline-end: 0;
+}
+
+.dash-hero-stat strong {
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.dash-hero-stat span {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgb(255 255 255 / 0.62);
+  transition: color 0.2s var(--ease-out);
+}
+
+.dash-hero-stat:hover span {
+  color: #fff;
+}
+
+.dash-hero-stat:active {
+  opacity: 0.7;
+}
+
+/* Decorative hero tags ("מוצר חדש", "עריכת ספק", "מותאם אישית") — the
+   page title already says it. */
+.spf-hero-tag,
+.cbp-hero-tag {
+  display: none;
+}
+
+/* Info chips that carried real data (hours, shifts, wage type, schedule
+   state) keep the content but lose the pill: icon + text, no plate. */
+.payroll-hero-chip,
+.shifts-hero-badge {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.payroll-hero-chips {
+  column-gap: 1.1rem;
+}
+
+.shifts-hero-badge {
+  color: var(--text-2);
+}
+
+/* ════════════════════════════════════════════════════════════
+   Ink heroes, one look (2026-10-24)
+   Every older dark hero now carries <HeroSilk /> — the same silver
+   silk as the Shift Reports hero — so their own glows, auroras,
+   grid lines and floating orbs go, the backgrounds unify on the
+   shell ink, and accent colours inside the hero turn white/silver.
+   Colour stays only where it is an alert (supplier alert, the
+   worker's on-shift state).
+   ════════════════════════════════════════════════════════════ */
+.dash-hero-glow,
+.dash-hero-aurora,
+.dash-hero-grid,
+.worker-hero-fx,
+.epd-glow,
+.epd-sheen,
+.evid-glow,
+.evid-grid-lines,
+.evid-orb,
+.spf-glow,
+.spf-grid-lines,
+.tps-glow,
+.tps-grid-lines,
+.stx-glow,
+.stx-grid-lines,
+.stx-scan,
+.siq-glow,
+.cbp-glow,
+.cbp-grid-lines {
+  display: none;
+}
+
+.dash-hero,
+.epd-hero,
+.evid-hero,
+[data-theme="dark"] .evid-hero,
+.spf-hero,
+[data-theme="dark"] .spf-hero,
+.tps-hero,
+.stx-hero,
+[data-theme="dark"] .stx-hero,
+.siq-hero,
+.cbp-hero,
+[data-theme="dark"] .cbp-hero {
+  isolation: isolate;
+  background: var(--shell-ink-bg);
+  --glow-rgb: 196 204 226;
+}
+
+.worker-hero {
+  isolation: isolate;
+  --glow-rgb: 196 204 226;
+}
+
+/* Accent words in titles: plain white. */
+.siq-title-em,
+.evid-title-em,
+.stx-title-em {
+  background: none;
+  -webkit-text-fill-color: currentColor;
+  color: #fff;
+}
+
+.tps-total {
+  background: none;
+  -webkit-text-fill-color: currentColor;
+  color: #fff;
+  text-shadow: 0 6px 30px rgb(var(--glow-rgb) / 0.45);
+}
+
+/* Hero stat tiles: one glass recipe, a brighter rim when "live". */
+.siq-stat[data-live],
+.evid-stat[data-tone="live"],
+.spf-stat[data-tone="warn"],
+.tps-stat[data-hero] {
+  border-color: rgb(255 255 255 / 0.32);
+  background: rgb(255 255 255 / 0.11);
+}
+
+.siq-stat-label > :first-child,
+.siq-stat[data-live] .siq-stat-label,
+.evid-stat[data-tone="live"] .evid-stat-label,
+.tps-stat[data-hero] .tps-stat-k,
+.tps-stat[data-hero] .tps-stat-k > :first-child {
+  color: rgb(255 255 255 / 0.8);
+}
+
+/* Month-over-month delta: direction is in the arrow, not the colour. */
+.tps-delta,
+.tps-delta[data-dir="down"] {
+  border-color: rgb(255 255 255 / 0.18);
+  background: rgb(255 255 255 / 0.1);
+  color: #fff;
+}
+
+/* Triage track: three strengths of silver instead of amber/blue/green. */
+.siq-track-seg:nth-child(1) {
+  background: rgb(255 255 255 / 0.92) !important;
+}
+
+.siq-track-seg:nth-child(2) {
+  background: rgb(255 255 255 / 0.55) !important;
+}
+
+.siq-track-seg:nth-child(3) {
+  background: rgb(255 255 255 / 0.3) !important;
+}
+
+/* Settings readiness dial: white at 100%, not green. */
+.stx-dial[data-complete] .stx-ring-fill {
+  stroke: #fff;
+}

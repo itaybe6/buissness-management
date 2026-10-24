@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { HeroSilk } from "@/components/bits";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
@@ -122,15 +123,13 @@ function IssuesHero({
 
   return (
     <header className="siq-hero" aria-label="בעיות שכר">
+      {/* Worker-shell page: the silk starts from the worker chrome colour. */}
+      <HeroSilk base={[0.098, 0.118, 0.145]} />
       <span className="siq-glow siq-glow--1" data-clear={allClear || undefined} aria-hidden />
       <span className="siq-glow siq-glow--2" aria-hidden />
 
       <div className="siq-hero-inner">
         <motion.div className="siq-hero-bar" {...rise(0)}>
-          <span className="siq-kicker" data-clear={allClear || undefined}>
-            <span className="siq-kicker-dot" aria-hidden />
-            {isManager ? "מוקד שכר" : "הדיווחים שלי"}
-          </span>
           {isManager && (
             <Link to="/payroll" className="siq-back">
               {/* RTL: "back" points right */}

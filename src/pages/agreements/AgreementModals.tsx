@@ -310,13 +310,13 @@ export function AgreementEditorModal({
                 <summary className="cursor-pointer text-[12.5px] font-bold text-text-2">
                   שמות תיבות הטקסט ({textFields.length}) — אופציונלי
                 </summary>
-                <p className="mt-1 text-[11.5px] text-text-3">
+                <p className="mt-1 text-[12.5px] text-text-3">
                   השם מוצג לעובד/ת כרמז בתוך התיבה הריקה, ואינו מודפס על הטופס.
                 </p>
                 <div className="mt-2 flex flex-col gap-1.5">
                   {textFields.map((f, i) => (
                     <div key={f.id} className="flex items-center gap-2">
-                      <span className="w-14 shrink-0 text-[11.5px] font-semibold text-text-3">
+                      <span className="w-14 shrink-0 text-[12.5px] font-semibold text-text-3">
                         #{i + 1} · ע׳{f.page + 1}
                       </span>
                       <Input

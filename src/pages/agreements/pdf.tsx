@@ -512,7 +512,7 @@ export function FieldSignOverlay({
               {value ? (
                 <img src={value} alt="חתימה" className="h-full w-full object-contain p-0.5" />
               ) : (
-                <span className="flex items-center gap-1 px-1 text-[11px] font-bold text-accent-2">
+                <span className="flex items-center gap-1 px-1 text-[12px] font-bold text-accent-2">
                   <Icon name="draw" size={14} /> לחתימה
                 </span>
               )}
@@ -600,7 +600,7 @@ export function SignaturePadModal({ onClose, onSave }: { onClose: () => void; on
         className="w-full touch-none rounded-[12px] border border-dashed border-border bg-surface"
         style={{ height: 200 }}
       />
-      <p className="mt-2 text-[11.5px] text-text-3">השתמשו בעכבר במחשב או באצבע בטלפון</p>
+      <p className="mt-2 text-[12.5px] text-text-3">השתמשו בעכבר במחשב או באצבע בטלפון</p>
     </Modal>
   );
 }

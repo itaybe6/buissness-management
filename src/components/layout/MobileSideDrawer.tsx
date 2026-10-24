@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import { NavLink } from "react-router-dom";
 
@@ -99,6 +99,9 @@ export function MobileSideDrawer({
 }: MobileSideDrawerProps) {
 
   const reduce = useReducedMotion();
+  /* Running index across groups for the item cascade; reset every render. */
+  const cascade = useRef(0);
+  cascade.current = 0;
   const isProfileActive = currentKey === "profile";
   const navGroups = groupNavItems(items, { flat: role === "employee" || role === "shift_manager" });
 
@@ -186,13 +189,13 @@ export function MobileSideDrawer({
 
             aria-label="תפריט ניווט"
 
-            initial={reduce ? false : { opacity: 0, transform: "translateX(100%)" }}
+            initial={reduce ? false : { transform: "translateX(100%)" }}
 
-            animate={{ opacity: 1, transform: "translateX(0)" }}
+            animate={{ transform: "translateX(0)" }}
 
-            exit={reduce ? undefined : { opacity: 0, transform: "translateX(100%)" }}
+            exit={reduce ? undefined : { transform: "translateX(100%)", transition: { duration: 0.24, ease: EASE_OUT } }}
 
-            transition={reduce ? undefined : { duration: 0.28, ease: EASE_OUT }}
+            transition={reduce ? undefined : { duration: 0.3, ease: EASE_OUT }}
 
             className="mobile-drawer fixed top-0 z-[60] flex h-[100dvh] w-[min(288px,calc(100vw-48px))] flex-col md:hidden"
 
@@ -276,7 +279,7 @@ export function MobileSideDrawer({
                 )}
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[13.5px] font-bold text-white">{userName ?? "משתמש"}</div>
-                  <div className="text-[11px] text-[#8b919c]">{ROLE_LABELS[role]}</div>
+                  <div className="text-[12px] text-[#8b919c]">{ROLE_LABELS[role]}</div>
                 </div>
               </NavLink>
             </div>
@@ -299,9 +302,18 @@ export function MobileSideDrawer({
 
                     {group.items.map((item) => (
 
-                      <NavLink
-
+                      /* Wrapper carries the cascade so the link keeps its CSS :active press. */
+                      <motion.div
                         key={item.key}
+                        initial={reduce ? false : { opacity: 0, x: 10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{
+                          duration: 0.3,
+                          delay: Math.min(0.3, 0.08 + (cascade.current++) * 0.02),
+                          ease: EASE_OUT,
+                        }}
+                      >
+                      <NavLink
 
                         to={`/${item.key}`}
 
@@ -345,6 +357,7 @@ export function MobileSideDrawer({
                         ) : null}
 
                       </NavLink>
+                      </motion.div>
 
                     ))}
 

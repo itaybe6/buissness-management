@@ -362,7 +362,7 @@ export function AreaChart({
           className="pointer-events-none absolute z-10 -translate-x-1/2 rounded-[11px] border border-border bg-surface px-2.5 py-1.5 shadow-lg"
           style={{ left: `${(hiX / (W || 1)) * 100}%`, top: 0 }}
         >
-          <div className="text-[10px] font-bold text-text-3">{hi.label}</div>
+          <div className="text-[11.5px] font-bold text-text-3">{hi.label}</div>
           <div className="text-[13px] font-extrabold tabular-nums text-text">{formatValue(hi.value)}</div>
         </div>
       )}
@@ -487,7 +487,7 @@ export function BarChart({
   return (
     <div className="flex gap-2" style={{ height }} dir="rtl">
       <div
-        className="flex shrink-0 flex-col justify-between pb-[22px] pt-1 text-[9px] font-bold tabular-nums leading-none text-text-3 sm:text-[10px]"
+        className="flex shrink-0 flex-col justify-between pb-[22px] pt-1 text-[11px] font-bold tabular-nums leading-none text-text-3 sm:text-[11.5px]"
         style={{ height: plotH + labelH + 8 }}
         aria-hidden
       >
@@ -504,7 +504,7 @@ export function BarChart({
             <div key={i} className="group flex h-full min-w-0 flex-1 flex-col items-stretch justify-end gap-1">
               <div className="flex h-4 items-end justify-center">
                 <span
-                  className={`max-w-full truncate text-[9px] font-extrabold tabular-nums leading-none sm:text-[10px] ${
+                  className={`max-w-full truncate text-[11px] font-extrabold tabular-nums leading-none sm:text-[11.5px] ${
                     d.highlight ? "text-accent-2" : "text-text-2"
                   }`}
                   title={d.value > 0 ? formatValue(d.value) : undefined}
@@ -529,7 +529,7 @@ export function BarChart({
                 />
               </div>
               <div
-                className={`text-center text-[10px] font-bold leading-none sm:text-[11px] ${d.highlight ? "text-accent-2" : "text-text-3"}`}
+                className={`text-center text-[11.5px] font-bold leading-none sm:text-[12px] ${d.highlight ? "text-accent-2" : "text-text-3"}`}
               >
                 {d.label}
               </div>
@@ -601,7 +601,7 @@ export function RadialGauge({
       </svg>
       <div className="absolute inset-0 grid place-content-center text-center">
         <div className="text-[26px] font-extrabold leading-none tabular-nums text-text">{centerValue}</div>
-        <div className="mt-1 text-[11px] font-bold text-text-3">{centerLabel}</div>
+        <div className="mt-1 text-[12px] font-bold text-text-3">{centerLabel}</div>
       </div>
     </div>
   );

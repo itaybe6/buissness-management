@@ -305,26 +305,25 @@ export function IdCardStatusCell({
   onView?: () => void;
 }) {
   const done = !!card;
-  const badge = (
-    <span
-      className={`inline-grid h-7 w-7 place-items-center rounded-full ${done ? "bg-success/15 text-success" : "bg-danger/15 text-danger"}`}
-    >
-      <Icon name={done ? "check" : "close"} size={18} />
-    </span>
-  );
   if (done && onView) {
     return (
       <button
         type="button"
-        className="inline-flex rounded-full transition-opacity hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        className="agx-status agx-status--btn"
+        data-state="done"
         aria-label="צפייה בתעודת זהות"
+        title="צפייה בתעודת זהות"
         onClick={onView}
       >
-        {badge}
+        <Icon name="check" size={17} />
       </button>
     );
   }
-  return badge;
+  return (
+    <span className="agx-status" data-state={done ? "done" : "missing"} aria-label={done ? "הועלתה" : "חסרה"}>
+      <Icon name={done ? "check" : "close"} size={17} />
+    </span>
+  );
 }
 
 export function openIdCard(card: EmployeeIdCard | undefined) {

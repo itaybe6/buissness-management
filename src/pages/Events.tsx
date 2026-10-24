@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { HeroSilk } from "@/components/bits";
 import { Link } from "react-router-dom";
 import { motion, useReducedMotion } from "motion/react";
 import { Button, Field, Icon, Input, PageLoader, ErrorState, Textarea } from "@/components/ui";
@@ -37,6 +38,7 @@ function EventsHero({
 
   return (
     <header className="evid-hero" aria-label="לוח אירועים">
+      <HeroSilk />
       <span className="evid-glow evid-glow--1" aria-hidden />
       <span className="evid-glow evid-glow--2" aria-hidden />
       <span className="evid-grid-lines" aria-hidden />
@@ -51,22 +53,12 @@ function EventsHero({
       </span>
 
       <div className="evid-hero-inner">
-        <motion.div className="evid-hero-bar" {...rise(0)}>
-          <span className="evid-kicker">
-            <span className="evid-kicker-dot" aria-hidden />
-            לוח אירועים
-          </span>
-        </motion.div>
-
         <motion.div className="evid-hero-copy" {...rise(0.05)}>
           <h1 className="evid-title">
             מה קורה
             <br />
             <span className="evid-title-em">על הבמה?</span>
           </h1>
-          <p className="evid-sub">
-            כל אירוע במקום אחד — מה שקרוב, מה שעבר, ומה שמחכה להדליק את הערב.
-          </p>
         </motion.div>
 
         <motion.div className="evid-stats" {...rise(0.12)}>

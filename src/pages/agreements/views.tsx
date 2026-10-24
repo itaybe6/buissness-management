@@ -23,8 +23,6 @@ import {
   DocsListEmpty,
   DocsMgmtStats,
   DocsMgmtToolbar,
-  DocsPageTabs,
-  DocsProgressHeader,
   DocsSearchBar,
   DocsTabs,
   EmployeeDocRow,
@@ -36,6 +34,9 @@ import { DocumentStatusTable, Form101OverviewTable } from "./StatusTables";
 import { OfficeReceiptsPanel } from "./OfficeReceiptsPanel";
 import { EmployeeIdCardRow, IdCardUploadModal } from "./EmployeeIdCardPanel";
 import { TAX_YEAR, FORM_101_BLANK_URL, type DocsMgmtCategory, type ManagerTab } from "./types";
+import { employeeDocs } from "./statusDocs";
+import { AgreementsHero } from "./AgreementsHero";
+import { CountUp } from "@/components/bits";
 
 const ADD_LABELS: Record<DocsMgmtCategory, string> = {
   all: "הוסף",
@@ -250,7 +251,7 @@ function SignersModal({
                 <div className="min-w-0">
                   <div className="truncate text-[14px] font-semibold">{emp.full_name ?? "—"}</div>
                   {sig?.signed_at && (
-                    <div className="text-[11.5px] text-text-3">נחתם · {new Date(sig.signed_at).toLocaleDateString("he-IL")}</div>
+                    <div className="text-[12.5px] text-text-3">נחתם · {new Date(sig.signed_at).toLocaleDateString("he-IL")}</div>
                   )}
                 </div>
                 <div className="flex items-center gap-2">
@@ -325,6 +326,33 @@ export function ManagerDocumentsView({
       });
   }, [businessId, canEdit, globalForm101, profileId, createAgreement]);
 
+  /* Team paperwork readiness — same rules as the status table (optional
+     docs that aren't done don't count against anyone). */
+  const team = useMemo(() => {
+    let complete = 0;
+    let missing = 0;
+    let form101 = 0;
+    for (const emp of staff) {
+      const docs = employeeDocs({
+        agreements,
+        globalFixed,
+        globalWork,
+        signatures: signatures ?? [],
+        idCards: idCards ?? [],
+        employeeId: emp.id,
+        taxYear: TAX_YEAR,
+      });
+      const counted = docs.all.filter((d) => !(d.optional && !d.done));
+      const done = counted.filter((d) => d.done).length;
+      missing += counted.length - done;
+      if (counted.length > 0 && done === counted.length) complete++;
+      if (docs.form101Doc.done) form101++;
+    }
+    const pct = staff.length > 0 ? Math.round((complete / staff.length) * 100) : 0;
+    return { complete, missing, form101, pct };
+  }, [staff, agreements, globalFixed, globalWork, signatures, idCards]);
+  const [openVariant, setOpenVariant] = useState<EditorVariant | null>(null);
+
   const tabs: { key: ManagerTab; label: string; icon: string }[] = [
     ...(canReceipts ? [{ key: "receipts" as const, label: "חשבוניות וקבלות", icon: "receipt_long" }] : []),
     { key: "status", label: "מצב מסמכים", icon: "fact_check" },
@@ -335,11 +363,64 @@ export function ManagerDocumentsView({
   const staffTab = tab === "status" || tab === "form101";
   const searchMiss = staffTab && staff.length > 0 && visibleStaff.length === 0;
 
+  const tabLabel = tabs.find((t) => t.key === tab)?.label ?? "";
+
   return (
-    <>
-      <DocsTabs tabs={tabs} active={tab} onChange={setTab} />
+    <div className="agx-page">
+      <AgreementsHero
+        title="תיקי העובדים"
+        sub={
+          staff.length === 0
+            ? "הוסיפו עובדים כדי להתחיל לאסוף מסמכים."
+            : team.complete === staff.length
+              ? "כל תיקי העובדים מלאים — אין מה להשלים."
+              : `${team.complete} מתוך ${staff.length} עובדים השלימו את כל המסמכים`
+        }
+        pct={team.pct}
+        dialCenter={
+          <>
+            <CountUp to={team.pct} />
+            <small>%</small>
+          </>
+        }
+        dialLabel="תיקים מלאים"
+        stats={[
+          { icon: "group", value: staff.length, label: "עובדים" },
+          {
+            icon: "pending_actions",
+            value: team.missing,
+            label: "מסמכים חסרים",
+            tone: team.missing > 0 ? "warn" : "ok",
+          },
+          { icon: "description", value: team.form101, label: `טפסי 101 · ${TAX_YEAR}`, suffix: `/${staff.length}` },
+          { icon: "history_edu", value: agreements.length, label: "הסכמים" },
+        ]}
+        action={
+          canEdit ? (
+            <button
+              type="button"
+              className="srx-cta"
+              data-spark
+              onClick={() => {
+                setTab("templates");
+                setOpenVariant("personal");
+              }}
+            >
+              <Icon name="add" size={19} />
+              <span>הסכם חדש</span>
+            </button>
+          ) : undefined
+        }
+        tabs={<DocsTabs variant="ink" tabs={tabs} active={tab} onChange={setTab} />}
+      />
+
+      <div className="agx-body">
       {staffTab && staff.length > 0 && (
-        <div className="docs-staff-search">
+        <div className="agx-toolbar">
+          <div className="srx-toolbar-title">
+            {visibleStaff.length} עובדים
+            <span>· {tabLabel}</span>
+          </div>
           <DocsSearchBar value={staffSearch} onChange={setStaffSearch} placeholder="חיפוש עובד..." />
         </div>
       )}
@@ -393,7 +474,17 @@ export function ManagerDocumentsView({
           )}
         </>
       )}
-      {tab === "templates" && <TemplatesPanel businessId={businessId} agreements={agreements} employees={staff} canEdit={canEdit} profileId={profileId} />}
+      {tab === "templates" && (
+        <TemplatesPanel
+          businessId={businessId}
+          agreements={agreements}
+          employees={staff}
+          canEdit={canEdit}
+          profileId={profileId}
+          openVariant={openVariant}
+          onOpenVariantConsumed={() => setOpenVariant(null)}
+        />
+      )}
       {editForm101 && globalForm101 && (
         <AgreementEditorModal
           template={globalForm101}
@@ -407,7 +498,8 @@ export function ManagerDocumentsView({
           }}
         />
       )}
-    </>
+      </div>
+    </div>
   );
 }
 
@@ -450,20 +542,55 @@ export function EmployeeDocumentsView({
   const total = myAgreements.length + 1;
   const showTabs = Boolean(canEditTemplates && profileId);
 
-  return (
-    <div className="docs-page">
-      {showTabs && (
-        <DocsPageTabs
-          active={pageTab}
-          onChange={setPageTab}
-          mineCount={pending}
-          mgmtCount={agreements.length}
-        />
-      )}
+  const doneTotal = total - pending;
+  const firstName = (employeeName ?? "").trim().split(/\s+/)[0];
 
+  return (
+    <div className="agx-page">
+      <AgreementsHero
+        title={firstName ? `שלום ${firstName}` : "המסמכים שלי"}
+        sub={
+          pending === 0
+            ? "הכל מעודכן — לא נשארו מסמכים להשלמה"
+            : pending === 1
+              ? "נותר מסמך אחד להשלמה"
+              : `נותרו ${pending} מסמכים להשלמה`
+        }
+        pct={total > 0 ? (doneTotal / total) * 100 : 100}
+        dialCenter={
+          pending === 0 ? (
+            <Icon name="check" size={30} />
+          ) : (
+            <>
+              <CountUp to={doneTotal} />
+              <small>/{total}</small>
+            </>
+          )
+        }
+        dialLabel="הושלמו"
+        stats={[
+          { icon: "pending_actions", value: pendingCount, label: "ממתינים לך", tone: pendingCount > 0 ? "warn" : "ok" },
+          { icon: "task_alt", value: doneCount, label: "הושלמו", tone: "ok" },
+          ...(showTabs ? [{ icon: "history_edu", value: agreements.length, label: "הסכמים בניהול" }] : []),
+        ]}
+        tabs={
+          showTabs ? (
+            <DocsTabs
+              variant="ink"
+              tabs={[
+                { key: "mine" as const, label: "לחתימה", icon: "draw", badge: pending },
+                { key: "manage" as const, label: "ניהול הסכמים", icon: "folder_managed", badge: agreements.length },
+              ]}
+              active={pageTab}
+              onChange={setPageTab}
+            />
+          ) : undefined
+        }
+      />
+
+      <div className="agx-body docs-page">
       {(!showTabs || pageTab === "mine") && (
         <>
-          <DocsProgressHeader done={total - pending} total={total} />
 
           {pendingCount > 0 && (
             <DocsGroup label="ממתין לך" count={pendingCount} tone="pending">
@@ -536,6 +663,7 @@ export function EmployeeDocumentsView({
           onOpenVariantConsumed={() => setFabVariant(null)}
         />
       )}
+      </div>
     </div>
   );
 }

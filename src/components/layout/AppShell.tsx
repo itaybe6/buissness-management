@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
+import { motion } from "motion/react";
+
 import { useBusiness } from "@/api/businesses";
 
 import { useAuth } from "@/lib/auth";
@@ -91,6 +93,11 @@ export function AppShell() {
     location.pathname === "/settings" ||
     location.pathname === "/tips" ||
     /^\/businesses\/[^/]+$/.test(location.pathname) ||
+    location.pathname === "/shift-reports" ||
+    /^\/shift-reports\/(new|[^/]+\/edit)$/.test(location.pathname) ||
+    location.pathname === "/payroll" ||
+    location.pathname === "/users" ||
+    location.pathname === "/agreements" ||
     location.pathname === "/events" ||
     /^\/events\/[^/]+$/.test(location.pathname);
 
@@ -125,7 +132,7 @@ export function AppShell() {
 
     function update() {
       const hero = mainEl.querySelector(
-        ".spf-hero, .evtd-hero, .evid-hero, .cbp-hero, .siq-hero, .stx-hero, .tps-hero, .worker-hero",
+        ".spf-hero, .evtd-hero, .evid-hero, .cbp-hero, .siq-hero, .stx-hero, .tps-hero, .worker-hero, .ink-stage",
       );
       /* Keep the ink/worker shell while the hero is still mounting (loader)
          so the status-bar strip doesn't flash white/surface. */
@@ -191,7 +198,7 @@ export function AppShell() {
               <div className="truncate text-[16px] font-extrabold tracking-tight text-white">
                 {isSuperAdmin ? "AMI" : business?.name ?? "—"}
               </div>
-              <div className="app-sidebar-sub text-[11.5px] text-white/45">Business Management</div>
+              <div className="app-sidebar-sub text-[12.5px] text-white/45">Business Management</div>
             </div>
           </div>
           <button
@@ -230,7 +237,7 @@ export function AppShell() {
               <div className="truncate text-[13.5px] font-bold text-white">
                 {profile?.full_name ?? "משתמש"}
               </div>
-              <div className="text-[11px] text-white/45">{ROLE_LABELS[role]}</div>
+              <div className="text-[12px] text-white/45">{ROLE_LABELS[role]}</div>
             </div>
           </NavLink>
         </div>
@@ -271,6 +278,15 @@ export function AppShell() {
 
                     >
 
+                      {/* One shared pill that glides between items (layoutId). */}
+                      {active ? (
+                        <motion.span
+                          layoutId="side-nav-pill"
+                          className="side-nav-pill"
+                          transition={{ type: "spring", stiffness: 420, damping: 36 }}
+                          aria-hidden
+                        />
+                      ) : null}
                       <Icon name={item.icon} size={21} fill={active} />
 
                       <span className="flex-1 text-right">{item.label}</span>

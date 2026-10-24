@@ -104,7 +104,7 @@ export function RecurringOrdersEntry({
           <div className="text-[18px] font-extrabold leading-none tabular-nums tracking-tight md:text-[26px]">
             {count}
           </div>
-          <div className="inventory-tab-cell-label mt-1 text-[10px] font-medium text-text-3 md:mt-1.5 md:text-[12px]">
+          <div className="inventory-tab-cell-label mt-1 text-[11.5px] font-medium text-text-3 md:mt-1.5 md:text-[12px]">
             הזמנות קבועות
           </div>
         </>

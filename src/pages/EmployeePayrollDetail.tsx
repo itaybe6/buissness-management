@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { HeroSilk } from "@/components/bits";
 import { Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Badge, ErrorState, Icon, PageLoader } from "@/components/ui";
 import { UserAvatar } from "@/components/ui/UserAvatar";
@@ -11,7 +12,7 @@ import {
   type ShiftRow,
 } from "@/components/payroll/ShiftBreakdownView";
 import { useAuth } from "@/lib/auth";
-import { WAGE_TYPE_LABELS } from "@/lib/constants";
+import { canAccessPayroll, WAGE_TYPE_LABELS } from "@/lib/constants";
 import { useBusinessId, formatCurrency } from "@/lib/db";
 import { positionsForEmployee } from "@/lib/employeePositions";
 import { buildEmployeeShiftRowsByPosition, fmtHours, monthNow, sumShiftRowTotals } from "@/lib/payrollShiftRows";
@@ -52,7 +53,7 @@ export function EmployeePayrollDetail() {
   const setMonth = (m: string) => setParams({ month: m });
   const stepper = useMonthStepper(month, setMonth);
 
-  const isPayrollManager = profile && ["manager", "office_manager"].includes(profile.role);
+  const isPayrollManager = canAccessPayroll(profile?.role);
   const { data: users, isLoading: usersLoading, isError: usersError, refetch: refetchUsers } = useProfiles(businessId);
   const { data: allPositions } = useEmployeePositions(businessId);
   const { data: departments } = useDepartments(businessId);
@@ -184,6 +185,9 @@ export function EmployeePayrollDetail() {
 
   const segTotal = segments.reduce((s, x) => s + x.value, 0);
 
+  if (profile?.role === "department_manager") {
+    return <Navigate to={profile.id === employeeId ? "/my-shifts" : "/dashboard"} replace />;
+  }
   if (!employeeId) return <Navigate to="/payroll" replace />;
   if (!isPayrollManager && profile?.id !== employeeId) return <Navigate to="/my-shifts" replace />;
 
@@ -216,6 +220,7 @@ export function EmployeePayrollDetail() {
     <div className="epd-page page-enter">
       {/* ══ Mobile — full-bleed payslip hero ══ */}
       <section className="epd-hero md:hidden">
+        <HeroSilk />
         <span className="epd-glow epd-glow--1" aria-hidden />
         <span className="epd-glow epd-glow--2" aria-hidden />
         <span className="epd-sheen" aria-hidden />
@@ -322,7 +327,7 @@ export function EmployeePayrollDetail() {
             rounded="square"
           />
           <div className="min-w-0">
-            <p className="text-[11.5px] font-bold uppercase tracking-[0.14em] text-text-3">פירוט שעות ושכר</p>
+            <p className="text-[12.5px] font-bold uppercase tracking-[0.14em] text-text-3">פירוט שעות ושכר</p>
             <h1 className="mt-0.5 truncate text-[clamp(1.4rem,5vw,1.9rem)] font-extrabold leading-none tracking-tight text-text">
               {employee.full_name}
             </h1>

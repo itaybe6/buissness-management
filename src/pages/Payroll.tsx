@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { Badge, Button, Card, Icon, Input, MonthPickerButton, PageHeader, PageLoader, ErrorState } from "@/components/ui";
+import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
+import { Badge, Card, Icon, Input, PageLoader, ErrorState } from "@/components/ui";
+import { CountUp, InkStage, RollingNumber } from "@/components/bits";
 import { useSalaryIssueBadgeCount } from "@/hooks/useSalaryIssueBadgeCount";
 import { useAuth } from "@/lib/auth";
-import { WAGE_TYPE_LABELS } from "@/lib/constants";
+import { canAccessPayroll, WAGE_TYPE_LABELS } from "@/lib/constants";
 import { useBusinessId, formatCurrency, initialsOf, colorFor } from "@/lib/db";
 import { useProfiles } from "@/api/users";
 import { useDepartments } from "@/api/departments";
@@ -56,40 +57,6 @@ function toExportRows(rows: PayrollPositionRow[]): PayrollExportRow[] {
   }));
 }
 
-function SalaryIssuesButton({
-  count,
-  onClick,
-  compact = false,
-}: {
-  count: number;
-  onClick: () => void;
-  compact?: boolean;
-}) {
-  const badge =
-    count > 0 ? (
-      <span className="ui-btn-count" aria-label={`${count} בעיות שכר חדשות`}>
-        {count > 99 ? "99+" : count}
-      </span>
-    ) : null;
-
-  if (compact) {
-    return (
-      <button type="button" className="payroll-hero-action" onClick={onClick}>
-        <Icon name="report_problem" size={17} />
-        <span>בעיות שכר</span>
-        {badge}
-      </button>
-    );
-  }
-
-  return (
-    <Button variant="secondary" icon="report_problem" onClick={onClick}>
-      בעיות שכר
-      {badge}
-    </Button>
-  );
-}
-
 export function Payroll() {
   const businessId = useBusinessId();
   const { profile } = useAuth();
@@ -107,7 +74,7 @@ export function Payroll() {
   const { data: faultPays } = useApprovedFaultPays(businessId, month);
   const { data: monthAdjustments } = usePayrollMonthAdjustments(businessId, month);
 
-  const isPayrollManager = profile && ["manager", "office_manager"].includes(profile.role);
+  const isPayrollManager = canAccessPayroll(profile?.role);
   const { count: salaryIssueCount } = useSalaryIssueBadgeCount();
 
   const deptName = useMemo(
@@ -149,6 +116,7 @@ export function Payroll() {
 
   const employeeCount = useMemo(() => new Set(filteredRows.map((r) => r.employeeId)).size, [filteredRows]);
 
+  if (profile?.role === "department_manager") return <Navigate to="/dashboard" replace />;
   if (isLoading) return <PageLoader />;
   if (isError) return <ErrorState onRetry={refetch} />;
 
@@ -185,117 +153,148 @@ export function Payroll() {
     };
   };
 
+  /* Where the month's money goes — positive parts only; shares of their sum. */
+  const parts = [
+    { key: "base", label: "שכר שעתי", value: totals.base },
+    { key: "tips", label: "טיפים", value: totals.tips },
+    { key: "topup", label: "השלמות", value: totals.topup },
+    { key: "bonus", label: "אחוז קופה", value: totals.bonus },
+    {
+      key: "extra",
+      label: "תוספות",
+      value: totals.faultPay + totals.monthlyBonus + Math.max(0, totals.differences),
+    },
+  ].filter((p) => p.value > 0);
+  const partsSum = parts.reduce((s, p) => s + p.value, 0);
+
   return (
-    <div className="w-full animate-fadeUp">
-      <PageHeader
-        actions={
-          <div className="flex w-full flex-col gap-2.5 md:flex-row md:items-center md:justify-between">
-            <div className="relative min-w-0 flex-1 md:max-w-[380px]">
-              <Icon name="search" size={19} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-3" />
-              <Input
-                className="pr-10"
-                placeholder="חיפוש עובד..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                aria-label="חיפוש עובד"
-              />
-            </div>
-            <div className="hidden items-center gap-2.5 md:flex">
-              <MonthPickerButton value={month} onChange={setMonth} formatLabel={monthLabel} />
-              {isPayrollManager && (
-                <SalaryIssuesButton count={salaryIssueCount} onClick={() => navigate("/salary-issues")} />
-              )}
-              {isPayrollManager && (
-                <Button
-                  variant="secondary"
-                  icon="download"
-                  onClick={() => exportPayrollExcel(toExportRows(filteredRows), month)}
-                >
-                  ייצוא אקסל
-                </Button>
-              )}
-            </div>
-          </div>
-        }
-      />
-
-      {/* ── Mobile — app-style payroll ── */}
-      <div className="payroll-mobile md:hidden">
-        <section className="payroll-hero">
-          <div className="payroll-hero-month" aria-label="בחירת חודש">
-            <button
-              type="button"
-              className="payroll-month-btn"
-              aria-label="חודש קודם"
-              onClick={() => setMonth(shiftMonth(month, -1))}
-            >
-              <Icon name="chevron_right" size={20} />
-            </button>
-            <span className="payroll-month-label">
-              <Icon name="calendar_month" size={15} />
-              {monthLabel(month)}
-            </span>
-            <button
-              type="button"
-              className="payroll-month-btn"
-              aria-label="חודש הבא"
-              onClick={() => setMonth(shiftMonth(month, 1))}
-            >
-              <Icon name="chevron_left" size={20} />
-            </button>
-          </div>
-
-          <span className="payroll-hero-label">סה״כ לתשלום</span>
-          <div className="payroll-hero-total">{formatCurrency(totals.total)}</div>
-          <div className="payroll-hero-chips">
-            <span className="payroll-hero-chip">
-              <Icon name="schedule" size={15} />
-              {Math.round(totals.hours).toLocaleString("he-IL")} שעות
-            </span>
-            <span className="payroll-hero-chip">
-              <Icon name="group" size={15} />
-              {employeeCount} עובדים
-            </span>
-          </div>
-
+    <div className="pyx-page">
+      <InkStage className="pyx-hero">
+        <div className="srx-bar">
+          <h1 className="srx-page-title">שכר</h1>
           {isPayrollManager && (
-            <div className="payroll-hero-actions">
-              <SalaryIssuesButton
-                compact
-                count={salaryIssueCount}
-                onClick={() => navigate("/salary-issues")}
-              />
+            <div className="pyx-actions">
+              <button type="button" className="pyx-glass-btn" onClick={() => navigate("/salary-issues")}>
+                <Icon name="report_problem" size={18} />
+                <span className="pyx-glass-label">בעיות שכר</span>
+                {salaryIssueCount > 0 && (
+                  <span className="pyx-glass-count" aria-label={`${salaryIssueCount} בעיות שכר חדשות`}>
+                    {salaryIssueCount > 99 ? "99+" : salaryIssueCount}
+                  </span>
+                )}
+              </button>
               <button
                 type="button"
-                className="payroll-hero-action"
+                className="pyx-glass-btn"
                 onClick={() => exportPayrollExcel(toExportRows(filteredRows), month)}
+                aria-label="ייצוא אקסל"
+                title="ייצוא אקסל"
               >
-                <Icon name="download" size={17} />
-                <span>ייצוא אקסל</span>
+                <Icon name="download" size={18} />
+                <span className="pyx-glass-label">אקסל</span>
               </button>
             </div>
           )}
-        </section>
-
-        <div className="payroll-stats">
-          {[
-            { label: "שכר שעתי", value: totals.base, icon: "payments", tone: "neutral" },
-            { label: "טיפים", value: totals.tips, icon: "savings", tone: "accent" },
-            { label: "השלמות למינימום", value: totals.topup, icon: "add_card", tone: "warning" },
-            { label: "תוספת מאחוז קופה", value: totals.bonus, icon: "percent", tone: "accent" },
-          ].map((s, i) => (
-            <div
-              key={s.label}
-              className="payroll-stat"
-              data-tone={s.tone}
-              style={{ animationDelay: `${i * 40}ms` }}
-            >
-              <span className="payroll-stat-icon"><Icon name={s.icon} size={17} /></span>
-              <div className="payroll-stat-value">{formatCurrency(s.value)}</div>
-              <div className="payroll-stat-label">{s.label}</div>
-            </div>
-          ))}
         </div>
+
+        <div className="srx-head">
+          <div className="srx-head-copy">
+            <div className="srx-month">
+              <button
+                type="button"
+                className="srx-month-btn"
+                onClick={() => setMonth(shiftMonth(month, -1))}
+                aria-label="חודש קודם"
+              >
+                <Icon name="chevron_right" size={20} />
+              </button>
+              <span className="srx-month-label">
+                <Icon name="calendar_month" size={16} />
+                <span>{monthLabel(month)}</span>
+              </span>
+              <button
+                type="button"
+                className="srx-month-btn"
+                onClick={() => setMonth(shiftMonth(month, 1))}
+                aria-label="חודש הבא"
+              >
+                <Icon name="chevron_left" size={20} />
+              </button>
+            </div>
+            <div className="srx-total-label">סה״כ לתשלום</div>
+            <div className="srx-total">
+              <RollingNumber value={totals.total} format={formatCurrency} />
+            </div>
+          </div>
+
+          <div className="srx-stats">
+            <div className="srx-stat" style={{ "--i": 0 } as React.CSSProperties}>
+              <span className="srx-stat-icon"><Icon name="group" size={18} /></span>
+              <span className="srx-stat-val">
+                <CountUp key={month} to={employeeCount} />
+              </span>
+              <span className="srx-stat-lbl">עובדים</span>
+            </div>
+            <div className="srx-stat" style={{ "--i": 1 } as React.CSSProperties}>
+              <span className="srx-stat-icon"><Icon name="schedule" size={18} /></span>
+              <span className="srx-stat-val">
+                <CountUp key={month} to={Math.round(totals.hours)} />
+              </span>
+              <span className="srx-stat-lbl">שעות</span>
+            </div>
+            <div className="srx-stat" style={{ "--i": 2 } as React.CSSProperties}>
+              <span className="srx-stat-icon"><Icon name="savings" size={18} /></span>
+              <span className="srx-stat-val">
+                <CountUp key={month} to={totals.tips} format={formatCurrency} />
+              </span>
+              <span className="srx-stat-lbl">טיפים</span>
+            </div>
+          </div>
+        </div>
+
+        {partsSum > 0 && (
+          <div className="pyx-mix">
+            <div className="pyx-track" role="img" aria-label="הרכב השכר החודשי">
+              {parts.map((p, i) => (
+                <i
+                  key={p.key}
+                  data-part={i}
+                  style={{ "--w": `${(p.value / partsSum) * 100}%`, "--i": i } as React.CSSProperties}
+                />
+              ))}
+            </div>
+            <div className="pyx-legend">
+              {parts.map((p, i) => (
+                <span key={p.key} className="pyx-legend-item" data-part={i}>
+                  <b />
+                  {p.label}
+                  <strong>{formatCurrency(p.value)}</strong>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </InkStage>
+
+      <div className="srx-body">
+        <div className="srx-toolbar">
+          <div className="srx-toolbar-title">
+            {employeeCount} עובדים
+          </div>
+          <div className="pyx-search">
+            <Icon name="search" size={19} className="pyx-search-icon" />
+            <Input
+              className="pr-10"
+              placeholder="חיפוש עובד..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              aria-label="חיפוש עובד"
+            />
+          </div>
+        </div>
+
+      {/* ── Mobile — roster ── */}
+      <div className="payroll-mobile md:hidden">
 
         {filteredRows.length === 0 ? (
           <div className="users-roster-empty">
@@ -339,45 +338,12 @@ export function Payroll() {
         )}
       </div>
 
-      {/* ── Desktop — stat tiles ── */}
-      {/* Six tiles only fit once the content column is wide enough for the
-          longer labels ("תוספת מאחוז קופה") — three until then. */}
-      <div className="mb-5 hidden grid-cols-2 gap-4 md:grid lg:grid-cols-3 xl:grid-cols-6">
-        {[
-          { label: "סה״כ שעות", value: Math.round(totals.hours).toLocaleString("he-IL"), icon: "schedule", color: "var(--info)", tint: "var(--info-bg)" },
-          { label: "שכר שעתי", value: formatCurrency(totals.base), icon: "payments", color: "var(--text)", tint: "var(--surface-2)" },
-          { label: "טיפים", value: formatCurrency(totals.tips), icon: "savings", color: "var(--accent-2)", tint: "var(--accent-tint)" },
-          { label: "השלמות למינימום", value: formatCurrency(totals.topup), icon: "add_card", color: "var(--warning)", tint: "var(--warning-bg)" },
-          { label: "תוספת מאחוז קופה", value: formatCurrency(totals.bonus), icon: "percent", color: "var(--accent)", tint: "var(--accent-tint)" },
-          { label: "סה״כ לתשלום", value: formatCurrency(totals.total), icon: "account_balance_wallet", color: "var(--success)", tint: "var(--success-bg)" },
-        ].map((k, i) => (
-          <div
-            key={k.label}
-            className="stat-tile dash-rise"
-            style={{ "--tile-color": k.color, "--tile-tint": k.tint, "--rise-delay": `${i * 45}ms` } as React.CSSProperties}
-          >
-            <span className="stat-tile-icon"><Icon name={k.icon} size={21} /></span>
-            <div className="stat-tile-value">{k.value}</div>
-            <div className="stat-tile-label">{k.label}</div>
-          </div>
-        ))}
-      </div>
-
-      <Card className="hidden overflow-hidden !p-0 shadow-card md:block">
-        {isPayrollManager && (
-          <p className="flex items-center gap-1.5 border-b border-border-2 bg-surface px-5 py-2.5 text-[12.5px] text-text-2">
-            <Icon name="edit_note" size={17} className="text-text-3" />
-            <strong className="text-text">בונוס חודשי</strong> מתווסף לסה״כ ·{" "}
-            <strong className="text-text">מפרעה</strong> מנוכה מהסה״כ ·{" "}
-            <strong className="text-text">הפרשים</strong> תיקון לפני תשלום — לעריכה יש ללחוץ על
-            העיפרון בסוף השורה
-          </p>
-        )}
+      <Card className="pyx-table hidden overflow-hidden !p-0 shadow-card md:block">
         <div className="overflow-auto">
           {/* Tightest width the 13 columns still read at — keeps the table
               inside the card on a 1366px laptop instead of scrolling. */}
           <div className="min-w-[1120px]">
-            <div className={`${PAYROLL_GRID} border-b border-border bg-surface-2 px-5 py-3 text-[10.5px] font-bold uppercase tracking-wide text-text-3`}>
+            <div className={`${PAYROLL_GRID} border-b border-border bg-surface-2 px-5 py-3 text-[12px] font-bold uppercase tracking-wide text-text-3`}>
               <span>עובד</span>
               <span>תפקיד</span>
               <span>סוג</span>
@@ -416,12 +382,12 @@ export function Payroll() {
                   <span className="min-w-0">
                     <span className="block truncate font-bold">{r.name}</span>
                     {r.positionCount > 1 && (
-                      <span className="block text-[11px] text-text-3">{r.positionCount} תפקידים</span>
+                      <span className="block text-[12px] text-text-3">{r.positionCount} תפקידים</span>
                     )}
                   </span>
                 </span>
                 <span className="truncate text-text-2" title={r.positionLabel}>{r.positionLabel}</span>
-                <span><Badge tone={r.wageType === "tips" ? "violet" : "neutral"}>{WAGE_TYPE_LABELS[r.wageType]}</Badge></span>
+                <span><Badge tone="neutral">{WAGE_TYPE_LABELS[r.wageType]}</Badge></span>
                 <span className="tabular-nums">{r.hours.toFixed(1)}</span>
                 <span className="tabular-nums">{r.rate ? formatCurrency(r.rate) : "—"}</span>
                 <span className={`tabular-nums ${r.wageType === "tips" ? "font-bold text-accent-2" : ""}`}>{formatCurrency(r.wageType === "tips" ? r.tips : r.base)}</span>
@@ -476,6 +442,7 @@ export function Payroll() {
           </div>
         </div>
       </Card>
+      </div>
 
       {editingRow && (
         <PayrollAdjustmentsDialog

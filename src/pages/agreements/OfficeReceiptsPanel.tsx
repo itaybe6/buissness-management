@@ -447,7 +447,7 @@ function ReceiptFilePreview({
           </span>
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[13px] font-bold text-text">{file.name}</span>
-            <span className="block text-[11.5px] text-text-3">
+            <span className="block text-[12.5px] text-text-3">
               {isPdf ? "מסמך PDF" : isImage ? "תמונה" : "קובץ"}
             </span>
           </span>
@@ -734,7 +734,7 @@ function UploadForm({
                 }`}
               >
                 <Icon name={RECEIPT_TYPE_ICONS[t]} size={22} />
-                <span className="text-[11.5px] font-bold leading-tight">{RECEIPT_TYPE_LABELS[t]}</span>
+                <span className="text-[12.5px] font-bold leading-tight">{RECEIPT_TYPE_LABELS[t]}</span>
               </button>
             );
           })}
@@ -935,7 +935,7 @@ function UploadForm({
                     <Icon name="cloud_upload" size={26} />
                   </span>
                   <span className="text-[13px] font-bold text-text-2">גררי קובץ לכאן או לחצי לבחירה</span>
-                  <span className="text-[11.5px]">תמונה (JPG, PNG) או PDF — אפשר כמה תמונות</span>
+                  <span className="text-[12.5px]">תמונה (JPG, PNG) או PDF — אפשר כמה תמונות</span>
                 </div>
               }
             />

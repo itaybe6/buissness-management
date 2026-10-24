@@ -7,6 +7,9 @@ import { ThemeProvider } from "@/lib/theme";
 import { App } from "@/App";
 import "./index.css";
 import "./styles/auth.css";
+import "./styles/bits.css";
+import "./styles/pages.css";
+import "./styles/polish.css";
 
 const queryClient = new QueryClient({
   defaultOptions: {

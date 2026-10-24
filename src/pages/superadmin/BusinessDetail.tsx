@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { HeroSilk } from "@/components/bits";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button, ErrorState, Field, Icon, Input, PageLoader } from "@/components/ui";
 import {
@@ -166,6 +167,7 @@ export function BusinessDetail() {
   return (
     <div className="cbp-page bzd-page">
       <header className="cbp-hero">
+        <HeroSilk />
         <span className="cbp-glow cbp-glow--1" aria-hidden />
         <span className="cbp-glow cbp-glow--2" aria-hidden />
         <span className="cbp-grid-lines" aria-hidden />

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { HeroSilk } from "@/components/bits";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { motion, useReducedMotion } from "motion/react";
 import { Button, EmptyState, ErrorState, Icon, PageLoader } from "@/components/ui";
@@ -62,14 +63,8 @@ function RequestsHero({
 
   return (
     <header className="evid-hero evrqp-hero" aria-label="בקשות מאירועים">
+      <HeroSilk />
       <div className="evid-hero-inner">
-        <motion.div className="evid-hero-bar" {...rise(0)}>
-          <span className="evid-kicker">
-            <span className="evid-kicker-dot" aria-hidden />
-            תיבת בקשות
-          </span>
-        </motion.div>
-
         <motion.div className="evid-hero-copy" {...rise(0.05)}>
           <h1 className="evid-title">
             {activeCount > 0 ? (
@@ -86,9 +81,6 @@ function RequestsHero({
               </>
             )}
           </h1>
-          <p className="evid-sub">
-            כאן משבצים עובדים למקומות שביקשה מנהלת האירועים, מסמנים מה כבר נקנה, ורואים אילו משימות היא הוסיפה.
-          </p>
         </motion.div>
 
         <motion.div className="evid-stats evrqp-stats" {...rise(0.12)}>

@@ -762,7 +762,7 @@ function DishTable({
                     <Monogram name={dish.name} url={dish.image_url} size={36} />
                     <div className="min-w-0">
                       <div className="truncate font-extrabold">{dish.name}</div>
-                      <div className="text-[11.5px] text-text-3">
+                      <div className="text-[12.5px] text-text-3">
                         {cost.lines.length} מרכיבים
                         {!cost.complete && <span className="text-warning"> · {cost.uncostedLines} ללא מחיר</span>}
                       </div>

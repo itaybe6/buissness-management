@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { HeroSilk } from "@/components/bits";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { Button, EmptyState, ErrorState, Icon, PageLoader } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
@@ -34,7 +35,7 @@ export function Suppliers() {
   const businessId = useBusinessId();
   const navigate = useNavigate();
   const { profile } = useAuth();
-  const canManage = !!(profile && ["manager", "office_manager"].includes(profile.role));
+  const canManage = !!(profile && ["manager", "department_manager", "office_manager"].includes(profile.role));
 
   const { data: suppliers, isLoading, isError, error, refetch } = useSuppliers(businessId);
   const { data: priceIndex } = useSupplierItemPriceIndex(businessId);
@@ -96,6 +97,7 @@ export function Suppliers() {
   return (
     <div className="spf-page page-enter">
       <header className="spf-hero">
+        <HeroSilk />
         <span className="spf-glow spf-glow--1" aria-hidden />
         <span className="spf-glow spf-glow--2" aria-hidden />
         <span className="spf-grid-lines" aria-hidden />
@@ -134,7 +136,7 @@ export function Suppliers() {
             <div className="text-[18px] font-extrabold leading-none tabular-nums tracking-tight md:text-[26px]">
               {filtered.length}
             </div>
-            <div className="inventory-tab-cell-label mt-1 text-[10px] font-medium text-text-3 md:mt-1.5 md:text-[12px]">
+            <div className="inventory-tab-cell-label mt-1 text-[11.5px] font-medium text-text-3 md:mt-1.5 md:text-[12px]">
               ספקים
             </div>
           </div>

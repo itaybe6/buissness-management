@@ -446,7 +446,7 @@ export function TaskMediaBar({
             <span>{uploading ? "מעלה…" : hasMedia ? "הוסף תמונה נוספת" : "העלאת תיעוד"}</span>
           </button>
           {hasMedia && (
-            <span className="ms-auto text-[11px] font-semibold tabular-nums text-text-3">{media.length} קבצים</span>
+            <span className="ms-auto text-[12px] font-semibold tabular-nums text-text-3">{media.length} קבצים</span>
           )}
         </div>
 

@@ -1,4 +1,5 @@
 import { useMemo, type ReactNode } from "react";
+import { HeroSilk } from "@/components/bits";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId, formatCurrency } from "@/lib/db";
@@ -84,7 +85,7 @@ function KpiCard({ kpi, delay }: { kpi: Kpi; delay: number }) {
             <CountUp value={kpi.value} format={kpi.format} />
           </span>
         </div>
-        {kpi.sub && <div className="mt-1 flex items-center gap-1.5 text-[11.5px] font-semibold text-text-2">{kpi.sub}</div>}
+        {kpi.sub && <div className="mt-1 flex items-center gap-1.5 text-[12.5px] font-semibold text-text-2">{kpi.sub}</div>}
       </div>
     </>
   );
@@ -160,7 +161,7 @@ export function ManagerDashboard() {
   const thisMonth = monthKey(now);
   const lastMonth = monthKey(new Date(now.getFullYear(), now.getMonth() - 1, 1));
 
-  const { data: business, isLoading: businessLoading } = useBusiness(businessId);
+  const { isLoading: businessLoading } = useBusiness(businessId);
   const { data: reports = [], isLoading: reportsLoading } = useShiftReports(businessId, thisMonth);
   const { data: prevReports = [], isLoading: prevReportsLoading } = useShiftReports(businessId, lastMonth);
   const { data: profiles = [], isLoading: profilesLoading } = useProfiles(businessId);
@@ -345,6 +346,7 @@ export function ManagerDashboard() {
     <div className="w-full space-y-4 xl:space-y-5">
       {/* ---------------- Hero ---------------- */}
       <header className="dash-hero dash-rise p-5 sm:p-6 md:p-7 xl:p-8">
+        <HeroSilk />
         <div className="dash-hero-glow" />
         <div className="dash-hero-aurora dash-hero-aurora--1" />
         <div className="dash-hero-aurora dash-hero-aurora--2" />
@@ -356,10 +358,10 @@ export function ManagerDashboard() {
             </h1>
             <p className="mt-1 text-[12.5px] font-medium text-white/65">{heToday}</p>
             {on("attendance") && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Link to="/attendance" className="dash-hero-chip">
-                  <span className="dash-live-dot" />
-                  <strong>{onShiftPeople.length}</strong> במשמרת כעת
+              <div className="dash-hero-stats mt-3">
+                <Link to="/attendance" className="dash-hero-stat">
+                  <strong>{onShiftPeople.length}</strong>
+                  <span>במשמרת כעת</span>
                 </Link>
               </div>
             )}
@@ -370,40 +372,37 @@ export function ManagerDashboard() {
               {heToday}
             </div>
             <h1 className="mt-2 text-[26px] font-extrabold tracking-tight text-white md:text-[30px]">
-              {greeting()}{firstName ? `, ${firstName}` : ""} 👋
+              {greeting()}{firstName ? `, ${firstName}` : ""}
             </h1>
-            <p className="mt-1 text-[13.5px] font-medium text-white/65">
-              הנה התמונה המלאה של {business?.name ?? "העסק"} — מבט-על על הביצועים ב{heMonth}.
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2">
+            <div className="dash-hero-stats mt-5">
               {on("attendance") && (
-                <Link to="/attendance" className="dash-hero-chip">
-                  <span className="dash-live-dot" />
-                  <strong>{onShiftPeople.length}</strong> במשמרת כעת
+                <Link to="/attendance" className="dash-hero-stat">
+                  <strong>{onShiftPeople.length}</strong>
+                  <span>במשמרת כעת</span>
                 </Link>
               )}
               {on("tasks") && taskOpen + taskProg > 0 && (
-                <Link to="/tasks" className="dash-hero-chip">
-                  <Icon name="checklist" size={15} />
-                  <strong>{taskOpen + taskProg}</strong> משימות פתוחות
+                <Link to="/tasks" className="dash-hero-stat">
+                  <strong>{taskOpen + taskProg}</strong>
+                  <span>משימות פתוחות</span>
                 </Link>
               )}
               {on("faults") && faultOpen > 0 && (
-                <Link to="/faults" className="dash-hero-chip" data-tone="danger">
-                  <Icon name="build" size={15} />
-                  <strong>{faultOpen}</strong> תקלות
+                <Link to="/faults" className="dash-hero-stat">
+                  <strong>{faultOpen}</strong>
+                  <span>תקלות</span>
                 </Link>
               )}
               {on("inventory") && lowStock.length > 0 && (
-                <Link to="/inventory?stock=low" className="dash-hero-chip" data-tone="warning">
-                  <Icon name="inventory_2" size={15} />
-                  <strong>{lowStock.length}</strong> במלאי נמוך
+                <Link to="/inventory?stock=low" className="dash-hero-stat">
+                  <strong>{lowStock.length}</strong>
+                  <span>במלאי נמוך</span>
                 </Link>
               )}
               {on("events") && openEventRequests > 0 && (
-                <Link to="/events/requests" className="dash-hero-chip" data-tone="warning">
-                  <Icon name="outgoing_mail" size={15} />
-                  <strong>{openEventRequests}</strong> בקשות מאירועים
+                <Link to="/events/requests" className="dash-hero-stat">
+                  <strong>{openEventRequests}</strong>
+                  <span>בקשות מאירועים</span>
                 </Link>
               )}
             </div>
@@ -455,15 +454,15 @@ export function ManagerDashboard() {
               <>
                 <div className="mb-3 flex flex-wrap items-center gap-x-6 gap-y-2">
                   <div>
-                    <div className="text-[11px] font-bold text-text-3">סה״כ מכירות</div>
+                    <div className="text-[12px] font-bold text-text-3">סה״כ מכירות</div>
                     <div className="text-[19px] font-extrabold tabular-nums text-text">{formatCurrency(revenue)}</div>
                   </div>
                   <div>
-                    <div className="text-[11px] font-bold text-text-3">ממוצע יומי</div>
+                    <div className="text-[12px] font-bold text-text-3">ממוצע יומי</div>
                     <div className="text-[19px] font-extrabold tabular-nums text-text">{compactCurrency(revenue / upTo)}</div>
                   </div>
                   <div>
-                    <div className="text-[11px] font-bold text-text-3">משלוחים</div>
+                    <div className="text-[12px] font-bold text-text-3">משלוחים</div>
                     <div className="text-[19px] font-extrabold tabular-nums text-text">{Math.round(deliveryShare * 100)}%</div>
                   </div>
                 </div>
@@ -529,18 +528,18 @@ export function ManagerDashboard() {
               <div className="min-w-0 flex-1">
                 {lowStock.length > 0 ? (
                   <>
-                    <div className="mb-1.5 text-[11.5px] font-bold text-danger">חסרים במלאי</div>
+                    <div className="mb-1.5 text-[12.5px] font-bold text-danger">חסרים במלאי</div>
                     <div className="flex flex-col gap-1.5">
                       {lowStock.slice(0, 4).map((it) => (
                         <div key={it.id} className="flex items-center gap-2">
                           <span className="flex-1 truncate text-[12.5px] font-semibold text-text-2">{it.name}</span>
-                          <span className="rounded-md bg-danger-bg px-1.5 py-0.5 text-[11px] font-extrabold tabular-nums text-danger">
+                          <span className="rounded-md bg-danger-bg px-1.5 py-0.5 text-[12px] font-extrabold tabular-nums text-danger">
                             {it.current_qty}/{it.min_quantity}
                           </span>
                         </div>
                       ))}
                       {lowStock.length > 4 && (
-                        <div className="text-[11.5px] font-semibold text-text-3">+ עוד {lowStock.length - 4} מוצרים</div>
+                        <div className="text-[12.5px] font-semibold text-text-3">+ עוד {lowStock.length - 4} מוצרים</div>
                       )}
                     </div>
                   </>

@@ -17,7 +17,7 @@ export function SeatMeter({ used, cap }: { used: number; cap: number | null }) {
       <span className="mb-1 flex items-baseline gap-1 text-[12.5px] font-bold tabular-nums text-text-2">
         {used}
         <span className="text-text-3">/ {cap}</span>
-        {used >= cap && <span className="text-[11px] font-bold text-danger">· מלא</span>}
+        {used >= cap && <span className="text-[12px] font-bold text-danger">· מלא</span>}
       </span>
       <span className="seat-meter block">
         <span className="seat-meter-fill block" data-tone={tone} style={{ width: `${pct}%` }} />

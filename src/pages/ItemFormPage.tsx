@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { HeroSilk } from "@/components/bits";
 import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   Button,
@@ -1813,6 +1814,7 @@ export function ItemFormPage() {
     <div className="spf-page iwz-page page-enter" ref={pageRef}>
       {/* ── Ink hero — identity + step rail ── */}
       <header className="spf-hero">
+        <HeroSilk />
         <span className="spf-glow spf-glow--1" aria-hidden />
         <span className="spf-glow spf-glow--2" aria-hidden />
         <span className="spf-grid-lines" aria-hidden />

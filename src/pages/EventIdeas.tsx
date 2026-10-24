@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { HeroSilk } from "@/components/bits";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
@@ -115,6 +116,7 @@ function IdeasHero({
 
   return (
     <header className="evid-hero" aria-label="רעיונות לאירועים">
+      <HeroSilk />
       <span className="evid-glow evid-glow--1" aria-hidden />
       <span className="evid-glow evid-glow--2" aria-hidden />
       <span className="evid-grid-lines" aria-hidden />
@@ -129,22 +131,12 @@ function IdeasHero({
       </span>
 
       <div className="evid-hero-inner">
-        <motion.div className="evid-hero-bar" {...rise(0)}>
-          <span className="evid-kicker">
-            <span className="evid-kicker-dot" aria-hidden />
-            בנק רעיונות
-          </span>
-        </motion.div>
-
         <motion.div className="evid-hero-copy" {...rise(0.05)}>
           <h1 className="evid-title">
             מה חלמתם
             <br />
             <span className="evid-title-em">לעשות הבא?</span>
           </h1>
-          <p className="evid-sub">
-            כל רעיון — קריצה לאירוע הבא. שתפו, השראו, ותנו למנהלת האירועים את הניצוץ.
-          </p>
         </motion.div>
 
         <motion.div className="evid-stats" {...rise(0.12)}>

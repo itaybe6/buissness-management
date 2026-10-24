@@ -1,6 +1,6 @@
 import { useLayoutEffect } from "react";
 
-type MobileChrome = "surface" | "ink" | "worker" | "sidebar" | "auth";
+type MobileChrome = "surface" | "ink" | "worker" | "sidebar" | "auth" | "authInk";
 
 const CHROME_THEME_COLOR: Record<MobileChrome, { light: string; dark: string }> = {
   surface: { light: "#ffffff", dark: "#151c28" },
@@ -8,7 +8,9 @@ const CHROME_THEME_COLOR: Record<MobileChrome, { light: string; dark: string }> 
   worker: { light: "#191e25", dark: "#191e25" },
   sidebar: { light: "#151c28", dark: "#1c2432" },
   /* Auth screens have no header — the chrome matches --bg, the page itself. */
-  auth: { light: "#f4f2ee", dark: "#0b0e16" },
+  auth: { light: "#f5f6f8", dark: "#0b0e16" },
+  /* The always-dark silk stage of the login / reset-password screens. */
+  authInk: { light: "#05060a", dark: "#05060a" },
 };
 
 /** Chromes light enough to keep the OS status bar in its dark-on-light style. */

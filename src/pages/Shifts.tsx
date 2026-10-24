@@ -1091,7 +1091,7 @@ function EmployeeConstraints({ templates }: { templates: ShiftTemplate[] }) {
                         title="כל המשמרות ביום זה — יכול"
                         disabled={!canEdit}
                         onClick={() => fillDay(i, "available")}
-                        className="rounded-md px-1.5 py-0.5 text-[10px] font-bold text-info transition hover:[background:var(--info-bg)] disabled:cursor-not-allowed disabled:opacity-40"
+                        className="rounded-md px-1.5 py-0.5 text-[11.5px] font-bold text-info transition hover:[background:var(--info-bg)] disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         הכל יכול
                       </button>
@@ -1100,7 +1100,7 @@ function EmployeeConstraints({ templates }: { templates: ShiftTemplate[] }) {
                         title="נקה יום"
                         disabled={!canEdit}
                         onClick={() => clearDay(i)}
-                        className="rounded-md px-1.5 py-0.5 text-[10px] font-bold text-text-3 transition hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-40"
+                        className="rounded-md px-1.5 py-0.5 text-[11.5px] font-bold text-text-3 transition hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         נקה
                       </button>
@@ -1191,7 +1191,7 @@ function AvailabilityCell({
         type="button"
         disabled={locked}
         onClick={() => onSet(isAvail ? null : "available")}
-        className={`seg-btn flex flex-1 items-center justify-center gap-1 rounded-[7px] text-[11.5px] font-bold transition ${horizontal ? "py-2 text-[12.5px]" : "py-1.5"}`}
+        className={`seg-btn flex flex-1 items-center justify-center gap-1 rounded-[7px] text-[12.5px] font-bold transition ${horizontal ? "py-2 text-[12.5px]" : "py-1.5"}`}
         style={
           isAvail
             ? { background: "var(--info)", color: "#fff", boxShadow: "var(--shadow-sm)" }
@@ -1205,7 +1205,7 @@ function AvailabilityCell({
         type="button"
         disabled={locked}
         onClick={() => onSet(isCannot ? null : "cannot")}
-        className={`seg-btn flex flex-1 items-center justify-center gap-1 rounded-[7px] text-[11.5px] font-bold transition ${horizontal ? "py-2 text-[12.5px]" : "py-1.5"}`}
+        className={`seg-btn flex flex-1 items-center justify-center gap-1 rounded-[7px] text-[12.5px] font-bold transition ${horizontal ? "py-2 text-[12.5px]" : "py-1.5"}`}
         style={
           isCannot
             ? { background: "var(--danger)", color: "#fff", boxShadow: "var(--shadow-sm)" }
@@ -1583,7 +1583,7 @@ function SchedulerConstraintsBoard({
                         >
                           {varied && <span className="shift-cell-time">{varied}</span>}
                           {!hours || empty ? (
-                            <span className="text-[11px] font-semibold text-text-3">—</span>
+                            <span className="text-[12px] font-semibold text-text-3">—</span>
                           ) : (
                             <div className="flex w-full flex-col gap-1">
                               {available.map((employee) => (

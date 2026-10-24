@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { HeroSilk } from "@/components/bits";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Button, Field, Icon, Input } from "@/components/ui";
@@ -119,6 +120,7 @@ export function CreateBusinessPage() {
   return (
     <div className="cbp-page">
       <header className="cbp-hero">
+        <HeroSilk />
         <span className="cbp-glow cbp-glow--1" aria-hidden />
         <span className="cbp-glow cbp-glow--2" aria-hidden />
         <span className="cbp-grid-lines" aria-hidden />

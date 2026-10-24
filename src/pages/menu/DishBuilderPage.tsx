@@ -600,7 +600,7 @@ function ComponentPicker({ data, onPickItem }: { data: MenuCostingData; onPickIt
                     <Monogram name={item.name} url={item.image_url} size={34} icon="inventory_2" />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-bold">{item.name}</span>
-                      <span className="block text-[11.5px] text-text-3">
+                      <span className="block text-[12.5px] text-text-3">
                         {item.unit?.trim() || "יחידה"}
                         {content.source !== "count" ? ` · ${formatQty(content.qty)} ${MEASURE_LABELS[content.measure]}` : content.pieces ? ` · ${content.pieces} ${item.piece_unit ?? "פריטים"}` : ""}
                       </span>

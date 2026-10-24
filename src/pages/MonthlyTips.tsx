@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { HeroSilk } from "@/components/bits";
 import type { CSSProperties, ReactNode } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { motion, useReducedMotion } from "motion/react";
 import { Button, EmptyState, ErrorState, Icon, PageLoader } from "@/components/ui";
 import { UserAvatar } from "@/components/ui/UserAvatar";
@@ -9,6 +10,7 @@ import { useShiftReports } from "@/api/shiftReports";
 import { useShiftTemplates } from "@/api/shifts";
 import { useProfiles } from "@/api/users";
 import { useAuth } from "@/lib/auth";
+import { canAccessPayroll } from "@/lib/constants";
 import { formatCurrency, useBusinessId } from "@/lib/db";
 import { computeTipsHourly } from "@/lib/shiftReportTips";
 import {
@@ -421,16 +423,13 @@ function TipsHero({
 
   return (
     <header className="tps-hero" aria-label="קופת הטיפים">
+      <HeroSilk />
       <span className="tps-glow tps-glow--1" data-live={total > 0 || undefined} aria-hidden />
       <span className="tps-glow tps-glow--2" aria-hidden />
       <span className="tps-grid-lines" aria-hidden />
 
       <div className="tps-hero-inner">
         <motion.div className="tps-hero-bar" {...rise(0)}>
-          <span className="tps-kicker">
-            <span className="tps-kicker-dot" aria-hidden />
-            קופת הטיפים
-          </span>
           <Link to="/dashboard" className="tps-back">
             {/* RTL: "back" points right */}
             <Icon name="arrow_forward" size={16} />
@@ -787,7 +786,7 @@ export function MonthlyTips() {
   const { data: templates = [] } = useShiftTemplates(businessId);
   const { data: profiles = [] } = useProfiles(businessId);
 
-  const canManage = !!profile && ["manager", "department_manager", "office_manager"].includes(profile.role);
+  const canManage = canAccessPayroll(profile?.role);
 
   const templateById = useMemo(() => new Map(templates.map((t) => [t.id, t])), [templates]);
   const profileById = useMemo(
@@ -959,6 +958,7 @@ export function MonthlyTips() {
      on a tab whose column isn't rendered. */
   const activeTab: Tab = hasRows && hasBoards ? tab : "shifts";
 
+  if (profile?.role === "department_manager") return <Navigate to="/shift-reports" replace />;
   if (isLoading) return <PageLoader label="טוען טיפים..." />;
   if (isError) return <ErrorState onRetry={refetch} />;
 

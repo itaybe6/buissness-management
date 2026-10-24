@@ -100,7 +100,7 @@ export function DualUnitQtyInput({
     : "grid h-7 w-7 place-items-center rounded-md text-text-3 transition-[transform,background-color,color] duration-[160ms] [transition-timing-function:var(--ease-out)] hover:bg-surface-2 hover:text-text active:scale-[0.97] disabled:opacity-35";
 
   const toggle = dualEnabled ? (
-    <div className={`inline-flex rounded-md border border-border bg-surface-2 p-0.5 font-semibold ${compact ? "w-full justify-center text-[9px]" : "text-[11px]"}`}>
+    <div className={`inline-flex rounded-md border border-border bg-surface-2 p-0.5 font-semibold ${compact ? "w-full justify-center text-[11px]" : "text-[12px]"}`}>
       <button
         type="button"
         disabled={disabled}
@@ -225,7 +225,7 @@ export function DualUnitQtyInput({
         {unitLabel && <span className="flex-none text-[12px] font-medium text-text-3">{unitLabel}</span>}
       </div>
       {dualEnabled && (
-        <p className="text-[11px] text-text-3">
+        <p className="text-[12px] text-text-3">
           1 {mainUnit} = {factor} {pieceLabel}
         </p>
       )}

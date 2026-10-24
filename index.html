@@ -13,8 +13,8 @@
           path === "/dashboard" || path === "/salary-issues"
             ? { type: "worker", color: "#191e25", statusBar: "black-translucent" }
             : path === "/login" || path === "/reset-password"
-              ? /* --bg, light theme — the auth pages paint edge-to-edge in it. */
-                { type: "auth", color: "#f0f2f5", statusBar: "default" }
+              ? /* The auth pages are an always-dark silk stage, edge to edge. */
+                { type: "authInk", color: "#05060a", statusBar: "black-translucent" }
               : null;
 
         if (!chrome) return;

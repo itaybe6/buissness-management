@@ -92,7 +92,7 @@ export function DashboardPresenceCard() {
           <div className="mx-auto max-w-md space-y-3">
             <ShiftPositionPickerModal {...positionPicker} />
             <PunchButton onShift={onShift} busy={busy} onClick={handleClock} />
-            <div className="text-center text-[11.5px] text-text-3">
+            <div className="text-center text-[12.5px] text-text-3">
               {geofenceExempt
                 ? "פטור/ה מבדיקת מיקום — ניתן להחתים מכל מקום"
                 : geofenceEnabled
@@ -171,8 +171,7 @@ export function DashboardPresenceCard() {
               <Icon
                 name={t.type === "recurring" ? "event_repeat" : "edit_note"}
                 size={18}
-                className="flex-none"
-                style={{ color: "var(--warning)" }}
+                className="flex-none text-text-2"
               />
               <span className="text-[13px] font-semibold text-text">{t.title}</span>
             </div>

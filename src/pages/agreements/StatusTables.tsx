@@ -18,25 +18,27 @@ function StatusIcon({
   /** When set and the document is signed, the checkmark opens the signed document. */
   onViewSigned?: () => void;
 }) {
-  if (optional && !done) return <span className="text-[12px] text-text-3">—</span>;
-  const badge = (
-    <span className={`inline-grid h-7 w-7 place-items-center rounded-full ${done ? "bg-success/15 text-success" : "bg-danger/15 text-danger"}`}>
-      <Icon name={done ? "check" : "close"} size={18} />
-    </span>
-  );
+  if (optional && !done) return <span className="agx-status" data-state="optional">—</span>;
+  const state = done ? "done" : "missing";
   if (done && onViewSigned) {
     return (
       <button
         type="button"
-        className="inline-flex rounded-full transition-opacity hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        className="agx-status agx-status--btn"
+        data-state={state}
         aria-label="צפייה במסמך החתום"
+        title="צפייה במסמך החתום"
         onClick={onViewSigned}
       >
-        {badge}
+        <Icon name="check" size={17} />
       </button>
     );
   }
-  return badge;
+  return (
+    <span className="agx-status" data-state={state} aria-label={done ? "הושלם" : "חסר"}>
+      <Icon name={done ? "check" : "close"} size={17} />
+    </span>
+  );
 }
 
 export function DocumentStatusTable({
@@ -152,44 +154,67 @@ export function DocumentStatusTable({
         })}
       </div>
 
-      {/* Desktop — full table */}
-      <Card className="hidden overflow-hidden md:block">
+      {/* Desktop — readiness matrix */}
+      <Card className="agx-matrix hidden overflow-hidden md:block">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[520px] text-[13.5px]">
             <thead>
-              <tr className="border-b border-border bg-surface-2 text-right text-[12px] font-bold text-text-2">
-                <th className="px-4 py-3">עובד/ת</th>
-                <th className="px-4 py-3 text-center">תעודת זהות</th>
-                <th className="px-4 py-3 text-center">טופס 101 ({taxYear})</th>
-                <th className="px-4 py-3 text-center">הסכמי עבודה</th>
+              <tr>
+                <th>עובד/ת</th>
+                <th className="text-center">תעודת זהות</th>
+                <th className="text-center">טופס 101 ({taxYear})</th>
+                <th className="text-center">הסכמי עבודה</th>
                 {globalFixed.map((a) => (
-                  <th key={a.id} className="px-4 py-3 text-center">{a.title}</th>
+                  <th key={a.id} className="text-center">{a.title}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {staff.map((emp) => {
-                const { idCardDoc, form101Doc, workDocs, fixedDocs } = docsOf(emp.id);
+              {staff.map((emp, i) => {
+                const docs = docsOf(emp.id);
+                const { idCardDoc, form101Doc, workDocs, fixedDocs } = docs;
                 const idCard = idCardDoc.idCard;
+                const counted = docs.all.filter((d) => !(d.optional && !d.done));
+                const doneCount = counted.filter((d) => d.done).length;
+                const pct = counted.length > 0 ? Math.round((doneCount / counted.length) * 100) : 0;
                 const openSigned = (template: AgreementTemplate | undefined) =>
                   template ? () => setViewing({ agreement: template, employeeId: emp.id }) : undefined;
                 return (
-                  <tr key={emp.id} className="border-b border-border last:border-0">
-                    <td className="px-4 py-3 font-semibold">{emp.full_name ?? "—"}</td>
-                    <td className="px-4 py-3 text-center">
+                  <tr
+                    key={emp.id}
+                    data-complete={(counted.length > 0 && doneCount === counted.length) || undefined}
+                    style={{ "--i": Math.min(i, 16) } as CSSProperties}
+                  >
+                    <td>
+                      <span className="agx-person">
+                        <span className="agx-person-chip" style={{ background: colorFor(emp.id) }}>
+                          {initialsOf(emp.full_name)}
+                        </span>
+                        <span className="agx-person-copy">
+                          <span className="agx-person-name">{emp.full_name ?? "—"}</span>
+                          <span className="agx-person-meter" aria-label={`${doneCount} מתוך ${counted.length} הושלמו`}>
+                            <i style={{ "--w": `${pct}%` } as CSSProperties} />
+                            <b>
+                              {doneCount}/{counted.length}
+                            </b>
+                          </span>
+                        </span>
+                      </span>
+                    </td>
+                    <td className="text-center">
                       <IdCardStatusCell
                         card={idCard}
                         onView={idCard ? () => openIdCard(idCard) : undefined}
                       />
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="text-center">
                       <StatusIcon
                         done={form101Doc.done}
                         optional={form101Doc.optional}
                         onViewSigned={form101Doc.done ? openSigned(form101Doc.template) : undefined}
                       />
                     </td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="text-center">
                       {workDocs.length === 1 ? (
                         <StatusIcon
                           done={workDocs[0].done}
@@ -211,7 +236,7 @@ export function DocumentStatusTable({
                       )}
                     </td>
                     {fixedDocs.map((d, di) => (
-                      <td key={docKey(d, di)} className="px-4 py-3 text-center">
+                      <td key={docKey(d, di)} className="text-center">
                         <StatusIcon
                           done={d.done}
                           optional={d.optional}
@@ -300,26 +325,33 @@ export function Form101OverviewTable({
       </div>
 
       {/* Desktop — full table */}
-      <Card className="hidden overflow-hidden md:block">
+      <Card className="agx-matrix hidden overflow-hidden md:block">
         <div className="overflow-x-auto">
           <table className="w-full text-[13.5px]">
             <thead>
-              <tr className="border-b border-border bg-surface-2 text-right text-[12px] font-bold text-text-2">
-                <th className="px-4 py-3">עובד/ת</th>
-                <th className="px-4 py-3 text-center">סטטוס</th>
-                <th className="px-4 py-3 text-center">פעולות</th>
+              <tr>
+                <th>עובד/ת</th>
+                <th className="text-center">סטטוס</th>
+                <th className="text-center">פעולות</th>
               </tr>
             </thead>
             <tbody>
-              {staff.map((emp) => {
+              {staff.map((emp, i) => {
                 const { template, done, link } = rowOf(emp.id);
                 return (
-                  <tr key={emp.id} className="border-b border-border last:border-0">
-                    <td className="px-4 py-3 font-semibold">{emp.full_name ?? "—"}</td>
-                    <td className="px-4 py-3 text-center">{statusBadge(template, done)}</td>
-                    <td className="px-4 py-3 text-center">
+                  <tr key={emp.id} data-complete={done || undefined} style={{ "--i": Math.min(i, 16) } as CSSProperties}>
+                    <td>
+                      <span className="agx-person">
+                        <span className="agx-person-chip" style={{ background: colorFor(emp.id) }}>
+                          {initialsOf(emp.full_name)}
+                        </span>
+                        <span className="agx-person-name">{emp.full_name ?? "—"}</span>
+                      </span>
+                    </td>
+                    <td className="text-center">{statusBadge(template, done)}</td>
+                    <td className="text-center">
                       {link ? (
-                        <a href={link.href} target="_blank" rel="noreferrer" className="text-link inline-flex items-center gap-1 text-[13px] font-semibold">
+                        <a href={link.href} target="_blank" rel="noreferrer" className="agx-link">
                           <Icon name={link.icon} size={18} />
                           {link.label}
                         </a>
@@ -333,7 +365,10 @@ export function Form101OverviewTable({
             </tbody>
           </table>
         </div>
-        <p className="border-t border-border px-4 py-2.5 text-[12px] text-text-3">{note}</p>
+        <p className="agx-matrix-note">
+          <Icon name="info" size={15} />
+          {note}
+        </p>
       </Card>
     </>
   );

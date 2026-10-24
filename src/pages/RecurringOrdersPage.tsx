@@ -1,4 +1,5 @@
 import { useMemo, useState, type CSSProperties } from "react";
+import { HeroSilk } from "@/components/bits";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { Button, EmptyState, ErrorState, Icon, InlineLoader, PageLoader } from "@/components/ui";
 import { useBusinessId } from "@/lib/db";
@@ -271,7 +272,7 @@ export function RecurringOrdersPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { profile } = useAuth();
-  const canManage = !!(profile && ["manager", "office_manager"].includes(profile.role));
+  const canManage = !!(profile && ["manager", "department_manager", "office_manager"].includes(profile.role));
 
   const supplierFilter = searchParams.get("supplier");
   const fromParam = searchParams.get("from") as RecurringOrdersFrom | null;
@@ -372,6 +373,7 @@ export function RecurringOrdersPage() {
   return (
     <div className="rcr-page spf-page page-enter">
       <header className="spf-hero rcr-hero">
+        <HeroSilk />
         <span className="spf-glow spf-glow--1" aria-hidden />
         <span className="spf-glow spf-glow--2" aria-hidden />
         <span className="spf-grid-lines" aria-hidden />
@@ -395,11 +397,7 @@ export function RecurringOrdersPage() {
             </span>
             <div className="min-w-0">
               <h1 className="rcr-title">הזמנות קבועות</h1>
-              <p className="rcr-sub">
-                {supplierName
-                  ? `תבניות שמורות שכוללות מוצרים מ${supplierName}`
-                  : "תבניות הזמנה שמורות — מוצרים, כמויות וספק לכל פריט, בלחיצה אחת"}
-              </p>
+              {supplierName && <p className="rcr-sub">{supplierName}</p>}
             </div>
           </div>
 

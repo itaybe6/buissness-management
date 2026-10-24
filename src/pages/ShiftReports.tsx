@@ -14,8 +14,11 @@ import {
   TimePicker,
 } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { BlurText, CountUp, InkStage, RollingNumber, ShinyText, Stepper } from "@/components/bits";
+import { EASE_OUT } from "@/components/motion/shared-motion";
 import { useAuth } from "@/lib/auth";
-import { useIsMdUp } from "@/hooks/useMediaQuery";
+import { canAccessPayroll } from "@/lib/constants";
 import { useBusinessId, formatCurrency, formatDateShort, todayISO } from "@/lib/db";
 import {
   buildTeamMembersFromShift,
@@ -89,8 +92,10 @@ export function ShiftReports() {
   const del = useDeleteShiftReport(businessId);
 
   const [viewing, setViewing] = useState<ShiftReport | null>(null);
+  const [sortBy, setSortBy] = useState<"date" | "sales">("date");
 
   const canManage = !!profile && ["manager", "department_manager"].includes(profile.role);
+  const showPay = canAccessPayroll(profile?.role);
 
   const userName = useMemo(
     () => (id: string) => users?.find((u) => u.id === id)?.full_name ?? "—",
@@ -129,33 +134,41 @@ export function ShiftReports() {
   const todayDay = new Date().getDate();
   const monthDays = daysInMonth(month);
 
+  const sorted =
+    sortBy === "sales"
+      ? [...list].sort((x, y) => (Number(y.total_sales) || 0) - (Number(x.total_sales) || 0))
+      : list;
+  const best = stats.bestId ? list.find((r) => r.id === stats.bestId) : undefined;
+  const reportedDays = stats.byDay.size;
+
   return (
-    <div className="w-full animate-fadeUp">
-      <section className="sr-hero">
-        <div className="sr-hero-top">
-          <div className="sr-month-nav">
+    <div className="srx-page">
+      <InkStage className="srx-hero">
+        {/* One row: month stepper + a round "new report" button, same height. */}
+        <div className="srx-bar srx-bar--month">
+          <div className="srx-month">
             <button
               type="button"
-              className="sr-month-btn"
+              className="srx-month-btn"
               onClick={() => setMonth(shiftMonth(month, -1))}
               aria-label="חודש קודם"
             >
               <Icon name="chevron_right" size={20} />
             </button>
-            <label className="sr-month-label">
+            <label className="srx-month-label">
               <Icon name="calendar_month" size={16} />
               <span>{monthTitle(month)}</span>
               <input
                 type="month"
                 value={month}
                 onChange={(e) => e.target.value && setMonth(e.target.value)}
-                className="sr-month-input"
+                className="srx-month-input"
                 aria-label="בחירת חודש"
               />
             </label>
             <button
               type="button"
-              className="sr-month-btn"
+              className="srx-month-btn"
               onClick={() => setMonth(shiftMonth(month, 1))}
               aria-label="חודש הבא"
             >
@@ -163,50 +176,77 @@ export function ShiftReports() {
             </button>
           </div>
           {canManage && (
-            <Button icon="add" onClick={() => navigate("/shift-reports/new")}>
-              דוח חדש
-            </Button>
+            <button
+              type="button"
+              className="srx-plus"
+              data-spark
+              onClick={() => navigate("/shift-reports/new")}
+              aria-label="דוח חדש"
+              title="דוח חדש"
+            >
+              <Icon name="add" size={24} />
+            </button>
           )}
         </div>
 
-        <div className="sr-kpis">
-          <div className="sr-kpi sr-kpi--sales" style={{ "--i": 0 } as React.CSSProperties}>
-            <span className="sr-kpi-icon"><Icon name="point_of_sale" size={19} /></span>
-            <div className="sr-kpi-text">
-              <span className="sr-kpi-label">מכירות החודש</span>
-              <span className="sr-kpi-value">{formatCurrency(stats.totalSales)}</span>
+        <div className="srx-head">
+          <div className="srx-head-copy">
+            <div className="srx-total-label">מכירות החודש</div>
+            <div className="srx-total">
+              <RollingNumber value={stats.totalSales} format={formatCurrency} />
+            </div>
+            <div className="srx-total-sub">
+              {list.length === 0 ? (
+                "עוד לא הוגשו דוחות החודש"
+              ) : best ? (
+                <>
+                  <Icon name="emoji_events" size={15} />
+                  <ShinyText speed={5}>
+                    {`שיא: יום ${WEEKDAY_NAMES[new Date(best.report_date + "T00:00:00").getDay()]} ${formatDateShort(best.report_date)} · ${formatCurrency(stats.maxSales)}`}
+                  </ShinyText>
+                </>
+              ) : (
+                `${list.length} דוחות`
+              )}
             </div>
           </div>
-          <div className="sr-kpi sr-kpi--tips" style={{ "--i": 1 } as React.CSSProperties}>
-            <span className="sr-kpi-icon"><Icon name="savings" size={19} /></span>
-            <div className="sr-kpi-text">
-              <span className="sr-kpi-label">טיפים החודש</span>
-              <span className="sr-kpi-value">{formatCurrency(stats.totalTips)}</span>
+
+          <div className="srx-stats">
+            <div className="srx-stat" style={{ "--i": 0 } as React.CSSProperties}>
+              <span className="srx-stat-icon"><Icon name="savings" size={18} /></span>
+              <span className="srx-stat-val">
+                <CountUp key={month} to={stats.totalTips} format={formatCurrency} />
+              </span>
+              <span className="srx-stat-lbl">טיפים החודש</span>
             </div>
-          </div>
-          <div className="sr-kpi sr-kpi--hourly" style={{ "--i": 2 } as React.CSSProperties}>
-            <span className="sr-kpi-icon"><Icon name="timer" size={19} /></span>
-            <div className="sr-kpi-text">
-              <span className="sr-kpi-label">ממוצע שעתי מטיפים</span>
-              <span className="sr-kpi-value">{formatCurrency(stats.avgHourly)}</span>
+            {showPay && (
+            <div className="srx-stat" style={{ "--i": 1 } as React.CSSProperties}>
+              <span className="srx-stat-icon"><Icon name="timer" size={18} /></span>
+              <span className="srx-stat-val">
+                <CountUp key={month} to={stats.avgHourly} format={formatCurrency} />
+              </span>
+              <span className="srx-stat-lbl">ממוצע טיפים לשעה</span>
             </div>
-          </div>
-          <div className="sr-kpi sr-kpi--count" style={{ "--i": 3 } as React.CSSProperties}>
-            <span className="sr-kpi-icon"><Icon name="receipt_long" size={19} /></span>
-            <div className="sr-kpi-text">
-              <span className="sr-kpi-label">דוחות שהוגשו</span>
-              <span className="sr-kpi-value">{list.length}</span>
+            )}
+            <div className="srx-stat" style={{ "--i": 2 } as React.CSSProperties}>
+              <span className="srx-stat-icon"><Icon name="event_available" size={18} /></span>
+              <span className="srx-stat-val">
+                <CountUp key={month} to={reportedDays} />
+                <small>/{monthDays}</small>
+              </span>
+              <span className="srx-stat-lbl">ימים עם דוח</span>
             </div>
           </div>
         </div>
 
         {list.length > 0 && (
-          <div className="sr-chart" aria-label="מכירות לפי יום בחודש">
+          <div className="srx-chart" aria-label="מכירות לפי יום בחודש">
             {Array.from({ length: monthDays }, (_, i) => i + 1).map((day) => {
               const report = stats.byDay.get(day);
               const sales = report ? Number(report.total_sales) || 0 : 0;
-              const pct = report && stats.maxSales > 0 ? Math.max(9, (sales / stats.maxSales) * 100) : 0;
+              const pct = report && stats.maxSales > 0 ? Math.max(8, (sales / stats.maxSales) * 100) : 0;
               const isToday = isCurrentMonth && day === todayDay;
+              const isBest = !!report && report.id === stats.bestId;
               const showLabel = day === 1 || day % 5 === 0;
               return (
                 <button
@@ -214,146 +254,204 @@ export function ShiftReports() {
                   type="button"
                   disabled={!report}
                   onClick={() => report && setViewing(report)}
-                  className={`sr-bar${report ? " sr-bar--filled" : ""}${isToday ? " sr-bar--today" : ""}`}
+                  className="srx-col"
+                  data-filled={!!report || undefined}
+                  data-today={isToday || undefined}
+                  data-best={isBest || undefined}
+                  style={{ "--h": `${pct}%`, "--d": day } as React.CSSProperties}
                   title={report ? `${formatDateShort(report.report_date)} · ${formatCurrency(sales)}` : undefined}
                   aria-label={report ? `דוח ${formatDateShort(report.report_date)}, מכירות ${formatCurrency(sales)}` : undefined}
                 >
-                  <span className="sr-bar-track">
-                    <i style={report ? { height: `${pct}%` } : undefined} />
+                  <span className="srx-col-track">
+                    <i />
                   </span>
-                  <span className="sr-bar-day">{showLabel ? day : "\u00a0"}</span>
+                  <span className="srx-col-day">{showLabel ? day : " "}</span>
                 </button>
               );
             })}
           </div>
         )}
-      </section>
+      </InkStage>
 
-      {list.length === 0 ? (
-        <EmptyState
-          icon="receipt_long"
-          title="אין דוחות לחודש זה"
-          description="מלאו דוח סיכום משמרת בסוף המשמרת — כולל סגירת קופה, טיפים וחשבוניות."
-          action={
-            canManage ? (
-              <Button icon="add" onClick={() => navigate("/shift-reports/new")}>
-                דוח חדש
-              </Button>
-            ) : undefined
-          }
-        />
-      ) : (
-        <div className="sr-grid">
-          {list.map((r, idx) => {
-            const d = new Date(r.report_date + "T00:00:00");
-            const dow = d.getDay();
-            const sales = Number(r.total_sales) || 0;
-            const salesPct = stats.maxSales > 0 ? Math.round((sales / stats.maxSales) * 100) : 0;
-            const isBest = stats.bestId === r.id && list.length > 1;
-            const invoices = (r.invoice_urls ?? []).length;
-            const teamCount = (r.extra?.team_members ?? []).length;
-            return (
-              <article
-                key={r.id}
-                className="sr-card"
-                style={{ "--i": idx } as React.CSSProperties}
-                role="button"
-                tabIndex={0}
-                onClick={() => setViewing(r)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    setViewing(r);
-                  }
-                }}
-              >
-                <header className="sr-card-top">
-                  <span className="sr-date-tile" aria-hidden="true">
-                    <b>{d.getDate()}</b>
-                    <i>{WEEKDAY_LETTERS[dow]}</i>
-                  </span>
-                  <div className="sr-card-heading">
-                    <span className="sr-card-title">יום {WEEKDAY_NAMES[dow]} · {formatDateShort(r.report_date)}</span>
-                    <span className="sr-card-sub">
-                      {r.manager_names ? `אחמ״ש · ${r.manager_names}` : "דוח סגירת משמרת"}
+      <div className="srx-body">
+        {list.length === 0 ? (
+          <EmptyState
+            icon="receipt_long"
+            title="אין דוחות לחודש זה"
+            description="מלאו דוח סיכום משמרת בסוף המשמרת — כולל סגירת קופה, טיפים וחשבוניות."
+            action={
+              canManage ? (
+                <Button icon="add" onClick={() => navigate("/shift-reports/new")}>
+                  דוח חדש
+                </Button>
+              ) : undefined
+            }
+          />
+        ) : (
+          <>
+            <div className="srx-toolbar">
+              <div className="srx-toolbar-title">
+                {list.length} דוחות
+                <span>· {monthTitle(month)}</span>
+              </div>
+              <div className="srx-seg" role="group" aria-label="מיון דוחות">
+                {(
+                  [
+                    ["date", "לפי תאריך", "event"],
+                    ["sales", "לפי מכירות", "trending_up"],
+                  ] as const
+                ).map(([key, label, icon]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className="srx-seg-btn"
+                    data-active={sortBy === key}
+                    aria-pressed={sortBy === key}
+                    onClick={() => setSortBy(key)}
+                  >
+                    {sortBy === key && (
+                      <motion.span
+                        layoutId="srx-seg-pill"
+                        className="srx-seg-pill"
+                        transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                      />
+                    )}
+                    <Icon name={icon} size={16} />
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="srx-grid">
+              {sorted.map((r, idx) => {
+                const d = new Date(r.report_date + "T00:00:00");
+                const dow = d.getDay();
+                const sales = Number(r.total_sales) || 0;
+                const salesPct = stats.maxSales > 0 ? Math.round((sales / stats.maxSales) * 100) : 0;
+                const isBest = stats.bestId === r.id && list.length > 1;
+                const invoices = (r.invoice_urls ?? []).length;
+                const teamCount = (r.extra?.team_members ?? []).length;
+                const weekend = dow === 5 || dow === 6;
+                return (
+                  <article
+                    key={r.id}
+                    className="srx-card rb-glow"
+                    data-best={isBest || undefined}
+                    style={{ "--i": Math.min(idx, 14) } as React.CSSProperties}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setViewing(r)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setViewing(r);
+                      }
+                    }}
+                  >
+                    <header className="srx-card-top">
+                      <span className="srx-date" data-weekend={weekend || undefined} aria-hidden="true">
+                        <b>{d.getDate()}</b>
+                        <i>{WEEKDAY_LETTERS[dow]}</i>
+                      </span>
+                      <div className="srx-card-heading">
+                        <span className="srx-card-title">יום {WEEKDAY_NAMES[dow]}</span>
+                        <span className="srx-card-sub">
+                          {r.manager_names ? `אחמ״ש · ${r.manager_names}` : formatDateShort(r.report_date)}
+                        </span>
+                      </div>
+                      {isBest && (
+                        <span className="srx-best">
+                          <Icon name="emoji_events" size={13} />
+                          שיא
+                        </span>
+                      )}
+                    </header>
+
+                    <div className="srx-money">
+                      <div className="srx-money-main">
+                        <span className="srx-money-lbl">מכירות</span>
+                        <span className="srx-money-val">{formatCurrency(sales)}</span>
+                      </div>
+                      <div className="srx-money-side">
+                        <span className="srx-money-lbl">טיפים</span>
+                        <span className="srx-money-tip">{formatCurrency(Number(r.total_tips))}</span>
+                        {showPay && (
+                          <span className="srx-money-hint">{formatCurrency(Number(r.tips_hourly))} לשעה</span>
+                        )}
+                      </div>
+                    </div>
+                    <span className="srx-meter" aria-hidden>
+                      <i style={{ "--w": `${salesPct}%` } as React.CSSProperties} />
                     </span>
-                  </div>
-                  {isBest && (
-                    <span className="sr-best">
-                      <Icon name="emoji_events" size={13} />
-                      שיא החודש
-                    </span>
-                  )}
-                </header>
 
-                <div className="sr-card-stats">
-                  <div className="sr-stat sr-stat--sales">
-                    <span className="sr-stat-label">מכירות</span>
-                    <span className="sr-stat-value">{formatCurrency(sales)}</span>
-                    <span className="sr-stat-bar"><i style={{ width: `${salesPct}%` }} /></span>
-                  </div>
-                  <div className="sr-stat sr-stat--tips">
-                    <span className="sr-stat-label">טיפים</span>
-                    <span className="sr-stat-value">{formatCurrency(Number(r.total_tips))}</span>
-                    <span className="sr-stat-hint">{formatCurrency(Number(r.tips_hourly))} לשעה</span>
-                  </div>
-                </div>
-
-                <footer className="sr-card-foot">
-                  <div className="sr-chips">
-                    {teamCount > 0 && (
-                      <span className="sr-chip sr-chip--team"><Icon name="groups" size={14} />{teamCount} בצוות</span>
-                    )}
-                    {invoices > 0 && (
-                      <span className="sr-chip sr-chip--invoice"><Icon name="receipt" size={14} />{invoices} חשבוניות</span>
-                    )}
-                    {r.energy_level != null && (
-                      <span className="sr-chip sr-chip--energy"><Icon name="bolt" size={14} />אנרגיה {r.energy_level}/10</span>
-                    )}
-                  </div>
-                  <div className="sr-actions" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      type="button"
-                      onClick={() => setViewing(r)}
-                      className="sr-icon-btn"
-                      title="צפייה בדוח"
-                      aria-label="צפייה בדוח"
-                    >
-                      <Icon name="visibility" size={18} />
-                    </button>
-                    {canManage && (
-                      <>
+                    <footer className="srx-card-foot">
+                      <div className="srx-chips">
+                        {teamCount > 0 && (
+                          <span className="srx-chip" title="בצוות">
+                            <Icon name="groups" size={14} />
+                            {teamCount}
+                          </span>
+                        )}
+                        {invoices > 0 && (
+                          <span className="srx-chip" title="חשבוניות">
+                            <Icon name="receipt" size={14} />
+                            {invoices}
+                          </span>
+                        )}
+                        {r.energy_level != null && (
+                          <span className="srx-chip" title="רמת אנרגיה">
+                            <Icon name="bolt" size={14} />
+                            {r.energy_level}/10
+                          </span>
+                        )}
+                      </div>
+                      <div className="srx-actions" onClick={(e) => e.stopPropagation()}>
                         <button
                           type="button"
-                          onClick={() =>
-                            navigate(`/shift-reports/${r.id}/edit`, { state: { report: r } })
-                          }
-                          className="sr-icon-btn"
-                          title="עריכה"
-                          aria-label="עריכה"
+                          onClick={() => setViewing(r)}
+                          className="srx-icon-btn"
+                          title="צפייה בדוח"
+                          aria-label="צפייה בדוח"
                         >
-                          <Icon name="edit" size={18} />
+                          <Icon name="visibility" size={18} />
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (confirm("למחוק את הדוח? הטיפים והתוספות שכר שנוצרו ממנו יימחקו גם הם.")) del.mutate(r.id);
-                          }}
-                          className="sr-icon-btn sr-icon-btn--danger"
-                          title="מחיקה"
-                          aria-label="מחיקה"
-                        >
-                          <Icon name="delete" size={18} />
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </footer>
-              </article>
-            );
-          })}
-        </div>
-      )}
+                        {canManage && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => navigate(`/shift-reports/${r.id}/edit`, { state: { report: r } })}
+                              className="srx-icon-btn"
+                              title="עריכה"
+                              aria-label="עריכה"
+                            >
+                              <Icon name="edit" size={18} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const msg = showPay
+                                  ? "למחוק את הדוח? הטיפים והתוספות שכר שנוצרו ממנו יימחקו גם הם."
+                                  : "למחוק את הדוח?";
+                                if (confirm(msg)) del.mutate(r.id);
+                              }}
+                              className="srx-icon-btn srx-icon-btn--danger"
+                              title="מחיקה"
+                              aria-label="מחיקה"
+                            >
+                              <Icon name="delete" size={18} />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </footer>
+                  </article>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
 
       {viewing && (
         <ReportViewer
@@ -362,6 +460,7 @@ export function ShiftReports() {
           profileById={profileById}
           positionsByEmployee={positionsByEmployee}
           canManage={canManage}
+          showPay={showPay}
           onClose={() => setViewing(null)}
           onEdit={() => {
             const r = viewing;
@@ -442,6 +541,7 @@ export function ShiftReportEditorPage() {
       allPositions={allPositions ?? []}
       shiftManagers={shiftManagers}
       userName={userName}
+      showPay={canAccessPayroll(profile?.role)}
       onClose={goBack}
     />
   );
@@ -669,9 +769,26 @@ interface WizardStep {
   body: ReactNode;
 }
 
-/** Mobile-only step flow: glass header + segment track, animated stage, sticky actions. */
-function ReportWizardShell({
-  kicker,
+/* Step stage motion — RTL: going forward the new step slides in from the
+   inline-end (left) and the old one leaves to the inline-start (right).
+   `transitionEnd` clears the filter so no lingering `filter` turns the
+   stage into a containing block for fixed-position pickers. */
+const STAGE_VARIANTS = {
+  enter: (d: 1 | -1) => ({ opacity: 0, x: d * -44, filter: "blur(8px)" }),
+  center: { opacity: 1, x: 0, filter: "blur(0px)", transitionEnd: { filter: "none" } },
+  exit: (d: 1 | -1) => ({ opacity: 0, x: d * 44, filter: "blur(8px)" }),
+};
+
+/**
+ * The report builder — one layout for every breakpoint. Ink hero with the
+ * stepper and a live receipt (odometers roll while sales / tips are typed),
+ * a direction-aware animated stage for the active step, and a sticky action
+ * bar. From 1100px a sticky rail shows the whole report as a paper receipt
+ * whose rows jump to their step.
+ */
+function ReportBuilderShell({
+  title,
+  dateLabel,
   steps,
   step,
   dir,
@@ -679,8 +796,11 @@ function ReportWizardShell({
   onClose,
   onFinish,
   error,
+  live,
+  rail,
 }: {
-  kicker: string;
+  title: string;
+  dateLabel: string;
   steps: WizardStep[];
   step: number;
   dir: 1 | -1;
@@ -688,130 +808,106 @@ function ReportWizardShell({
   onClose: () => void;
   onFinish: () => void;
   error: string | null;
+  live: ReactNode;
+  rail: ReactNode;
 }) {
+  const reduce = useReducedMotion();
   const active = steps[step];
   const isLast = step === steps.length - 1;
 
   return (
-    <div className="srw-page">
-      {/* Compact utility bar — back + progress only. The step title lives in the
-          hero below, so nothing is printed twice. */}
-      <header className="srw-head">
-        <button type="button" className="srw-head-back" onClick={onClose} aria-label="יציאה">
-          <Icon name="arrow_forward" size={20} />
-        </button>
-        <div className="srw-track" role="tablist" aria-label="שלבי הדוח">
-          {steps.map((d, i) => (
-            <button
-              key={d.key}
-              type="button"
-              role="tab"
-              className="srw-track-seg"
-              data-state={i < step ? "done" : i === step ? "active" : "todo"}
-              onClick={() => onStep(i)}
-              aria-label={d.title}
-              aria-selected={i === step}
-            >
-              <i />
-            </button>
-          ))}
-        </div>
-      </header>
-
-      {error && (
-        <div className="srw-error">
-          <Icon name="error" size={18} />
-          {error}
-        </div>
-      )}
-
-      <div className="srw-stage" key={active.key} data-dir={dir}>
-        <div className="srw-hero">
-          <span className="srw-hero-icon" aria-hidden="true">
-            <Icon name={active.icon} size={24} />
-          </span>
-          <div className="srw-hero-text">
-            <span className="srw-hero-kicker">
-              {kicker} · שלב {step + 1} מתוך {steps.length}
-            </span>
-            <h1 className="srw-hero-title">{active.title}</h1>
-            <p className="srw-hero-hint">{active.hint}</p>
+    <div className="rbx-page">
+      <InkStage className="rbx-hero">
+        <div className="srx-bar rbx-bar">
+          <button type="button" className="rbx-back" onClick={onClose} aria-label="יציאה מהדוח">
+            <Icon name="arrow_forward" size={20} />
+          </button>
+          <div className="rbx-heading">
+            <h1 className="srx-page-title">{title}</h1>
+            <span className="rbx-date">{dateLabel}</span>
           </div>
         </div>
-        {active.body}
-      </div>
 
-      <footer className="srw-foot">
-        <button
-          type="button"
-          className="srw-back"
-          onClick={() => (step === 0 ? onClose() : onStep(step - 1))}
-        >
-          {step === 0 ? (
-            "ביטול"
-          ) : (
-            <>
-              <Icon name="chevron_right" size={19} />
-              חזור
-            </>
-          )}
-        </button>
-        <button
-          type="button"
-          className="srw-next"
-          data-final={isLast ? "true" : undefined}
-          onClick={() => (isLast ? onFinish() : onStep(step + 1))}
-        >
-          {isLast ? (
-            <>
-              <Icon name="preview" size={19} />
-              תצוגה מקדימה
-            </>
-          ) : (
-            <>
-              {steps[step + 1].title}
-              <Icon name="chevron_left" size={19} />
-            </>
-          )}
-        </button>
-      </footer>
-    </div>
-  );
-}
+        <Stepper
+          className="rbx-stepper"
+          steps={steps.map((st) => ({ key: st.key, label: st.title }))}
+          active={step}
+          onStep={onStep}
+        />
 
-function ReportEditorShell({
-  title,
-  subtitle,
-  icon,
-  onBack,
-  footer,
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  icon?: string;
-  onBack: () => void;
-  footer: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <div className="sr-editor-page page-enter w-full">
-      <header className="sr-editor-head">
-        <button type="button" className="icon-btn shrink-0" onClick={onBack} aria-label="חזור">
-          <Icon name="arrow_forward" size={20} />
-        </button>
-        <div className="min-w-0 flex-1">
-          <h1 className="text-[19px] font-extrabold leading-tight tracking-tight md:text-[22px]">{title}</h1>
-          {subtitle && <p className="mt-0.5 text-[12.5px] text-text-3 md:text-[13px]">{subtitle}</p>}
+        <div className="rbx-live">{live}</div>
+      </InkStage>
+
+      <div className="rbx-body">
+        <div className="rbx-main">
+          {error && (
+            <div className="srw-error">
+              <Icon name="error" size={18} />
+              {error}
+            </div>
+          )}
+
+          <AnimatePresence mode="wait" initial={false} custom={dir}>
+            <motion.section
+              key={active.key}
+              className="rbx-stage"
+              custom={dir}
+              variants={STAGE_VARIANTS}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={reduce ? { duration: 0 } : { duration: 0.3, ease: EASE_OUT }}
+            >
+              <h2 className="rbx-step-title">
+                <span className="rbx-step-icon" aria-hidden="true">
+                  <Icon name={active.icon} size={21} />
+                </span>
+                <BlurText key={active.key} text={active.title} stagger={0.06} duration={0.45} />
+              </h2>
+              {active.body}
+            </motion.section>
+          </AnimatePresence>
+
+          <footer className="rbx-foot">
+            <button
+              type="button"
+              className="rbx-prev"
+              onClick={() => (step === 0 ? onClose() : onStep(step - 1))}
+            >
+              {step === 0 ? (
+                "ביטול"
+              ) : (
+                <>
+                  <Icon name="chevron_right" size={20} />
+                  חזור
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              className="rbx-next"
+              data-spark
+              data-final={isLast ? "true" : undefined}
+              onClick={() => (isLast ? onFinish() : onStep(step + 1))}
+            >
+              <span className="rbx-next-sheen" aria-hidden="true" />
+              {isLast ? (
+                <>
+                  <Icon name="preview" size={20} />
+                  תצוגה מקדימה
+                </>
+              ) : (
+                <>
+                  {steps[step + 1].title}
+                  <Icon name="chevron_left" size={20} />
+                </>
+              )}
+            </button>
+          </footer>
         </div>
-        {icon && (
-          <span className="avatar-chip hidden h-10 w-10 shrink-0 rounded-[11px] sm:grid">
-            <Icon name={icon} size={23} />
-          </span>
-        )}
-      </header>
-      <div className="sr-editor-body">{children}</div>
-      <footer className="sr-editor-foot">{footer}</footer>
+
+        <aside className="rbx-rail">{rail}</aside>
+      </div>
     </div>
   );
 }
@@ -825,6 +921,7 @@ function ReportEditor({
   allPositions,
   shiftManagers,
   userName,
+  showPay,
   onClose,
 }: {
   report: ShiftReport | null;
@@ -835,6 +932,7 @@ function ReportEditor({
   allPositions: EmployeePosition[];
   shiftManagers: Profile[];
   userName: (id: string) => string;
+  showPay: boolean;
   onClose: () => void;
 }) {
   const [s, setS] = useState<EditorState>(report ? fromReport(report, allUsers) : blankState());
@@ -846,7 +944,6 @@ function ReportEditor({
   const [stepDir, setStepDir] = useState<1 | -1>(1);
   const [openTeamRows, setOpenTeamRows] = useState<Set<string>>(new Set());
   const pageRef = useRef<HTMLDivElement>(null);
-  const isMdUp = useIsMdUp();
   const save = useSaveShiftReport(businessId);
 
   const { data: attendance, isLoading: attendanceLoading } = useAttendanceAroundDate(businessId, s.report_date);
@@ -1233,15 +1330,18 @@ function ReportEditor({
           <Section icon="savings" title="טיפים">
             <DetailGrid>
               <DetailCell label='סה"כ טיפים' value={formatCurrency(totalTips)} />
-              <DetailCell label="שכר שעתי מטיפים" value={formatCurrency(tipsHourly)} />
+              {showPay && <DetailCell label="שכר שעתי מטיפים" value={formatCurrency(tipsHourly)} />}
             </DetailGrid>
           </Section>
 
           <Section icon="groups" title="פירוט צוות המשמרת">
             <div className="text-[12.5px] text-text-2">
-              כל מי שעבד במשמרת. לעובדי טיפים החלק מהקופה מחושב לפי השעות שלהם, ולשאר לפי השכר השעתי של התפקיד שנכנסו בו.
+              {showPay
+                ? "כל מי שעבד במשמרת. לעובדי טיפים החלק מהקופה מחושב לפי השעות שלהם, ולשאר לפי השכר השעתי של התפקיד שנכנסו בו."
+                : "כל מי שעבד במשמרת, לפי השעות שנרשמו."}
             </div>
             <ShiftTeamPay
+              showPay={showPay}
               rows={buildShiftPayRows({
                 team: teamRows,
                 tipByEmployee,
@@ -1289,7 +1389,7 @@ function ReportEditor({
             />
             {(outOfStockItems.length > 0 || urgentInventoryText) && (
               <div className="rounded-[10px] border border-border bg-surface-2 px-3.5 py-3">
-                <div className="text-[11px] font-bold text-text-3">מלאי שנגמר</div>
+                <div className="text-[12px] font-bold text-text-3">מלאי שנגמר</div>
                 {outOfStockItems.length > 0 ? (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {outOfStockItems.map((item) => (
@@ -1468,7 +1568,6 @@ function ReportEditor({
               <span className="srw-card-label">אחמ״ש (אחראי משמרת)</span>
               {s.manager_ids.length > 0 && <span className="srw-count-pill">{s.manager_ids.length}</span>}
             </div>
-            <p className="srw-note">ניתן לסמן יותר מאחד אם היו כמה אחמ״שים במשמרת.</p>
             <PeoplePicker
               people={shiftManagers}
               selected={s.manager_ids}
@@ -1510,7 +1609,7 @@ function ReportEditor({
               {s.sales_items.length > 0 && <span className="srw-count-pill">{s.sales_items.length}</span>}
             </div>
             {s.sales_items.length === 0 ? (
-              <div className="srw-empty">אפשר לפרט כמה קוקטיילים, בקבוקים או מנות נמכרו.</div>
+              <div className="srw-empty">עדיין לא פורטו מכירות</div>
             ) : (
               <div className="srw-items">
                 {s.sales_items.map((item, idx) => (
@@ -1582,9 +1681,6 @@ function ReportEditor({
               <span className="srw-card-label">צוות המשמרת</span>
               {s.team_members.length > 0 && <span className="srw-count-pill">{s.team_members.length}</span>}
             </div>
-            <p className="srw-note">
-              העובדים נטענים אוטומטית מנוכחות היום. ניתן לערוך שעות עבודה (מ-עד) או להוסיף עובדים ידנית.
-            </p>
 
             {participantsLoading ? (
               <InlineLoader compact label="טוען עובדים מהיום..." />
@@ -1623,20 +1719,17 @@ function ReportEditor({
 
           <div className="srw-card">
             <span className="srw-card-label">אירועים חריגים</span>
-            <p className="srw-note">איחורים, הברזות, משהו אישי?</p>
-            <Textarea rows={3} value={s.unusual_events} onChange={(e) => set("unusual_events", e.target.value)} />
+            <Textarea rows={3} placeholder="איחורים, הברזות, משהו אישי…" value={s.unusual_events} onChange={(e) => set("unusual_events", e.target.value)} />
           </div>
 
           <div className="srw-card">
             <span className="srw-card-label">שיחות שנעשו במשמרת</span>
-            <p className="srw-note">פידבק, חידוד נהלים, מילה טובה</p>
-            <Textarea rows={4} value={s.team_talks} onChange={(e) => set("team_talks", e.target.value)} />
+            <Textarea rows={4} placeholder="פידבק, חידוד נהלים, מילה טובה…" value={s.team_talks} onChange={(e) => set("team_talks", e.target.value)} />
           </div>
 
           <div className="srw-card">
             <span className="srw-card-label">הקול של הצוות</span>
-            <p className="srw-note">בקשות / מה היה חסר</p>
-            <Textarea rows={2} value={s.team_voice} onChange={(e) => set("team_voice", e.target.value)} />
+            <Textarea rows={2} placeholder="בקשות, מה היה חסר…" value={s.team_voice} onChange={(e) => set("team_voice", e.target.value)} />
           </div>
         </div>
       ),
@@ -1656,10 +1749,12 @@ function ReportEditor({
             onChange={(v) => set("total_tips", v)}
           />
           <div className="srw-duo">
+            {showPay && (
             <div className="srw-readout">
               <span className="srw-readout-label">שכר שעתי מטיפים</span>
               <span className="srw-readout-value">{formatCurrency(tipsHourly)}</span>
             </div>
+            )}
             <div className="srw-readout">
               <span className="srw-readout-label">שעות על טיפים</span>
               <span className="srw-readout-value">{totalHours > 0 ? formatShiftHours(totalHours) : "0"}</span>
@@ -1686,10 +1781,12 @@ function ReportEditor({
                         <b>{userName(row.employee_id)}</b>
                         <i>{formatShiftHours(row.hours)} שע׳</i>
                       </span>
-                      <span className="srw-split-amount">{formatCurrency(row.amount)}</span>
+                      {showPay && <span className="srw-split-amount">{formatCurrency(row.amount)}</span>}
+                      {showPay && (
                       <span className="srw-split-bar" aria-hidden="true">
                         <i style={{ width: `${share}%` }} />
                       </span>
+                      )}
                     </div>
                   );
                 })}
@@ -1709,7 +1806,6 @@ function ReportEditor({
           <label className="srw-toggle">
             <span className="srw-toggle-text">
               <b>משימות יומיות בוצעו</b>
-              <i>כל הצ׳ק־ליסט של סוף המשמרת נסגר</i>
             </span>
             <Switch checked={s.daily_tasks_done} onChange={(v) => set("daily_tasks_done", v)} />
           </label>
@@ -1718,7 +1814,6 @@ function ReportEditor({
             <label className="srw-toggle">
               <span className="srw-toggle-text">
                 <b>מלאי שנגמר</b>
-                <i>מוצרים שחייבים הזמנה דחופה</i>
               </span>
               <Switch
                 checked={s.urgent_inventory_enabled}
@@ -1799,7 +1894,6 @@ function ReportEditor({
             <label className="srw-toggle">
               <span className="srw-toggle-text">
                 <b>תקלות ותחזוקה</b>
-                <i>משהו נשבר או צריך תיקון?</i>
               </span>
               <Switch
                 checked={s.faults_enabled}
@@ -1879,54 +1973,93 @@ function ReportEditor({
     setPreviewing(true);
   }
 
-  if (!isMdUp) {
-    return (
-      <div ref={pageRef}>
-        <ReportWizardShell
-          kicker={report ? "עריכת דוח משמרת" : "דוח סיכום משמרת"}
-          steps={steps}
-          step={Math.min(step, steps.length - 1)}
-          dir={stepDir}
-          onStep={goStep}
-          onClose={onClose}
-          onFinish={openPreview}
-          error={error}
-        />
+  /* ── Live receipt: the hero odometers + the desktop paper rail ── */
+  const sales = Number(s.total_sales) || 0;
+  const teamCount = s.team_members.filter((p) => p.employee_id).length;
+  const managerLabel = formatManagerNames(s.manager_ids, shiftManagers);
+
+  const live = (
+    <>
+      <div className="rbx-live-item">
+        <span className="rbx-live-lbl">מכירות</span>
+        <span className="rbx-live-val">
+          <RollingNumber value={sales} format={formatCurrency} />
+        </span>
       </div>
-    );
-  }
+      <div className="rbx-live-item">
+        <span className="rbx-live-lbl">טיפים</span>
+        <span className="rbx-live-val">
+          <RollingNumber value={totalTips} format={formatCurrency} />
+        </span>
+      </div>
+      <div className="rbx-live-item">
+        <span className="rbx-live-lbl">צוות</span>
+        <span className="rbx-live-val">
+          <RollingNumber value={teamCount} />
+        </span>
+      </div>
+    </>
+  );
+
+  const receiptRows: { label: string; value: string | null; step: number }[] = [
+    { label: "תאריך", value: s.report_date ? formatDateShort(s.report_date) : null, step: 0 },
+    { label: "אחמ״ש", value: managerLabel, step: 0 },
+    { label: "מכירות", value: sales ? formatCurrency(sales) : null, step: 1 },
+    { label: "משלוחים", value: Number(s.delivery_sales) ? formatCurrency(Number(s.delivery_sales)) : null, step: 1 },
+    { label: "ממוצע לסועד", value: Number(s.avg_per_diner) ? formatCurrency(Number(s.avg_per_diner)) : null, step: 1 },
+    { label: "צוות", value: teamCount ? `${teamCount} עובדים` : null, step: 2 },
+    { label: "אנרגיה", value: s.energy_level ? `${s.energy_level}/10` : null, step: 2 },
+    { label: "טיפים", value: totalTips ? formatCurrency(totalTips) : null, step: 3 },
+    ...(showPay
+      ? [{ label: "לשעה מטיפים", value: tipsHourly ? formatCurrency(tipsHourly) : null, step: 3 }]
+      : []),
+    { label: "משימות יומיות", value: s.daily_tasks_done ? "בוצעו" : null, step: 4 },
+    { label: "חשבוניות", value: s.invoice_urls.length ? String(s.invoice_urls.length) : null, step: 4 },
+  ];
+
+  const rail = (
+    <div className="rbx-receipt">
+      <div className="rbx-receipt-head">
+        <Icon name="receipt_long" size={20} />
+        <span>סיכום הדוח</span>
+      </div>
+      <div className="rbx-receipt-rows">
+        {receiptRows.map((r) => (
+          <button
+            key={r.label}
+            type="button"
+            className="rbx-receipt-row"
+            data-empty={!r.value || undefined}
+            onClick={() => goStep(r.step)}
+          >
+            <span>{r.label}</span>
+            <b>{r.value ?? "—"}</b>
+          </button>
+        ))}
+      </div>
+      <div className="rbx-receipt-total">
+        <span>סה״כ מכירות</span>
+        <RollingNumber value={sales} format={formatCurrency} />
+      </div>
+    </div>
+  );
 
   return (
-    <ReportEditorShell
-      title={report ? "עריכת דוח משמרת" : "דוח סיכום משמרת"}
-      subtitle="סגירת קופה, צוות, מכירות, לוגיסטיקה וחשבוניות"
-      icon="receipt_long"
-      onBack={onClose}
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose}>
-            ביטול
-          </Button>
-          <Button className="flex-1" icon="preview" onClick={openPreview}>
-            תצוגה מקדימה
-          </Button>
-        </>
-      }
-    >
-      <div className="srw-desktop flex flex-col gap-6">
-        {steps.map((d) => (
-          <Section key={d.key} icon={d.icon} title={d.title}>
-            {d.body}
-          </Section>
-        ))}
-
-        {error && (
-          <div className="flex items-start gap-2 rounded-[11px] [background:var(--danger-bg)] px-3 py-2.5 text-[13px] font-semibold text-danger">
-            <Icon name="error" size={18} /> {error}
-          </div>
-        )}
-      </div>
-    </ReportEditorShell>
+    <div ref={pageRef}>
+      <ReportBuilderShell
+        title={report ? "עריכת דוח" : "דוח משמרת"}
+        dateLabel={`יום ${WEEKDAY_NAMES[dayDate.getDay()]} · ${formatDateShort(s.report_date || today)}`}
+        steps={steps}
+        step={Math.min(step, steps.length - 1)}
+        dir={stepDir}
+        onStep={goStep}
+        onClose={onClose}
+        onFinish={openPreview}
+        error={error}
+        live={live}
+        rail={rail}
+      />
+    </div>
   );
 }
 
@@ -1955,7 +2088,7 @@ function DetailGrid({ children }: { children: React.ReactNode }) {
 function DetailCell({ label, value, span }: { label: string; value: React.ReactNode; span?: boolean }) {
   return (
     <div className={`rounded-[10px] bg-surface-2 px-3 py-2.5 ${span ? "col-span-2" : ""}`}>
-      <div className="text-[11px] text-text-3">{label}</div>
+      <div className="text-[12px] text-text-3">{label}</div>
       <div className="mt-0.5 text-[14px] font-semibold text-text">{value || "—"}</div>
     </div>
   );
@@ -1965,13 +2098,13 @@ function DetailText({ label, value }: { label: string; value: string | null | un
   if (!value?.trim()) return null;
   return (
     <div className="rounded-[10px] border border-border bg-surface-2 px-3.5 py-3">
-      <div className="text-[11px] font-bold text-text-3">{label}</div>
+      <div className="text-[12px] font-bold text-text-3">{label}</div>
       <div className="mt-1 whitespace-pre-wrap text-[13.5px] leading-relaxed text-text">{value}</div>
     </div>
   );
 }
 
-function ShiftTeamPay({ rows }: { rows: ShiftPayRow[] }) {
+function ShiftTeamPay({ rows, showPay = true }: { rows: ShiftPayRow[]; showPay?: boolean }) {
   const [filter, setFilter] = useState<"all" | "tips" | "hourly">("all");
 
   const tipRows = rows.filter((r) => r.onTips);
@@ -1990,6 +2123,26 @@ function ShiftTeamPay({ rows }: { rows: ShiftPayRow[] }) {
     { key: "tips" as const, label: "על טיפים", count: tipRows.length },
     { key: "hourly" as const, label: "שעתי", count: hourlyRows.length },
   ];
+
+  if (!showPay) {
+    return (
+      <div className="srp-list">
+        {rows.map((r, idx) => (
+          <div key={r.employee_id} className="srp-row" style={{ "--i": idx } as React.CSSProperties}>
+            <span className="srp-avatar" aria-hidden="true">{initialsOf(r.name)}</span>
+            <div className="srp-main">
+              <b className="srp-name">{r.name}</b>
+              <div className="srp-meta">
+                <span>{formatWorkTimeRange(r.work_start ?? undefined, r.work_end ?? undefined)}</span>
+                <i aria-hidden="true">·</i>
+                <span>{r.hours > 0 ? formatShiftHours(r.hours) : "0"} שע׳</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="srp">
@@ -2077,6 +2230,7 @@ function ReportViewer({
   profileById,
   positionsByEmployee,
   canManage,
+  showPay,
   onClose,
   onEdit,
 }: {
@@ -2085,6 +2239,7 @@ function ReportViewer({
   profileById: Map<string, Profile>;
   positionsByEmployee?: (employeeId: string) => EmployeePosition[];
   canManage: boolean;
+  showPay: boolean;
   onClose: () => void;
   onEdit: () => void;
 }) {
@@ -2141,15 +2296,17 @@ function ReportViewer({
         <Section icon="savings" title="טיפים">
           <DetailGrid>
             <DetailCell label='סה"כ טיפים' value={formatCurrency(totalTips)} />
-            <DetailCell label="שכר שעתי מטיפים" value={formatCurrency(tipsHourly)} />
+            {showPay && <DetailCell label="שכר שעתי מטיפים" value={formatCurrency(tipsHourly)} />}
           </DetailGrid>
         </Section>
 
         <Section icon="groups" title="צוות המשמרת">
           <div className="text-[12.5px] text-text-2">
-            כל מי שעבד במשמרת. לעובדי טיפים החלק מהקופה מחושב לפי השעות שלהם, ולשאר לפי השכר השעתי בפרופיל.
+            {showPay
+              ? "כל מי שעבד במשמרת. לעובדי טיפים החלק מהקופה מחושב לפי השעות שלהם, ולשאר לפי השכר השעתי בפרופיל."
+              : "כל מי שעבד במשמרת, לפי השעות שנרשמו."}
           </div>
-          <ShiftTeamPay rows={payRows} />
+          <ShiftTeamPay rows={payRows} showPay={showPay} />
           <DetailGrid>
             <DetailCell label="שחרור ראשון" value={formatTimeLabel(report.first_release)} />
             <DetailCell label="אנרגיות בצוות" value={report.energy_level != null ? `${report.energy_level}/10` : null} />
@@ -2185,7 +2342,7 @@ function ReportViewer({
           />
           {(outOfStockItems.length > 0 || report.urgent_inventory) && (
             <div className="rounded-[10px] border border-border bg-surface-2 px-3.5 py-3">
-              <div className="text-[11px] font-bold text-text-3">מלאי שנגמר</div>
+              <div className="text-[12px] font-bold text-text-3">מלאי שנגמר</div>
               {outOfStockItems.length > 0 ? (
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {outOfStockItems.map((item) => (
@@ -2218,7 +2375,7 @@ function ReportViewer({
                   ) : (
                     <div className="flex h-28 w-full flex-col items-center justify-center gap-1 bg-surface-2 text-text-2">
                       <Icon name="description" size={26} />
-                      <span className="text-[11px]">קובץ</span>
+                      <span className="text-[12px]">קובץ</span>
                     </div>
                   )}
                 </a>

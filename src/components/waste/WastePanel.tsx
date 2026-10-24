@@ -142,7 +142,7 @@ function WasteItemPicker({
                     className="h-1.5 w-1.5 rounded-full"
                     style={{ background: STOCK_BADGE[wasteStockStatus(selected)].dot }}
                   />
-                  <span className="text-[11px] font-medium text-text-3">
+                  <span className="text-[12px] font-medium text-text-3">
                     {STOCK_BADGE[wasteStockStatus(selected)].label}
                   </span>
                 </div>
@@ -208,7 +208,7 @@ function WasteItemPicker({
                       </div>
                       <div className="mt-0.5 flex items-center gap-1.5">
                         <span className="h-1.5 w-1.5 rounded-full" style={{ background: meta.dot }} />
-                        <span className="text-[11px] font-medium text-text-3">{meta.label}</span>
+                        <span className="text-[12px] font-medium text-text-3">{meta.label}</span>
                       </div>
                     </div>
                     <div className="flex flex-none items-center gap-2">
@@ -326,7 +326,7 @@ function WasteRow({
             <div className="fault-row__seg">
               <span className="fault-row__seg-label">סטטוס בלאי</span>
               <div
-                className="inline-flex items-center gap-1.5 self-start rounded-full px-2.5 py-1 text-[11px] font-extrabold"
+                className="inline-flex items-center gap-1.5 self-start rounded-full px-2.5 py-1 text-[12px] font-extrabold"
                 style={{
                   color: `var(--${meta.tone})`,
                   background: `color-mix(in srgb, var(--${meta.tone}) 14%, var(--surface))`,

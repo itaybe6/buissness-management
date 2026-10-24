@@ -177,7 +177,7 @@ export function AreaChart({
               x={p.x}
               y={h - 6}
               textAnchor="middle"
-              className="fill-text-3 text-[11px] font-semibold"
+              className="fill-text-3 text-[12px] font-semibold"
               style={{ fontFamily: "Heebo, sans-serif", fontSize: 11 }}
             >
               {p.short}
@@ -214,11 +214,11 @@ export function BarChart({
                 animate={{ height: `${Math.max(pct, d.value > 0 ? 8 : 4)}%` }}
                 transition={{ delay: i * 0.07, duration: 0.55, ease: EASE_OUT }}
               >
-                <span className="absolute -top-6 left-1/2 -translate-x-1/2 font-mono text-[11px] font-bold tabular-nums text-text">
+                <span className="absolute -top-6 left-1/2 -translate-x-1/2 font-mono text-[12px] font-bold tabular-nums text-text">
                   {d.value}
                 </span>
               </motion.div>
-              <span className="text-center text-[10.5px] font-bold leading-tight text-text-3 sm:text-[11px]">
+              <span className="text-center text-[12px] font-bold leading-tight text-text-3 sm:text-[12px]">
                 {d.label}
               </span>
             </div>
@@ -230,7 +230,7 @@ export function BarChart({
           {data.filter((d) => d.value > 0).map((d) => (
             <span
               key={d.key}
-              className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-2.5 py-1 text-[10.5px] font-bold text-text-2"
+              className="inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-2.5 py-1 text-[12px] font-bold text-text-2"
             >
               <span className="h-2 w-2 rounded-full" style={{ background: d.color }} />
               {Math.round((d.value / total) * 100)}% {d.label}
@@ -300,7 +300,7 @@ export function DonutChart({
         </svg>
         <div className="absolute inset-0 grid place-items-center text-center">
           <div className="font-mono text-[26px] font-extrabold tabular-nums leading-none text-text">{total}</div>
-          {centerLabel && <div className="mt-0.5 text-[10px] font-bold text-text-3">{centerLabel}</div>}
+          {centerLabel && <div className="mt-0.5 text-[11.5px] font-bold text-text-3">{centerLabel}</div>}
         </div>
       </div>
       <div className="flex w-full flex-col gap-2 sm:flex-1">
@@ -361,7 +361,7 @@ export function RadialGauge({
       </svg>
       <div className="absolute text-center">
         <div className="font-mono text-[22px] font-extrabold tabular-nums leading-none">{Math.round(pct * 100)}%</div>
-        <div className="mt-0.5 text-[9px] font-bold text-text-3">{label}</div>
+        <div className="mt-0.5 text-[11px] font-bold text-text-3">{label}</div>
       </div>
     </div>
   );
@@ -383,7 +383,7 @@ export function HorizontalBars({
         <div key={item.name} className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between gap-2 text-[12px]">
             <span className="truncate font-bold text-text">{item.name}</span>
-            <span className="shrink-0 font-mono text-[11px] font-bold tabular-nums text-text-2">
+            <span className="shrink-0 font-mono text-[12px] font-bold tabular-nums text-text-2">
               {item.value}
               {item.sub ? ` · ${item.sub}` : ""}
             </span>

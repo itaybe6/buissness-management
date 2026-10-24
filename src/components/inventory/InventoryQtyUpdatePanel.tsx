@@ -50,7 +50,7 @@ function StepperField({
 }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-[11px] font-semibold text-text-3">{label}</span>
+      <span className="text-[12px] font-semibold text-text-3">{label}</span>
       <div className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-surface px-1 py-0.5">
         <button
           type="button"
@@ -131,7 +131,7 @@ export function InventoryQtyUpdatePanel({
   if (!dual) {
     return (
       <div className="flex flex-col gap-1.5">
-        <span className="text-[11px] font-semibold text-text-3">כמות ({item.unit ?? BASE_UNIT})</span>
+        <span className="text-[12px] font-semibold text-text-3">כמות ({item.unit ?? BASE_UNIT})</span>
         <div className="flex items-center gap-2">
           <Input
             type="number"

@@ -180,7 +180,7 @@ function TaskChip({ task, onToggle }: { task: Task; onToggle?: (id: string, done
         className={`mt-0.5 flex-none ${done ? "text-success" : recurring ? "text-accent-2" : "text-info"}`}
       />
       <span
-        className={`min-w-0 flex-1 truncate text-[11px] font-bold leading-tight ${done ? "text-text-3 line-through" : "text-text"}`}
+        className={`min-w-0 flex-1 truncate text-[12px] font-bold leading-tight ${done ? "text-text-3 line-through" : "text-text"}`}
       >
         {task.title}
       </span>
@@ -192,7 +192,7 @@ function TemplateChip({ template }: { template: TaskTemplate }) {
   return (
     <div className="group flex w-full items-start gap-1 rounded-[9px] border border-accent-2/30 [background:var(--violet-bg)] px-1.5 py-1 text-right">
       <Icon name="event_repeat" size={14} className="mt-0.5 flex-none text-accent-2" />
-      <span className="min-w-0 flex-1 truncate text-[11px] font-bold leading-tight text-text">{template.title}</span>
+      <span className="min-w-0 flex-1 truncate text-[12px] font-bold leading-tight text-text">{template.title}</span>
     </div>
   );
 }
@@ -447,7 +447,7 @@ export function TaskWeekSchedule({
                                 data-empty={isEmpty}
                               >
                                 {isEmpty ? (
-                                  <span className="text-[11px] font-semibold text-text-3">—</span>
+                                  <span className="text-[12px] font-semibold text-text-3">—</span>
                                 ) : (
                                   <>
                                     {cellTemplates.map((tpl) => (

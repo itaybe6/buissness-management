@@ -52,11 +52,11 @@ export function PositionsEditor({ drafts, onChange, roles, departments }: Props)
           <div key={d.key} className="rounded-[12px] border border-border bg-surface-2 p-3">
             <div className="mb-2.5 flex items-center justify-between gap-2">
               <span className="flex min-w-0 items-center gap-2 text-[12.5px] font-bold text-text">
-                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-[7px] bg-surface text-[11px] text-text-2">
+                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-[7px] bg-surface text-[12px] text-text-2">
                   {i + 1}
                 </span>
                 <span className="truncate">{positionLabel(d, deptName)}</span>
-                <span className="shrink-0 text-[11.5px] font-semibold text-text-3">
+                <span className="shrink-0 text-[12.5px] font-semibold text-text-3">
                   · {WAGE_TYPE_LABELS[d.wage_type]}
                 </span>
               </span>

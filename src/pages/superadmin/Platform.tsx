@@ -78,7 +78,7 @@ export function Platform() {
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-bold">{b.name}</span>
-                <span className="block text-[11.5px] text-text-3">
+                <span className="block text-[12.5px] text-text-3">
                   {PLAN_LABELS[b.plan]} · {b.feature_count} מודולים
                 </span>
               </span>
@@ -123,7 +123,7 @@ export function Platform() {
               {[...MODULE_BY_KEY.values()].slice(0, 6).map((m) => (
                 <span
                   key={m.key}
-                  className="flex items-center gap-1 rounded-[7px] bg-surface-2 px-2 py-1 text-[11.5px] font-semibold text-text-2"
+                  className="flex items-center gap-1 rounded-[7px] bg-surface-2 px-2 py-1 text-[12.5px] font-semibold text-text-2"
                 >
                   <Icon name={m.icon} size={14} />
                   {m.label}

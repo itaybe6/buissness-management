@@ -89,7 +89,7 @@ export function MyShifts() {
     <div className="w-full animate-fadeUp pb-[calc(var(--mobile-nav-h)+0.75rem)] md:pb-0">
       <header className="mb-4 hidden items-center justify-between gap-3 md:flex">
         <div className="min-w-0">
-          <p className="text-[11.5px] font-bold uppercase tracking-[0.14em] text-text-3">השכר שלי</p>
+          <p className="text-[12.5px] font-bold uppercase tracking-[0.14em] text-text-3">השכר שלי</p>
           <h1 className="mt-0.5 text-[clamp(1.4rem,5vw,1.9rem)] font-extrabold leading-none tracking-tight text-text">
             מעקב שכר
           </h1>

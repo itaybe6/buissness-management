@@ -1,9 +1,14 @@
+import { canAccessPayroll } from "@/lib/constants";
 import type { SalaryIssue, SalaryIssueStatus } from "@/types/database";
+
+/** One slate tone for every category (status keeps its own semantic colours). */
+const CATEGORY_TONE = "#64748b";
 
 /**
  * Predefined issue categories employees pick from when reporting.
  * `short` labels the picker tile / filter chip, `hint` is the coaching line
- * shown once a category is chosen, `tone` is the card's identity colour.
+ * shown once a category is chosen. Categories share one neutral `tone` —
+ * the icon tells them apart; colour is reserved for status.
  */
 export const SALARY_ISSUE_CATEGORIES = [
   {
@@ -11,7 +16,7 @@ export const SALARY_ISSUE_CATEGORIES = [
     label: "חישוב שגוי של שעות",
     short: "שעות",
     icon: "schedule",
-    tone: "#6366f1",
+    tone: CATEGORY_TONE,
     hint: "כתבו את התאריך, שעת הכניסה והיציאה בפועל, ומה מופיע במערכת.",
   },
   {
@@ -19,7 +24,7 @@ export const SALARY_ISSUE_CATEGORIES = [
     label: "טיפים חסרים או לא נכונים",
     short: "טיפים",
     icon: "savings",
-    tone: "#10b981",
+    tone: CATEGORY_TONE,
     hint: "איזו משמרת, כמה קיבלתם וכמה ציפיתם לקבל לפי החלוקה.",
   },
   {
@@ -27,7 +32,7 @@ export const SALARY_ISSUE_CATEGORIES = [
     label: "תעריף שעתי שגוי",
     short: "תעריף",
     icon: "payments",
-    tone: "#8b5cf6",
+    tone: CATEGORY_TONE,
     hint: "מה התעריף שסוכם, ומה התעריף שלפיו חושב השכר בפועל.",
   },
   {
@@ -35,7 +40,7 @@ export const SALARY_ISSUE_CATEGORIES = [
     label: "השלמת מינימום לא נכונה",
     short: "מינימום",
     icon: "trending_up",
-    tone: "#0ea5e9",
+    tone: CATEGORY_TONE,
     hint: "איזו משמרת קצרה, כמה שעות עבדתם ומה קיבלתם בסוף.",
   },
   {
@@ -43,7 +48,7 @@ export const SALARY_ISSUE_CATEGORIES = [
     label: "תוספת קופה / בונוס חסר",
     short: "בונוס",
     icon: "redeem",
-    tone: "#f59e0b",
+    tone: CATEGORY_TONE,
     hint: "על איזו משמרת מדובר ואיזה סכום היה אמור להתווסף.",
   },
   {
@@ -51,7 +56,7 @@ export const SALARY_ISSUE_CATEGORIES = [
     label: "מפרעה או ניכוי שגוי",
     short: "ניכוי",
     icon: "remove_circle",
-    tone: "#f43f5e",
+    tone: CATEGORY_TONE,
     hint: "איזה ניכוי הופיע, באיזה סכום, ולמה הוא לא אמור להיות שם.",
   },
   {
@@ -59,7 +64,7 @@ export const SALARY_ISSUE_CATEGORIES = [
     label: "בעיה אחרת",
     short: "אחר",
     icon: "help",
-    tone: "#64748b",
+    tone: CATEGORY_TONE,
     hint: "ספרו בדיוק מה קרה — חודש, משמרת וסכומים עוזרים לטפל מהר.",
   },
 ] as const;
@@ -127,5 +132,5 @@ export function countUnseenSalaryIssues(issues: SalaryIssue[], seenAt: string | 
 }
 
 export function isPayrollManagerRole(role: string | null | undefined): boolean {
-  return role === "manager" || role === "office_manager";
+  return canAccessPayroll(role);
 }

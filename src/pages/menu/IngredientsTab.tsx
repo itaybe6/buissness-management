@@ -117,7 +117,7 @@ export function IngredientsTab({ businessId, data }: { businessId: string; data:
                       <Monogram name={r.item.name} url={r.item.image_url} size={36} icon="inventory_2" />
                       <div className="min-w-0">
                         <div className="truncate font-bold">{r.item.name}</div>
-                        <div className="text-[11.5px] text-text-3">
+                        <div className="text-[12.5px] text-text-3">
                           {r.item.unit?.trim() || "יחידה"}
                           {r.content.pieces ? ` · ${r.content.pieces} × ${r.item.piece_unit?.trim() || "פריט"}` : ""}
                         </div>
@@ -128,7 +128,7 @@ export function IngredientsTab({ businessId, data }: { businessId: string; data:
                     {r.pricePerMain > 0 ? (
                       <div>
                         <b className="tabular-nums">{formatMoney(r.pricePerMain)}</b>
-                        <div className="text-[11.5px] text-text-3">
+                        <div className="text-[12.5px] text-text-3">
                           {r.priceSource === "manual" ? "מחיר ידני" : r.supplierName ?? "ספק"}
                           {r.offers > 1 ? ` · הזול מ-${r.offers}` : ""}
                         </div>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { HeroSilk } from "@/components/bits";
 import { Button, Icon, PageLoader } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { AttendancePunchStation } from "@/components/attendance/AttendancePunchStation";
@@ -131,8 +132,7 @@ function WorkerClockStation({ time }: { time: string }) {
               <Icon
                 name={t.type === "recurring" ? "event_repeat" : "edit_note"}
                 size={18}
-                className="flex-none"
-                style={{ color: "var(--warning)" }}
+                className="flex-none text-text-2"
               />
               <span className="text-[13px] font-semibold text-text">{t.title}</span>
             </div>
@@ -281,6 +281,7 @@ export function WorkerHome({
     <PageEnter className="worker-home w-full">
       <div className="worker-home__shell w-full max-w-lg mx-auto md:max-w-2xl lg:max-w-5xl">
       <section className="worker-hero" aria-label="כותרת דשבורד">
+        <HeroSilk base={[0.098, 0.118, 0.145]} />
         <div className="worker-hero-fx" aria-hidden>
           <span className="worker-hero-aurora worker-hero-aurora--1" />
           <span className="worker-hero-aurora worker-hero-aurora--2" />
