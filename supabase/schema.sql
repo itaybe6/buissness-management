@@ -1470,17 +1470,109 @@ create policy "attendance_tenant" on public.attendance
 -- shift_reports
 create policy "shift_reports_tenant" on public.shift_reports
   for all using (public.can_access(business_id)) with check (public.can_access(business_id));
--- tips
-create policy "tips_tenant" on public.tips
-  for all using (public.can_access(business_id)) with check (public.can_access(business_id));
+-- tips — מנהל מחלקה כותב בסגירת קופה, אבל קורא רק את השורות של עצמו
+create policy "tips_select" on public.tips
+  for select using (
+    public.can_access(business_id)
+    and (
+      public.is_super_admin()
+      or public.auth_role() in ('manager', 'office_manager')
+      or employee_id = auth.uid()
+    )
+  );
+create policy "tips_insert" on public.tips
+  for insert with check (
+    public.can_access(business_id)
+    and (
+      public.is_super_admin()
+      or public.auth_role() in ('manager', 'office_manager', 'department_manager')
+    )
+  );
+create policy "tips_update" on public.tips
+  for update using (
+    public.can_access(business_id)
+    and (public.is_super_admin() or public.auth_role() in ('manager', 'office_manager'))
+  ) with check (
+    public.can_access(business_id)
+    and (public.is_super_admin() or public.auth_role() in ('manager', 'office_manager'))
+  );
+create policy "tips_delete" on public.tips
+  for delete using (
+    public.can_access(business_id)
+    and (
+      public.is_super_admin()
+      or public.auth_role() in ('manager', 'office_manager', 'department_manager')
+    )
+  );
 -- shift_bonuses
-create policy "shift_bonuses_tenant" on public.shift_bonuses
-  for all using (public.can_access(business_id)) with check (public.can_access(business_id));
+create policy "shift_bonuses_select" on public.shift_bonuses
+  for select using (
+    public.can_access(business_id)
+    and (
+      public.is_super_admin()
+      or public.auth_role() in ('manager', 'office_manager')
+      or employee_id = auth.uid()
+    )
+  );
+create policy "shift_bonuses_insert" on public.shift_bonuses
+  for insert with check (
+    public.can_access(business_id)
+    and (
+      public.is_super_admin()
+      or public.auth_role() in ('manager', 'office_manager', 'department_manager')
+    )
+  );
+create policy "shift_bonuses_update" on public.shift_bonuses
+  for update using (
+    public.can_access(business_id)
+    and (public.is_super_admin() or public.auth_role() in ('manager', 'office_manager'))
+  ) with check (
+    public.can_access(business_id)
+    and (public.is_super_admin() or public.auth_role() in ('manager', 'office_manager'))
+  );
+create policy "shift_bonuses_delete" on public.shift_bonuses
+  for delete using (
+    public.can_access(business_id)
+    and (
+      public.is_super_admin()
+      or public.auth_role() in ('manager', 'office_manager', 'department_manager')
+    )
+  );
 -- payroll_records
-create policy "payroll_tenant" on public.payroll_records
-  for all using (public.can_access(business_id)) with check (public.can_access(business_id));
-create policy "payroll_month_adj_tenant" on public.payroll_month_adjustments
-  for all using (public.can_access(business_id)) with check (public.can_access(business_id));
+create policy "payroll_records_select" on public.payroll_records
+  for select using (
+    public.can_access(business_id)
+    and (
+      public.is_super_admin()
+      or public.auth_role() in ('manager', 'office_manager')
+      or employee_id = auth.uid()
+    )
+  );
+create policy "payroll_records_write" on public.payroll_records
+  for all using (
+    public.can_access(business_id)
+    and (public.is_super_admin() or public.auth_role() in ('manager', 'office_manager'))
+  ) with check (
+    public.can_access(business_id)
+    and (public.is_super_admin() or public.auth_role() in ('manager', 'office_manager'))
+  );
+create policy "payroll_month_adj_select" on public.payroll_month_adjustments
+  for select using (
+    public.can_access(business_id)
+    and (
+      public.is_super_admin()
+      or public.auth_role() in ('manager', 'office_manager')
+      or employee_id = auth.uid()
+    )
+  );
+create policy "payroll_month_adj_write" on public.payroll_month_adjustments
+  for all using (
+    public.can_access(business_id)
+    and (public.is_super_admin() or public.auth_role() in ('manager', 'office_manager'))
+  ) with check (
+    public.can_access(business_id)
+    and (public.is_super_admin() or public.auth_role() in ('manager', 'office_manager'))
+  );
 -- inventory_categories — קריאה לכל העסק; עריכה למנהלים
 create policy "inv_categories_read" on public.inventory_categories
   for select using (public.can_access(business_id));

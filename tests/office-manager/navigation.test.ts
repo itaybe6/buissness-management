@@ -86,7 +86,7 @@ describe("הרשאות פעולה של מנהלת המשרד", () => {
     expect(canSeeInventoryPrices("office_manager")).toBe(true);
     expect(canSeeInventoryPrices("employee")).toBe(false);
     expect(canSeeInventoryPrices("shift_manager")).toBe(false);
-    expect(canSeeInventoryPrices("department_manager")).toBe(false);
+    expect(canSeeInventoryPrices("department_manager")).toBe(true);
   });
 
   it("ערך לא מוכר / ריק לא מקבל גישה למחירים", () => {

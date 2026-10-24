@@ -353,7 +353,7 @@ export function InventoryOrder() {
   const [searchParams] = useSearchParams();
   const batchParam = searchParams.get("batch");
   const isEditing = !!batchParam;
-  const canManageOrders = !!(profile && ["manager", "office_manager"].includes(profile.role));
+  const canManageOrders = !!(profile && ["manager", "department_manager", "office_manager"].includes(profile.role));
 
   const { data: items, isLoading, isError, refetch } = useInventory(businessId);
   const { data: inventoryCategories } = useInventoryCategories(businessId);

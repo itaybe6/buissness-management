@@ -67,7 +67,7 @@ export const BONUS_ELIGIBLE_ROLES: UserRole[] = ["manager", "department_manager"
 export const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
   super_admin: "ניהול כל הפלטפורמה",
   manager: "סקירה מלאה של העסק",
-  department_manager: "סידור עבודה, אילוצים, חשבוניות ודוח סגירת קופה",
+  department_manager: "גישה מלאה לעסק, בלי שכר של עובדים אחרים",
   shift_manager: "משמרות, נוכחות",
   office_manager: "שכר, מלאי וחשבוניות",
   employee: "משמרות, נוכחות",
@@ -79,23 +79,34 @@ export const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
 export const EVENT_MANAGE_ROLES: UserRole[] = ["manager", "event_manager"];
 
 /** Roles that can see the employee documents compliance overview. */
-export const DOCUMENTS_OVERVIEW_ROLES: UserRole[] = ["manager", "office_manager"];
+export const DOCUMENTS_OVERVIEW_ROLES: UserRole[] = ["manager", "department_manager", "office_manager"];
 
 /** Roles that can create/edit agreement templates. */
 export const DOCUMENTS_EDIT_ROLES: UserRole[] = ["manager", "department_manager"];
 
 /** Roles that can upload and manage office receipts/invoices. */
-export const OFFICE_RECEIPTS_ROLES: UserRole[] = ["manager", "office_manager"];
+export const OFFICE_RECEIPTS_ROLES: UserRole[] = ["manager", "department_manager", "office_manager"];
 
 /** Roles that can see and edit inventory item unit prices. */
-export const INVENTORY_PRICE_ROLES: UserRole[] = ["manager", "office_manager"];
+export const INVENTORY_PRICE_ROLES: UserRole[] = ["manager", "department_manager", "office_manager"];
 
 export function canSeeInventoryPrices(role: UserRole | string | null | undefined): boolean {
   return !!role && INVENTORY_PRICE_ROLES.includes(role as UserRole);
 }
 
 /** Roles that can open the menu costing module (dish costs and margins are sensitive). */
-export const MENU_ROLES: UserRole[] = ["manager", "office_manager"];
+export const MENU_ROLES: UserRole[] = ["manager", "department_manager", "office_manager"];
+
+/**
+ * Roles that may open payroll and see other employees' pay
+ * (rates, payroll, tip splits, bonuses, fault work prices).
+ * מנהל מחלקה is intentionally excluded.
+ */
+export const PAYROLL_ACCESS_ROLES: UserRole[] = ["manager", "office_manager"];
+
+export function canAccessPayroll(role: UserRole | string | null | undefined): boolean {
+  return !!role && PAYROLL_ACCESS_ROLES.includes(role as UserRole);
+}
 
 export function canManageMenu(role: UserRole | string | null | undefined): boolean {
   return !!role && MENU_ROLES.includes(role as UserRole);
@@ -242,7 +253,7 @@ export const NAV_ITEMS: NavItem[] = [
 
   { key: "shifts", label: "משמרות", icon: "calendar_month", group: "shifts", roles: ["manager", "department_manager", "shift_manager", "employee"], feature: "shifts" },
   { key: "shift-reports", label: "דוח משמרת", icon: "receipt_long", group: "shifts", roles: ["manager", "department_manager"], feature: "shift_reports" },
-  { key: "attendance", label: "שעון נוכחות", icon: "schedule", group: "shifts", roles: ["manager"], feature: "attendance" },
+  { key: "attendance", label: "שעון נוכחות", icon: "schedule", group: "shifts", roles: ["manager", "department_manager"], feature: "attendance" },
   { key: "my-shifts", label: "מעקב שכר", icon: "event_available", group: "shifts", roles: ["manager", "department_manager", "shift_manager", "office_manager", "employee", "maintenance"] },
   { key: "salary-issues", label: "בעיות שכר", icon: "report_problem", group: "shifts", roles: ["employee", "shift_manager", "department_manager", "maintenance"], feature: "payroll" },
 
@@ -251,10 +262,10 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "events", label: "אירועים", icon: "celebration", group: "ops", roles: ["manager", "event_manager", "department_manager", "shift_manager", "office_manager", "employee"], feature: "events" },
 
   { key: "inventory", label: "מוצרים", icon: "inventory_2", group: "inventory", roles: ["manager", "department_manager", "shift_manager", "office_manager", "employee"], feature: "inventory" },
-  { key: "suppliers", label: "ספקים", icon: "local_shipping", group: "inventory", roles: ["manager", "office_manager"], feature: "inventory" },
-  { key: "menu", label: "תפריט ותמחור", icon: "restaurant_menu", group: "inventory", roles: ["manager", "office_manager"], feature: "menu" },
+  { key: "suppliers", label: "ספקים", icon: "local_shipping", group: "inventory", roles: ["manager", "department_manager", "office_manager"], feature: "inventory" },
+  { key: "menu", label: "תפריט ותמחור", icon: "restaurant_menu", group: "inventory", roles: ["manager", "department_manager", "office_manager"], feature: "menu" },
 
-  { key: "users", label: "משתמשים", icon: "group", group: "team", roles: ["manager", "office_manager"] },
+  { key: "users", label: "משתמשים", icon: "group", group: "team", roles: ["manager", "department_manager", "office_manager"] },
   { key: "payroll", label: "שכר", icon: "payments", group: "team", roles: ["manager", "office_manager"], feature: "payroll" },
   { key: "agreements", label: "מסמכים", icon: "draw", group: "team", roles: ["manager", "department_manager", "shift_manager", "office_manager", "employee"], feature: "agreements" },
 

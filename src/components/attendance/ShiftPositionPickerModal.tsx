@@ -1,6 +1,7 @@
 import { Icon } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
-import { WAGE_TYPE_LABELS } from "@/lib/constants";
+import { useAuth } from "@/lib/auth";
+import { canAccessPayroll, WAGE_TYPE_LABELS } from "@/lib/constants";
 import { formatCurrency } from "@/lib/db";
 import { positionLabel } from "@/lib/employeePositions";
 import type { EmployeePosition } from "@/types/database";
@@ -29,6 +30,8 @@ export function ShiftPositionPickerModal({
   busy = false,
   employeeName,
 }: ShiftPositionPickerProps) {
+  const { profile } = useAuth();
+  const showPay = !employeeName || canAccessPayroll(profile?.role);
   return (
     <Modal
       open={open}
@@ -37,7 +40,9 @@ export function ShiftPositionPickerModal({
       title="באיזה תפקיד נכנסים למשמרת?"
       subtitle={
         employeeName
-          ? `${employeeName} — השכר למשמרת יחושב לפי התפקיד שנבחר`
+          ? showPay
+            ? `${employeeName} — השכר למשמרת יחושב לפי התפקיד שנבחר`
+            : `${employeeName} — בחרו את התפקיד למשמרת`
           : "השכר למשמרת הזו יחושב לפי התפקיד שתבחרו"
       }
       maxWidth={420}
@@ -64,11 +69,13 @@ export function ShiftPositionPickerModal({
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[14.5px] font-extrabold text-text">{positionLabel(p, deptName)}</span>
+                {showPay && (
                 <span className="block text-[12.5px] text-text-2">
                   {WAGE_TYPE_LABELS[p.wage_type]} ·{" "}
                   {tips ? `מינימום ${formatCurrency(Number(p.hourly_rate) || 0)}/שע׳` : `${formatCurrency(Number(p.hourly_rate) || 0)}/שע׳`}
                   {Number(p.bonus_pct) > 0 && ` · ${p.bonus_pct}% קופה`}
                 </span>
+                )}
               </span>
               <Icon name="chevron_left" size={20} className="shrink-0 text-text-3" />
             </button>

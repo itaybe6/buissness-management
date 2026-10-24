@@ -158,10 +158,13 @@ describe("הרשאות הפעולה של המנהל", () => {
 describe("מה המנהל מקבל שמנהל המחלקה לא", () => {
   const departmentManagerKeys = visibleNavItems("department_manager", ALL_ON).map((i) => i.key);
 
-  it("שכר, משתמשים, ספקים, שעון נוכחות והגדרות — רק למנהל", () => {
-    for (const key of ["payroll", "users", "suppliers", "attendance", "settings"]) {
+  it("שכר והגדרות העסק נשארים אצל המנהל — מנהל מחלקה רואה את שאר המסכים", () => {
+    for (const key of ["payroll", "settings"]) {
       expect(managerKeys(), key).toContain(key);
       expect(departmentManagerKeys, key).not.toContain(key);
+    }
+    for (const key of ["users", "suppliers", "attendance", "menu"]) {
+      expect(departmentManagerKeys, key).toContain(key);
     }
   });
 
@@ -178,8 +181,8 @@ describe("מה המנהל מקבל שמנהל המחלקה לא", () => {
     expect(SCHEDULER_ROLES).not.toContain("shift_manager");
   });
 
-  it("מנהל מחלקה ואחמ״ש לא רואים מחירי ספקים", () => {
-    expect(canSeeInventoryPrices("department_manager")).toBe(false);
+  it("מנהל מחלקה רואה מחירי מלאי, אחראי משמרת לא", () => {
+    expect(canSeeInventoryPrices("department_manager")).toBe(true);
     expect(canSeeInventoryPrices("shift_manager")).toBe(false);
   });
 });

@@ -286,8 +286,8 @@ describe("מי עושה מה במסמכים", () => {
     expect(DOCUMENTS_EDIT_ROLES).toEqual(["manager", "department_manager"]);
   });
 
-  it("מנהל ומנהלת משרד רואים את סקירת החתימות", () => {
-    expect(DOCUMENTS_OVERVIEW_ROLES).toEqual(["manager", "office_manager"]);
+  it("מנהל, מנהל מחלקה ומנהלת משרד רואים את סקירת החתימות", () => {
+    expect(DOCUMENTS_OVERVIEW_ROLES).toEqual(["manager", "department_manager", "office_manager"]);
   });
 
   it("מנהלת משרד רואה סקירה אבל לא עורכת תבניות", () => {
@@ -301,8 +301,8 @@ describe("מי עושה מה במסמכים", () => {
     expect(visibleNavItems("employee", ALL_ON).map((i) => i.key)).toContain("agreements");
   });
 
-  it("חשבוניות משרד — מנהל ומנהלת משרד בלבד", () => {
-    expect(OFFICE_RECEIPTS_ROLES).toEqual(["manager", "office_manager"]);
+  it("חשבוניות משרד — מנהל, מנהל מחלקה ומנהלת משרד", () => {
+    expect(OFFICE_RECEIPTS_ROLES).toEqual(["manager", "department_manager", "office_manager"]);
   });
 
   it("איש אחזקה לא ניגש למסמכים בכלל", () => {
