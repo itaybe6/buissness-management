@@ -98,6 +98,7 @@ export function AppShell() {
     location.pathname === "/payroll" ||
     location.pathname === "/users" ||
     location.pathname === "/agreements" ||
+    location.pathname === "/tutorials" ||
     location.pathname === "/events" ||
     /^\/events\/[^/]+$/.test(location.pathname);
 

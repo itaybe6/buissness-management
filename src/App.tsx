@@ -44,6 +44,7 @@ import { EventIdeas } from "@/pages/EventIdeas";
 import { EventDetail } from "@/pages/EventDetail";
 import { EventRequests } from "@/pages/EventRequests";
 import { Profile } from "@/pages/Profile";
+import { Tutorials } from "@/pages/Tutorials";
 import { FeatureGate } from "@/components/FeatureGate";
 
 function HomeRedirect() {
@@ -125,6 +126,7 @@ export function App() {
           <Route path="events/:eventId" element={<FeatureGate feature="events"><EventDetail /></FeatureGate>} />
           <Route path="settings" element={<Settings />} />
           <Route path="profile" element={<Profile />} />
+          <Route path="tutorials" element={<Tutorials />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

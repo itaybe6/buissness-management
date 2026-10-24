@@ -216,10 +216,11 @@ export interface NavGroup {
  */
 export function groupNavItems(items: NavItem[], options?: { flat?: boolean }): NavGroup[] {
   if (options?.flat) {
-    // Keep relative order, but pin מסמכים last in the flat (employee) menu.
-    const rest = items.filter((item) => item.key !== "agreements");
-    const docs = items.filter((item) => item.key === "agreements");
-    const flatItems = [...rest, ...docs];
+    // Keep relative order, but pin מסמכים and then סרטוני הדרכה last in the flat (employee) menu.
+    const pinned = ["agreements", "tutorials"];
+    const rest = items.filter((item) => !pinned.includes(item.key));
+    const tail = pinned.flatMap((key) => items.filter((item) => item.key === key));
+    const flatItems = [...rest, ...tail];
     return flatItems.length > 0 ? [{ id: "overview", label: "", items: flatItems }] : [];
   }
   const byGroup = new Map<NavGroupId, NavItem[]>();
@@ -270,6 +271,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: "agreements", label: "מסמכים", icon: "draw", group: "team", roles: ["manager", "department_manager", "shift_manager", "office_manager", "employee"], feature: "agreements" },
 
   { key: "settings", label: "הגדרות עסק", icon: "settings", group: "settings", roles: ["manager"] },
+  { key: "tutorials", label: "סרטוני הדרכה", icon: "smart_display", group: "settings", roles: ["manager", "department_manager", "shift_manager", "office_manager", "employee", "maintenance", "event_manager"] },
 ];
 
 /**

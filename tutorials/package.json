@@ -1,0 +1,15 @@
+{
+  "name": "tutorial-videos",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build-app": "node build-app.mjs",
+    "record": "node record.mjs",
+    "publish": "node publish.mjs",
+    "videos": "node build-app.mjs && node record.mjs && node publish.mjs"
+  },
+  "devDependencies": {
+    "ffmpeg-static": "5.2.0",
+    "playwright": "1.49.1"
+  }
+}
