@@ -3,63 +3,63 @@
     {
       "id": "employee/01-login-and-home",
       "title": "כניסה לאפליקציה ומסך הבית",
-      "duration": 40.5,
+      "duration": 49.2,
       "src": "/tutorials/employee/01-login-and-home.mp4",
       "poster": "/tutorials/employee/01-login-and-home.jpg"
     },
     {
       "id": "employee/02-clock-in-out",
       "title": "החתמת כניסה ויציאה ממשמרת",
-      "duration": 33.9,
+      "duration": 34.7,
       "src": "/tutorials/employee/02-clock-in-out.mp4",
       "poster": "/tutorials/employee/02-clock-in-out.jpg"
     },
     {
       "id": "employee/03-daily-tasks",
       "title": "המשימות שלי במשמרת",
-      "duration": 33.5,
+      "duration": 33.7,
       "src": "/tutorials/employee/03-daily-tasks.mp4",
       "poster": "/tutorials/employee/03-daily-tasks.jpg"
     },
     {
       "id": "employee/04-availability",
       "title": "הגשת זמינות למשמרות",
-      "duration": 38.9,
+      "duration": 39,
       "src": "/tutorials/employee/04-availability.mp4",
       "poster": "/tutorials/employee/04-availability.jpg"
     },
     {
       "id": "employee/05-pay-tracking",
       "title": "מעקב שכר",
-      "duration": 27.8,
+      "duration": 28,
       "src": "/tutorials/employee/05-pay-tracking.mp4",
       "poster": "/tutorials/employee/05-pay-tracking.jpg"
     },
     {
       "id": "employee/06-salary-issue",
       "title": "דיווח על בעיה בשכר",
-      "duration": 26.2,
+      "duration": 27.2,
       "src": "/tutorials/employee/06-salary-issue.mp4",
       "poster": "/tutorials/employee/06-salary-issue.jpg"
     },
     {
       "id": "employee/07-inventory-count",
       "title": "עדכון כמות של מוצר",
-      "duration": 28.8,
+      "duration": 29.3,
       "src": "/tutorials/employee/07-inventory-count.mp4",
       "poster": "/tutorials/employee/07-inventory-count.jpg"
     },
     {
       "id": "employee/08-sign-documents",
       "title": "חתימה על מסמכים",
-      "duration": 35,
+      "duration": 31.9,
       "src": "/tutorials/employee/08-sign-documents.mp4",
       "poster": "/tutorials/employee/08-sign-documents.jpg"
     },
     {
       "id": "employee/09-events",
       "title": "אירועים קרובים",
-      "duration": 16.6,
+      "duration": 16.8,
       "src": "/tutorials/employee/09-events.mp4",
       "poster": "/tutorials/employee/09-events.jpg"
     }
@@ -68,30 +68,86 @@
     {
       "id": "manager/01-dashboard",
       "title": "הדשבורד — תמונת מצב של העסק",
-      "duration": 26.6,
+      "duration": 27,
       "src": "/tutorials/manager/01-dashboard.mp4",
       "poster": "/tutorials/manager/01-dashboard.jpg"
     },
     {
       "id": "manager/02-build-schedule",
       "title": "בניית סידור עבודה",
-      "duration": 28.9,
+      "duration": 28.8,
       "src": "/tutorials/manager/02-build-schedule.mp4",
       "poster": "/tutorials/manager/02-build-schedule.jpg"
     },
     {
       "id": "manager/03-attendance",
       "title": "שעון נוכחות ותיקון שעות",
-      "duration": 22.9,
+      "duration": 24.8,
       "src": "/tutorials/manager/03-attendance.mp4",
       "poster": "/tutorials/manager/03-attendance.jpg"
     },
     {
       "id": "manager/04-tasks",
       "title": "משימות לצוות",
-      "duration": 32.6,
+      "duration": 32.4,
       "src": "/tutorials/manager/04-tasks.mp4",
       "poster": "/tutorials/manager/04-tasks.jpg"
+    },
+    {
+      "id": "manager/05-shift-report",
+      "title": "דוח סוף משמרת וחלוקת טיפים",
+      "duration": 40.5,
+      "src": "/tutorials/manager/05-shift-report.mp4",
+      "poster": "/tutorials/manager/05-shift-report.jpg"
+    },
+    {
+      "id": "manager/06-payroll",
+      "title": "שכר חודשי",
+      "duration": 30.8,
+      "src": "/tutorials/manager/06-payroll.mp4",
+      "poster": "/tutorials/manager/06-payroll.jpg"
+    },
+    {
+      "id": "manager/07-supplier-order",
+      "title": "הזמנת סחורה מספקים",
+      "duration": 34.5,
+      "src": "/tutorials/manager/07-supplier-order.mp4",
+      "poster": "/tutorials/manager/07-supplier-order.jpg"
+    },
+    {
+      "id": "manager/08-add-employee",
+      "title": "הוספת עובד חדש",
+      "duration": 31.6,
+      "src": "/tutorials/manager/08-add-employee.mp4",
+      "poster": "/tutorials/manager/08-add-employee.jpg"
+    },
+    {
+      "id": "manager/09-documents",
+      "title": "מעקב מסמכים וחתימות",
+      "duration": 20.8,
+      "src": "/tutorials/manager/09-documents.mp4",
+      "poster": "/tutorials/manager/09-documents.jpg"
+    },
+    {
+      "id": "manager/10-faults",
+      "title": "טיפול בתקלות",
+      "duration": 20.5,
+      "src": "/tutorials/manager/10-faults.mp4",
+      "poster": "/tutorials/manager/10-faults.jpg"
+    },
+    {
+      "id": "manager/11-events",
+      "title": "יצירת אירוע",
+      "duration": 24.9,
+      "src": "/tutorials/manager/11-events.mp4",
+      "poster": "/tutorials/manager/11-events.jpg"
+    },
+    {
+      "id": "manager/12-settings",
+      "title": "הגדרות העסק",
+      "duration": 20.7,
+      "src": "/tutorials/manager/12-settings.mp4",
+      "poster": "/tutorials/manager/12-settings.jpg"
     }
   ]
 }

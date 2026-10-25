@@ -213,7 +213,9 @@ function orPredicate(expr) {
 const RESERVED = new Set(["select", "order", "limit", "offset", "on_conflict", "columns"]);
 
 export class MockDb {
-  constructor(tables) {
+  /** `now` returns the current time as the demo sees it (defaults to the real clock). */
+  constructor(tables, now = () => new Date()) {
+    this.now = now;
     this.tables = tables;
     this.log = [];
   }
@@ -304,7 +306,7 @@ export class MockDb {
       return { status, body: JSON.stringify(projected), headers: respHeaders };
     };
 
-    const now = new Date().toISOString();
+    const now = this.now().toISOString();
 
     if (method === "GET" || method === "HEAD") {
       let rows = this.filterRows(this.table(tableName), params);

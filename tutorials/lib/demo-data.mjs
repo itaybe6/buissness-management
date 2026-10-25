@@ -347,10 +347,11 @@ export function buildDemoData() {
 
   // End-of-shift reports for every past morning and evening — they drive revenue and tips.
   let rN = 40000;
-  for (let date = addDays(DEMO_DATE, -55); date < DEMO_DATE; date = addDays(date, 1)) {
-    for (const [key, base] of [["floorMorning", 7200], ["floorEvening", 10400]]) {
+  // Yesterday's report is still waiting to be filled — the shift-report video does it.
+  for (let date = addDays(DEMO_DATE, -55); date < addDays(DEMO_DATE, -1); date = addDays(date, 1)) {
+    for (const [key, base] of [["floorMorning", 3100], ["floorEvening", 4400]]) {
       const weekend = dow(date) >= 4;
-      const sales = Math.round((base * (weekend ? 1.35 : 1) + r() * 2600) / 10) * 10;
+      const sales = Math.round((base * (weekend ? 1.35 : 1) + r() * 1200) / 10) * 10;
       const tips = Math.round(sales * (0.09 + r() * 0.03));
       t.shift_reports.push({
         id: uid(rN++),
@@ -408,9 +409,32 @@ export function buildDemoData() {
     });
   }
 
+  // ---- availability for this week: everyone submitted last week ------------------------
+  t.shift_preferences = [];
+  const thisWeek = weekStartOf(DEMO_DATE);
+  for (const key of Object.keys(ROTA)) {
+    for (let d = 0; d < 7; d++) {
+      const date = addDays(thisWeek, d);
+      for (const shiftKey of ROTA[key].shifts) {
+        const assigned = t.shift_assignments.some((a) => a.employee_id === USERS[key] && a.shift_date === date && a.shift_template_id === SHIFT[shiftKey]);
+        const v = r();
+        t.shift_preferences.push({
+          id: uid(aN++),
+          business_id: BIZ,
+          employee_id: USERS[key],
+          week_start: thisWeek,
+          shift_date: date,
+          shift_template_id: SHIFT[shiftKey],
+          preference: assigned ? (v < 0.5 ? "prefer" : "available") : v < 0.45 ? "available" : "cannot",
+          note: null,
+          created_at: ts(addDays(thisWeek, -4), "19:30"),
+        });
+      }
+    }
+  }
+
   // ---- availability: the team has started filling next week; Noa hasn't yet ----------
   const nextWeek = addDays(weekStartOf(DEMO_DATE), 7);
-  t.shift_preferences = [];
   for (const key of ["shira", "tamar", "daniel", "maya"]) {
     for (let d = 0; d < 7; d++) {
       const shiftKey = ROTA[key].shifts[0];

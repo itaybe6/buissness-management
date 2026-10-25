@@ -7,6 +7,7 @@ import { chromium } from "playwright";
 import { readFile, mkdir } from "node:fs/promises";
 import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { MockDb } from "./postgrest.mjs";
 import { buildDemoData, DEMO_DATE, DEMO_TIME, ts } from "./demo-data.mjs";
@@ -68,10 +69,12 @@ function sessionFor(profile) {
 export async function openPhone({ userId, outFile, time = DEMO_TIME, date = DEMO_DATE, mutate }) {
   const data = buildDemoData();
   mutate?.(data);
-  const db = new MockDb(data);
   const startMs = Date.parse(ts(date, time));
+  const realStart = Date.now();
+  // Rows the app creates get the demo clock, not today's real date.
+  const db = new MockDb(data, () => new Date(startMs + (Date.now() - realStart)));
 
-  const browser = await chromium.launch({ headless: true, executablePath: findHeadlessShell(), args: ["--force-device-scale-factor=2"] });
+  const browser = await chromium.launch({ headless: true, executablePath: findHeadlessShell(), args: ["--force-device-scale-factor=2", "--lang=he-IL"] });
   const VIEW = { width: 390, height: 844 };
   const context = await browser.newContext({
     viewport: VIEW,
@@ -149,7 +152,33 @@ export async function openPhone({ userId, outFile, time = DEMO_TIME, date = DEMO
     }
 
     if (url.pathname.startsWith("/functions/v1/")) {
-      return route.fulfill({ status: 200, headers: { ...cors, "content-type": "application/json" }, body: JSON.stringify({ ok: true }) });
+      let result = { ok: true };
+      if (url.pathname.endsWith("/create-user")) {
+        // The real function creates an auth user and a DB trigger adds the profile — do the latter here.
+        const body = JSON.parse(req.postData() || "{}");
+        const id = randomUUID();
+        const now = db.now().toISOString();
+        db.table("profiles").push({
+          id,
+          business_id: data.businesses[0].id,
+          department_id: body.department_id ?? null,
+          full_name: body.full_name ?? null,
+          avatar_url: null,
+          email: body.email ?? null,
+          phone: body.phone ?? null,
+          role: body.role ?? "employee",
+          hourly_rate: body.hourly_rate != null && body.hourly_rate !== "" ? Number(body.hourly_rate) : 35.4,
+          wage_type: body.wage_type ?? "hourly",
+          bonus_pct: 0,
+          pension_active: !!body.pension_active,
+          birth_date: null,
+          active: true,
+          created_at: now,
+          updated_at: now,
+        });
+        result = { user: { id }, id };
+      }
+      return route.fulfill({ status: 200, headers: { ...cors, "content-type": "application/json" }, body: JSON.stringify(result) });
     }
 
     unhandled.add(`${method} ${url.pathname}`);
@@ -257,13 +286,12 @@ export async function openPhone({ userId, outFile, time = DEMO_TIME, date = DEMO
       let p = point(0);
       await page.mouse.move(p.x, p.y);
       await page.mouse.down();
-      for (let i = 1; i <= 110; i++) {
-        p = point(i / 110);
+      for (let i = 1; i <= 48; i++) {
+        p = point(i / 48);
         await page.mouse.move(p.x, p.y);
-        await page.waitForTimeout(10);
       }
       // the underline flourish
-      await page.mouse.move(cx + w * 0.9, cy + h * 1.2, { steps: 18 });
+      await page.mouse.move(cx + w * 0.9, cy + h * 1.2, { steps: 6 });
       await page.mouse.up();
       await page.waitForTimeout(500);
     },
