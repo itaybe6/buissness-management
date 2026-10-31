@@ -50,9 +50,13 @@ import {
   unplacedEmployeeCount,
   nextRowSortOrder,
   pickerCandidates,
+  initialRowDraft,
   rowDaysFor,
+  rowHeadlineHours,
   rowPref,
+  setRowDraftPerDay,
   validateRowDraft,
+  type RowDraft,
   type PrefMark,
 } from "@/lib/shiftRows";
 import {
@@ -538,7 +542,7 @@ function EmployeeSchedule({
                       dayTemplates.map((t) => (
                         <span key={t.id} className="shift-assigned-badge">
                           <Icon name="check_circle" size={14} />
-                          {t.name} · {formatHours(hoursOnDay(t, i)) ?? t.start_time?.slice(0, 5)}
+                          {t.name} · <bdi dir="ltr">{formatHours(hoursOnDay(t, i)) ?? t.start_time?.slice(0, 5)}</bdi>
                         </span>
                       ))
                     )}
@@ -589,7 +593,7 @@ function EmployeeSchedule({
                           data-holiday={!!meta.holiday}
                           data-off={!hours && !occupant}
                         >
-                          {varied && <span className="shift-cell-time">{varied}</span>}
+                          {varied && <bdi dir="ltr" className="shift-cell-time">{varied}</bdi>}
                           {mine ? (
                             <span className="shift-assigned-badge">
                               <Icon name="check_circle" size={15} />
@@ -991,7 +995,7 @@ function EmployeeConstraints({ templates }: { templates: ShiftTemplate[] }) {
                       <span className="prefs2-card-name">{w.names.join(" · ")}</span>
                       <span className="prefs2-card-time">
                         <Icon name="schedule" size={12} />
-                        {formatHours(hours)}
+                        <bdi dir="ltr">{formatHours(hours)}</bdi>
                         {duration && <span className="prefs2-card-dur">{duration}</span>}
                       </span>
                     </div>
@@ -1383,7 +1387,7 @@ function MobileConstraintShiftRow({
         <div className="shift-mobile-constraint-title">
           <span className="shift-mobile-constraint-dot" style={colorDotStyle(shiftColor, 2)} />
           <span className="shift-mobile-constraint-name">{window.names.join(" · ")}</span>
-          <span className="shift-mobile-constraint-time">{formatHours(window)}</span>
+          <bdi dir="ltr" className="shift-mobile-constraint-time">{formatHours(window)}</bdi>
         </div>
         {total > 0 && <span className="shift-mobile-constraint-badge">{total}</span>}
       </div>
@@ -2022,7 +2026,7 @@ function SchedulerView() {
                               data-empty={!!hours && !a}
                               data-off={!hours}
                             >
-                              {varied && <span className="shift-cell-time">{varied}</span>}
+                              {varied && <bdi dir="ltr" className="shift-cell-time">{varied}</bdi>}
                               <AnimatePresence initial={false}>
                                 {a && occupantFor(section, t, date, a)}
                               </AnimatePresence>
@@ -2080,7 +2084,8 @@ function SchedulerView() {
                   subtitle={(() => {
                     const he = getHebrewDayInfo(picker.date);
                     const hours = formatHours(hoursOnDay(picker.template, dayIndexFromISO(picker.date)));
-                    return [picker.template.name, hours, formatDateShort(picker.date), he.holiday ?? he.hebrewDate]
+                    // Isolate the range so RTL text doesn't flip it to "01:00–19:30".
+                    return [picker.template.name, hours && `⁦${hours}⁩`, formatDateShort(picker.date), he.holiday ?? he.hebrewDate]
                       .filter(Boolean)
                       .join(" · ");
                   })()}
@@ -2272,41 +2277,45 @@ function RowEditorModal({
   const replaceDays = useReplaceShiftTemplateDays(businessId);
   const del = useDeleteShiftTemplate(businessId);
 
-  const initialStart = template ? hhmm(template.start_time) : "";
-  const initialEnd = template ? hhmm(template.end_time) : "";
-  const variedHours = !!template && !uniformHoursLabel(template);
-  const [name, setName] = useState(template?.name ?? "");
-  const [start, setStart] = useState(initialStart);
-  const [end, setEnd] = useState(initialEnd);
   // A new row starts with no days — the manager taps the days it runs.
-  const [days, setDays] = useState<boolean[]>(() =>
-    HE_DAYS.map((_, i) => (template ? !!hoursOnDay(template, i) : false)),
-  );
+  const [draft, setDraft] = useState<RowDraft>(() => initialRowDraft(template));
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const busy = create.isPending || update.isPending || replaceDays.isPending || del.isPending;
-  const draftError = validateRowDraft({ name, start, end, days });
+  const draftError = validateRowDraft(draft);
   const valid = draftError === null;
-  const dayRows = () => rowDaysFor(template, { start, end, days });
+  const patch = (next: Partial<RowDraft>) => setDraft((d) => ({ ...d, ...next }));
+  const setDayHours = (i: number, next: Partial<{ start: string; end: string }>) =>
+    setDraft((d) => ({
+      ...d,
+      dayHours: (d.dayHours ?? []).map((h, j) => (j === i ? { ...h, ...next } : h)),
+    }));
 
   async function save() {
     if (!valid) return;
     setError(null);
+    const days = rowDaysFor(template, draft);
+    const headline = rowHeadlineHours(days, draft);
     try {
       if (template) {
-        await update.mutateAsync({ id: template.id, name: name.trim(), start_time: start, end_time: end });
-        await replaceDays.mutateAsync({ id: template.id, days: dayRows() });
+        await update.mutateAsync({
+          id: template.id,
+          name: draft.name.trim(),
+          start_time: headline.start,
+          end_time: headline.end,
+        });
+        await replaceDays.mutateAsync({ id: template.id, days });
       } else {
         await create.mutateAsync({
           business_id: businessId,
           department_id: section.id,
-          name: name.trim(),
-          start_time: start,
-          end_time: end,
+          name: draft.name.trim(),
+          start_time: headline.start,
+          end_time: headline.end,
           color: section.color,
           sort_order: nextRowSortOrder(section.templates),
-          days: dayRows(),
+          days,
         });
       }
       onClose();
@@ -2388,22 +2397,12 @@ function RowEditorModal({
           <span className="label-text">שם השורה</span>
           <Input
             className="mt-1.5"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
+            value={draft.name}
+            onChange={(e) => patch({ name: e.target.value })}
             placeholder="לדוגמה: אירוח ערב"
             autoFocus={!template}
           />
         </label>
-        <div className="grid grid-cols-2 gap-3">
-          <label className="block">
-            <span className="label-text">משעה</span>
-            <TimePicker className="mt-1.5" value={start} onChange={setStart} />
-          </label>
-          <label className="block">
-            <span className="label-text">עד שעה</span>
-            <TimePicker className="mt-1.5" value={end} onChange={setEnd} />
-          </label>
-        </div>
         <div>
           <span className="label-text">ימים</span>
           <div className="stx-daypick mt-1.5" role="group" aria-label="ימים שהשורה פעילה">
@@ -2412,20 +2411,72 @@ function RowEditorModal({
                 key={i}
                 type="button"
                 className="stx-daypick-day"
-                data-on={days[i] || undefined}
-                aria-pressed={days[i]}
+                data-on={draft.days[i] || undefined}
+                aria-pressed={draft.days[i]}
                 aria-label={HE_DAYS[i]}
-                onClick={() => setDays((d) => d.map((v, j) => (j === i ? !v : v)))}
+                onClick={() => patch({ days: draft.days.map((v, j) => (j === i ? !v : v)) })}
               >
                 {letter}
               </button>
             ))}
           </div>
         </div>
-        {variedHours && (
-          <p className="text-[12.5px] font-semibold text-text-3">
-            בשורה הזו יש שעות שונות בחלק מהימים. שינוי השעות כאן יחיל אותן על כל הימים.
-          </p>
+        <div>
+          <span className="label-text">שעות</span>
+          <div className="row-hours-mode mt-1.5" role="group" aria-label="סוג השעות">
+            <button
+              type="button"
+              className="stx-daypick-day"
+              data-on={!draft.perDay || undefined}
+              aria-pressed={!draft.perDay}
+              onClick={() => setDraft((d) => setRowDraftPerDay(d, false))}
+            >
+              אותן שעות בכל הימים
+            </button>
+            <button
+              type="button"
+              className="stx-daypick-day"
+              data-on={draft.perDay || undefined}
+              aria-pressed={!!draft.perDay}
+              onClick={() => setDraft((d) => setRowDraftPerDay(d, true))}
+            >
+              שעות לפי יום
+            </button>
+          </div>
+        </div>
+        {!draft.perDay ? (
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="label-text">משעה</span>
+              <TimePicker className="mt-1.5" value={draft.start} onChange={(v) => patch({ start: v })} />
+            </label>
+            <label className="block">
+              <span className="label-text">עד שעה</span>
+              <TimePicker className="mt-1.5" value={draft.end} onChange={(v) => patch({ end: v })} />
+            </label>
+          </div>
+        ) : draft.days.some(Boolean) ? (
+          <div className="row-day-hours">
+            {draft.days.map((on, i) =>
+              on ? (
+                <div key={i} className="row-day-hours-row">
+                  <span className="row-day-hours-name">{HE_DAYS[i]}</span>
+                  <TimePicker
+                    value={draft.dayHours?.[i]?.start ?? ""}
+                    onChange={(v) => setDayHours(i, { start: v })}
+                    placeholder="משעה"
+                  />
+                  <TimePicker
+                    value={draft.dayHours?.[i]?.end ?? ""}
+                    onChange={(v) => setDayHours(i, { end: v })}
+                    placeholder="עד שעה"
+                  />
+                </div>
+              ) : null,
+            )}
+          </div>
+        ) : (
+          <p className="text-[13px] font-semibold text-text-3">בחרו ימים כדי לקבוע לכל יום את השעות שלו.</p>
         )}
         {confirmDelete && (
           <p className="text-[13px] font-semibold text-danger">

@@ -10,11 +10,14 @@ import {
   assignmentsByRowCell,
   buildTeamPrefMap,
   copyRowDays,
+  initialRowDraft,
   nextRowSortOrder,
   pickerCandidates,
   planRowAssignment,
   rowDaysFor,
+  rowHeadlineHours,
   rowPref,
+  setRowDraftPerDay,
   validateRowDraft,
 } from "@/lib/shiftRows";
 import { GENERAL_SHIFT_SECTION_KEY } from "@/lib/shiftTemplates";
@@ -354,5 +357,147 @@ describe("שכפול שורה וסדר", () => {
   it("שורה חדשה נוספת בתחתית המחלקה", () => {
     expect(nextRowSortOrder([])).toBe(0);
     expect(nextRowSortOrder([{ sort_order: 0 }, { sort_order: 4 }, { sort_order: 2 }])).toBe(5);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+describe("עורך השורות — שעות לפי יום", () => {
+  const blank = initialRowDraft(null);
+  const H = (start: string, end: string) => ({ start, end });
+
+  it("שורה חדשה נפתחת בלי ימים, באותן שעות לכל הימים", () => {
+    expect(blank.days.every((d) => !d)).toBe(true);
+    expect(blank.perDay).toBe(false);
+    expect(blank.dayHours).toHaveLength(7);
+  });
+
+  it("שורה עם שעות שונות לפי יום נפתחת במצב 'שעות לפי יום' עם השעות שלה", () => {
+    const r = row("v", "אחמ״ש", "19:30", "01:00", {
+      days: [
+        { day_of_week: 0, start_time: "21:00:00", end_time: "01:00:00" },
+        { day_of_week: 1, start_time: "19:30:00", end_time: "01:00:00" },
+        { day_of_week: 5, start_time: "16:00:00", end_time: "08:45:00" },
+      ],
+    });
+    const d = initialRowDraft(r);
+    expect(d.perDay).toBe(true);
+    expect(d.days).toEqual([true, true, false, false, false, true, false]);
+    expect(d.dayHours?.[0]).toEqual(H("21:00", "01:00"));
+    expect(d.dayHours?.[5]).toEqual(H("16:00", "08:45"));
+  });
+
+  it("שורה שכל הימים שלה באותן שעות נפתחת במצב 'אותן שעות'", () => {
+    expect(initialRowDraft(host1).perDay).toBe(false);
+    expect(initialRowDraft(host1).start).toBe("19:30");
+  });
+
+  it("מעבר ל'שעות לפי יום' ממלא כל יום בשעות המשותפות", () => {
+    const d = setRowDraftPerDay({ ...blank, start: "19:30", end: "23:30", days: [true, true, false, false, false, false, false] }, true);
+    expect(d.dayHours?.[0]).toEqual(H("19:30", "23:30"));
+    expect(d.dayHours?.[3]).toEqual(H("19:30", "23:30"));
+  });
+
+  it("מעבר ל'שעות לפי יום' לא דורס יום שכבר קיבל שעות", () => {
+    const withFriday = { ...blank, start: "19:30", end: "23:30", dayHours: blank.dayHours!.map((h, i) => (i === 5 ? H("12:00", "17:00") : h)) };
+    expect(setRowDraftPerDay(withFriday, true).dayHours?.[5]).toEqual(H("12:00", "17:00"));
+  });
+
+  it("חזרה ל'אותן שעות' בלי שעות משותפות — לוקחת את השעות של היום הראשון שנבחר", () => {
+    const perDay = {
+      ...blank,
+      perDay: true,
+      days: [false, true, false, false, false, true, false],
+      dayHours: blank.dayHours!.map((h, i) => (i === 1 ? H("20:00", "00:00") : i === 5 ? H("12:00", "17:00") : h)),
+    };
+    const d = setRowDraftPerDay(perDay, false);
+    expect(d.perDay).toBe(false);
+    expect([d.start, d.end]).toEqual(["20:00", "00:00"]);
+  });
+
+  it("ולידציה: יום שנבחר בלי שעות — אי אפשר לשמור", () => {
+    const d = { ...blank, name: "אחמ״ש", perDay: true, days: [true, true, false, false, false, false, false] };
+    d.dayHours = blank.dayHours!.map((h, i) => (i === 0 ? H("19:30", "01:00") : h));
+    expect(validateRowDraft(d)).toBe("hours");
+  });
+
+  it("ולידציה: יום שהתחלה וסיום שלו זהים", () => {
+    const d = {
+      ...blank,
+      name: "אחמ״ש",
+      perDay: true,
+      days: [true, false, false, false, false, false, false],
+      dayHours: blank.dayHours!.map((h, i) => (i === 0 ? H("20:00", "20:00") : h)),
+    };
+    expect(validateRowDraft(d)).toBe("same_hours");
+  });
+
+  it("ולידציה: יום שלא נבחר לא נבדק גם אם אין לו שעות", () => {
+    const d = {
+      ...blank,
+      name: "אחמ״ש",
+      perDay: true,
+      days: [true, false, false, false, false, false, false],
+      dayHours: blank.dayHours!.map((h, i) => (i === 0 ? H("19:30", "01:00") : h)),
+    };
+    expect(validateRowDraft(d)).toBeNull();
+  });
+
+  it("ולידציה: לפי יום בלי ימים", () => {
+    expect(validateRowDraft({ ...blank, name: "אחמ״ש", perDay: true })).toBe("days");
+  });
+
+  it("ולידציה: במצב 'לפי יום' לא צריך שעות משותפות", () => {
+    const d = {
+      ...blank,
+      name: "אחמ״ש",
+      start: "",
+      end: "",
+      perDay: true,
+      days: [true, false, false, false, false, false, false],
+      dayHours: blank.dayHours!.map((h, i) => (i === 0 ? H("19:30", "01:00") : h)),
+    };
+    expect(validateRowDraft(d)).toBeNull();
+  });
+
+  it("שמירה לפי יום — כל יום עם השעות שלו, ורק הימים שנבחרו", () => {
+    const d = {
+      ...blank,
+      perDay: true,
+      days: [true, false, false, false, false, true, false],
+      dayHours: blank.dayHours!.map((h, i) => (i === 0 ? H("21:00", "01:00") : i === 5 ? H("16:00", "08:45") : H("10:00", "11:00"))),
+    };
+    expect(rowDaysFor(null, d)).toEqual([
+      { day_of_week: 0, start_time: "21:00", end_time: "01:00" },
+      { day_of_week: 5, start_time: "16:00", end_time: "08:45" },
+    ]);
+  });
+
+  it("שמירה לפי יום — כותרת השורה היא השעות של היום הראשון", () => {
+    const days = [
+      { day_of_week: 1, start_time: "19:30", end_time: "01:00" },
+      { day_of_week: 5, start_time: "16:00", end_time: "08:45" },
+    ];
+    expect(rowHeadlineHours(days, { start: "", end: "" })).toEqual(H("19:30", "01:00"));
+  });
+
+  it("כותרת בלי ימים — השעות מהטופס", () => {
+    expect(rowHeadlineHours([], { start: "19:30", end: "23:30" })).toEqual(H("19:30", "23:30"));
+  });
+
+  it("עריכה במצב 'לפי יום' ושמירה — הימים מתעדכנים בדיוק", () => {
+    const r = row("v", "אחמ״ש", "19:30", "01:00", {
+      days: [
+        { day_of_week: 0, start_time: "21:00", end_time: "01:00" },
+        { day_of_week: 5, start_time: "16:00", end_time: "08:45" },
+      ],
+    });
+    const d = initialRowDraft(r);
+    d.dayHours = d.dayHours!.map((h, i) => (i === 5 ? H("15:00", "23:00") : h));
+    d.days = d.days.map((on, i) => (i === 2 ? true : on));
+    expect(rowDaysFor(r, d)).toEqual([
+      { day_of_week: 0, start_time: "21:00", end_time: "01:00" },
+      { day_of_week: 2, start_time: "19:30", end_time: "01:00" },
+      { day_of_week: 5, start_time: "15:00", end_time: "23:00" },
+    ]);
   });
 });

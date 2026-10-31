@@ -8014,6 +8014,8 @@ select {
 }
 
 .shift-cell-time {
+  /* Rendered as <bdi dir="ltr"> so the range reads 19:30–01:00; keep it on the RTL side */
+  text-align: right;
   font-size: 12px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
@@ -8439,6 +8441,37 @@ select {
 .shift-add-row:hover {
   color: var(--accent-2);
   background: var(--accent-tint);
+}
+
+/* Row editor: same hours for every day, or hours per day */
+.row-hours-mode {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.25rem;
+}
+
+.row-hours-mode .stx-daypick-day {
+  height: 2.5rem;
+  font-size: 13px;
+}
+
+.row-day-hours {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.row-day-hours-row {
+  display: grid;
+  grid-template-columns: 3.75rem minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.row-day-hours-name {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text-2);
 }
 
 /* Employee roster: a colleague's name in a row */

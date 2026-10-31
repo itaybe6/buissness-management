@@ -243,19 +243,85 @@ export function pickerCandidates(input: {
 
 /* ----------------------------- row editor ----------------------------- */
 
+export interface DayHours {
+  start: string;
+  end: string;
+}
+
 export interface RowDraft {
   name: string;
+  /** Hours for every day, when `perDay` is off. */
   start: string;
   end: string;
   /** Seven flags, Sunday first. */
   days: boolean[];
+  /** Each selected day has its own hours (`dayHours`). */
+  perDay?: boolean;
+  /** Seven entries, Sunday first; only selected days are read. */
+  dayHours?: DayHours[];
 }
 
 export type RowDraftError = "name" | "hours" | "same_hours" | "days";
 
+/** The draft the editor opens with: a blank new row, or an existing row with its days and hours. */
+export function initialRowDraft(template: Pick<ShiftTemplate, "name" | "start_time" | "end_time" | "days"> | null): RowDraft {
+  if (!template) {
+    return {
+      name: "",
+      start: "",
+      end: "",
+      days: Array(7).fill(false),
+      perDay: false,
+      dayHours: Array.from({ length: 7 }, () => ({ start: "", end: "" })),
+    };
+  }
+  const start = hhmm(template.start_time);
+  const end = hhmm(template.end_time);
+  const hours = [0, 1, 2, 3, 4, 5, 6].map((i) => hoursOnDay(template, i));
+  const ranges = new Set(hours.filter(Boolean).map((h) => `${h!.start}-${h!.end}`));
+  return {
+    name: template.name,
+    start,
+    end,
+    days: hours.map((h) => !!h),
+    // A row whose days run at different hours opens in per-day mode.
+    perDay: ranges.size > 1,
+    dayHours: hours.map((h) => h ?? { start, end }),
+  };
+}
+
+/** Switch between same-hours and per-day, carrying the hours across. */
+export function setRowDraftPerDay(draft: RowDraft, perDay: boolean): RowDraft {
+  const dayHours = draft.dayHours ?? Array.from({ length: 7 }, () => ({ start: "", end: "" }));
+  if (perDay) {
+    // Days without hours yet start from the shared range.
+    return {
+      ...draft,
+      perDay,
+      dayHours: dayHours.map((h) => (h.start || h.end ? h : { start: draft.start, end: draft.end })),
+    };
+  }
+  // Back to one range: keep the shared one, or take the first selected day's.
+  const first = draft.days.findIndex(Boolean);
+  const fallback = first >= 0 ? dayHours[first] : { start: "", end: "" };
+  return {
+    ...draft,
+    perDay,
+    start: draft.start || fallback.start,
+    end: draft.end || fallback.end,
+  };
+}
+
 /** Why a row can't be saved yet, or null. An end before the start is an overnight row and is fine. */
 export function validateRowDraft(draft: RowDraft): RowDraftError | null {
   if (!draft.name.trim()) return "name";
+  if (draft.perDay) {
+    if (!draft.days.some(Boolean)) return "days";
+    const selected = draft.days.flatMap((on, i) => (on ? [draft.dayHours?.[i] ?? { start: "", end: "" }] : []));
+    if (selected.some((h) => !h.start || !h.end)) return "hours";
+    if (selected.some((h) => hhmm(h.start) === hhmm(h.end))) return "same_hours";
+    return null;
+  }
   if (!draft.start || !draft.end) return "hours";
   if (hhmm(draft.start) === hhmm(draft.end)) return "same_hours";
   if (!draft.days.some(Boolean)) return "days";
@@ -263,14 +329,20 @@ export function validateRowDraft(draft: RowDraft): RowDraftError | null {
 }
 
 /**
- * The day rows to save. When editing without touching the hours, each kept day
- * keeps its own range (a row can run 19:30 on weekdays and 12:00 on Friday);
+ * The day rows to save. Per-day mode saves each selected day's own range. In
+ * same-hours mode, editing without touching the hours keeps each day's range;
  * newly enabled days and changed hours use the form's range.
  */
 export function rowDaysFor(
   template: Pick<ShiftTemplate, "start_time" | "end_time" | "days"> | null,
-  draft: Pick<RowDraft, "start" | "end" | "days">,
+  draft: Pick<RowDraft, "start" | "end" | "days" | "perDay" | "dayHours">,
 ): ShiftTemplateDay[] {
+  if (draft.perDay) {
+    return draft.days.flatMap((on, i) => {
+      const h = draft.dayHours?.[i];
+      return on && h ? [{ day_of_week: i, start_time: hhmm(h.start), end_time: hhmm(h.end) }] : [];
+    });
+  }
   const hoursChanged =
     !template || hhmm(draft.start) !== hhmm(template.start_time) || hhmm(draft.end) !== hhmm(template.end_time);
   return draft.days.flatMap((on, i) => {
@@ -278,6 +350,11 @@ export function rowDaysFor(
     const existing = !hoursChanged && template ? hoursOnDay(template, i) : null;
     return [{ day_of_week: i, start_time: existing?.start ?? hhmm(draft.start), end_time: existing?.end ?? hhmm(draft.end) }];
   });
+}
+
+/** The row's headline hours (shown when every day matches): the first saved day's range. */
+export function rowHeadlineHours(days: ShiftTemplateDay[], draft: Pick<RowDraft, "start" | "end">): DayHours {
+  return days.length > 0 ? { start: days[0].start_time, end: days[0].end_time } : { start: draft.start, end: draft.end };
 }
 
 /** The days a row runs, as they are — for duplicating it. */
