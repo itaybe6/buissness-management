@@ -94,6 +94,8 @@ export interface Department {
   color: string | null;
   sort_order: number;
   active: boolean;
+  /** Management department: its rows are staffed by department managers and shift managers from the whole business. */
+  is_management?: boolean;
   created_at: string;
 }
 
@@ -309,7 +311,11 @@ export interface ShiftPreference {
   employee_id: string;
   week_start: string;
   shift_date: string;
-  shift_template_id: string;
+  /** The hours window the employee marked ("HH:MM:SS"). Applies to every row with these hours that day. */
+  start_time: string;
+  end_time: string;
+  /** Legacy — preferences are keyed by hours window, not by row. */
+  shift_template_id: string | null;
   preference: Availability;
   note: string | null;
   created_at: string;

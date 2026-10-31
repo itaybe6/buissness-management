@@ -266,6 +266,9 @@ export function makePreference(over: Partial<ShiftPreference> = {}): ShiftPrefer
     employee_id,
     week_start: "2026-07-05",
     shift_date,
+    // אילוץ נשמר לפי טווח שעות — ברירת המחדל היא שעות "ערב".
+    start_time: "18:00:00",
+    end_time: "23:00:00",
     shift_template_id,
     preference: "available",
     note: null,

@@ -231,6 +231,8 @@ create table public.departments (
   color       text default '#7c3aed',
   sort_order  integer not null default 0,
   active      boolean not null default true,
+  -- מחלקת הנהלה: בסידור שלה משבצים גם מנהלי מחלקה ואחראי משמרת מכל העסק
+  is_management boolean not null default false,
   created_at  timestamptz not null default now()
 );
 
@@ -532,21 +534,23 @@ create table public.shift_template_days (
   primary key (shift_template_id, day_of_week)
 );
 
--- אילוצים שהעובד מגיש
+-- אילוצים שהעובד מגיש — לפי טווח שעות ביום. האילוץ חל על כל שורה בסידור
+-- עם אותו טווח באותו יום (שורות משוכפלות = אילוץ אחד).
 create table public.shift_preferences (
   id          uuid primary key default gen_random_uuid(),
   business_id uuid not null references public.businesses(id) on delete cascade,
   employee_id uuid not null references public.profiles(id) on delete cascade,
   week_start  date not null,                 -- תחילת השבוע
   shift_date  date not null,
-  shift_template_id uuid not null references public.shift_templates(id) on delete cascade,
+  start_time  time not null,
+  end_time    time not null,
+  shift_template_id uuid references public.shift_templates(id) on delete set null, -- מיושן
   preference  public.availability not null,  -- מעדיף/יכול/לא יכול
   note        text,
-  created_at  timestamptz not null default now(),
-  unique (employee_id, shift_date, shift_template_id)
+  created_at  timestamptz not null default now()
 );
 
--- סידור עבודה שמנהל המשמרת בונה
+-- סידור עבודה שמנהל המשמרת בונה. כל שורה (shift_template) = עובד אחד ביום.
 create table public.shift_assignments (
   id          uuid primary key default gen_random_uuid(),
   business_id uuid not null references public.businesses(id) on delete cascade,
@@ -1226,6 +1230,8 @@ create index idx_agr_signatures_business   on public.agreement_signatures(busine
 create index idx_form101_business          on public.form_101(business_id);
 create index idx_shift_pref_business        on public.shift_preferences(business_id);
 create index idx_shift_assign_business      on public.shift_assignments(business_id);
+create unique index idx_shift_assign_one_per_row on public.shift_assignments(shift_template_id, shift_date);
+create unique index idx_shift_pref_window      on public.shift_preferences(employee_id, shift_date, start_time, end_time);
 create index idx_attendance_business        on public.attendance(business_id);
 create index idx_shift_reports_business      on public.shift_reports(business_id);
 create index idx_shift_reports_date          on public.shift_reports(business_id, report_date);

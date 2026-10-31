@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Link } from "react-router-dom";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { Badge, Card, EmptyState, ErrorState, Icon, PageLoader } from "@/components/ui";
+import { Badge, Button, Card, EmptyState, ErrorState, Icon, Input, PageLoader, TimePicker } from "@/components/ui";
+import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/lib/auth";
 import { useBusinessId, HE_DAYS, addDays, formatDateShort, weekStart, todayISO, colorFor, initialsOf } from "@/lib/db";
 import { useDepartments } from "@/api/departments";
@@ -14,12 +14,15 @@ import {
   useSetPreference,
   useClearPreference,
   useShiftAssignments,
-  useAddAssignment,
-  useAddAssignments,
+  useSetRowAssignment,
   useRemoveAssignment,
+  useCreateShiftTemplate,
+  useUpdateShiftTemplate,
+  useReplaceShiftTemplateDays,
+  useDeleteShiftTemplate,
 } from "@/api/shifts";
 import { useIsMdUp } from "@/hooks/useMediaQuery";
-import { SCHEDULER_ROLES } from "@/lib/constants";
+import { ROLE_LABELS, SCHEDULER_ROLES } from "@/lib/constants";
 import {
   formatShiftPrefsClose,
   formatShiftPrefsCloseRule,
@@ -34,20 +37,40 @@ import {
   hasShiftPrefsMinimumRules,
   isShiftPrefsDayComplete,
 } from "@/lib/shift-prefs-minimum";
-import {
-  MAX_ASSIGNED_DAYS_PER_WEEK,
-  canAssignEmployeeOnDate,
-  countAssignedDaysInWeek,
-  weekStartFromDateISO,
-} from "@/lib/shift-assignment-limits";
+import { MAX_ASSIGNED_DAYS_PER_WEEK, WEEKLY_DAY_OFF_ERROR } from "@/lib/shift-assignment-limits";
 import { getHebrewDayInfo } from "@/lib/hebrewCalendar";
+import {
+  assignmentsByRowCell,
+  buildEmployeePrefMap,
+  buildTeamPrefMap,
+  copyRowDays,
+  employeesForSection,
+  isManagementDepartment,
+  templatesForStaff,
+  unplacedEmployeeCount,
+  nextRowSortOrder,
+  pickerCandidates,
+  rowDaysFor,
+  rowPref,
+  validateRowDraft,
+  type PrefMark,
+} from "@/lib/shiftRows";
 import {
   shiftSectionKey,
   sortShiftTemplates,
   templatesForDepartment,
-  templatesForEmployee,
+
 } from "@/lib/shiftTemplates";
-import { formatHours, hoursOnDay, uniformHoursLabel } from "@/lib/shiftTemplateHours";
+import {
+  dayIndexFromISO,
+  formatHours,
+  hhmm,
+  hoursOnDay,
+  uniformHoursLabel,
+  weekWindows,
+  windowsOnDay,
+  type ShiftWindow,
+} from "@/lib/shiftTemplateHours";
 import type { Availability, Profile, ShiftAssignment, ShiftTemplate } from "@/types/database";
 
 const HE_DAY_LETTERS = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"];
@@ -63,10 +86,6 @@ const PREF_STATUS: Record<"available" | "cannot" | "none", { label: string; colo
   none: { label: "לא סימן עדיין", color: "var(--text-3)" },
 };
 
-function normalizeAvailability(pref: Availability | undefined): Availability | null {
-  if (!pref || pref === "prefer") return pref === "prefer" ? "available" : null;
-  return pref;
-}
 
 export function Shifts() {
   const { profile } = useAuth();
@@ -352,36 +371,6 @@ function DayStrip({
   );
 }
 
-/* Assignment chip — springs in on add, shrinks away on remove */
-function AssignChip({
-  employeeId,
-  name,
-  onRemove,
-}: {
-  employeeId: string;
-  name?: string | null;
-  onRemove: () => void;
-}) {
-  const reduceMotion = useReducedMotion();
-  return (
-    <motion.div
-      initial={reduceMotion ? false : { opacity: 0, scale: 0.8, y: 5 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      exit={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.8 }}
-      transition={{ type: "spring", stiffness: 480, damping: 32 }}
-      className="shift-assign-chip group"
-    >
-      <span className="shift-assign-avatar" style={{ background: colorFor(employeeId) }}>
-        {initialsOf(name)}
-      </span>
-      <span className="shift-assign-name">{name?.split(" ")[0]}</span>
-      <button type="button" onClick={onRemove} className="shift-assign-remove" aria-label="הסר שיבוץ">
-        <Icon name="close" size={14} />
-      </button>
-    </motion.div>
-  );
-}
-
 /* ------------------------------- Employee ------------------------------- */
 function EmployeeView() {
   const businessId = useBusinessId();
@@ -390,14 +379,17 @@ function EmployeeView() {
   const { data: templates, isLoading } = useActiveShiftTemplates(businessId);
   // Warm the child queries in parallel with templates (same keys as
   // EmployeeSchedule/EmployeeConstraints) — avoids a fetch waterfall on mobile.
-  useShiftAssignments(businessId, weekStart(), addDays(weekStart(), 6), profile?.id);
+  useShiftAssignments(businessId, weekStart(), addDays(weekStart(), 6));
   useShiftPreferences(businessId, addDays(weekStart(), 7), profile?.id);
+  useProfiles(businessId);
+  const { data: departments } = useDepartments(businessId);
 
-  // Shifts of the employee's own department (or the general shifts when they
-  // have no department) — these are the rows they submit availability for.
+  // Rows of the employee's own department, plus the management department's
+  // rows for department/shift managers — these are the rows they submit
+  // availability for.
   const myTemplates = useMemo(
-    () => templatesForEmployee(templates ?? [], profile?.department_id),
-    [templates, profile?.department_id],
+    () => templatesForStaff(templates ?? [], profile, departments ?? []),
+    [templates, profile, departments],
   );
 
   if (isLoading) return <PageLoader />;
@@ -422,7 +414,7 @@ function EmployeeView() {
     <div className="w-full animate-fadeUp">
       <ShiftPageHero
         title="משמרות"
-        subtitle="צפייה בשיבוצים שלך ועדכון זמינות לשבוע הבא."
+        subtitle="סידור העבודה של המחלקה ועדכון זמינות לשבוע הבא."
       />
       <EmployeeSchedule templates={myTemplates} allTemplates={templates} />
       <div className="page-section-label mt-8">
@@ -451,23 +443,39 @@ function EmployeeSchedule({
   const isDesktop = useIsMdUp();
   const [wk, setWk] = useState(weekStart());
   const [wkDir, setWkDir] = useState(1);
-  const { data: assignments, isLoading } = useShiftAssignments(businessId, wk, addDays(wk, 6), profile?.id);
+  // The whole week's roster — employees see who is in every row of their department.
+  const { data: assignments, isLoading } = useShiftAssignments(businessId, wk, addDays(wk, 6));
+  const { data: people } = useProfiles(businessId);
+
+  const nameById = useMemo(() => new Map((people ?? []).map((p) => [p.id, p.full_name])), [people]);
+
+  const myAssignments = useMemo(
+    () => (assignments ?? []).filter((a) => a.employee_id === profile?.id),
+    [assignments, profile?.id],
+  );
 
   const assignMap = useMemo(() => {
     const m = new Set<string>();
-    (assignments ?? []).forEach((a) => m.add(`${a.shift_template_id}_${a.shift_date}`));
+    myAssignments.forEach((a) => m.add(`${a.shift_template_id}_${a.shift_date}`));
+    return m;
+  }, [myAssignments]);
+
+  // Who sits in each row on each day.
+  const occupantByCell = useMemo(() => {
+    const m = new Map<string, string>();
+    (assignments ?? []).forEach((a) => m.set(`${a.shift_template_id}_${a.shift_date}`, a.employee_id));
     return m;
   }, [assignments]);
 
-  // Own shifts first; shifts from other departments only when actually assigned.
+  // Own department's rows first; rows from other departments only when I'm in them.
   const rows = useMemo(() => {
     const own = new Set(templates.map((t) => t.id));
-    const assignedIds = new Set((assignments ?? []).map((a) => a.shift_template_id));
+    const assignedIds = new Set(myAssignments.map((a) => a.shift_template_id));
     const extra = allTemplates.filter((t) => !own.has(t.id) && assignedIds.has(t.id));
     return [...templates, ...sortShiftTemplates(extra)];
-  }, [templates, allTemplates, assignments]);
+  }, [templates, allTemplates, myAssignments]);
 
-  const assignedCount = (assignments ?? []).length;
+  const assignedCount = myAssignments.length;
 
   function shiftWeek(d: number) {
     setWkDir(d > 0 ? 1 : -1);
@@ -481,7 +489,7 @@ function EmployeeSchedule({
       {!collapsed && (
         <>
           <div className="page-section-label">
-            משמרותי לשבוע <span>{formatDateShort(wk)} – {formatDateShort(addDays(wk, 6))}</span>
+            סידור העבודה <span>{formatDateShort(wk)} – {formatDateShort(addDays(wk, 6))}</span>
           </div>
           <div className="shift-toolbar">
             <ShiftLegend />
@@ -568,7 +576,8 @@ function EmployeeSchedule({
                     </div>
                     {HE_DAYS.map((_, i) => {
                       const meta = dayMeta(wk, i);
-                      const assigned = assignMap.has(`${t.id}_${meta.date}`);
+                      const occupant = occupantByCell.get(`${t.id}_${meta.date}`);
+                      const mine = !!occupant && occupant === profile?.id;
                       const hours = hoursOnDay(t, i);
                       const varied = variedDayHours(t, i);
                       return (
@@ -578,14 +587,16 @@ function EmployeeSchedule({
                           data-today={meta.isToday}
                           data-weekend={meta.isWeekend}
                           data-holiday={!!meta.holiday}
-                          data-off={!hours && !assigned}
+                          data-off={!hours && !occupant}
                         >
                           {varied && <span className="shift-cell-time">{varied}</span>}
-                          {assigned ? (
+                          {mine ? (
                             <span className="shift-assigned-badge">
                               <Icon name="check_circle" size={15} />
-                              משובץ
+                              אני
                             </span>
+                          ) : occupant ? (
+                            <span className="shift-roster-name">{nameById.get(occupant)?.split(" ")[0] ?? "עובד"}</span>
                           ) : (
                             <span className="text-[12px] font-semibold text-text-3">—</span>
                           )}
@@ -596,9 +607,9 @@ function EmployeeSchedule({
                 ))}
               </div>
             </div>
-            {(assignments ?? []).length === 0 && (
+            {myAssignments.length === 0 && (
               <div className="border-t border-border px-5 py-4 text-[13px] text-text-3">
-                אין משמרות משובצות לשבוע זה.
+                אין לך משמרות משובצות לשבוע זה.
               </div>
             )}
           </Card>
@@ -654,17 +665,12 @@ function EmployeeConstraints({ templates }: { templates: ShiftTemplate[] }) {
     wk <= nextWk && isShiftPrefsOpenForWeek(wk, closeDow, closeTime, openDow, openTime);
   const hasWindow = closeDow != null && closeTime != null;
 
-  const prefMap = useMemo(() => {
-    const m = new Map<string, "available" | "cannot">();
-    (prefs ?? []).forEach((p) => {
-      const norm = normalizeAvailability(p.preference);
-      if (norm === "available" || norm === "cannot") m.set(`${p.shift_template_id}_${p.shift_date}`, norm);
-    });
-    return m;
-  }, [prefs]);
+  // Keyed by hours window + date: one mark covers every row with those hours.
+  const prefMap = useMemo(() => buildEmployeePrefMap(prefs ?? []), [prefs]);
 
-  const idsForDay = (dayIndex: number) =>
-    templates.filter((t) => hoursOnDay(t, dayIndex)).map((t) => t.id);
+  const dayWindows = useMemo(() => HE_DAYS.map((_, i) => windowsOnDay(templates, i)), [templates]);
+  const gridWindows = useMemo(() => weekWindows(templates), [templates]);
+  const idsForDay = (dayIndex: number) => dayWindows[dayIndex].map((w) => w.key);
   const totalDays = 7;
   const filledDays = useMemo(() => {
     let n = 0;
@@ -699,21 +705,27 @@ function EmployeeConstraints({ templates }: { templates: ShiftTemplate[] }) {
     setDayIdx(0);
   }
 
-  async function setAvailability(templateId: string, date: string, value: Availability | null) {
+  async function setAvailability(window: ShiftWindow, date: string, value: Availability | null) {
     if (!profile?.id || !businessId || !canEdit) return;
-    const key = `${templateId}_${date}`;
+    const key = `${window.key}_${date}`;
     setPending((s) => new Set(s).add(key));
     setSaveError(null);
     try {
       if (value === null) {
-        await clearPref.mutateAsync({ employee_id: profile.id, shift_date: date, shift_template_id: templateId });
+        await clearPref.mutateAsync({
+          employee_id: profile.id,
+          shift_date: date,
+          start_time: window.start,
+          end_time: window.end,
+        });
       } else {
         await setPref.mutateAsync({
           business_id: businessId,
           employee_id: profile.id,
           week_start: wk,
           shift_date: date,
-          shift_template_id: templateId,
+          start_time: window.start,
+          end_time: window.end,
           preference: value,
         });
       }
@@ -729,13 +741,11 @@ function EmployeeConstraints({ templates }: { templates: ShiftTemplate[] }) {
   }
 
   async function fillDay(dayIndex: number, value: Availability) {
-    const running = templates.filter((t) => hoursOnDay(t, dayIndex));
-    await Promise.all(running.map((t) => setAvailability(t.id, addDays(wk, dayIndex), value)));
+    await Promise.all(dayWindows[dayIndex].map((w) => setAvailability(w, addDays(wk, dayIndex), value)));
   }
 
   async function clearDay(dayIndex: number) {
-    const running = templates.filter((t) => hoursOnDay(t, dayIndex));
-    await Promise.all(running.map((t) => setAvailability(t.id, addDays(wk, dayIndex), null)));
+    await Promise.all(dayWindows[dayIndex].map((w) => setAvailability(w, addDays(wk, dayIndex), null)));
   }
 
   if (isLoading) return <PageLoader label="טוען אילוצים..." />;
@@ -955,31 +965,30 @@ function EmployeeConstraints({ templates }: { templates: ShiftTemplate[] }) {
           transition={{ type: "spring", stiffness: 340, damping: 32 }}
         >
           <div className="prefs2-list">
-            {templates.every((t) => !hoursOnDay(t, dayIdx)) && (
+            {dayWindows[dayIdx].length === 0 && (
               <p className="shift-dept-empty">אין משמרות ביום זה.</p>
             )}
-            {templates.map((t, idx) => {
-              const hours = hoursOnDay(t, dayIdx);
-              if (!hours) return null;
+            {dayWindows[dayIdx].map((w, idx) => {
+              const hours = { start: w.start, end: w.end };
               const date = addDays(wk, dayIdx);
-              const key = `${t.id}_${date}`;
+              const key = `${w.key}_${date}`;
               const val = prefMap.get(key) ?? null;
               const saving = pending.has(key);
               const duration = shiftDurationLabel(hours.start, hours.end);
               return (
                 <div
-                  key={t.id}
+                  key={w.key}
                   className="prefs2-card"
                   data-state={val ?? "none"}
                   data-editable={canEdit ? "true" : "false"}
-                  style={{ "--shift-color": t.color ?? "var(--accent)", "--enter-delay": `${idx * 45}ms` } as CSSProperties}
+                  style={{ "--shift-color": w.color ?? "var(--accent)", "--enter-delay": `${idx * 45}ms` } as CSSProperties}
                 >
                   <div className="prefs2-card-head">
                     <span className="prefs2-card-icon">
                       <Icon name={shiftTimeIcon(hours.start)} size={18} />
                     </span>
                     <div className="prefs2-card-titles">
-                      <span className="prefs2-card-name">{t.name}</span>
+                      <span className="prefs2-card-name">{w.names.join(" · ")}</span>
                       <span className="prefs2-card-time">
                         <Icon name="schedule" size={12} />
                         {formatHours(hours)}
@@ -996,7 +1005,7 @@ function EmployeeConstraints({ templates }: { templates: ShiftTemplate[] }) {
                         data-on={val === "available"}
                         data-saving={saving}
                         disabled={saving}
-                        onClick={() => setAvailability(t.id, date, val === "available" ? null : "available")}
+                        onClick={() => setAvailability(w, date, val === "available" ? null : "available")}
                       >
                         <Icon name="check" size={15} />
                         יכול
@@ -1008,7 +1017,7 @@ function EmployeeConstraints({ templates }: { templates: ShiftTemplate[] }) {
                         data-on={val === "cannot"}
                         data-saving={saving}
                         disabled={saving}
-                        onClick={() => setAvailability(t.id, date, val === "cannot" ? null : "cannot")}
+                        onClick={() => setAvailability(w, date, val === "cannot" ? null : "cannot")}
                       >
                         <Icon name="close" size={15} />
                         לא יכול
@@ -1110,24 +1119,23 @@ function EmployeeConstraints({ templates }: { templates: ShiftTemplate[] }) {
               })}
             </div>
 
-            {templates.map((t) => (
-              <div key={t.id} className="shift-grid-row">
+            {gridWindows.map((w) => (
+              <div key={w.key} className="shift-grid-row">
                 <div className="shift-grid-row-label">
                   <div className="shift-shift-name">
-                    <span className="shift-shift-dot" style={colorDotStyle(t.color, 2)} />
-                    {t.name}
+                    <span className="shift-shift-dot" style={colorDotStyle(w.color, 2)} />
+                    {w.names.join(" · ")}
                   </div>
-                  <span className="shift-shift-time">{rowHoursText(t)}</span>
+                  <span className="shift-shift-time">{formatHours(w)}</span>
                 </div>
 
                 {HE_DAYS.map((_, i) => {
                   const date = addDays(wk, i);
-                  const key = `${t.id}_${date}`;
+                  const key = `${w.key}_${date}`;
                   const cur = prefMap.get(key) ?? null;
                   const isSaving = pending.has(key);
                   const meta = dayMeta(wk, i);
-                  const hours = hoursOnDay(t, i);
-                  const varied = variedDayHours(t, i);
+                  const runs = dayWindows[i].some((d) => d.key === w.key);
                   return (
                     <div
                       key={i}
@@ -1135,15 +1143,14 @@ function EmployeeConstraints({ templates }: { templates: ShiftTemplate[] }) {
                       data-today={meta.isToday}
                       data-weekend={meta.isWeekend}
                       data-holiday={!!meta.holiday}
-                      data-off={!hours}
+                      data-off={!runs}
                     >
-                      {varied && <span className="shift-cell-time">{varied}</span>}
-                      {hours ? (
+                      {runs ? (
                         <AvailabilityCell
                           value={cur}
                           saving={isSaving}
                           disabled={!canEdit}
-                          onSet={(v) => setAvailability(t.id, date, v)}
+                          onSet={(v) => setAvailability(w, date, v)}
                         />
                       ) : (
                         <span className="shift-cell-off">—</span>
@@ -1220,31 +1227,37 @@ function AvailabilityCell({
 }
 
 /* ------------------------------- Scheduler ------------------------------- */
-type PickerState = { dept: string | null; templateId: string; date: string };
+/** The cell the picker fills: one row on one date. Each row holds a single employee. */
+type PickerState = {
+  dept: string | null;
+  isManagement: boolean;
+  template: ShiftTemplate;
+  date: string;
+  current: ShiftAssignment | null;
+};
 type SchedulerTab = "assignments" | "constraints";
-/** One department block in the scheduler, with its own shift rows. */
-type ScheduleSection = { id: string; name: string; color: string; templates: ShiftTemplate[] };
+/** One department block in the scheduler, with its own rows. */
+type ScheduleSection = { id: string; name: string; color: string; isManagement: boolean; templates: ShiftTemplate[] };
+/** Adding a row to a department (template = null) or editing an existing one. */
+type RowEditorState = { section: ScheduleSection; template: ShiftTemplate | null };
 
-/* Shown inside a department block that has no shifts defined yet.
-   The settings link is manager-only — a department manager must not land on business settings. */
+/* Shown inside a department block that has no rows yet. */
 function SectionNoShifts() {
-  const { profile } = useAuth();
-  const canOpenSettings = profile?.role === "manager";
   return (
     <div className="shift-dept-empty">
       <Icon name="schedule" size={16} />
-      <span>
-        לא הוגדרו משמרות למחלקה זו.
-        {canOpenSettings && (
-          <>
-            {" "}
-            <Link to="/settings" className="shift-dept-empty-link">
-              הגדרת משמרות
-            </Link>
-          </>
-        )}
-      </span>
+      <span>עדיין אין שורות במחלקה זו.</span>
     </div>
+  );
+}
+
+/* The "+" under each department: adds a row (name + hours) for one employee. */
+function AddRowButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button type="button" className="shift-add-row" onClick={onClick}>
+      <Icon name="add" size={18} />
+      הוספת שורה
+    </button>
   );
 }
 
@@ -1285,6 +1298,46 @@ function SchedulerModeToggle({ value, onChange }: { value: SchedulerTab; onChang
   );
 }
 
+/* The employee sitting in a row on a day — tap the name to swap, × to clear. */
+function RowOccupant({
+  employeeId,
+  name,
+  conflict,
+  onReplace,
+  onRemove,
+}: {
+  employeeId: string;
+  name?: string | null;
+  /** The employee marked "can't" for these hours. */
+  conflict: boolean;
+  onReplace: () => void;
+  onRemove: () => void;
+}) {
+  const reduceMotion = useReducedMotion();
+  return (
+    <motion.div
+      initial={reduceMotion ? false : { opacity: 0, scale: 0.8, y: 5 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.8 }}
+      transition={{ type: "spring", stiffness: 480, damping: 32 }}
+      className="shift-assign-chip group"
+      data-conflict={conflict || undefined}
+      title={conflict ? "העובד סימן שלא יכול בשעות האלה" : undefined}
+    >
+      <button type="button" className="shift-assign-swap" onClick={onReplace} aria-label="החלפת עובד">
+        <span className="shift-assign-avatar" style={{ background: colorFor(employeeId) }}>
+          {initialsOf(name)}
+        </span>
+        <span className="shift-assign-name">{name?.split(" ")[0]}</span>
+      </button>
+      {conflict && <Icon name="error" size={15} className="shift-assign-conflict" />}
+      <button type="button" onClick={onRemove} className="shift-assign-remove" aria-label="הסר שיבוץ">
+        <Icon name="close" size={14} />
+      </button>
+    </motion.div>
+  );
+}
+
 function ConstraintChip({
   employeeId,
   name,
@@ -1313,27 +1366,24 @@ function ConstraintChip({
 }
 
 function MobileConstraintShiftRow({
-  template,
-  dayIndex,
+  window,
   available,
   cannot,
 }: {
-  template: ShiftTemplate;
-  dayIndex: number;
+  window: ShiftWindow;
   available: Profile[];
   cannot: Profile[];
 }) {
   const total = available.length + cannot.length;
-  const shiftColor = template.color ?? "var(--accent)";
-  const hoursLabel = formatHours(hoursOnDay(template, dayIndex)) ?? "לא פעיל";
+  const shiftColor = window.color ?? "var(--accent)";
 
   return (
     <div className="shift-mobile-constraint-row" style={{ "--shift-color": shiftColor } as CSSProperties}>
       <div className="shift-mobile-constraint-head">
         <div className="shift-mobile-constraint-title">
           <span className="shift-mobile-constraint-dot" style={colorDotStyle(shiftColor, 2)} />
-          <span className="shift-mobile-constraint-name">{template.name}</span>
-          <span className="shift-mobile-constraint-time">{hoursLabel}</span>
+          <span className="shift-mobile-constraint-name">{window.names.join(" · ")}</span>
+          <span className="shift-mobile-constraint-time">{formatHours(window)}</span>
         </div>
         {total > 0 && <span className="shift-mobile-constraint-badge">{total}</span>}
       </div>
@@ -1391,6 +1441,13 @@ function MobileConstraintShiftRow({
   );
 }
 
+type SectionWindows = { week: ShiftWindow[]; days: ShiftWindow[][] };
+const NO_WINDOWS: SectionWindows = { week: [], days: HE_DAYS.map(() => []) };
+
+/**
+ * Constraints are submitted per hours window, so this board shows one row per
+ * distinct window in the department — duplicated rows collapse into one.
+ */
 function SchedulerConstraintsBoard({
   wk,
   wkDir,
@@ -1414,46 +1471,48 @@ function SchedulerConstraintsBoard({
   reduceMotion: boolean | null;
   isDesktop: boolean;
 }) {
+  const windowsBySection = useMemo(() => {
+    const m = new Map<string, SectionWindows>();
+    for (const section of scheduleSections) {
+      m.set(shiftSectionKey(section.id), {
+        week: weekWindows(section.templates),
+        days: HE_DAYS.map((_, i) => windowsOnDay(section.templates, i)),
+      });
+    }
+    return m;
+  }, [scheduleSections]);
+
+  const windowsFor = (deptId: string | null) => windowsBySection.get(shiftSectionKey(deptId)) ?? NO_WINDOWS;
+
   const cellConstraints = useMemo(() => {
     const m = new Map<string, { available: Profile[]; cannot: Profile[] }>();
+    const weekCounts = new Map<string, number>();
     for (const section of scheduleSections) {
       const sectionKey = shiftSectionKey(section.id);
       const list = employeesBySection.get(sectionKey) ?? [];
-      for (const t of section.templates) {
-        for (let i = 0; i < 7; i++) {
-          const date = addDays(wk, i);
+      const days = windowsBySection.get(sectionKey)?.days ?? NO_WINDOWS.days;
+      let n = 0;
+      days.forEach((windows, i) => {
+        const date = addDays(wk, i);
+        for (const w of windows) {
           const available: Profile[] = [];
           const cannot: Profile[] = [];
           for (const e of list) {
-            const status = prefMap.get(`${e.id}_${t.id}_${date}`);
+            const status = prefMap.get(`${e.id}_${w.key}_${date}`);
             if (status === "available") available.push(e);
             else if (status === "cannot") cannot.push(e);
           }
-          m.set(`${sectionKey}_${t.id}_${date}`, { available, cannot });
+          n += available.length + cannot.length;
+          m.set(`${sectionKey}_${w.key}_${date}`, { available, cannot });
         }
-      }
+      });
+      weekCounts.set(sectionKey, n);
     }
-    return m;
-  }, [scheduleSections, employeesBySection, wk, prefMap]);
+    return { byCell: m, weekCounts };
+  }, [scheduleSections, employeesBySection, windowsBySection, wk, prefMap]);
 
-  const sectionWeekCounts = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const section of scheduleSections) {
-      const sectionKey = shiftSectionKey(section.id);
-      let n = 0;
-      for (const t of section.templates) {
-        for (let i = 0; i < 7; i++) {
-          const cell = cellConstraints.get(`${sectionKey}_${t.id}_${addDays(wk, i)}`);
-          if (cell) n += cell.available.length + cell.cannot.length;
-        }
-      }
-      m.set(sectionKey, n);
-    }
-    return m;
-  }, [scheduleSections, cellConstraints, wk]);
-
-  const constraintsFor = (deptId: string | null, templateId: string, date: string) =>
-    cellConstraints.get(`${shiftSectionKey(deptId)}_${templateId}_${date}`) ?? { available: [], cannot: [] };
+  const constraintsFor = (deptId: string | null, key: string, date: string) =>
+    cellConstraints.byCell.get(`${shiftSectionKey(deptId)}_${key}_${date}`) ?? { available: [], cannot: [] };
 
   return (
     <>
@@ -1476,8 +1535,9 @@ function SchedulerConstraintsBoard({
         >
           {scheduleSections.map((section) => {
             const date = addDays(wk, dayIdx);
-            const dayMarked = section.templates.reduce((n, t) => {
-              const { available, cannot } = constraintsFor(section.id, t.id, date);
+            const windows = windowsFor(section.id).days[dayIdx];
+            const dayMarked = windows.reduce((n, w) => {
+              const { available, cannot } = constraintsFor(section.id, w.key, date);
               return n + available.length + cannot.length;
             }, 0);
             return (
@@ -1497,17 +1557,9 @@ function SchedulerConstraintsBoard({
                 </div>
                 <div>
                   {section.templates.length === 0 && <SectionNoShifts />}
-                  {section.templates.map((t) => {
-                    const { available, cannot } = constraintsFor(section.id, t.id, date);
-                    return (
-                      <MobileConstraintShiftRow
-                        key={t.id}
-                        template={t}
-                        dayIndex={dayIdx}
-                        available={available}
-                        cannot={cannot}
-                      />
-                    );
+                  {windows.map((w) => {
+                    const { available, cannot } = constraintsFor(section.id, w.key, date);
+                    return <MobileConstraintShiftRow key={w.key} window={w} available={available} cannot={cannot} />;
                   })}
                 </div>
               </div>
@@ -1523,97 +1575,96 @@ function SchedulerConstraintsBoard({
         transition={{ type: "spring", stiffness: 320, damping: 32 }}
         className="flex flex-col gap-5"
       >
-        {scheduleSections.map((section, sectionIndex) => (
-          <div
-            key={shiftSectionKey(section.id)}
-            className="shift-dept-card shift-section-enter"
-            style={{ "--dept-color": section.color, "--enter-delay": `${sectionIndex * 70}ms` } as CSSProperties}
-          >
-            <div className="shift-dept-header" style={{ cursor: "default" }}>
-              <span className="shift-dept-dot" style={colorDotStyle(section.color)} />
-              <span className="shift-dept-name">{section.name}</span>
-              <div className="shift-dept-stats">
-                <span className="shift-dept-stat">
-                  <strong>{section.templates.length}</strong> משמרות
-                </span>
-                <span className="shift-dept-stat">
-                  <strong>{employeesBySection.get(shiftSectionKey(section.id))?.length ?? 0}</strong> עובדים
-                </span>
-                <span className="shift-dept-stat">
-                  <strong>{sectionWeekCounts.get(shiftSectionKey(section.id)) ?? 0}</strong> אילוצים השבוע
-                </span>
+        {scheduleSections.map((section, sectionIndex) => {
+          const sectionKey = shiftSectionKey(section.id);
+          const windows = windowsFor(section.id);
+          return (
+            <div
+              key={sectionKey}
+              className="shift-dept-card shift-section-enter"
+              style={{ "--dept-color": section.color, "--enter-delay": `${sectionIndex * 70}ms` } as CSSProperties}
+            >
+              <div className="shift-dept-header" style={{ cursor: "default" }}>
+                <span className="shift-dept-dot" style={colorDotStyle(section.color)} />
+                <span className="shift-dept-name">{section.name}</span>
+                <div className="shift-dept-stats">
+                  <span className="shift-dept-stat">
+                    <strong>{employeesBySection.get(sectionKey)?.length ?? 0}</strong> עובדים
+                  </span>
+                  <span className="shift-dept-stat">
+                    <strong>{cellConstraints.weekCounts.get(sectionKey) ?? 0}</strong> אילוצים השבוע
+                  </span>
+                </div>
               </div>
-            </div>
-            {section.templates.length === 0 ? (
-              <SectionNoShifts />
-            ) : (
-            <div className="shift-grid-wrap">
-              <div className="shift-grid">
-                <div className="shift-grid-head">
-                  <div className="shift-grid-corner">משמרת</div>
-                  {HE_DAYS.map((d, i) => (
-                    <ShiftDayHead key={i} name={d} meta={dayMeta(wk, i)} />
+              {windows.week.length === 0 ? (
+                <SectionNoShifts />
+              ) : (
+              <div className="shift-grid-wrap">
+                <div className="shift-grid">
+                  <div className="shift-grid-head">
+                    <div className="shift-grid-corner">שעות</div>
+                    {HE_DAYS.map((d, i) => (
+                      <ShiftDayHead key={i} name={d} meta={dayMeta(wk, i)} />
+                    ))}
+                  </div>
+                  {windows.week.map((w) => (
+                    <div key={w.key} className="shift-grid-row">
+                      <div className="shift-grid-row-label">
+                        <div className="shift-shift-name">
+                          <span className="shift-shift-dot" style={colorDotStyle(w.color, 2)} />
+                          {w.names.join(" · ")}
+                        </div>
+                        <span className="shift-shift-time">{formatHours(w)}</span>
+                      </div>
+                      {HE_DAYS.map((_, i) => {
+                        const date = addDays(wk, i);
+                        const runs = windows.days[i].some((d) => d.key === w.key);
+                        const { available, cannot } = constraintsFor(section.id, w.key, date);
+                        const meta = dayMeta(wk, i);
+                        const empty = !runs || (available.length === 0 && cannot.length === 0);
+                        return (
+                          <div
+                            key={i}
+                            className="shift-grid-cell shift-constraint-cell"
+                            data-today={meta.isToday}
+                            data-weekend={meta.isWeekend}
+                            data-holiday={!!meta.holiday}
+                            data-empty={empty}
+                            data-off={!runs}
+                          >
+                            {empty ? (
+                              <span className="text-[12px] font-semibold text-text-3">—</span>
+                            ) : (
+                              <div className="flex w-full flex-col gap-1">
+                                {available.map((employee) => (
+                                  <ConstraintChip
+                                    key={employee.id}
+                                    employeeId={employee.id}
+                                    name={employee.full_name}
+                                    status="available"
+                                  />
+                                ))}
+                                {cannot.map((employee) => (
+                                  <ConstraintChip
+                                    key={employee.id}
+                                    employeeId={employee.id}
+                                    name={employee.full_name}
+                                    status="cannot"
+                                  />
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   ))}
                 </div>
-                {section.templates.map((t) => (
-                  <div key={t.id} className="shift-grid-row">
-                    <div className="shift-grid-row-label">
-                      <div className="shift-shift-name">
-                        <span className="shift-shift-dot" style={colorDotStyle(t.color, 2)} />
-                        {t.name}
-                      </div>
-                      <span className="shift-shift-time">{rowHoursText(t)}</span>
-                    </div>
-                    {HE_DAYS.map((_, i) => {
-                      const date = addDays(wk, i);
-                      const { available, cannot } = constraintsFor(section.id, t.id, date);
-                      const meta = dayMeta(wk, i);
-                      const hours = hoursOnDay(t, i);
-                      const varied = variedDayHours(t, i);
-                      const empty = !hours || (available.length === 0 && cannot.length === 0);
-                      return (
-                        <div
-                          key={i}
-                          className="shift-grid-cell shift-constraint-cell"
-                          data-today={meta.isToday}
-                          data-weekend={meta.isWeekend}
-                          data-holiday={!!meta.holiday}
-                          data-empty={empty}
-                          data-off={!hours}
-                        >
-                          {varied && <span className="shift-cell-time">{varied}</span>}
-                          {!hours || empty ? (
-                            <span className="text-[12px] font-semibold text-text-3">—</span>
-                          ) : (
-                            <div className="flex w-full flex-col gap-1">
-                              {available.map((employee) => (
-                                <ConstraintChip
-                                  key={employee.id}
-                                  employeeId={employee.id}
-                                  name={employee.full_name}
-                                  status="available"
-                                />
-                              ))}
-                              {cannot.map((employee) => (
-                                <ConstraintChip
-                                  key={employee.id}
-                                  employeeId={employee.id}
-                                  name={employee.full_name}
-                                  status="cannot"
-                                />
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ))}
               </div>
+              )}
             </div>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </motion.div>
       )}
     </>
@@ -1635,19 +1686,14 @@ function SchedulerView() {
   const { data: employees, isLoading: le } = useProfiles(businessId);
   const { data: prefs, isLoading: lp } = useShiftPreferences(businessId, wk);
   const { data: assignments, isLoading: la } = useShiftAssignments(businessId, wk, addDays(wk, 6));
-  const addAssign = useAddAssignment(businessId);
-  const addAssignMany = useAddAssignments(businessId);
+  const setRowAssignment = useSetRowAssignment(businessId);
   const removeAssign = useRemoveAssignment(businessId);
   const [picker, setPicker] = useState<PickerState | null>(null);
+  const [rowEditor, setRowEditor] = useState<RowEditorState | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  const prefMap = useMemo(() => {
-    const m = new Map<string, "available" | "cannot">();
-    (prefs ?? []).forEach((p) => {
-      const norm = normalizeAvailability(p.preference);
-      if (norm === "available" || norm === "cannot") m.set(`${p.employee_id}_${p.shift_template_id}_${p.shift_date}`, norm);
-    });
-    return m;
-  }, [prefs]);
+  // employee + hours window + date → what they marked.
+  const prefMap = useMemo(() => buildTeamPrefMap(prefs ?? []), [prefs]);
 
   const empById = useMemo(() => {
     const m = new Map<string, Profile>();
@@ -1666,51 +1712,33 @@ function SchedulerView() {
       id: d.id,
       name: d.name,
       color: d.color ?? "#7c3aed",
+      isManagement: isManagementDepartment(d),
       templates: templatesForDepartment(all, d.id),
     }));
   }, [activeDepartments, templates]);
 
   const unassignedCount = useMemo(
-    () => (employees ?? []).filter((e) => e.active && !e.department_id).length,
-    [employees],
+    () => unplacedEmployeeCount(employees ?? [], activeDepartments),
+    [employees, activeDepartments],
   );
 
+  // A management department also lists department managers and shift managers.
   const employeesBySection = useMemo(() => {
     const m = new Map<string, Profile[]>();
-    const active = (employees ?? []).filter((e) => e.active);
     for (const section of scheduleSections) {
       m.set(
         shiftSectionKey(section.id),
-        active.filter((e) => e.department_id === section.id),
+        employeesForSection(employees ?? [], { id: section.id, name: section.name, is_management: section.isManagement }),
       );
     }
     return m;
   }, [scheduleSections, employees]);
 
-  // An assignment lives in the block of the shift it references.
-  const assignmentsByCell = useMemo(() => {
-    const m = new Map<string, ShiftAssignment[]>();
-    const weekCounts = new Map<string, number>();
-    const tplById = new Map((templates ?? []).map((t) => [t.id, t]));
-    for (const section of scheduleSections) {
-      weekCounts.set(shiftSectionKey(section.id), 0);
-    }
-    for (const a of assignments ?? []) {
-      const tpl = tplById.get(a.shift_template_id);
-      if (!tpl) continue;
-      const sectionKey = shiftSectionKey(tpl.department_id);
-      if (!weekCounts.has(sectionKey)) continue;
-      const key = `${sectionKey}_${a.shift_template_id}_${a.shift_date}`;
-      const bucket = m.get(key);
-      if (bucket) bucket.push(a);
-      else m.set(key, [a]);
-      weekCounts.set(sectionKey, (weekCounts.get(sectionKey) ?? 0) + 1);
-    }
-    return { byCell: m, weekCounts };
-  }, [assignments, scheduleSections, templates]);
-
-  const assignmentsByCellMap = assignmentsByCell.byCell;
-  const sectionWeekCounts = assignmentsByCell.weekCounts;
+  // One employee per row per day.
+  const assignmentByCell = useMemo(
+    () => assignmentsByRowCell(assignments ?? [], templates ?? []),
+    [assignments, templates],
+  );
 
   useEffect(() => {
     if (!picker) return;
@@ -1729,14 +1757,14 @@ function SchedulerView() {
         <EmptyState
           icon="calendar_month"
           title="חסרה הגדרה לסידור"
-          description="כדי לבנות סידור עבודה צריך להגדיר מחלקות ולהוסיף לכל מחלקה את המשמרות שלה בהגדרות העסק."
+          description="כדי לבנות סידור עבודה צריך להגדיר מחלקות בהגדרות העסק. את השורות של כל מחלקה מוסיפים כאן, בסידור."
         />
       </div>
     );
   }
 
-  const assignmentsFor = (deptId: string | null, templateId: string, date: string) =>
-    assignmentsByCellMap.get(`${shiftSectionKey(deptId)}_${templateId}_${date}`) ?? [];
+  const assignmentFor = (templateId: string, date: string) =>
+    assignmentByCell.byCell.get(`${templateId}_${date}`) ?? null;
 
   function shiftWeek(d: number) {
     const next = addDays(wk, d);
@@ -1754,7 +1782,34 @@ function SchedulerView() {
     });
   }
 
-  const pickerTemplate = picker ? templates.find((t) => t.id === picker.templateId) : null;
+  function openPicker(section: ScheduleSection, template: ShiftTemplate, date: string) {
+    setActionError(null);
+    setPicker({
+      dept: section.id,
+      isManagement: section.isManagement,
+      template,
+      date,
+      current: assignmentFor(template.id, date),
+    });
+  }
+
+  function removeAssignment(id: string) {
+    setActionError(null);
+    removeAssign.mutate(id, { onError: () => setActionError("לא ניתן להסיר את השיבוץ. נסו שוב.") });
+  }
+
+  function occupantFor(section: ScheduleSection, t: ShiftTemplate, date: string, a: ShiftAssignment) {
+    return (
+      <RowOccupant
+        key={a.id}
+        employeeId={a.employee_id}
+        name={empById.get(a.employee_id)?.full_name}
+        conflict={rowPref(prefMap, a.employee_id, t, date) === "cannot"}
+        onReplace={() => openPicker(section, t, date)}
+        onRemove={() => removeAssignment(a.id)}
+      />
+    );
+  }
 
   return (
     <div className="w-full animate-fadeUp">
@@ -1767,6 +1822,13 @@ function SchedulerView() {
         <div className="mb-3 flex items-center gap-2 rounded-[11px] border border-border bg-surface-2 px-3.5 py-2.5 text-[13px] font-semibold text-text-2">
           <Icon name="group" size={18} />
           {unassignedCount} עובדים בלי מחלקה לא מופיעים בסידור. שייכו אותם למחלקה בעמוד המשתמשים.
+        </div>
+      )}
+
+      {actionError && (
+        <div className="mb-3 flex items-center gap-2 rounded-[11px] border border-danger/30 [background:var(--danger-bg)] px-3.5 py-2.5 text-[13px] font-semibold text-danger">
+          <Icon name="error" size={18} />
+          {actionError}
         </div>
       )}
 
@@ -1822,7 +1884,8 @@ function SchedulerView() {
                 <div>
                   {section.templates.length === 0 && <SectionNoShifts />}
                   {section.templates.map((t) => {
-                    const cellAssignments = assignmentsFor(section.id, t.id, date);
+                    const a = assignmentFor(t.id, date);
+                    const hours = hoursOnDay(t, dayIdx);
                     return (
                       <div
                         key={t.id}
@@ -1830,38 +1893,39 @@ function SchedulerView() {
                         style={{ "--shift-color": t.color ?? "var(--accent)" } as CSSProperties}
                       >
                         <div className="shift-mobile-shift-head">
-                          <span className="shift-mobile-shift-name">{t.name}</span>
-                          <span className="shift-shift-time">
-                            {formatHours(hoursOnDay(t, dayIdx)) ?? "לא פעיל"}
-                          </span>
+                          <button
+                            type="button"
+                            className="shift-row-edit"
+                            onClick={() => setRowEditor({ section, template: t })}
+                            aria-label={`עריכת ${t.name}`}
+                          >
+                            <span className="shift-mobile-shift-name">{t.name}</span>
+                            <Icon name="edit" size={14} className="shift-row-edit-icon" />
+                          </button>
+                          <span className="shift-shift-time">{formatHours(hours) ?? "לא פעיל"}</span>
                         </div>
                         <div className="shift-mobile-chips">
                           <AnimatePresence initial={false}>
-                            {cellAssignments.map((a) => (
-                              <AssignChip
-                                key={a.id}
-                                employeeId={a.employee_id}
-                                name={empById.get(a.employee_id)?.full_name}
-                                onRemove={() => removeAssign.mutate(a.id)}
-                              />
-                            ))}
+                            {a && occupantFor(section, t, date, a)}
                           </AnimatePresence>
-                          {hoursOnDay(t, dayIdx) ? (
-                            <button
-                              type="button"
-                              className="shift-mobile-add"
-                              aria-label="שיבוץ עובד"
-                              onClick={() => setPicker({ dept: section.id, templateId: t.id, date })}
-                            >
-                              <Icon name="person_add" size={18} />
-                            </button>
-                          ) : (
-                            cellAssignments.length === 0 && <span className="shift-cell-off">אין משמרת ביום זה</span>
-                          )}
+                          {!a &&
+                            (hours ? (
+                              <button
+                                type="button"
+                                className="shift-mobile-add"
+                                aria-label="שיבוץ עובד"
+                                onClick={() => openPicker(section, t, date)}
+                              >
+                                <Icon name="person_add" size={18} />
+                              </button>
+                            ) : (
+                              <span className="shift-cell-off">אין משמרת ביום זה</span>
+                            ))}
                         </div>
                       </div>
                     );
                   })}
+                  <AddRowButton onClick={() => setRowEditor({ section, template: null })} />
                 </div>
               </div>
             );
@@ -1895,13 +1959,13 @@ function SchedulerView() {
                 <span className="shift-dept-name">{section.name}</span>
                 <div className="shift-dept-stats">
                   <span className="shift-dept-stat">
-                    <strong>{section.templates.length}</strong> משמרות
+                    <strong>{section.templates.length}</strong> שורות
                   </span>
                   <span className="shift-dept-stat">
                     <strong>{employeesBySection.get(sectionKey)?.length ?? 0}</strong> עובדים
                   </span>
                   <span className="shift-dept-stat">
-                    <strong>{sectionWeekCounts.get(sectionKey) ?? 0}</strong> שיבוצים השבוע
+                    <strong>{assignmentByCell.weekCounts.get(sectionKey) ?? 0}</strong> שיבוצים השבוע
                   </span>
                   <span className="shift-dept-collapse" data-open={!isCollapsed}>
                     <Icon name="expand_less" size={18} />
@@ -1928,15 +1992,23 @@ function SchedulerView() {
                     {section.templates.map((t) => (
                       <div key={t.id} className="shift-grid-row">
                         <div className="shift-grid-row-label">
-                          <div className="shift-shift-name">
-                            <span className="shift-shift-dot" style={colorDotStyle(t.color, 2)} />
-                            {t.name}
-                          </div>
-                          <span className="shift-shift-time">{rowHoursText(t)}</span>
+                          <button
+                            type="button"
+                            className="shift-row-edit"
+                            onClick={() => setRowEditor({ section, template: t })}
+                            aria-label={`עריכת ${t.name}`}
+                          >
+                            <span className="shift-shift-name">
+                              <span className="shift-shift-dot" style={colorDotStyle(t.color, 2)} />
+                              {t.name}
+                              <Icon name="edit" size={14} className="shift-row-edit-icon" />
+                            </span>
+                            <span className="shift-shift-time">{rowHoursText(t)}</span>
+                          </button>
                         </div>
                         {HE_DAYS.map((_, i) => {
                           const date = addDays(wk, i);
-                          const cellAssignments = assignmentsFor(section.id, t.id, date);
+                          const a = assignmentFor(t.id, date);
                           const meta = dayMeta(wk, i);
                           const hours = hoursOnDay(t, i);
                           const varied = variedDayHours(t, i);
@@ -1947,32 +2019,26 @@ function SchedulerView() {
                               data-today={meta.isToday}
                               data-weekend={meta.isWeekend}
                               data-holiday={!!meta.holiday}
-                              data-empty={!!hours && cellAssignments.length === 0}
+                              data-empty={!!hours && !a}
                               data-off={!hours}
                             >
                               {varied && <span className="shift-cell-time">{varied}</span>}
                               <AnimatePresence initial={false}>
-                                {cellAssignments.map((a) => (
-                                  <AssignChip
-                                    key={a.id}
-                                    employeeId={a.employee_id}
-                                    name={empById.get(a.employee_id)?.full_name}
-                                    onRemove={() => removeAssign.mutate(a.id)}
-                                  />
-                                ))}
+                                {a && occupantFor(section, t, date, a)}
                               </AnimatePresence>
-                              {hours ? (
-                                <button
-                                  type="button"
-                                  onClick={() => setPicker({ dept: section.id, templateId: t.id, date })}
-                                  className="shift-add-btn"
-                                  aria-label="הוסף עובד"
-                                >
-                                  <Icon name="add" size={18} />
-                                </button>
-                              ) : (
-                                cellAssignments.length === 0 && <span className="shift-cell-off">—</span>
-                              )}
+                              {!a &&
+                                (hours ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => openPicker(section, t, date)}
+                                    className="shift-add-btn"
+                                    aria-label="שיבוץ עובד"
+                                  >
+                                    <Icon name="add" size={18} />
+                                  </button>
+                                ) : (
+                                  <span className="shift-cell-off">—</span>
+                                ))}
                             </div>
                           );
                         })}
@@ -1981,6 +2047,7 @@ function SchedulerView() {
                   </div>
                 </div>
                 )}
+                <AddRowButton onClick={() => setRowEditor({ section, template: null })} />
               </motion.div>
             </div>
           );
@@ -2012,38 +2079,40 @@ function SchedulerView() {
                   picker={picker}
                   subtitle={(() => {
                     const he = getHebrewDayInfo(picker.date);
-                    return `${pickerTemplate?.name ?? ""} · ${formatDateShort(picker.date)} · ${
-                      he.holiday ?? he.hebrewDate
-                    }`;
+                    const hours = formatHours(hoursOnDay(picker.template, dayIndexFromISO(picker.date)));
+                    return [picker.template.name, hours, formatDateShort(picker.date), he.holiday ?? he.hebrewDate]
+                      .filter(Boolean)
+                      .join(" · ");
                   })()}
                   list={employeesBySection.get(shiftSectionKey(picker.dept)) ?? []}
-                  prefMap={prefMap}
+                  teamPrefs={prefMap}
                   assignments={assignments ?? []}
-                  assigning={addAssign.isPending || addAssignMany.isPending}
+                  templates={templates}
+                  assigning={setRowAssignment.isPending}
                   onClose={() => setPicker(null)}
                   onPick={(employeeId) => {
-                    addAssign.mutate({
-                      business_id: businessId!,
-                      department_id: picker.dept,
-                      employee_id: employeeId,
-                      shift_date: picker.date,
-                      shift_template_id: picker.templateId,
-                      assigned_by: profile?.id ?? null,
-                    });
-                    setPicker(null);
-                  }}
-                  onPickMany={(employeeIds) => {
-                    addAssignMany.mutate(
-                      employeeIds.map((employeeId) => ({
+                    setActionError(null);
+                    setRowAssignment.mutate(
+                      {
                         business_id: businessId!,
                         department_id: picker.dept,
                         employee_id: employeeId,
                         shift_date: picker.date,
-                        shift_template_id: picker.templateId,
+                        shift_template_id: picker.template.id,
                         assigned_by: profile?.id ?? null,
-                      })),
-                      { onSuccess: () => setPicker(null) },
+                      },
+                      {
+                        onError: (e) => {
+                          console.error("[shifts] saving assignment failed", e);
+                          setActionError(
+                            e instanceof Error && e.message === WEEKLY_DAY_OFF_ERROR
+                              ? WEEKLY_DAY_OFF_ERROR
+                              : "לא ניתן לשמור את השיבוץ. נסו שוב.",
+                          );
+                        },
+                      },
                     );
+                    setPicker(null);
                   }}
                 />
               </motion.div>
@@ -2054,6 +2123,15 @@ function SchedulerView() {
       )}
         </>
       )}
+
+      {rowEditor && (
+        <RowEditorModal
+          key={rowEditor.template?.id ?? `new-${rowEditor.section.id}`}
+          state={rowEditor}
+          businessId={businessId!}
+          onClose={() => setRowEditor(null)}
+        />
+      )}
     </div>
   );
 }
@@ -2062,91 +2140,52 @@ function PickerPanel({
   picker,
   subtitle,
   list,
-  prefMap,
+  teamPrefs,
   assignments,
+  templates,
   assigning = false,
   onPick,
-  onPickMany,
   onClose,
 }: {
   picker: PickerState;
   subtitle: string;
   list: Profile[];
-  prefMap: Map<string, "available" | "cannot">;
-  assignments: { employee_id: string; shift_template_id: string; shift_date: string }[];
+  teamPrefs: Map<string, PrefMark>;
+  assignments: ShiftAssignment[];
+  templates: ShiftTemplate[];
   assigning?: boolean;
   onPick: (employeeId: string) => void;
-  onPickMany: (employeeIds: string[]) => void;
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
-  const [multiMode, setMultiMode] = useState(false);
-  const [selected, setSelected] = useState<Set<string>>(() => new Set());
-  const q = query.trim();
-  const filtered = q ? list.filter((e) => (e.full_name ?? "").includes(q)) : list;
+  const rowNames = useMemo(() => new Map(templates.map((t) => [t.id, t.name])), [templates]);
 
-  const selectableIds = useMemo(() => {
-    return filtered
-      .filter((e) => {
-        const already = assignments.some(
-          (a) => a.employee_id === e.id && a.shift_template_id === picker.templateId && a.shift_date === picker.date,
-        );
-        if (already) return false;
-        return canAssignEmployeeOnDate(assignments, e.id, picker.date);
-      })
-      .map((e) => e.id);
-  }, [filtered, assignments, picker.templateId, picker.date]);
-
-  const selectedCount = selected.size;
-  const allSelectableSelected =
-    selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
-
-  function toggleMultiMode() {
-    setMultiMode((prev) => {
-      if (prev) setSelected(new Set());
-      return !prev;
-    });
-  }
-
-  function toggleSelected(employeeId: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(employeeId)) next.delete(employeeId);
-      else next.add(employeeId);
-      return next;
-    });
-  }
-
-  function toggleSelectAll() {
-    setSelected((prev) => {
-      if (selectableIds.length > 0 && selectableIds.every((id) => prev.has(id))) {
-        return new Set();
-      }
-      return new Set(selectableIds);
-    });
-  }
+  // Who said they can come first, then who didn't mark, then who can't.
+  const sorted = useMemo(
+    () =>
+      pickerCandidates({
+        employees: list,
+        query,
+        template: picker.template,
+        date: picker.date,
+        currentEmployeeId: picker.current?.employee_id ?? null,
+        assignments,
+        teamPrefs,
+        rowNames,
+      }),
+    [list, query, picker, assignments, teamPrefs, rowNames],
+  );
 
   return (
     <>
       <div className="shift-picker-head">
         <div>
-          <div className="shift-picker-title">{multiMode ? "שיבוץ עובדים" : "שיבוץ עובד"}</div>
+          <div className="shift-picker-title">{picker.current ? "החלפת עובד" : "שיבוץ עובד"}</div>
           <div className="mt-0.5 text-[12px] font-semibold text-text-3">{subtitle}</div>
         </div>
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={toggleMultiMode}
-            aria-pressed={multiMode}
-            className={`shift-picker-multi-toggle${multiMode ? " is-active" : ""}`}
-          >
-            <Icon name="check" size={14} />
-            בחירה מרובה
-          </button>
-          <button type="button" onClick={onClose} aria-label="סגירה" className="icon-btn !h-8 !w-8 !rounded-[9px]">
-            <Icon name="close" size={18} />
-          </button>
-        </div>
+        <button type="button" onClick={onClose} aria-label="סגירה" className="icon-btn !h-8 !w-8 !rounded-[9px]">
+          <Icon name="close" size={18} />
+        </button>
       </div>
       {list.length > 6 && (
         <div className="shift-picker-search">
@@ -2155,66 +2194,46 @@ function PickerPanel({
             placeholder="חיפוש עובד..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            autoFocus={!multiMode}
+            autoFocus
           />
-        </div>
-      )}
-      {multiMode && selectableIds.length > 0 && (
-        <div className="shift-picker-multi-bar">
-          <button type="button" className="shift-picker-select-all" onClick={toggleSelectAll}>
-            {allSelectableSelected ? "בטל בחירה" : "בחר הכל"}
-          </button>
-          <span className="text-[12px] font-semibold text-text-3">
-            {selectedCount > 0 ? `${selectedCount} נבחרו` : "בחרו עובדים לשיבוץ"}
-          </span>
         </div>
       )}
       <div className="shift-picker-list">
         {list.length === 0 && (
           <div className="px-3 py-6 text-center text-[13px] text-text-3">
-            {picker.dept
-              ? "אין עובדים במחלקה זו. שייכו עובדים בעמוד המשתמשים."
-              : "אין עובדים פעילים בעסק."}
+            {picker.isManagement
+              ? "אין מנהלי מחלקה או אחראי משמרת פעילים, ואין עובדים במחלקה זו."
+              : picker.dept
+                ? "אין עובדים במחלקה זו. שייכו עובדים בעמוד המשתמשים."
+                : "אין עובדים פעילים בעסק."}
           </div>
         )}
-        {list.length > 0 && filtered.length === 0 && (
+        {list.length > 0 && sorted.length === 0 && (
           <div className="px-3 py-6 text-center text-[13px] text-text-3">לא נמצאו עובדים בשם הזה.</div>
         )}
-        {filtered.map((e) => {
-          const pref = prefMap.get(`${e.id}_${picker.templateId}_${picker.date}`);
+        {sorted.map(({ employee: e, pref, isCurrent, otherRowsToday, assignedDays, dayOffBlocked }) => {
           const prefStatus = PREF_STATUS[pref ?? "none"];
-          const already = assignments.some(
-            (a) => a.employee_id === e.id && a.shift_template_id === picker.templateId && a.shift_date === picker.date
-          );
-          const weekStartISO = weekStartFromDateISO(picker.date);
-          const assignedDays = countAssignedDaysInWeek(assignments, e.id, weekStartISO);
-          const dayOffBlocked = !already && !canAssignEmployeeOnDate(assignments, e.id, picker.date);
-          const disabled = already || dayOffBlocked || assigning;
-          const isSelected = selected.has(e.id);
+          const disabled = isCurrent || dayOffBlocked || assigning;
+          const detail = dayOffBlocked
+            ? `${MAX_ASSIGNED_DAYS_PER_WEEK}/${MAX_ASSIGNED_DAYS_PER_WEEK} ימים · חובה יום חופש`
+            : [
+                // Managers from other departments: say who they are.
+                e.department_id !== picker.dept ? ROLE_LABELS[e.role] : null,
+                prefStatus.label,
+                otherRowsToday.length > 0 ? `כבר ב${otherRowsToday.join(", ")}` : null,
+                assignedDays > 0 ? `${assignedDays}/${MAX_ASSIGNED_DAYS_PER_WEEK} ימים` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ");
           return (
             <button
               key={e.id}
               type="button"
               disabled={disabled}
-              onClick={() => {
-                if (multiMode) {
-                  if (!disabled) toggleSelected(e.id);
-                  return;
-                }
-                onPick(e.id);
-              }}
-              className={`shift-picker-item${multiMode && isSelected ? " is-selected" : ""}`}
-              aria-pressed={multiMode ? isSelected : undefined}
+              onClick={() => onPick(e.id)}
+              className="shift-picker-item"
               title={dayOffBlocked ? "חובה יום חופש אחד לפחות בשבוע (מקסימום 6 ימי שיבוץ)" : undefined}
             >
-              {multiMode && !already && !dayOffBlocked && (
-                <span
-                  className={`shift-picker-check${isSelected ? " is-on" : ""}`}
-                  aria-hidden="true"
-                >
-                  {isSelected && <Icon name="check" size={12} />}
-                </span>
-              )}
               <span
                 className="grid h-9 w-9 flex-none place-items-center rounded-full text-[12.5px] font-bold text-white"
                 style={{ background: colorFor(e.id) }}
@@ -2224,37 +2243,200 @@ function PickerPanel({
               <span className="min-w-0 flex-1">
                 <span className="block text-[13.5px] font-semibold leading-tight">{e.full_name}</span>
                 <span className="shift-picker-pref" style={{ color: dayOffBlocked ? "var(--danger)" : prefStatus.color }}>
-                  {dayOffBlocked
-                    ? `${MAX_ASSIGNED_DAYS_PER_WEEK}/${MAX_ASSIGNED_DAYS_PER_WEEK} ימים · חובה יום חופש`
-                    : assignedDays > 0
-                      ? `${prefStatus.label} · ${assignedDays}/${MAX_ASSIGNED_DAYS_PER_WEEK} ימים`
-                      : prefStatus.label}
+                  {detail}
                 </span>
               </span>
-              {already && <Badge tone="neutral">משובץ</Badge>}
+              {isCurrent && <Badge tone="neutral">בשורה הזו</Badge>}
               {dayOffBlocked && <Badge tone="danger">יום חופש</Badge>}
             </button>
           );
         })}
       </div>
-      {multiMode && (
-        <div className="shift-picker-footer">
-          <button
-            type="button"
-            className="shift-picker-assign-btn"
-            disabled={selectedCount === 0 || assigning}
-            onClick={() => onPickMany([...selected])}
-          >
-            {assigning
-              ? "משבץ..."
-              : selectedCount === 0
-                ? "שבץ עובדים"
-                : selectedCount === 1
-                  ? "שבץ עובד אחד"
-                  : `שבץ ${selectedCount} עובדים`}
-          </button>
-        </div>
-      )}
     </>
+  );
+}
+
+/* Add a row to a department, or edit / duplicate / delete one. A row = one employee per day. */
+function RowEditorModal({
+  state,
+  businessId,
+  onClose,
+}: {
+  state: RowEditorState;
+  businessId: string;
+  onClose: () => void;
+}) {
+  const { section, template } = state;
+  const create = useCreateShiftTemplate(businessId);
+  const update = useUpdateShiftTemplate(businessId);
+  const replaceDays = useReplaceShiftTemplateDays(businessId);
+  const del = useDeleteShiftTemplate(businessId);
+
+  const initialStart = template ? hhmm(template.start_time) : "";
+  const initialEnd = template ? hhmm(template.end_time) : "";
+  const variedHours = !!template && !uniformHoursLabel(template);
+  const [name, setName] = useState(template?.name ?? "");
+  const [start, setStart] = useState(initialStart);
+  const [end, setEnd] = useState(initialEnd);
+  // A new row starts with no days — the manager taps the days it runs.
+  const [days, setDays] = useState<boolean[]>(() =>
+    HE_DAYS.map((_, i) => (template ? !!hoursOnDay(template, i) : false)),
+  );
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const busy = create.isPending || update.isPending || replaceDays.isPending || del.isPending;
+  const draftError = validateRowDraft({ name, start, end, days });
+  const valid = draftError === null;
+  const dayRows = () => rowDaysFor(template, { start, end, days });
+
+  async function save() {
+    if (!valid) return;
+    setError(null);
+    try {
+      if (template) {
+        await update.mutateAsync({ id: template.id, name: name.trim(), start_time: start, end_time: end });
+        await replaceDays.mutateAsync({ id: template.id, days: dayRows() });
+      } else {
+        await create.mutateAsync({
+          business_id: businessId,
+          department_id: section.id,
+          name: name.trim(),
+          start_time: start,
+          end_time: end,
+          color: section.color,
+          sort_order: nextRowSortOrder(section.templates),
+          days: dayRows(),
+        });
+      }
+      onClose();
+    } catch {
+      setError("לא ניתן לשמור את השורה. נסו שוב.");
+    }
+  }
+
+  async function duplicate() {
+    if (!template) return;
+    setError(null);
+    try {
+      await create.mutateAsync({
+        business_id: businessId,
+        department_id: template.department_id,
+        name: template.name,
+        start_time: hhmm(template.start_time),
+        end_time: hhmm(template.end_time),
+        color: template.color ?? section.color,
+        sort_order: template.sort_order,
+        days: copyRowDays(template),
+      });
+      onClose();
+    } catch {
+      setError("לא ניתן לשכפל את השורה. נסו שוב.");
+    }
+  }
+
+  async function remove() {
+    if (!template) return;
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      return;
+    }
+    setError(null);
+    try {
+      await del.mutateAsync(template.id);
+      onClose();
+    } catch {
+      setError("לא ניתן למחוק את השורה. נסו שוב.");
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={template ? "עריכת שורה" : "שורה חדשה"}
+      subtitle={section.name}
+      icon="view_agenda"
+      maxWidth={440}
+      footer={
+        <div className="flex w-full flex-wrap items-center justify-between gap-2">
+          <div className="flex gap-2">
+            {template && (
+              <>
+                <Button variant="danger" icon="delete" onClick={remove} disabled={busy}>
+                  {confirmDelete ? "אישור מחיקה" : "מחיקה"}
+                </Button>
+                <Button variant="secondary" icon="content_copy" onClick={duplicate} disabled={busy}>
+                  שכפול
+                </Button>
+              </>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={onClose}>
+              ביטול
+            </Button>
+            <Button icon="save" loading={create.isPending || update.isPending || replaceDays.isPending} disabled={!valid || busy} onClick={save}>
+              {template ? "שמירה" : "הוספה"}
+            </Button>
+          </div>
+        </div>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <label className="block">
+          <span className="label-text">שם השורה</span>
+          <Input
+            className="mt-1.5"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="לדוגמה: אירוח ערב"
+            autoFocus={!template}
+          />
+        </label>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block">
+            <span className="label-text">משעה</span>
+            <TimePicker className="mt-1.5" value={start} onChange={setStart} />
+          </label>
+          <label className="block">
+            <span className="label-text">עד שעה</span>
+            <TimePicker className="mt-1.5" value={end} onChange={setEnd} />
+          </label>
+        </div>
+        <div>
+          <span className="label-text">ימים</span>
+          <div className="stx-daypick mt-1.5" role="group" aria-label="ימים שהשורה פעילה">
+            {HE_DAY_LETTERS.map((letter, i) => (
+              <button
+                key={i}
+                type="button"
+                className="stx-daypick-day"
+                data-on={days[i] || undefined}
+                aria-pressed={days[i]}
+                aria-label={HE_DAYS[i]}
+                onClick={() => setDays((d) => d.map((v, j) => (j === i ? !v : v)))}
+              >
+                {letter}
+              </button>
+            ))}
+          </div>
+        </div>
+        {variedHours && (
+          <p className="text-[12.5px] font-semibold text-text-3">
+            בשורה הזו יש שעות שונות בחלק מהימים. שינוי השעות כאן יחיל אותן על כל הימים.
+          </p>
+        )}
+        {confirmDelete && (
+          <p className="text-[13px] font-semibold text-danger">
+            מחיקת השורה מוחקת גם את כל השיבוצים שלה. לחצו שוב לאישור.
+          </p>
+        )}
+        {draftError === "same_hours" && (
+          <p className="text-[13px] font-semibold text-danger">שעת הסיום חייבת להיות שונה משעת ההתחלה.</p>
+        )}
+        {error && <p className="text-[13px] font-semibold text-danger">{error}</p>}
+      </div>
+    </Modal>
   );
 }

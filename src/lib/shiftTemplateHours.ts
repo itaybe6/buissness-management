@@ -52,3 +52,59 @@ export function uniformHoursLabel(template: HoursTemplate): string | null {
   if (labels.length === 0) return null;
   return labels.every((label) => label === labels[0]) ? labels[0] : null;
 }
+
+/**
+ * A distinct hours window on a weekday. Employees mark availability per
+ * window, so several rows with the same hours (two "אירוח ערב" rows) are one
+ * choice for them, and the mark applies to every one of those rows.
+ */
+export interface ShiftWindow {
+  key: string;
+  start: string;
+  end: string;
+  /** Names of the rows that run in this window, without repeats. */
+  names: string[];
+  color: string | null;
+}
+
+export function windowKey(start: string, end: string): string {
+  return `${hhmm(start)}-${hhmm(end)}`;
+}
+
+type WindowTemplate = HoursTemplate & { name: string; color: string | null };
+
+function addToWindows(map: Map<string, ShiftWindow>, t: WindowTemplate, hours: { start: string; end: string }) {
+  const key = windowKey(hours.start, hours.end);
+  const w = map.get(key);
+  if (!w) {
+    map.set(key, { key, start: hours.start, end: hours.end, names: [t.name], color: t.color });
+  } else if (!w.names.includes(t.name)) {
+    w.names.push(t.name);
+  }
+}
+
+function sortWindows(map: Map<string, ShiftWindow>): ShiftWindow[] {
+  return [...map.values()].sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
+}
+
+/** Windows the rows run in on this weekday, earliest first. */
+export function windowsOnDay(templates: WindowTemplate[], dayIndex: number): ShiftWindow[] {
+  const map = new Map<string, ShiftWindow>();
+  for (const t of templates) {
+    const hours = hoursOnDay(t, dayIndex);
+    if (hours) addToWindows(map, t, hours);
+  }
+  return sortWindows(map);
+}
+
+/** Every window used on any day of the week — the rows of a weekly availability grid. */
+export function weekWindows(templates: WindowTemplate[]): ShiftWindow[] {
+  const map = new Map<string, ShiftWindow>();
+  for (let i = 0; i < 7; i++) {
+    for (const t of templates) {
+      const hours = hoursOnDay(t, i);
+      if (hours) addToWindows(map, t, hours);
+    }
+  }
+  return sortWindows(map);
+}

@@ -126,13 +126,14 @@ export function TimePicker({
     open &&
     createPortal(
       <div data-time-picker-panel={panelId} className="time-picker-panel" style={menuStyle}>
-        <div className="time-picker-preview" aria-live="polite">
+        <div className="time-picker-preview" aria-live="polite" dir="ltr">
           <span className="time-picker-preview-value">{draftHour}</span>
           <span className="time-picker-preview-sep">:</span>
           <span className="time-picker-preview-value">{draftMinute}</span>
         </div>
 
-        <div className="time-picker-columns">
+        {/* Read like a clock: hours on the left, minutes on the right, even in RTL. */}
+        <div className="time-picker-columns" dir="ltr">
           <div className="time-picker-column">
             <span className="time-picker-column-label">שעות</span>
             <ul ref={hourListRef} className="time-picker-list" role="listbox" aria-label="שעות">
@@ -210,7 +211,7 @@ export function TimePicker({
             <Icon name="schedule" size={18} className="flex-none text-accent-2" />
             <span
               className={`truncate font-bold tabular-nums ${displayValue ? "text-text" : "text-text-3"}`}
-              style={{ direction: "ltr" }}
+              dir={displayValue ? "ltr" : undefined}
             >
               {displayValue || placeholder}
             </span>

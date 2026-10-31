@@ -70,6 +70,7 @@ import {
 } from "@/lib/shift-prefs-minimum";
 import { EASE_OUT } from "@/components/motion/shared-motion";
 import { groupTemplatesByDepartment } from "@/lib/shiftTemplates";
+import { isManagementDepartment } from "@/lib/shiftRows";
 import { hhmm } from "@/lib/shiftTemplateHours";
 import type { ShiftTemplate, ShiftTemplateDay, UserRole } from "@/types/database";
 
@@ -1992,6 +1993,19 @@ function DepartmentsModal({
                 deleteLabel="מחק מחלקה"
                 onRename={(n) => update.mutate({ id: d.id, name: n })}
                 onDelete={() => del.mutate(d.id)}
+                badge={
+                  <button
+                    type="button"
+                    className="stx-erow-flag"
+                    data-on={isManagementDepartment(d) || undefined}
+                    aria-pressed={isManagementDepartment(d)}
+                    title="מחלקת הנהלה — בסידור שלה משבצים גם מנהלי מחלקה ואחראי משמרת"
+                    onClick={() => update.mutate({ id: d.id, is_management: !isManagementDepartment(d) })}
+                  >
+                    <Icon name="shield_person" size={16} />
+                    הנהלה
+                  </button>
+                }
               />
             </div>
           ))}

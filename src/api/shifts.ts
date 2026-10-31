@@ -7,6 +7,7 @@ import {
   weekStartFromDateISO,
 } from "@/lib/shift-assignment-limits";
 import { ensureDefaultShiftTemplates, sortShiftTemplates } from "@/lib/shiftTemplates";
+import { planRowAssignment } from "@/lib/shiftRows";
 import type { Availability, ShiftAssignment, ShiftPreference, ShiftTemplate, ShiftTemplateDay } from "@/types/database";
 
 async function fetchShiftTemplates(businessId: string, activeOnly: boolean): Promise<ShiftTemplate[]> {
@@ -72,26 +73,33 @@ export function useCreateShiftTemplate(businessId: string | null) {
       end_time: string;
       color?: string;
       sort_order?: number;
+      /** Weekdays the row runs, with their hours. Omitted = every day at start_time–end_time. */
+      days?: ShiftTemplateDay[];
     }) => {
+      const { days, ...row } = input;
       const { data, error } = await supabase
         .from("shift_templates")
         .insert({
-          ...input,
+          ...row,
           shift_key: null,
           active: true,
         })
         .select("id")
         .single();
       if (error) throw error;
-      // A new shift runs all week at these hours; days are turned off afterwards.
-      const { error: dayErr } = await supabase.from("shift_template_days").insert(
-        [0, 1, 2, 3, 4, 5, 6].map((day_of_week) => ({
-          shift_template_id: data.id,
-          day_of_week,
-          start_time: input.start_time,
-          end_time: input.end_time,
-        })),
-      );
+      // Without explicit days the shift runs all week; days are turned off afterwards.
+      const dayRows = (days ?? [0, 1, 2, 3, 4, 5, 6].map((day_of_week) => ({
+        day_of_week,
+        start_time: input.start_time,
+        end_time: input.end_time,
+      }))).map((d) => ({
+        shift_template_id: data.id,
+        day_of_week: d.day_of_week,
+        start_time: d.start_time,
+        end_time: d.end_time,
+      }));
+      if (dayRows.length === 0) return;
+      const { error: dayErr } = await supabase.from("shift_template_days").insert(dayRows);
       if (dayErr) throw dayErr;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["shift_templates", businessId] }),
@@ -176,13 +184,14 @@ export function useSetPreference(businessId: string | null) {
       employee_id: string;
       week_start: string;
       shift_date: string;
-      shift_template_id: string;
+      start_time: string;
+      end_time: string;
       preference: Availability;
       note?: string;
     }) => {
       const { error } = await supabase
         .from("shift_preferences")
-        .upsert(input, { onConflict: "employee_id,shift_date,shift_template_id" });
+        .upsert(input, { onConflict: "employee_id,shift_date,start_time,end_time" });
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["shift_preferences", businessId] }),
@@ -192,13 +201,14 @@ export function useSetPreference(businessId: string | null) {
 export function useClearPreference(businessId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { employee_id: string; shift_date: string; shift_template_id: string }) => {
+    mutationFn: async (input: { employee_id: string; shift_date: string; start_time: string; end_time: string }) => {
       const { error } = await supabase
         .from("shift_preferences")
         .delete()
         .eq("employee_id", input.employee_id)
         .eq("shift_date", input.shift_date)
-        .eq("shift_template_id", input.shift_template_id);
+        .eq("start_time", input.start_time)
+        .eq("end_time", input.end_time);
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["shift_preferences", businessId] }),
@@ -262,38 +272,43 @@ async function assertCanAssignOnDate(employeeId: string, shiftDate: string) {
   }
 }
 
-export function useAddAssignment(businessId: string | null) {
+/**
+ * Put one employee in a row on a date. Each row holds a single employee per
+ * day, so this replaces whoever was there.
+ */
+export function useSetRowAssignment(businessId: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: AssignmentInput) => {
       await assertCanAssignOnDate(input.employee_id, input.shift_date);
 
-      const { error } = await supabase
+      // Look the cell up and update or insert, instead of an upsert that
+      // depends on the one-per-row index being visible to the API.
+      const { data: existing, error: readErr } = await supabase
         .from("shift_assignments")
-        .upsert(input, { onConflict: "employee_id,shift_date,shift_template_id" });
-      if (error) {
-        if (error.message?.includes("WEEKLY_DAY_OFF_REQUIRED")) {
-          throw new Error(WEEKLY_DAY_OFF_ERROR);
-        }
-        throw error;
-      }
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["shift_assignments", businessId] }),
-  });
-}
+        .select("id, employee_id")
+        .eq("shift_template_id", input.shift_template_id)
+        .eq("shift_date", input.shift_date)
+        .order("created_at", { ascending: true });
+      if (readErr) throw readErr;
 
-export function useAddAssignments(businessId: string | null) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (inputs: AssignmentInput[]) => {
-      if (inputs.length === 0) return;
-      for (const input of inputs) {
-        await assertCanAssignOnDate(input.employee_id, input.shift_date);
+      const plan = planRowAssignment((existing ?? []) as { id: string; employee_id: string }[], input.employee_id);
+      if (plan.kind === "noop") return;
+      if (plan.deleteIds.length > 0) {
+        const { error } = await supabase.from("shift_assignments").delete().in("id", plan.deleteIds);
+        if (error) throw error;
       }
-
-      const { error } = await supabase
-        .from("shift_assignments")
-        .upsert(inputs, { onConflict: "employee_id,shift_date,shift_template_id" });
+      const { error } =
+        plan.kind === "update"
+          ? await supabase
+              .from("shift_assignments")
+              .update({
+                employee_id: input.employee_id,
+                department_id: input.department_id,
+                assigned_by: input.assigned_by ?? null,
+              })
+              .eq("id", plan.id)
+          : await supabase.from("shift_assignments").insert(input);
       if (error) {
         if (error.message?.includes("WEEKLY_DAY_OFF_REQUIRED")) {
           throw new Error(WEEKLY_DAY_OFF_ERROR);
