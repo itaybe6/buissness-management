@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "./Icon";
 
@@ -39,6 +39,7 @@ export function TimePicker({
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const hourListRef = useRef<HTMLUListElement | null>(null);
   const minuteListRef = useRef<HTMLUListElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
   const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
 
@@ -53,19 +54,33 @@ export function TimePicker({
     setDraftMinute(next.minute);
   }, [open, value]);
 
-  useEffect(() => {
+  // Layout effect: place the panel before it paints, so it never flashes off-screen.
+  useLayoutEffect(() => {
     if (!open) return;
     const updatePosition = () => {
       const el = triggerRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
-      const panelWidth = Math.min(280, window.innerWidth - 16);
-      const left = Math.min(Math.max(8, rect.left), window.innerWidth - panelWidth - 8);
+      const margin = 8;
+      const gap = 6;
+      const panelWidth = Math.min(280, window.innerWidth - margin * 2);
+      const left = Math.min(Math.max(margin, rect.left), window.innerWidth - panelWidth - margin);
+      const panelHeight = panelRef.current?.offsetHeight ?? 340;
+      const spaceBelow = window.innerHeight - rect.bottom - margin;
+      const spaceAbove = rect.top - margin;
+      // Open below when it fits, above when only that fits, otherwise pin it
+      // inside the screen — never past the bottom edge.
+      let top: number;
+      if (spaceBelow >= panelHeight + gap) top = rect.bottom + gap;
+      else if (spaceAbove >= panelHeight + gap) top = rect.top - gap - panelHeight;
+      else top = Math.max(margin, window.innerHeight - panelHeight - margin);
       setMenuStyle({
         position: "fixed",
-        top: rect.bottom + 6,
+        top,
         left,
         width: panelWidth,
+        maxHeight: window.innerHeight - margin * 2,
+        overflowY: "auto",
         zIndex: 10001,
       });
     };
@@ -125,7 +140,7 @@ export function TimePicker({
   const menu =
     open &&
     createPortal(
-      <div data-time-picker-panel={panelId} className="time-picker-panel" style={menuStyle}>
+      <div ref={panelRef} data-time-picker-panel={panelId} className="time-picker-panel" style={menuStyle}>
         <div className="time-picker-preview" aria-live="polite" dir="ltr">
           <span className="time-picker-preview-value">{draftHour}</span>
           <span className="time-picker-preview-sep">:</span>
